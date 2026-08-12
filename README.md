@@ -279,7 +279,7 @@ TSIX is inspired by the **UNIX philosophy**:
 2. **Distributed by Design** — Built-in IPC via SEND_MSG + identity-based messaging
 3. **Small, Sharp Tools** — 80+ utilities that combine via pipes & redirection
 4. **Security via Simplicity** — UID/GID permission model, process isolation, root privileges
-5. **Unix Fidelity** — meniru perilaku Unix/Linux sedekat mungkin (semantik > mekanisme); penyimpangan hanya jika runtime V8 tidak mampu dan wajib didokumentasikan (lihat [Empat Prinsip Inti](wiki/course/01-philosophy-big-picture.md))
+5. **Unix Fidelity** — meniru perilaku Unix/Linux sedekat mungkin (semantik > mekanisme); penyimpangan hanya jika runtime V8 tidak mampu dan wajib didokumentasikan (lihat [Lima Prinsip Inti](wiki/course/01-philosophy-big-picture.md))
 
 ---
 
