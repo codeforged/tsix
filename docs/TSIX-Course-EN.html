@@ -58,7 +58,7 @@
   </div>
   <div class="meta">
     System design &amp; architecture: Andriansah<br>
-    Generated: 2026-08-11<br>
+    Generated: 2026-08-12<br>
     Platform: TSIX (educational OS-like runtime on Node.js/TypeScript)
   </div>
 </div>
@@ -745,15 +745,15 @@ userlib-update.ts          sinkronkan /lib → src/.tsix_sdk/lib (agar Node.js h
     <span class="m-part">Foundations</span>
   </div>
   <div class="module-body"><h1>Philosophy &amp; Big Picture</h1>
-<p><strong>RFC-TSIX-EDU-002</strong> | The first module of the TSIX curriculum. Builds a mental map: what TSIX is, why it was designed this way, and the three core principles that form the foundation of the entire system.</p>
+<p><strong>RFC-TSIX-EDU-002</strong> | The first module of the TSIX curriculum. Builds a mental map: what TSIX is, why it was designed this way, and the four core principles that form the foundation of the entire system.</p>
 <blockquote>
-<p>Before writing code, understand the <strong>philosophy</strong> first. TSIX is not just an &quot;OS emulator&quot; — it is an <strong>OS abstraction built on top of the existing Node.js runtime</strong>. This module explains <em>why</em> it was designed this way, and the three principles that are consistent across all subsystems.</p>
+<p>Before writing code, understand the <strong>philosophy</strong> first. TSIX is not just an &quot;OS emulator&quot; — it is an <strong>OS abstraction built on top of the existing Node.js runtime</strong>. This module explains <em>why</em> it was designed this way, and the four principles that are consistent across all subsystems.</p>
 </blockquote>
 <hr>
 <h2>Learning Objectives</h2>
 <ul>
 <li><input disabled="" type="checkbox"> Explain what TSIX is and how it differs from a VM/emulator</li>
-<li><input disabled="" type="checkbox"> Name the three core principles of the TSIX architecture</li>
+<li><input disabled="" type="checkbox"> Name the four core principles of the TSIX architecture</li>
 <li><input disabled="" type="checkbox"> Explain why the kernel, drivers, and FS are combined into a single thread</li>
 <li><input disabled="" type="checkbox"> Recognize the Ring 0–4 layers and their contents in broad outline</li>
 <li><input disabled="" type="checkbox"> Explain why the kernel never executes applications</li>
@@ -807,7 +807,7 @@ userlib-update.ts          sinkronkan /lib → src/.tsix_sdk/lib (agar Node.js h
 </tbody></table>
 <p><strong>The result:</strong> the most frequent crashes are user applications — and they are already isolated. Kernel + drivers + FS rarely crash, and even if they do, the system dies (but that is rare).</p>
 <hr>
-<h2>Three Core Principles</h2>
+<h2>Four Core Principles</h2>
 <h3>1. &quot;Syscall = the only door&quot;</h3>
 <p>Worker threads <strong>never touch resources directly</strong>. Even <code>print</code> goes through a syscall. This keeps the ring boundary truly meaningful — there are no shortcuts.</p>
 <pre><code>App → UserLib.dispatch(code, args) → postMessage → Kernel → dispatch → kembali
@@ -822,6 +822,12 @@ userlib-update.ts          sinkronkan /lib → src/.tsix_sdk/lib (agar Node.js h
 <p>Even pipes and sockets are devices. One contract, many implementations.</p>
 <h3>3. &quot;Direct Memory Execution&quot; (DME)</h3>
 <p>The framework (<code>/lib</code>) is pre-compiled into memory at boot, sent to workers via <code>workerData</code>, and executed <strong>without a filesystem hit</strong>. <code>@tsix/*</code> feels instant — there is no recompilation per process.</p>
+<h3>4. &quot;Unix fidelity first, pragmatic later&quot;</h3>
+<p>TSIX mirrors Unix/Linux behavior and architecture as closely as practical — syscall semantics, UID/GID permissions, credentials (saved UID), file formats (<code>/etc/shadow</code>, <code>passwd</code>), filesystem hierarchy — as the design <strong>north star</strong>. Not because it &quot;must match exactly&quot;, but because <strong>observable</strong> behavior must be consistent: non-root cannot read <code>/etc/shadow</code>, a non-root process cannot <code>setuid</code> arbitrarily, and so on.</p>
+<p>Deviating from Unix is <strong>allowed</strong>, but only when the Node.js/V8 runtime truly cannot model it — never as a &quot;it&#39;s easier this way&quot; shortcut. Every deviation <strong>must be documented</strong> (a changelog entry and/or a code comment) with a clear technical reason, so it is not mistaken for a bug.</p>
+<blockquote>
+<p>[!NOTE] <strong>Semantics &gt; Mechanisms</strong> — there is no need to emulate bare-metal (hardware interrupts, MMU, etc.). What matters is that behavior observed from userland matches Unix. Example: <code>setuid</code> is simulated with a saved UID (<code>pcb.suid</code>) in the kernel, not with a CPU register — but the effect is the same.</p>
+</blockquote>
 <hr>
 <h2>Source Code</h2>
 <table>
@@ -6342,6 +6348,25 @@ public setForegroundProcess(pid: number | null, ttyId?: number) {
 <li><code>setgroups</code> → <code>setgid</code> → <code>setuid</code> — <strong>mandatory POSIX order</strong>. The GID must be changed before the UID; after the UID becomes non-root, the process loses the privilege to change the GID.</li>
 <li>Set env <code>USER</code>/<code>HOME</code>, <code>chdir(home)</code>, then <code>exec</code> the shell — the shell is taken from <code>/etc/passwd</code> field 7 (usually <code>tsh</code>).</li>
 </ol>
+<h3>WM Login (Asteracea) — GUI mode</h3>
+<p>TTY login (<code>login.ts</code>) is re-spawned as a fresh root process per TTY, so it can always read <code>/etc/shadow</code> &amp; <code>setuid</code>. In contrast, <strong>the WM (Asteracea) is a SINGLE process that is both login manager and desktop session</strong>:</p>
+<ul>
+<li>The WM starts as root (spawned by init), then after the first login it <strong>permanently drops privileges</strong> to the logged-in user.</li>
+<li>On logout → login again (e.g. as root), the WM is already non-root → <strong>two problems</strong>:<ol>
+<li>It can no longer read <code>/etc/shadow</code> (0640 root) → password verification fails.</li>
+<li>The kernel rejects <code>setgroups</code>/<code>setgid</code>/<code>setuid</code> for non-root → cannot switch users.</li>
+</ol>
+</li>
+<li>Solution (see Snippet):<ol>
+<li><strong>Verify via a SetUID-root helper</strong> — <code>login.js --verify &lt;user&gt; &lt;pass&gt; &lt;file&gt;</code> (login.js is already SetUID root) → result is written to a temp file (<code>OK</code>/<code>FAIL:...</code>) and read back by the WM. A file channel is used because the child&#39;s <em>exit code</em> is unreliable (WorkerEntry always finishes with <code>exit(0)</code>).</li>
+<li><strong>Saved UID (kernel)</strong> — <code>pcb.suid</code>. When the WM drops from root, the kernel keeps <code>suid=0</code>; on re-login the WM may <code>setuid(0)</code> to <strong>restore</strong> root, then drop to the target user. This is the Unix Saved UID mechanism (<code>seteuid</code>/<code>setresuid</code>).</li>
+<li><strong>Credential order in the WM</strong> — if the WM is not root yet → <code>setuid(0)</code> first (restore), then <code>setgroups</code> → <code>setgid</code> → <code>setuid(target user)</code> (POSIX order for dropping).</li>
+</ol>
+</li>
+</ul>
+<blockquote>
+<p>[!NOTE] <strong>Saved UID safety</strong> — <code>suid</code> defaults to the process&#39;s own UID in <code>createProcess</code>, so <strong>regular apps do NOT inherit saved root</strong> and cannot escalate. Only a process that dropped from root (i.e. the WM) keeps the &quot;ticket back to root&quot;.</p>
+</blockquote>
 <h3>Shell (tsh)</h3>
 <p><code>src/mirror/bin/tsh.ts</code> — interactive shell, written in the <code>IProgram</code> style (<code>export class main implements IProgram</code>). Main features:</p>
 <ul>
@@ -6464,6 +6489,20 @@ export default Program(async (args) =&gt; {
   9. setenv USER / HOME → chdir(home)
   10. exec(shell dari /etc/passwd) → waitpid → break (satu sesi)
 </code></pre>
+<h3>WM Login: GUI → desktop</h3>
+<pre><code>asteracea.ts (single process = login manager + desktop)
+  1. WM starts as root (spawned by init)
+  2. Show GUI login screen
+  3. Verify: spawn /bin/login.js --verify &lt;user&gt; &lt;pass&gt; &lt;file&gt;  ← SetUID root
+       read result file: &quot;OK&quot; / &quot;FAIL:...&quot;
+  4. /etc/passwd → uid(3), gid(4), home(6)   ← world-readable, read directly
+  5. /etc/group → supplementary gids
+  6. If the WM is not root yet (already logged in non-root) → setuid(0)  ← restore via Saved UID
+  7. setgroups(gids) → setgid(gid) → setuid(uid)   ← POSIX order (drop)
+  8. setenv USER / HOME → chdir(home)
+  9. Show desktop — the WM BECOMES that user (taskbar, launcher, wallpaper)
+  10. Logout → back to step 2 (WM stays alive; identity is reset via Saved UID)
+</code></pre>
 <h2>Source Code</h2>
 <table>
 <thead>
@@ -6483,6 +6522,10 @@ export default Program(async (args) =&gt; {
 <tr>
 <td><code>src/mirror/bin/tsh.ts</code></td>
 <td>Interactive shell (<code>IProgram</code> style)</td>
+</tr>
+<tr>
+<td><code>src/mirror/opt/asteracea/asteracea.ts</code></td>
+<td>WM + GUI login manager — verify via <code>login.js --verify</code>, re-elevate via Saved UID</td>
 </tr>
 <tr>
 <td><code>src/mirror/lib/UserLib.ts</code></td>
@@ -6596,6 +6639,53 @@ const result = await lib.shell.exec(userShell);   // shell dari /etc/passwd
 if (result &amp;&amp; result.pid) {
     await lib.shell.waitpid(result.pid);
 }
+</code></pre>
+<h3>WM Login — verify via login.js --verify (file channel)</h3>
+<pre><code class="language-ts">// asteracea.ts — verify password via a SetUID-root helper.
+// A non-root WM cannot read /etc/shadow (0640 root) → delegate to login.js.
+const verifyOut = `/tmp/verify-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`;
+let authOk = false;
+const vp = await shell.exec(&quot;/bin/login.js&quot;, [&quot;--verify&quot;, u, password, verifyOut]);
+if (vp &amp;&amp; vp.pid) {
+    await shell.waitpid(vp.pid);                     // wait until done
+    const res = (await fs.readFile(verifyOut)) || &quot;&quot;;
+    authOk = String(res).trim() === &quot;OK&quot;;            // &quot;OK&quot; / &quot;FAIL:...&quot;
+}
+await fs.unlink(verifyOut);                          // cleanup temp file
+</code></pre>
+<pre><code class="language-ts">// login.ts — helper side (runs as SetUID root, so it can read shadow)
+if (args[0] === &quot;--verify&quot;) {
+    const vUser = (args[1] || &quot;&quot;).trim();
+    const vPass = args[2] || &quot;&quot;;
+    const vOut  = args[3] || &quot;/tmp/verify-result.txt&quot;;
+    let ok = false, errMsg = &quot;&quot;;
+    try {
+        const shadow = (await lib.fs.readFile(&quot;/etc/shadow&quot;)) || &quot;&quot;;
+        const entry = shadow.split(&quot;\n&quot;).map(l =&gt; l.trim()).filter(l =&gt; l)
+            .find(l =&gt; l.split(&quot;:&quot;)[0] === vUser);
+        const hash = entry ? entry.split(&quot;:&quot;)[1] : &quot;&quot;;
+        ok = !!hash &amp;&amp; bcrypt.compareSync(vPass, hash);
+        if (!hash) errMsg = &quot;account not found or no password&quot;;
+    } catch (e) { errMsg = e.message || &quot;verify error&quot;; }
+    await lib.fs.writeFile(vOut, ok ? &quot;OK&quot; : &quot;FAIL:&quot; + errMsg);
+    return;   // done — WorkerEntry finishes the process
+}
+</code></pre>
+<h3>Saved UID (kernel) — setuid may restore to suid</h3>
+<pre><code class="language-ts">// Syscalls.ts — SETUID with Saved UID (mirrors Unix setuid/seteuid)
+if (this.isRoot(pcb)) {
+    pcb.suid = pcb.uid;   // root may change UID freely; keep the way back (0 for root)
+    pcb.uid = newUid;
+    pcb.ruid = newUid;
+} else if (newUid === pcb.suid) {
+    pcb.uid = newUid;     // non-root may only RESTORE to its Saved UID (e.g. back to root)
+    pcb.ruid = newUid;
+} else {
+    throw new Error(&quot;Permission Denied: Only root or root group members can change UID&quot;);
+}
+
+// Scheduler.ts — createProcess: suid defaults to the process&#39;s own UID
+suid: options.suid ?? options.uid ?? 0,   // regular apps CANNOT escalate
 </code></pre>
 <h3>App — <code>IProgram</code> style (legacy)</h3>
 <pre><code class="language-ts">// greet.ts — gaya klasik: class main implements IProgram

@@ -58,7 +58,7 @@
   </div>
   <div class="meta">
     System design &amp; architecture: Andriansah<br>
-    Dibuat: 2026-08-11<br>
+    Dibuat: 2026-08-12<br>
     Platform: TSIX (educational OS-like runtime on Node.js/TypeScript)
   </div>
 </div>
@@ -747,7 +747,7 @@ userlib-update.ts          sinkronkan /lib → src/.tsix_sdk/lib (agar Node.js h
   <div class="module-body"><h1>Filosofi &amp; Gambaran Besar</h1>
 <p><strong>RFC-TSIX-EDU-002</strong> | Modul pertama kurikulum TSIX. Membangun peta mental: apa itu TSIX, mengapa dirancang begini, dan tiga prinsip inti yang menjadi fondasi seluruh sistem.</p>
 <blockquote>
-<p>Sebelum menulis kode, pahami dulu <strong>filosofinya</strong>. TSIX bukan sekadar &quot;emulator OS&quot; — ia adalah <strong>abstraksi OS yang dibangun di atas runtime Node.js yang sudah ada</strong>. Modul ini menjelaskan <em>kenapa</em> ia dirancang demikian, dan tiga prinsip yang konsisten di semua subsistem.</p>
+<p>Sebelum menulis kode, pahami dulu <strong>filosofinya</strong>. TSIX bukan sekadar &quot;emulator OS&quot; — ia adalah <strong>abstraksi OS yang dibangun di atas runtime Node.js yang sudah ada</strong>. Modul ini menjelaskan <em>kenapa</em> ia dirancang demikian, dan empat prinsip yang konsisten di semua subsistem.</p>
 </blockquote>
 <hr>
 <h2>Tujuan Pembelajaran</h2>
@@ -807,7 +807,7 @@ userlib-update.ts          sinkronkan /lib → src/.tsix_sdk/lib (agar Node.js h
 </tbody></table>
 <p><strong>Hasilnya:</strong> yang paling sering crash adalah aplikasi user — dan itu sudah terisolasi. Kernel + driver + FS jarang crash, dan kalaupun crash, sistem mati (tapi jarang).</p>
 <hr>
-<h2>Tiga Prinsip Inti</h2>
+<h2>Empat Prinsip Inti</h2>
 <h3>1. &quot;Syscall = satu-satunya pintu&quot;</h3>
 <p>Worker thread <strong>tidak pernah menyentuh resource langsung</strong>. Bahkan <code>print</code> pun melalui syscall. Ini menjaga batas ring benar-benar berarti — tidak ada jalan pintas.</p>
 <pre><code>App → UserLib.dispatch(code, args) → postMessage → Kernel → dispatch → kembali
@@ -822,6 +822,12 @@ userlib-update.ts          sinkronkan /lib → src/.tsix_sdk/lib (agar Node.js h
 <p>Bahkan pipe dan socket adalah device. Satu kontrak, banyak implementasi.</p>
 <h3>3. &quot;Direct Memory Execution&quot; (DME)</h3>
 <p>Framework (<code>/lib</code>) di-pre-compile ke memori saat boot, dikirim ke worker via <code>workerData</code>, dieksekusi <strong>tanpa hit filesystem</strong>. <code>@tsix/*</code> terasa instan — tidak ada kompilasi ulang per proses.</p>
+<h3>4. &quot;Fidelity Unix dulu, pragmatis belakangan&quot;</h3>
+<p>TSIX meniru perilaku &amp; arsitektur Unix/Linux sedekat mungkin — semantik syscall, permission UID/GID, kredensial (saved UID), format file (<code>/etc/shadow</code>, <code>passwd</code>), hierarchy filesystem — sebagai <strong>north star</strong> desain. Bukan karena &quot;harus persis&quot;, tapi karena perilaku yang <strong>teramati</strong> harus konsisten: non-root tidak bisa baca <code>/etc/shadow</code>, proses non-root tidak bisa <code>setuid</code> sembarangan, dan seterusnya.</p>
+<p>Penyimpangan dari Unix <strong>boleh</strong>, tapi hanya jika runtime Node.js/V8 memang tidak mampu — bukan karena alasan &quot;lebih gampang&quot;. Setiap penyimpangan <strong>wajib dicatat</strong> (di changelog dan/atau komentar kode) dengan alasan teknis yang jelas, supaya tidak disalahartikan sebagai bug.</p>
+<blockquote>
+<p>[!NOTE] <strong>Semantik &gt; Mekanisme</strong> — kita tidak perlu mengemulasi bare-metal (hardware interrupt, MMU, dll). Yang penting perilaku yang teramati dari userland sama dengan Unix. Contoh: <code>setuid</code> disimulasikan dengan saved UID (<code>pcb.suid</code>) di kernel, bukan dengan register CPU — tapi efeknya sama.</p>
+</blockquote>
 <hr>
 <h2>Kode Sumber</h2>
 <table>
@@ -6341,6 +6347,25 @@ public setForegroundProcess(pid: number | null, ttyId?: number) {
 <li><code>setgroups</code> → <code>setgid</code> → <code>setuid</code> — <strong>urutan POSIX wajib</strong>. GID harus diganti sebelum UID; setelah UID menjadi non-root, proses kehilangan privilege untuk mengubah GID.</li>
 <li>Set env <code>USER</code>/<code>HOME</code>, <code>chdir(home)</code>, lalu <code>exec</code> shell — shell diambil dari <code>/etc/passwd</code> field 7 (umumnya <code>tsh</code>).</li>
 </ol>
+<h3>Login WM (Asteracea) — mode GUI</h3>
+<p>TTY login (<code>login.ts</code>) di-spawn ulang sebagai proses root per TTY, jadi selalu bisa baca <code>/etc/shadow</code> &amp; <code>setuid</code>. Berbeda dengan itu, <strong>WM (Asteracea) adalah SATU proses yang merangkap login manager + desktop session</strong>:</p>
+<ul>
+<li>WM start sebagai root (di-spawn init), lalu setelah login pertama <strong>drop privilege permanen</strong> ke user yang login.</li>
+<li>Akibatnya saat logout → login ulang (mis. sebagai root), WM sudah non-root → <strong>dua masalah</strong>:<ol>
+<li>Tidak bisa baca <code>/etc/shadow</code> (0640 root) → verifikasi password gagal.</li>
+<li>Kernel menolak <code>setgroups</code>/<code>setgid</code>/<code>setuid</code> untuk non-root → tidak bisa ganti user.</li>
+</ol>
+</li>
+<li>Solusinya (lihat Snippet):<ol>
+<li><strong>Verifikasi via helper SetUID root</strong> — <code>login.js --verify &lt;user&gt; &lt;pass&gt; &lt;file&gt;</code> (login.js sudah SetUID root) → hasil ditulis ke file temp (<code>OK</code>/<code>FAIL:...</code>), dibaca WM. Kanal file dipakai karena <em>exit code</em> anak tidak andal (WorkerEntry selalu menuntaskan dengan <code>exit(0)</code>).</li>
+<li><strong>Saved UID (kernel)</strong> — <code>pcb.suid</code>. Saat WM drop dari root, kernel menyimpan <code>suid=0</code>; saat re-login, WM boleh <code>setuid(0)</code> untuk <strong>restore</strong> ke root, lalu drop ke user target. Ini mekanisme Saved UID ala Unix (<code>seteuid</code>/<code>setresuid</code>).</li>
+<li><strong>Urutan set identitas di WM</strong> — jika WM belum root → <code>setuid(0)</code> dulu (restore), baru <code>setgroups</code> → <code>setgid</code> → <code>setuid(user target)</code> (urutan POSIX untuk drop).</li>
+</ol>
+</li>
+</ul>
+<blockquote>
+<p>[!NOTE] <strong>Keamanan Saved UID</strong> — <code>suid</code> default di <code>createProcess</code> = UID proses itu sendiri, jadi <strong>app biasa tidak mewarisi saved root</strong> dan tidak bisa escalate. Hanya proses yang turun dari root (yaitu WM) yang punya &quot;tiket kembali ke root&quot;.</p>
+</blockquote>
 <h3>Shell (tsh)</h3>
 <p><code>src/mirror/bin/tsh.ts</code> — shell interaktif, ditulis dengan gaya <code>IProgram</code> (<code>export class main implements IProgram</code>). Fitur utama:</p>
 <ul>
@@ -6463,6 +6488,20 @@ export default Program(async (args) =&gt; {
   9. setenv USER / HOME → chdir(home)
   10. exec(shell dari /etc/passwd) → waitpid → break (satu sesi)
 </code></pre>
+<h3>Login WM: GUI → desktop</h3>
+<pre><code>asteracea.ts (satu proses = login manager + desktop)
+  1. WM start sebagai root (di-spawn init)
+  2. Tampil login screen (GUI)
+  3. Verifikasi: spawn /bin/login.js --verify &lt;user&gt; &lt;pass&gt; &lt;file&gt;  ← SetUID root
+       baca hasil file: &quot;OK&quot; / &quot;FAIL:...&quot;
+  4. /etc/passwd → uid(3), gid(4), home(6)   ← world-readable, baca langsung
+  5. /etc/group → supplementary gids
+  6. Kalau WM belum root (sudah pernah login non-root) → setuid(0)  ← restore via Saved UID
+  7. setgroups(gids) → setgid(gid) → setuid(uid)   ← urutan POSIX (drop)
+  8. setenv USER / HOME → chdir(home)
+  9. Tampil desktop — WM JADI user tsb (taskbar, launcher, wallpaper)
+  10. Logout → kembali ke langkah 2 (WM tetap hidup; identitas di-reset via Saved UID)
+</code></pre>
 <h2>Kode Sumber</h2>
 <table>
 <thead>
@@ -6482,6 +6521,10 @@ export default Program(async (args) =&gt; {
 <tr>
 <td><code>src/mirror/bin/tsh.ts</code></td>
 <td>Shell interaktif (gaya <code>IProgram</code>)</td>
+</tr>
+<tr>
+<td><code>src/mirror/opt/asteracea/asteracea.ts</code></td>
+<td>WM + login manager GUI — verifikasi via <code>login.js --verify</code>, re-elevate via Saved UID</td>
 </tr>
 <tr>
 <td><code>src/mirror/lib/UserLib.ts</code></td>
@@ -6595,6 +6638,53 @@ const result = await lib.shell.exec(userShell);   // shell dari /etc/passwd
 if (result &amp;&amp; result.pid) {
     await lib.shell.waitpid(result.pid);
 }
+</code></pre>
+<h3>Login WM — verifikasi via login.js --verify (kanal file)</h3>
+<pre><code class="language-ts">// asteracea.ts — verifikasi password lewat helper SetUID root.
+// WM non-root tidak bisa baca /etc/shadow (0640 root) → delegasikan ke login.js.
+const verifyOut = `/tmp/verify-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`;
+let authOk = false;
+const vp = await shell.exec(&quot;/bin/login.js&quot;, [&quot;--verify&quot;, u, password, verifyOut]);
+if (vp &amp;&amp; vp.pid) {
+    await shell.waitpid(vp.pid);                     // tunggu selesai
+    const res = (await fs.readFile(verifyOut)) || &quot;&quot;;
+    authOk = String(res).trim() === &quot;OK&quot;;            // &quot;OK&quot; / &quot;FAIL:...&quot;
+}
+await fs.unlink(verifyOut);                          // bersihkan temp
+</code></pre>
+<pre><code class="language-ts">// login.ts — sisi helper (dijalankan sebagai SetUID root, jadi bisa baca shadow)
+if (args[0] === &quot;--verify&quot;) {
+    const vUser = (args[1] || &quot;&quot;).trim();
+    const vPass = args[2] || &quot;&quot;;
+    const vOut  = args[3] || &quot;/tmp/verify-result.txt&quot;;
+    let ok = false, errMsg = &quot;&quot;;
+    try {
+        const shadow = (await lib.fs.readFile(&quot;/etc/shadow&quot;)) || &quot;&quot;;
+        const entry = shadow.split(&quot;\n&quot;).map(l =&gt; l.trim()).filter(l =&gt; l)
+            .find(l =&gt; l.split(&quot;:&quot;)[0] === vUser);
+        const hash = entry ? entry.split(&quot;:&quot;)[1] : &quot;&quot;;
+        ok = !!hash &amp;&amp; bcrypt.compareSync(vPass, hash);
+        if (!hash) errMsg = &quot;account not found or no password&quot;;
+    } catch (e) { errMsg = e.message || &quot;verify error&quot;; }
+    await lib.fs.writeFile(vOut, ok ? &quot;OK&quot; : &quot;FAIL:&quot; + errMsg);
+    return;   // selesai — WorkerEntry yang menuntaskan proses
+}
+</code></pre>
+<h3>Saved UID (kernel) — setuid boleh restore ke suid</h3>
+<pre><code class="language-ts">// Syscalls.ts — SETUID dengan Saved UID (mirip setuid/seteuid Unix)
+if (this.isRoot(pcb)) {
+    pcb.suid = pcb.uid;   // root bebas ganti UID; simpan hak kembali (0 utk root)
+    pcb.uid = newUid;
+    pcb.ruid = newUid;
+} else if (newUid === pcb.suid) {
+    pcb.uid = newUid;     // non-root hanya boleh RESTORE ke Saved UID (mis. balik ke root)
+    pcb.ruid = newUid;
+} else {
+    throw new Error(&quot;Permission Denied: Only root or root group members can change UID&quot;);
+}
+
+// Scheduler.ts — createProcess: suid default = uid proses itu sendiri
+suid: options.suid ?? options.uid ?? 0,   // app biasa TIDAK bisa escalate
 </code></pre>
 <h3>App — gaya <code>IProgram</code> (legacy)</h3>
 <pre><code class="language-ts">// greet.ts — gaya klasik: class main implements IProgram
