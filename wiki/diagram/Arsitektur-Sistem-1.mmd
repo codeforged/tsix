@@ -1,0 +1,39 @@
+graph TD
+    subgraph UserLand ["User-Land (Ring 4: Worker Threads)"]
+        direction TB
+        App["Application Script (/bin/*)"]
+        Proxies["Implicit Proxies (std, fs, shell, net)"]
+        ULib["UserLib (libc-like)"]
+
+        App -->|Explicit Import| Proxies
+        Proxies -->|Forward Hook| ULib
+    end
+
+    subgraph KernelLand ["Kernel-Land (Ring 1 & Ring 2: Main Thread)"]
+        direction TB
+        Syscall["Syscall Bridge (IPC Dispatcher)"]
+        Scheduler["Scheduler (Worker Manager)"]
+        BKFS["BKFS (SQLite VFS Engine)"]
+        NetMQTNL["MQTNL Stack (IoT Network)"]
+        HAL["Device Registry / HAL"]
+        Drivers["Drivers (TTY, Kbd, NetDev)"]
+    end
+
+    subgraph Storage ["Persistence Layer"]
+        DB["system.db (SQLite Database)"]
+        HostFS["src/mirror (Host Surface)"]
+        Sync["Sync Logic (VFS-to-Host)"]
+    end
+
+    ULib <===>|IPC: postMessage| Syscall
+    
+    Syscall -->|Control| Scheduler
+    Syscall -->|I/O Request| BKFS
+    Syscall -->|Data Packet| NetMQTNL
+    Syscall -->|ioctl| HAL
+
+    Scheduler -->|Manages| UserLand
+    BKFS -->|Reads/Writes| DB
+    BKFS <===>|fs.syncToHost| Sync
+    Sync -->|Writes| HostFS
+    HAL -->|Controls| Drivers

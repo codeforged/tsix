@@ -1,0 +1,6 @@
+sequenceDiagram
+    App->>Kernel: Syscall (OPEN, READ, WRITE...)
+    Kernel->>MountManager: Resolve path → VFS
+    MountManager->>BKFS/HostVFS: Read/Write
+    BKFS/HostVFS-->>Kernel: Result
+    Kernel-->>App: Return value

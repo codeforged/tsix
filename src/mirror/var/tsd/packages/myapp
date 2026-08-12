@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+
+echo "TSIX MyApp version 1.0.0"
+case "$1" in
+  --configure)
+    echo "Configuring MyApp..."
+    ;;
+  --cleanup)
+    echo "Cleaning up MyApp..."
+    ;;
+  *)
+    echo "Hello from MyApp!"
+    ;;
+esac

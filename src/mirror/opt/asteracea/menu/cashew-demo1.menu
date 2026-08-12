@@ -1,0 +1,4 @@
+name=Cashew Demo
+icon=📋
+command=/opt/test/cashew-demo1.js
+pinned_launcher=false 

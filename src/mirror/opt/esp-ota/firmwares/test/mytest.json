@@ -1,0 +1,23 @@
+[
+    {
+        "deviceClass": "TestDevice",
+        "name": "FW Stabil",
+        "version": "1.10.9",
+        "filename": "./firmware.bin",
+        "release": "20260405"
+    },
+    {
+        "deviceClass": "TestDeviceESP32C3",
+        "name": "FW Stabil ESP32C3",
+        "version": "1.10.8",
+        "filename": "./firmwareESP32C3.bin",
+        "release": "20260317"
+    },
+    {
+        "deviceClass": "TestDeviceESP32C3",
+        "name": "FW Stabil ESP32C3",
+        "version": "1.10.7",
+        "filename": "./firmwareESP32C3.bin",
+        "release": "20260317"
+    }
+]

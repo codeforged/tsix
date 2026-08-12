@@ -1,0 +1,35 @@
+graph TD
+    subgraph Applications ["User-Land Applications"]
+        App["lib.fs.open('/etc/passwd', 'r')"]
+    end
+
+    subgraph SyscallLayer ["Syscall Layer"]
+        SC["OPEN / READ / WRITE / EXEC syscalls"]
+    end
+
+    subgraph Kernel ["Kernel Routing"]
+        MM["MountManager — resolve path → backend"]
+        PM["PermissionManager — POSIX ACL"]
+    end
+
+    subgraph VFSBackends ["IVFS Implementations"]
+        BKFS["BKFS<br/>SQLite-backed"]
+        RamFS["RamFS<br/>RAM-only (volatile)"]
+        HostVFS["HostVFS<br/>Host filesystem bridge"]
+    end
+
+    subgraph Storage ["Storage Backends"]
+        DB[("system.db")]
+        RAM[("RAM")]
+        DISK[("Host Disk")]
+    end
+
+    App --> SC
+    SC --> MM
+    MM --> PM
+    MM -->|"/" → BKFS| BKFS
+    MM -->|"/tmp" → RamFS| RamFS
+    MM -->|"/mnt/*" → HostVFS| HostVFS
+    BKFS --> DB
+    RamFS --> RAM
+    HostVFS --> DISK

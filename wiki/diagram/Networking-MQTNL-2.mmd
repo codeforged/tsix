@@ -1,0 +1,18 @@
+sequenceDiagram
+    participant Client as TSIX Client
+    participant Broker as MQTT Broker
+    participant Server as TSIX Server
+
+    Client->>Broker: 1. SYN (client pubkey)
+    Broker->>Server: Forward SYN
+    Server->>Server: Generate session key
+    Server->>Broker: 2. SYN-ACK (server pubkey + encrypted session key)
+    Broker->>Client: Forward SYN-ACK
+    Client->>Client: Decrypt session key with RSA
+    Client->>Broker: 3. ACK (encrypted confirmation)
+    Broker->>Server: Forward ACK
+    
+    Note over Client, Server: 🔒 Session established — ChaCha20-Poly1305 encrypted
+    
+    Client->>Broker: 4. DATA (encrypted payload)
+    Broker->>Server: Forward DATA

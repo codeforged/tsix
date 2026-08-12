@@ -1,0 +1,7 @@
+stateDiagram-v2
+    [*] --> READY: exec() → createProcess()
+    READY --> RUNNING: Worker started (spawnWorker)
+    RUNNING --> BLOCKED: waitpid() / I/O block
+    BLOCKED --> RUNNING: I/O complete / signal
+    RUNNING --> EXITED: exit() / kill
+    EXITED --> [*]: waitpid() → reap()

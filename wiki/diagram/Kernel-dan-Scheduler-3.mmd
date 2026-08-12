@@ -1,0 +1,19 @@
+sequenceDiagram
+    participant User
+    participant Keyboard as KeyboardDevice
+    participant Kernel
+    participant Scheduler
+    participant Worker as Foreground Process
+
+    User->>Keyboard: Ctrl+C (Raw Mode)
+    Keyboard->>Kernel: handleHostInterrupt()
+    Kernel->>Scheduler: getForegroundPID(ttyId)
+    Scheduler->>Scheduler: Lookup foreground PCB
+    Scheduler->>Worker: postMessage({signal: "SIGINT"})
+    
+    alt Handler registered
+        Worker->>Worker: Execute onSignal callback
+        Worker->>Worker: Cleanup & exit(130)
+    else No handler
+        Worker->>Worker: Default: terminate
+    end

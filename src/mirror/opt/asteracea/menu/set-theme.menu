@@ -1,0 +1,6 @@
+name=Set Theme
+icon=🎨
+command=/opt/set-theme/set-theme.js
+pinned_launcher=false
+dcm_launcher=true
+maximize_on_start=false

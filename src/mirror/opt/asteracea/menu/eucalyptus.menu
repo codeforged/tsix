@@ -1,0 +1,4 @@
+name=Eucalyptus
+icon=🌿
+command=/opt/eucalyptus/eucalyptus.js
+pinned_launcher=true

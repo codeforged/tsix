@@ -1,0 +1,58 @@
+# ============================================================
+# TSIX — .gitignore
+# JANGAN commit file yang berisi kredensial / data runtime.
+# ============================================================
+
+# --- Database runtime (BERISI HASH PASSWORD & KEY ASLI) ---
+# system.db & systembak.db berisi /etc/shadow asli (hash bcrypt root,
+# kakang, dll) + key yang di-generate saat boot. JANGAN pernah di-push.
+system.db
+systembak.db
+*.db
+*.db-*
+*.bak
+*.bak-*
+
+# --- Konfigurasi lokal / hasil install (machine-specific) ---
+# dibuat oleh `npm run install` (path DB, email creator, dll)
+src/sysconfig.json
+
+# --- Node.js ---
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# --- Artifak build / framework ter-generate ---
+dist/
+build/
+src/.tsix_sdk/
+.vfs_cache/
+*.tsbuildinfo
+
+# --- Log ---
+*.log
+logs/
+jsix.log
+
+# --- Environment / secret files (defensive) ---
+.env
+.env.*
+*.pem
+*.key
+!src/mirror/etc/tpkg/keys/public.pem
+*.p12
+*.pfx
+*.jks
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Home direktori user & riwayat shell (file personal) ---
+# src/mirror/root/ & src/mirror/home/* berisi file personal/dev per user
+# (test coba-coba, .sh_history, dll) — JANGAN di-commit.
+src/mirror/root/
+src/mirror/home/
+**/.sh_history

@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+
+echo "TSIX WebServer version 2.1.0"
+case "$1" in
+  --init)
+    echo "Initializing WebServer config..."
+    ;;
+  --cleanup)
+    echo "Cleaning up WebServer..."
+    ;;
+  *)
+    echo "WebServer running in simulation mode."
+    ;;
+esac

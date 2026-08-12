@@ -1,0 +1,5 @@
+name=PixelSpace Traffic
+icon=📊
+command=/opt/pixelspace-traffic/pixelspace-traffic.js
+pinned_launcher=false
+dcm_launcher=true

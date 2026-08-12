@@ -1,0 +1,4 @@
+name=Read Joystick
+icon=🎮
+command=/opt/test/read-joystick.js
+pinned_launcher=false

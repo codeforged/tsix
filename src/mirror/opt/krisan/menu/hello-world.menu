@@ -1,0 +1,4 @@
+name=Hello World
+icon=🌍
+command=gui-hello-world
+taskbar_pinned=true 

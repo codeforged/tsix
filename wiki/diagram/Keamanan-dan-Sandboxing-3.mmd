@@ -1,0 +1,16 @@
+flowchart TD
+    Request["App: open('/etc/shadow', 'r')"] --> PM["PermissionManager"]
+    PM --> ExtractUID["Extract UID/GID from PCB"]
+    ExtractUID --> IsRoot{"UID == 0?"}
+    IsRoot -- Yes --> Grant["✅ GRANTED"]
+    IsRoot -- No --> CheckOwner{"UID matches file owner?"}
+    CheckOwner -- Yes --> CheckBits{"Owner read bit set?"}
+    CheckBits -- Yes --> Grant
+    CheckBits -- No --> Deny["❌ PERMISSION DENIED"]
+    CheckOwner -- No --> CheckGroup{"GID matches file group?"}
+    CheckGroup -- Yes --> CheckGBits{"Group read bit set?"}
+    CheckGBits -- Yes --> Grant
+    CheckGBits -- No --> Deny
+    CheckGroup -- No --> CheckOther{"Other read bit set?"}
+    CheckOther -- Yes --> Grant
+    CheckOther -- No --> Deny

@@ -1,0 +1,16 @@
+sequenceDiagram
+    participant ESP as ESP Device (nosOTA)
+    participant B as Mosquitto Broker
+    participant D as TSIX Driver
+    participant O as otad (Server)
+
+    ESP->>B: MQTT Subscribe (mqtnl@1.1/#)
+    Note over ESP, O: Fase 1: Inisialisasi & Validasi (JSON)
+    ESP->>O: {"cmd":"ota.info", "ak":"...", "path":"..."} 
+    O-->>ESP: {"cmd":"ota.info_res", "size":824416}
+    
+    Note over ESP, O: Fase 2: High-Speed Streaming (Non-JSON)
+    loop Setiap Chunk (2KB / 4KB)
+        ESP->>O: "R <offset> <length>" (ASCII String)
+        O-->>ESP: [0x55] + [Offset: 4-byte LE] + [Binary Data]
+    end

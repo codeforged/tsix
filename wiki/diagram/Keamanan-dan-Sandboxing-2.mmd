@@ -1,0 +1,21 @@
+graph LR
+    subgraph MainThread ["Main Thread (Kernel)"]
+        Kernel["Kernel.ts"]
+        Syscall["Syscall Dispatcher"]
+    end
+    
+    subgraph Worker1 ["Worker Thread 1"]
+        App1["tsh.ts"]
+    end
+    
+    subgraph Worker2 ["Worker Thread 2"]
+        App2["ls.ts"]
+    end
+    
+    subgraph Worker3 ["Worker Thread 3"]
+        App3["airterm.ts"]
+    end
+    
+    App1 <-->|IPC only| Syscall
+    App2 <-->|IPC only| Syscall
+    App3 <-->|IPC only| Syscall

@@ -1,0 +1,4 @@
+name=Joy Simulator
+icon=🕹️
+command=/opt/test/joy-sim.js
+pinned_launcher=false

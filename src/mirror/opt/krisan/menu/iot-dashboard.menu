@@ -1,0 +1,4 @@
+name=IoT Dashboard
+icon=🌐
+command=iot-dashboard
+taskbar_pinned=true

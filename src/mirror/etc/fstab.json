@@ -1,0 +1,30 @@
+[
+  {
+    "vfsPath": "/tmp",
+    "hostPath": "RAM",
+    "type": "ramfs",
+    "readOnly": false,
+    "uid": 0,
+    "gid": 100,
+    "mode": 1023,
+    "active": true
+  },
+  {
+    "vfsPath": "/mnt/shared",
+    "hostPath": "shared",
+    "type": "host",
+    "readOnly": false,
+    "uid": 1000,
+    "gid": 100,
+    "mode": 509
+  },
+  {
+    "vfsPath": "/mnt/sbak",
+    "hostPath": "systembak.db",
+    "type": "bkfs",
+    "readOnly": false,
+    "uid": 1000,
+    "gid": 100,
+    "mode": 509
+  }
+]

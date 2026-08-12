@@ -1,0 +1,4 @@
+name=Cashew Layout Demo
+icon=🧩
+command=/opt/test/cashew-demo2.js
+pinned_launcher=false 

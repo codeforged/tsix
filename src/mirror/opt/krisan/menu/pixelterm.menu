@@ -1,0 +1,4 @@
+name=PixelTerm
+icon=💻
+command=pixelterm
+taskbar_pinned=true 

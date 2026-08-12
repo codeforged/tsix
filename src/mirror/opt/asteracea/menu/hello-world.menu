@@ -1,0 +1,4 @@
+name=Hello World
+icon=🌍
+command=/opt/test/gui-hello-world.js
+pinned_launcher=false 

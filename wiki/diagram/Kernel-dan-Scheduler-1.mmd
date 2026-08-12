@@ -1,0 +1,11 @@
+stateDiagram-v2
+    [*] --> PowerOn: main.ts
+    PowerOn --> Booting: kernel.boot()
+    Booting --> DeviceInit: Register Core Devices
+    DeviceInit --> VFSInit: Initialize BKFS
+    VFSInit --> CacheLib: rebuildVFSCache (pre-compile /lib)
+    CacheLib --> NetworkInit: Initialize MQTNL
+    NetworkInit --> Ready: kernel.runInit()
+    Ready --> Running: PID 1 spawned
+    Running --> Shutdown: shutdown/reboot
+    Shutdown --> [*]

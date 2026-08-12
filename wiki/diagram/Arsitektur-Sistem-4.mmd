@@ -1,0 +1,32 @@
+sequenceDiagram
+    participant User
+    participant Shell
+    participant Syscall
+    participant Kernel
+    participant Worker as Worker Thread
+
+    User->>Shell: "ls -la"
+    Shell->>Shell: Parse Args & Redirection
+    Shell->>Shell: Check $PATH → /bin/ls
+    Shell->>Syscall: lib.sys.exec("/bin/ls", ["-la"])
+    Syscall->>Kernel: Handle Request
+    
+    Kernel->>Kernel: Resolve /bin/ls via MountManager → BKFS
+    Kernel->>Kernel: Check EXECUTE permission + setuid
+    
+    Kernel->>Worker: Spawn Worker Thread
+    activate Worker
+    Worker-->>Kernel: PID assigned
+    Kernel-->>Shell: Return PID
+    
+    Note over Shell, Worker: Shell waits (WAITPID)
+    
+    Worker->>Syscall: fs.readdir(".")
+    Syscall-->>Worker: Entry List
+    Worker->>Syscall: std.print(output)
+    
+    Worker->>Worker: Exit(0)
+    deactivate Worker
+    
+    Kernel->>Shell: Exit Notification
+    Shell->>User: Display Prompt

@@ -1,0 +1,9 @@
+graph TD
+    A[Boot: Kernel.ts] --> B[Init: PID 1]
+    B --> C[rc.local.ts]
+    C --> D[Daemons: airtermd, tpkgd, scpd, otad, dome, ...]
+    D --> E[login.ts per TTY]
+    E --> F[tsh.ts]
+    F --> G[User Apps]
+    G --> H[Syscall IPC]
+    H --> A

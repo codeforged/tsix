@@ -1,0 +1,19 @@
+graph LR
+    subgraph NodeA ["TSIX Node A"]
+        AppA["Application"] -->|syscall| PortA["PortManager"]
+        PortA --> DriverA["SimpleMQTNLDriver"]
+        DriverA -->|publish| TopicA["MQTT Topic: mqtnl@1.0/addr-a"]
+    end
+
+    subgraph Broker ["MQTT Broker"]
+        B(("Mosquitto"))
+    end
+
+    subgraph NodeB ["TSIX Node B"]
+        TopicB["MQTT Topic: mqtnl@1.0/addr-b"] -->|subscribe| DriverB["SimpleMQTNLDriver"]
+        DriverB --> PortB["PortManager"]
+        PortB -->|deliver| AppB["Application"]
+    end
+
+    DriverA -->|Encrypted Packet| B
+    B -->|Encrypted Packet| DriverB

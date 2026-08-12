@@ -1,0 +1,317 @@
+# TSIX — Antigonon leptopus
+
+<p align="center">
+  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License">
+  <img src="https://img.shields.io/badge/Powered%20by-Node.js-green" alt="Node.js">
+  <img src="https://img.shields.io/badge/Kernel-Dinawari-blue" alt="Kernel Dinawari">
+  <img src="https://img.shields.io/badge/Tests-645/653-brightgreen" alt="645/653 tests">
+</p>
+
+**TSIX** is an **operating system simulator** built entirely in TypeScript on top of Node.js/V8 — complete with a custom kernel, syscall dispatcher, permission model (UID/GID), POSIX-like filesystem, signal handling, and device abstraction (HAL). It is **not a VM that emulates a CPU**; it applies OS-level architecture as an educational and experimental project, and follows **Unix fidelity** as its design north star (see [Philosophy](#philosophy)).
+
+Its flagship use case is a complete **IoT stack** — the MQTNL protocol (MQTT-based), OTA firmware updates, real-time dashboards, and encrypted remote terminal access — all reachable with nothing more than an internet connection and a free MQTT broker. No VPS, no static public IP, no paid cloud service required.
+
+TSIX keeps evolving, so expect rough edges and breaking changes between versions.
+
+<p align="center">
+  <img src="./wiki/desktop-sc.png" alt="TSIX Desktop (Asteracea WM)" width="720">
+  <br>
+  <em>Asteracea Window Manager — desktop environment (taskbar, launcher, apps).</em>
+</p>
+
+### Why TSIX exists
+
+This project started as a way to remotely manage home automation — lights controlled by a Raspberry Pi, MCP23017, and relays — while living between two cities and only being home on weekends. Renting a VPS with a static public IP just to check on the lights wasn't worth it. What began as a small utility (originally called **NOS**) grew, over several years, into TSIX: a full operating-system-style platform with an IoT stack as its most complete, most battle-tested application.
+
+---
+
+## Key Features
+
+### Kernel
+| Feature | Detail |
+|---------|--------|
+| **Syscall Dispatcher** | 60+ POSIX-inspired syscalls (OPEN, READ, WRITE, EXEC, WAITPID, SIGNAL, CHMOD...) |
+| **Scheduler** | Preemptive round-robin, process states, wait queue, signal handling (SIGKILL, SIGTERM, SIGINT, SIGSTOP...) |
+| **Permission Manager** | UID/GID, rwx bits, root bypass, SetUID & Saved UID (suid) support |
+| **Mount Manager** | Multi-VFS overlay, bind mount, union mount, nested mount points |
+| **Process Tree** | Parent-child links, orphan auto-reparent to init, zombie prevention |
+| **IPC** | Built-in `SEND_MSG` syscall + UUID-based identity messaging |
+
+### Filesystem (VFS)
+| Feature | Detail |
+|---------|--------|
+| **BKFS (SQLite VFS)** | Persistent filesystem in a single `.db` file, path traversal via parent_id tree |
+| **RAM VFS** | In-memory tree for the root filesystem (tmpfs-like) |
+| **HostVFS** | Bridge to the host filesystem (`/mnt/host`) via Node.js `fs` |
+| **Chunked I/O** | `readChunk`/`writeChunk` for progress-aware file operations |
+| **Unix Permissions** | Owner/group/others, mode rwx, SetUID bit |
+
+### Networking
+| Feature | Detail |
+|---------|--------|
+| **MQTNL Protocol** | Binary + JSON encoding, CRC32 validation, magic bytes, version handshake |
+| **E2E Encryption** | RSA-2048 handshake + ChaCha20-Poly1305 session encryption |
+| **OTA Updates** | Over-the-air firmware update via MQTNL protocol |
+| **SCP** | Secure file transfer with encryption + password authentication |
+
+### GUI (Emerald + DOME)
+| Feature | Detail |
+|---------|--------|
+| **DOME Engine** | WebSocket-based display server — renders UI in the browser |
+| **Emerald Widgets** | Screen, Window, button, div, input, lineChart, radialGauge, toggleSwitch |
+| **Modal Dialogs** | alert(), confirm(), question() — built-in |
+| **Window Manager** | Asteracea WM with taskbar, Z-index, focus management |
+
+### Security
+- **Process Isolation** — Each application runs in a separate Worker Thread
+- **Sandbox** — Node.js host APIs are restricted in User-Land
+- **Permission Model** — Unix rwx for files & devices
+- **Root Privileges** — UID 0 bypasses all checks
+- **Saved UID** — login manager (WM) dapat re-elevate ke root untuk switch user (restore `setuid(0)` via `pcb.suid`)
+- **PID 1 Protection** — init cannot be killed directly
+
+---
+
+## Quick Start
+
+### Prerequisites
+- Node.js 18+
+- npm
+
+### Fresh Install
+
+A fresh TSIX image is built with the `install` script. It creates a brand new database (`.db`) from the bundled root filesystem (`src/mirror` + `src/common`), asks for a few configuration values interactively, and writes them into `src/sysconfig.json`.
+
+```bash
+git clone https://github.com/yourusername/tsix.git
+cd tsix
+npm install
+npm run install
+```
+
+The installer will ask you for:
+- Hostname
+- Default login user
+- MQTT broker address
+- Per-interface node address
+- Default MQTT port
+- Kernel verbose mode (y/n)
+- New database path
+- (Optional) root password
+
+> [!NOTE] **Default credentials**
+> - **User:** `root` — **Password:** `root` (default; hash bcrypt dibundel di `src/mirror/etc/shadow`).
+> - Ganti password dengan mengisi prompt **"Password root baru"** saat `npm run install`, atau jalankan `passwd` di dalam TSIX.
+> - Ini **default development yang didokumentasikan**, bukan rahasia. Untuk produksi/ekspos publik, selalu set password sendiri (jangan pakai default).
+
+After installation, `src/sysconfig.json` points to the new database and the system is ready to boot:
+
+```bash
+npm start
+```
+
+<p align="center">
+  <img src="./wiki/console-sc.png" alt="TSIX Console (TTY)" width="720">
+  <br>
+  <em>TSIX console — TTY login & shell.</em>
+</p>
+
+### Install Options
+
+```bash
+npm run install                              # interactive, db path from sysconfig
+npm run install -- --path data/tsix.db       # install to a specific database file
+npm run install -- --path data/tsix.db --force   # overwrite an existing db (auto-backup)
+npm run install -- --defaults                # non-interactive, use all defaults
+npm run install -- --no-config               # skip writing src/sysconfig.json
+```
+
+### Safe Mode
+
+If the system fails to boot (e.g. a bad daemon in `rc.local`), start it with
+the startup scripts disabled:
+
+```bash
+npm start -- --safe-mode
+```
+
+Safe mode skips `/etc/rc.local` (startup daemons) so you can log in and fix
+the problem.
+
+### Utility Scripts
+
+```bash
+npm run vfs:bootstrap        # bulk-sync src/mirror into the configured database
+npm run bkfs:create          # create an empty database (path from sysconfig)
+node scripts/clean_bloat.js  # truncate syslog + vacuum the database
+```
+
+All scripts resolve the default database path from `kernel.database` in `src/sysconfig.json` (shared via `scripts/lib/db-path.ts`), so they stay in sync with the path chosen at install time.
+
+### GUI Mode
+
+```bash
+# Terminal 1 — Start DOME Engine
+dome
+
+# Open browser -> http://localhost:8080
+
+# Terminal 2 (via TSIX shell) — Launch apps
+asteracea           # Window Manager
+file-cruiser        # File Manager GUI
+eucalyptus          # Text Editor
+```
+
+---
+
+## Architecture
+
+```
+Ring 0  -> Host OS / V8 Engine (reserved)
+Ring 1  -> Kernel Core (Syscalls, Scheduler, Permission Manager)
+Ring 2  -> Drivers & File System (HAL, BKFS, Device Drivers)
+Ring 3  -> User Libraries (UserLib, FsLib, NetLib, StdLib)
+Ring 4  -> Applications (/bin — shell, file-cruiser, tools)
+```
+
+### Data Flow
+
+```
+Application (Worker Thread)
+    | postMessage (IPC)
+    v
+Syscall Dispatcher (Main Thread)
+    | routing
+    v
+BKFS / Device Drivers / Scheduler
+    | return
+    v
+Syscall Dispatcher
+    | postMessage (IPC)
+    v
+Application
+```
+
+### Boot Sequence
+
+```
+bootstrap.sh -> main.ts -> Kernel.boot()
+  -> Mount BKFS (SQLite VFS) root filesystem
+  -> Process /etc/fstab.json (mount /tmp as ramfs, etc.)
+  -> Init TTYs (virtual consoles)
+  -> Register Devices (keyboard, TTY, null, network)
+  -> Init Serial Auto-Detection
+  -> Load Device Configs + HAL drivers
+  -> Pre-compile framework libraries into memory cache
+  -> Ensure default auth & groups (/etc/passwd, /etc/shadow, users, sudo)
+  -> Spawn PID 1 (/bin/init)
+  -> init spawns login on TTYs + system daemons
+  -> System Ready
+```
+
+---
+
+## Project Structure
+
+```
+tsix/
+├── src/
+│   ├── common/        — Shared types (SyscallCode, GUITypes, IPCTypes)
+│   ├── kernel/        — Kernel Core (Ring 1)
+│   │   ├── Syscalls.ts        — 60+ syscall dispatcher
+│   │   ├── Scheduler.ts       — Process manager (create, kill, waitpid)
+│   │   ├── PermissionManager.ts — Unix rwx permission check
+│   │   ├── MountManager.ts    — Multi-VFS overlay
+│   │   ├── PortManager.ts     — TCP/UDP port allocation
+│   │   ├── GUIRegistry.ts     — Window -> PID mapping
+│   │   └── devices/           — Hardware drivers (TTY, Keyboard, Pipe, Socket...)
+│   ├── vfs/           — Filesystem backends (BKFS, RamFS, HostVFS)
+│   ├── mirror/        — Userland (Ring 4) — FHS layout (disinkronkan ke VFS root)
+│   │   ├── bin/       — 80+ command-line tools (ls, cat, tsh, sudo...)
+│   │   ├── sbin/      — Daemons (tpkgd, scpd, airtermd, crond...)
+│   │   ├── usr/       — User binaries (local/bin)
+│   │   ├── opt/       — GUI apps (asteracea WM, dome, eucalyptus, file-cruiser...)
+│   │   ├── lib/       — Libraries (Emerald, UserLib, Application)
+│   │   ├── etc/       — Config (passwd, shadow, group, profile, fstab)
+│   │   └── home/, root/, mnt/, var/ — User homes, mounts, logs
+│   └── userland/      — Worker entry point
+├── wiki/              — Full documentation
+├── scripts/           — Build, install & utility scripts
+└── platformio/        — ESP32 firmware examples
+```
+
+---
+
+## Status
+
+> Note: TSIX is an educational/experimental project. "Working" only means the component passes its test suite and boots in the reference environment — it is **not** production-ready. APIs and behavior may change without notice.
+
+| Component            | Status  | Tests    |
+|----------------------|---------|----------|
+| Kernel (syscalls, scheduler, perms, mount, devices, TTY) | Working | 354/359 |
+| VFS (BKFS, HostVFS)  | Working | 150/150  |
+| Common Utilities & Protocols (MQTNL) | Working | 140/143 |
+| GUI library (Emerald)| Working | 1/1      |
+| **TOTAL**            | **Working** | **645/653** |
+
+> [!NOTE] **7 test failures bersifat pre-existing / environment** — 5 di `Syscalls` (mis. `SCREEN_INFO` butuh setup device), 2 di `Logger` (format timestamp). Dua file test (`SecurityAgent`, `F1-UtilityScripts`) gagal load. Tidak terkait perubahan fitur.
+
+---
+
+## Use Cases
+
+| Area            | Capability |
+|:----------------|:-----------|
+| **IoT Gateway** | MQTNL protocol, OTA updates, ESP32 integration, Serial devices |
+| **Cloud Desktop** | DOME display server, Asteracea WM, PixelTerm, File Cruiser |
+| **Edge Platform** | TPKG package manager, crond scheduler, process isolation |
+| **Secure Tunnel** | AirTerm (remote terminal), SCP (file transfer) with E2E encryption |
+| **Dashboard** | IoT dashboard with real-time charts via DOME |
+| **Sandbox** | Isolated script execution in Worker Threads |
+
+---
+
+## Philosophy
+
+TSIX is inspired by the **UNIX philosophy**:
+
+1. **Everything is a File** — Keyboard, display, socket, pipe, I2C device — everything is a file
+2. **Distributed by Design** — Built-in IPC via SEND_MSG + identity-based messaging
+3. **Small, Sharp Tools** — 80+ utilities that combine via pipes & redirection
+4. **Security via Simplicity** — UID/GID permission model, process isolation, root privileges
+5. **Unix Fidelity** — meniru perilaku Unix/Linux sedekat mungkin (semantik > mekanisme); penyimpangan hanya jika runtime V8 tidak mampu dan wajib didokumentasikan (lihat [Empat Prinsip Inti](wiki/course/01-philosophy-big-picture.md))
+
+---
+
+## Documentation
+
+Official, structured documentation lives in [`wiki/course/`](wiki/course/README.md):
+
+| Page | Description |
+|:-----|:------------|
+| [Course — Overview](wiki/course/README.md) | Recommended entry point: module index & navigation |
+| [Course — Table of Contents](wiki/course/toc.md) | Detailed roadmap with code references |
+| [Course — Format](wiki/course/format.md) | Documentation style & conventions |
+
+The loose files under [`wiki/`](wiki/) are internal working notes (author + AI) and are not part of the official documentation.
+
+---
+
+## Authors
+
+| Name | Role |
+|:-----|:-----|
+| **Andriansah** (andriansah [at] yahoo [dot] com) | Lead Architect & Platform Composer |
+| **AI coding assistants** | Technical Implementation Partner |
+
+---
+
+## License
+
+MIT License — see the `LICENSE` file for details.
+
+---
+
+<p align="center">
+  <i>"Everything is a File, and everyone has their place."</i>
+</p>

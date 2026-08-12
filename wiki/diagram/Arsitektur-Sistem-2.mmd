@@ -1,0 +1,38 @@
+graph TD
+    subgraph Ring1 ["Ring 1: Kernel Executive (Core)"]
+        direction TB
+        Dispatcher["Syscall Dispatcher (The Gatekeeper)"]
+        Sched["Process Scheduler (Task Manager)"]
+    end
+
+    subgraph Ring2 ["Ring 2: Kernel Subsystems & Drivers"]
+        direction TB
+        subgraph FS_Layer ["Filesystem Stack"]
+            VFS_Driver["VFS Abstraction"]
+            BKFS_Core["BKFS Engine (SQLite)"]
+        end
+
+        subgraph Net_Layer ["Networking Stack"]
+            Net_Driver["Socket Interface"]
+            MQTNL_Stack["MQTNL Protocol"]
+        end
+
+        subgraph Device_Layer ["Hardware Abstraction (HAL)"]
+            HAL_Reg["Device Registry"]
+            Drivers["TTY, Keyboard, Console"]
+        end
+    end
+
+    Dispatcher -->|Open/Read/Write| VFS_Driver
+    Dispatcher -->|Send/Recv| Net_Driver
+    Dispatcher -->|ioctl/setuid| HAL_Reg
+    
+    Sched -->|Spawn/Kill| Dispatcher
+
+    VFS_Driver --> BKFS_Core
+    Net_Driver --> MQTNL_Stack
+    HAL_Reg --> Drivers
+
+    BKFS_Core -.->|Persistence| DB[("system.db")]
+    MQTNL_Stack -.->|Communication| Air["MQTT Broker"]
+    Drivers -.->|Interfacing| Host["Node.js Host"]

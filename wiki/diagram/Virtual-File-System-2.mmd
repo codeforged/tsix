@@ -1,0 +1,15 @@
+flowchart LR
+    Request["OPEN /etc/shadow"] --> PM["PermissionManager"]
+    PM --> CheckUID{"UID == 0 (root)?"}
+    CheckUID -- Yes --> Allow["✅ ACCESS GRANTED"]
+    CheckUID -- No --> CheckOwner{"UID == file.uid?"}
+    CheckOwner -- Yes --> CheckOwnerBits{"Owner bits allow?"}
+    CheckOwnerBits -- Yes --> Allow
+    CheckOwnerBits -- No --> Deny["❌ PERMISSION DENIED"]
+    CheckOwner -- No --> CheckGroup{"GID == file.gid?"}
+    CheckGroup -- Yes --> CheckGroupBits{"Group bits allow?"}
+    CheckGroupBits -- Yes --> Allow
+    CheckGroupBits -- No --> Deny
+    CheckGroup -- No --> CheckOther{"Other bits allow?"}
+    CheckOther -- Yes --> Allow
+    CheckOther -- No --> Deny

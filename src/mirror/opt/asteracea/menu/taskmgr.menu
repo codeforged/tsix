@@ -1,0 +1,5 @@
+name=Task Manager
+icon=📊
+command=/opt/taskmgr/taskmgr.ts
+pinned_launcher=false
+dcm_launcher=true

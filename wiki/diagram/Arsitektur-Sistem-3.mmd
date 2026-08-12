@@ -1,0 +1,11 @@
+flowchart TD
+    Start(["⚡ Power On"]) --> InitKernel[Initialize Kernel]
+    InitKernel --> MountBKFS["Mount BKFS (system.db)"]
+    MountBKFS --> LoadFstab["processFstab → /tmp, /mnt/*"]
+    LoadFstab --> InitSub["Init Subsystems (Scheduler, Syscall, TTY, Net)"]
+    InitSub --> CacheLib["rebuildVFSCache → pre-compile /lib (DME)"]
+    CacheLib --> SpawnInit["Spawn PID 1: init.js"]
+    SpawnInit --> EnforceSetuid["Enforce setuid + RSA identity"]
+    EnforceSetuid --> ExecRC["Exec /etc/rc.local.js"]
+    ExecRC --> SpawnServices["Spawn Login TTY1-6 & Daemons"]
+    SpawnServices --> Ready(["✅ System Ready"])

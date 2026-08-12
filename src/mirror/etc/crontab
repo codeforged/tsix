@@ -1,0 +1,22 @@
+# Format crontab (/etc/crontab):
+#  # m h dom mon dow command
+#  * * * * * /bin/echo.ts tick        → tiap menit
+#  */5 * * * * /bin/iot-scan.ts        → tiap 5 menit
+#  0 6 * * * /bin/ota-check.ts         → jam 6 pagi
+#  30 4 * * 0 /bin/maintenance.ts      → minggu jam 4:30
+#  0 */2 * * * /bin/sync-log.ts        → tiap 2 jam
+#  @reboot /bin/start-daemon.ts        → pas boot
+#
+# Contoh:
+#  crontab -l                    # Lihat jadwal
+#  crontab -e                    # Edit jadwal
+#  crontab /tmp/my-cron.txt      # Pasang jadwal baru
+#  echo "* * * * * /bin/echo.ts hi" | crontab -
+#
+# Catatan:
+#  - Daemon: crond --detach (jalankan sebagai background daemon)
+#  - @reboot: jalan sekali saat daemon pertama kali dijalankan
+#  - Environment: Gunakan export di /etc/profile untuk custom PATH
+
+#@reboot /bin/echo.ts hello
+#* * * * * /root/hello-world.ts

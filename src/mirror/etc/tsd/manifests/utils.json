@@ -1,0 +1,25 @@
+{
+  "name": "tsd-utils",
+  "version": "0.4.0",
+  "description": "Collection of TSIX helper scripts and tools.",
+  "author": "TSIX Utilities",
+  "files": [
+    {
+      "src": "/var/tsd/packages/cleanup.sh",
+      "dst": "/usr/local/bin/cleanup.sh",
+      "permissions": 755,
+      "isExecutable": true
+    },
+    {
+      "src": "/var/tsd/packages/checker.sh",
+      "dst": "/usr/local/bin/checker.sh",
+      "permissions": 755,
+      "isExecutable": true
+    }
+  ],
+  "onInstall": "/usr/local/bin/checker.sh --install",
+  "undoScript": "/usr/local/bin/cleanup.sh --uninstall",
+  "requiresReboot": false,
+  "dependencies": [],
+  "minVersion": "1.0.0"
+}

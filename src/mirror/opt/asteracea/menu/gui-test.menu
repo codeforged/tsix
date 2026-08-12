@@ -1,0 +1,5 @@
+name=GUI Test
+icon=🧪
+command=/opt/test/gui-test.js
+pinned_launcher=false 
+maximize_on_start=true

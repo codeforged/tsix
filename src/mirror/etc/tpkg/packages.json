@@ -1,0 +1,349 @@
+{
+    "version": "1.0",
+    "packages": [
+        {
+            "name": "hello-world",
+            "version": "1.0.0",
+            "description": "Sample package for TPKG testing",
+            "author": "Antigravity",
+            "needReboot": false,
+            "onAfterDownload": "/opt/test/hello-pkg.ts",
+            "items": [
+                {
+                    "src": "/opt/test/hello-pkg.ts",
+                    "dst": "/root/bucket/hello-pkg.ts"
+                },
+                {
+                    "src": "/etc/pkg-demo.conf",
+                    "dst": "/root/bucket/pkg-demo.conf"
+                }
+            ]
+        },
+        {
+            "name": "packages-list",
+            "version": "1.0.1",
+            "description": "List of packages",
+            "author": "TSIX",
+            "needReboot": false,
+            "items": [
+                {
+                    "src": "/etc/tpkg/packages.json",
+                    "dst": "/etc/tpkg/packages.json"
+                }
+            ]
+        },
+        {
+            "name": "system-update",
+            "version": "1.7.4",
+            "description": "Full system kernel, configuration, and core library update (Production-Ready Parity Build)",
+            "author": "Antigravity",
+            "needReboot": true,
+            "onAfterDownload": "/sbin/apply-update.ts",
+            "items": [
+                {
+                    "src": "/sbin/apply-update.ts",
+                    "dst": "/sbin/apply-update.ts"
+                },
+                {
+                    "src": "/bin/init.ts",
+                    "dst": "/tmp/system-updates/bin/init.ts"
+                },
+                {
+                    "src": "/bin/tsh.ts",
+                    "dst": "/tmp/system-updates/bin/tsh.ts"
+                },
+                {
+                    "src": "/bin/login.ts",
+                    "dst": "/tmp/system-updates/bin/login.ts"
+                },
+                {
+                    "src": "/sbin/tpkg.ts",
+                    "dst": "/tmp/system-updates/bin/tpkg.ts"
+                },
+                {
+                    "src": "/sbin/tpkgd.ts",
+                    "dst": "/tmp/system-updates/bin/tpkgd.ts"
+                },
+                {
+                    "src": "/bin/ls.ts",
+                    "dst": "/tmp/system-updates/bin/ls.ts"
+                },
+                {
+                    "src": "/lib/UserLib.ts",
+                    "dst": "/tmp/system-updates/lib/UserLib.ts"
+                },
+                {
+                    "src": "/lib/Application.ts",
+                    "dst": "/tmp/system-updates/lib/Application.ts"
+                },
+                {
+                    "src": "/lib/common/SyscallCode.ts",
+                    "dst": "/tmp/system-updates/lib/common/SyscallCode.ts"
+                },
+                {
+                    "src": "/lib/common/IPCTypes.ts",
+                    "dst": "/tmp/system-updates/lib/common/IPCTypes.ts"
+                },
+                {
+                    "src": "/lib/common/Logger.ts",
+                    "dst": "/tmp/system-updates/lib/common/Logger.ts"
+                },
+                {
+                    "src": "/lib/common/SecurityAgent.ts",
+                    "dst": "/tmp/system-updates/lib/common/SecurityAgent.ts"
+                },
+                {
+                    "src": "/lib/common/PacketFlags.ts",
+                    "dst": "/tmp/system-updates/lib/common/PacketFlags.ts"
+                },
+                {
+                    "src": "/lib/common/PathResolver.ts",
+                    "dst": "/tmp/system-updates/lib/common/PathResolver.ts"
+                },
+                {
+                    "src": "/lib/common/Config.ts",
+                    "dst": "/tmp/system-updates/lib/common/Config.ts"
+                },
+                {
+                    "src": "/etc/tpkg/packages.json",
+                    "dst": "/tmp/system-updates/etc/tpkg/packages.json"
+                }
+            ]
+        },
+        {
+            "name": "coreutils",
+            "version": "1.1.2",
+            "description": "Standard TSIX userland utilities and core libraries",
+            "author": "Antigravity",
+            "needReboot": false,
+            "items": [
+                {
+                    "src": "/bin/atto.ts",
+                    "dst": "/bin/atto.ts"
+                },
+                {
+                    "src": "/bin/cat.ts",
+                    "dst": "/bin/cat.ts"
+                },
+                {
+                    "src": "/bin/chmod.ts",
+                    "dst": "/bin/chmod.ts"
+                },
+                {
+                    "src": "/bin/chown.ts",
+                    "dst": "/bin/chown.ts"
+                },
+                {
+                    "src": "/bin/cp.ts",
+                    "dst": "/bin/cp.ts"
+                },
+                {
+                    "src": "/bin/head.ts",
+                    "dst": "/bin/head.ts"
+                },
+                {
+                    "src": "/bin/ls.ts",
+                    "dst": "/bin/ls.ts"
+                },
+                {
+                    "src": "/usr/bin/sys-diag.ts",
+                    "dst": "/usr/bin/sys-diag.ts"
+                },
+                {
+                    "src": "/bin/mkdir.ts",
+                    "dst": "/bin/mkdir.ts"
+                },
+                {
+                    "src": "/bin/mv.ts",
+                    "dst": "/bin/mv.ts"
+                },
+                {
+                    "src": "/bin/pwd.ts",
+                    "dst": "/bin/pwd.ts"
+                },
+                {
+                    "src": "/bin/rm.ts",
+                    "dst": "/bin/rm.ts"
+                },
+                {
+                    "src": "/bin/tail.ts",
+                    "dst": "/bin/tail.ts"
+                },
+                {
+                    "src": "/bin/wc.ts",
+                    "dst": "/bin/wc.ts"
+                },
+                {
+                    "src": "/bin/whoami.ts",
+                    "dst": "/bin/whoami.ts"
+                },
+                {
+                    "src": "/bin/id.ts",
+                    "dst": "/bin/id.ts"
+                },
+                {
+                    "src": "/bin/groups.ts",
+                    "dst": "/bin/groups.ts"
+                },
+                {
+                    "src": "/bin/uname.ts",
+                    "dst": "/bin/uname.ts"
+                },
+                {
+                    "src": "/bin/uptime.ts",
+                    "dst": "/bin/uptime.ts"
+                },
+                {
+                    "src": "/bin/sleep.ts",
+                    "dst": "/bin/sleep.ts"
+                },
+                {
+                    "src": "/bin/sort.ts",
+                    "dst": "/bin/sort.ts"
+                },
+                {
+                    "src": "/bin/clear.ts",
+                    "dst": "/bin/clear.ts"
+                },
+                {
+                    "src": "/bin/grep.ts",
+                    "dst": "/bin/grep.ts"
+                },
+                {
+                    "src": "/bin/find.ts",
+                    "dst": "/bin/find.ts"
+                },
+                {
+                    "src": "/bin/xxd.ts",
+                    "dst": "/bin/xxd.ts"
+                },
+                {
+                    "src": "/bin/mount.ts",
+                    "dst": "/bin/mount.ts"
+                },
+                {
+                    "src": "/bin/umount.ts",
+                    "dst": "/bin/umount.ts"
+                },
+                {
+                    "src": "/sbin/vfs-pull.ts",
+                    "dst": "/sbin/vfs-pull.ts"
+                },
+                {
+                    "src": "/lib/UserLib.ts",
+                    "dst": "/lib/UserLib.ts"
+                },
+                {
+                    "src": "/lib/IProgram.ts",
+                    "dst": "/lib/IProgram.ts"
+                },
+                {
+                    "src": "/lib/NetworkLib.ts",
+                    "dst": "/lib/NetworkLib.ts"
+                },
+                {
+                    "src": "/lib/RandomLib.ts",
+                    "dst": "/lib/RandomLib.ts"
+                }
+            ]
+        },
+        {
+            "name": "nettools",
+            "version": "1.0.6",
+            "description": "Networking utilities and daemons for TSIX",
+            "author": "Antigravity",
+            "needReboot": false,
+            "items": [
+                {
+                    "src": "/bin/ping.ts",
+                    "dst": "/bin/ping.ts"
+                },
+                {
+                    "src": "/usr/bin/ifconfig.ts",
+                    "dst": "/usr/bin/ifconfig.ts"
+                },
+                {
+                    "src": "/usr/bin/nettop.ts",
+                    "dst": "/usr/bin/nettop.ts"
+                },
+                {
+                    "src": "/usr/bin/nmap.ts",
+                    "dst": "/usr/bin/nmap.ts"
+                },
+                {
+                    "src": "/usr/bin/forward.ts",
+                    "dst": "/usr/bin/forward.ts"
+                },
+                {
+                    "src": "/sbin/tpkg.ts",
+                    "dst": "/sbin/tpkg.ts"
+                },
+                {
+                    "src": "/sbin/tpkgd.ts",
+                    "dst": "/sbin/tpkgd.ts"
+                },
+                {
+                    "src": "/usr/bin/airterm.ts",
+                    "dst": "/usr/bin/airterm.ts"
+                },
+                {
+                    "src": "/sbin/airtermd.ts",
+                    "dst": "/sbin/airtermd.ts"
+                },
+                {
+                    "src": "/usr/bin/scp.ts",
+                    "dst": "/usr/bin/scp.ts"
+                },
+                {
+                    "src": "/sbin/scpd.ts",
+                    "dst": "/sbin/scpd.ts"
+                },
+                {
+                    "src": "/usr/bin/listen_net.ts",
+                    "dst": "/usr/bin/listen_net.ts"
+                },
+                {
+                    "src": "/usr/bin/ping_net.ts",
+                    "dst": "/usr/bin/ping_net.ts"
+                },
+                {
+                    "src": "/sbin/iot-listener.ts",
+                    "dst": "/sbin/iot-listener.ts"
+                },
+                {
+                    "src": "/lib/NetworkLib.ts",
+                    "dst": "/lib/NetworkLib.ts"
+                },
+                {
+                    "src": "/lib/PacketForwarder.ts",
+                    "dst": "/lib/PacketForwarder.ts"
+                }
+            ]
+        },
+        {
+            "name": "ota-server",
+            "version": "1.0.1",
+            "description": "Secure OTA Update Server for ESP8266/ESP32 with Metadata and Smart Cache support",
+            "author": "Antigravity",
+            "needReboot": false,
+            "items": [
+                {
+                    "src": "/sbin/otad.ts",
+                    "dst": "/sbin/otad.ts"
+                },
+                {
+                    "src": "/usr/bin/ota-gen-ak.ts",
+                    "dst": "/usr/bin/ota-gen-ak.ts"
+                },
+                {
+                    "src": "/opt/esp-ota/activation-keys.txt",
+                    "dst": "/opt/esp-ota/activation-keys.txt"
+                },
+                {
+                    "src": "/opt/esp-ota/firmwares/test/mytest.json",
+                    "dst": "/opt/esp-ota/firmwares/test/mytest.json"
+                }
+            ]
+        }
+    ]
+}

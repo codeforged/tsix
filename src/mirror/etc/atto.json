@@ -1,0 +1,50 @@
+{
+  "default": {
+    "keyword": "34",
+    "string": "32",
+    "comment": "90",
+    "number": "33",
+    "type": "36",
+    "statusBar": {
+      "fg": "30",
+      "bg": "47"
+    }
+  },
+  "typescript": {
+    "keyword": "94",
+    "statusBar": {
+      "fg": "93",
+      "bg": "90"
+    },
+    "keywords": [
+      "const", "let", "var", "function", "return", "if", "else", "for", "while",
+      "do", "switch", "case", "break", "continue", "new", "class", "extends",
+      "super", "this", "throw", "try", "catch", "finally", "typeof", "instanceof",
+      "in", "of", "delete", "void", "default", "import", "export", "from", "as",
+      "interface", "type", "enum", "implements", "public", "private", "protected",
+      "readonly", "static", "abstract", "async", "await", "yield", "get", "set",
+      "namespace", "module", "declare", "is", "keyof"
+    ],
+    "builtins": [
+      "string", "number", "boolean", "any", "void", "unknown", "never",
+      "object", "array", "symbol", "bigint", "Function", "Promise", "Date",
+      "Error", "RegExp", "Map", "Set", "Array", "Object", "String", "Number",
+      "Boolean", "null", "undefined", "true", "false", "NaN", "Infinity"
+    ]
+  },
+  "javascript": {
+    "string": "92",
+    "keywords": [
+      "const", "let", "var", "function", "return", "if", "else", "for", "while",
+      "do", "switch", "case", "break", "continue", "new", "class", "extends",
+      "super", "this", "throw", "try", "catch", "finally", "typeof", "instanceof",
+      "in", "of", "delete", "void", "default", "import", "export", "from",
+      "async", "await", "yield", "get", "set"
+    ],
+    "builtins": [
+      "Object", "Function", "Boolean", "Symbol", "Error", "Math", "JSON",
+      "Array", "String", "Number", "Date", "RegExp", "Promise", "Map", "Set",
+      "WeakMap", "WeakSet", "null", "undefined", "true", "false", "NaN", "Infinity"
+    ]
+  }
+}

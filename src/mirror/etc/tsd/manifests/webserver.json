@@ -1,0 +1,23 @@
+{
+  "name": "webserver",
+  "version": "2.1.0",
+  "description": "Lightweight HTTP server for TSIX applications.",
+  "author": "TSIX Networking",
+  "files": [
+    {
+      "src": "/var/tsd/packages/webserver",
+      "dst": "/usr/local/bin/webserver",
+      "permissions": 755,
+      "isExecutable": true
+    },
+    {
+      "src": "/var/tsd/packages/webserver.conf",
+      "dst": "/etc/webserver/config.conf"
+    }
+  ],
+  "onInstall": "/usr/local/bin/webserver --init",
+  "undoScript": "/usr/local/bin/webserver --cleanup",
+  "requiresReboot": false,
+  "dependencies": [],
+  "minVersion": "1.0.0"
+}

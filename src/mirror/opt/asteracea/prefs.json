@@ -1,0 +1,13 @@
+{
+    "showPinned": true,
+    "wallpaper": null,
+    "theme": "theme-light.json",
+    "themeDir": "/opt/asteracea",
+    "notifications": {
+        "duration": 5000,
+        "maxLog": 100,
+        "position": "ne"
+    },
+    "autorun": [              
+    ]
+}

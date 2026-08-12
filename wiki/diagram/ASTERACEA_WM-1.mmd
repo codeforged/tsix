@@ -1,0 +1,8 @@
+sequenceDiagram
+    App->>Kernel: shell.send(AST_UUID, {type:"DESKTOP_NOTIF",...})
+    Kernel->>Asteracea: IPC → ipc_message event
+    Asteracea->>Asteracea: pushNotification(title, msg)
+    Asteracea->>Browser: win.mount(notif card, launcher-overlay)
+    Browser-->>User: Slide animation + fade in
+    Asteracea->>Asteracea: setTimeout(5s) → auto-dismiss
+    Asteracea->>Browser: win.unmount(notif card)

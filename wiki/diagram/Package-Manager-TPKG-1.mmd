@@ -1,0 +1,16 @@
+graph LR
+    subgraph Client ["TSIX Node (Client)"]
+        TPKG["tpkg command"]
+        VFS["VFS (/bin, /lib, /etc)"]
+    end
+    
+    subgraph Server ["Package Server"]
+        TPKGD["tpkgd daemon"]
+        Repo["packages.json"]
+        Files["Package Files"]
+    end
+    
+    TPKG -->|"tpkg install pkg"| TPKGD
+    TPKGD -->|Lookup| Repo
+    TPKGD -->|Serve| Files
+    Files -->|Download| VFS

@@ -1,0 +1,5 @@
+flowchart LR
+    Write["1. Tulis .ts di src/mirror/bin/"] --> Save["2. Simpan file"]
+    Save --> Sync["3. Sync ke VFS (vfs-bootstrap / sync-vfs)"]
+    Sync --> Boot["4. Boot/Reboot TSIX"]
+    Boot --> Run["5. Ketik nama command di shell"]

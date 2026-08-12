@@ -1,0 +1,4 @@
+name=Form Demo
+icon=📋
+command=gui-demo
+taskbar_pinned=true

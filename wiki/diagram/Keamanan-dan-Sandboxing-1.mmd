@@ -1,0 +1,26 @@
+graph TD
+    subgraph Layer1 ["Layer 1: Network Security"]
+        RSA["RSA-2048 Handshake"]
+        ChaCha["ChaCha20-Poly1305 Encryption"]
+        FP["SHA-256 Fingerprint"]
+    end
+    
+    subgraph Layer2 ["Layer 2: Process Isolation"]
+        Worker["Worker Thread Isolation"]
+        Sandbox["API Sandboxing"]
+    end
+    
+    subgraph Layer3 ["Layer 3: Filesystem Security"]
+        Perm["POSIX Permission Model"]
+        PM["PermissionManager (Satpam)"]
+    end
+    
+    subgraph Layer4 ["Layer 4: Runtime Protection"]
+        NoFS["No native fs access"]
+        NoReq["require() blocked"]
+        NoEnv["process.env hidden"]
+    end
+    
+    Layer1 --> Layer2
+    Layer2 --> Layer3
+    Layer3 --> Layer4

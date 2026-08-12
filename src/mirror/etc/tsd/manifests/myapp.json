@@ -1,0 +1,23 @@
+{
+  "name": "myapp",
+  "version": "1.0.0",
+  "description": "Simple hello-world utility for TSIX.",
+  "author": "TSIX Team",
+  "files": [
+    {
+      "src": "/var/tsd/packages/myapp",
+      "dst": "/usr/local/bin/myapp",
+      "permissions": 755,
+      "isExecutable": true
+    },
+    {
+      "src": "/var/tsd/packages/myapp.README",
+      "dst": "/usr/share/doc/myapp/README.md"
+    }
+  ],
+  "onInstall": "/usr/local/bin/myapp --configure",
+  "undoScript": "/usr/local/bin/myapp --cleanup",
+  "requiresReboot": false,
+  "dependencies": [],
+  "minVersion": "1.0.0"
+}

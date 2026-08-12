@@ -1,0 +1,33 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "CommonJS",
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "outDir": "./dist",
+        "rootDir": "./src",
+        "baseUrl": ".",
+        "paths": {
+            "@userland/*": [
+                "src/userland/*"
+            ],
+            "@common/*": [
+                "src/common/*"
+            ],
+            "@tsix/*": [
+                "src/.tsix_sdk/lib/*",
+                "src/root/lib/*",
+                "src/mirror/lib/*"
+            ],
+            "@bin/*": [
+                "src/root/bin/*",
+                "src/.tsix_sdk/bin/*"
+            ]
+        }
+    },
+    "include": [
+        "src/**/*"
+    ]
+}

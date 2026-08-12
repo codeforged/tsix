@@ -1,0 +1,4 @@
+name=File Cruiser
+icon=📁
+command=file-cruiser
+taskbar_pinned=true 

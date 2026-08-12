@@ -1,0 +1,4 @@
+name=Form Demo
+icon=📋
+command=/opt/test/gui-demo.js
+pinned_launcher=false 

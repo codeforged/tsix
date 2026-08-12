@@ -1,0 +1,4 @@
+# TSIX System Profile
+# Loaded by shell on startup for every user
+export PATH=/bin:/sbin:/usr/bin:/opt/asteracea:/opt/mysqld:/opt/eucalyptus:/opt/file-cruiser:/opt/iot-dashboard:/opt/pixelspace-traffic:/opt/pixelterm:/opt/set-theme:/opt/taskmgr
+export EDITOR=/bin/atto

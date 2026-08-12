@@ -1,0 +1,4 @@
+name=Layout Demo
+icon=🎨
+command=layout-demo
+taskbar_pinned=true 
