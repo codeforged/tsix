@@ -38,7 +38,7 @@ const PROJECT_ROOT = path.resolve(__dirname, "..");
  * Direktori executable standar (FHS) — semua file .ts/.js di sini diberi bit
  * execute saat sync agar bisa dijalankan dari PATH.
  */
-const EXEC_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin"];
+const EXEC_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin", "/opt"];
 
 /**
  * Binary istimewa yang wajib berjalan sebagai pemilik file (SetUID root):

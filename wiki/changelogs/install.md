@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-08-12
+
+### `/opt` ditambahkan ke direktori eksekusi — GUI app bisa dijalankan user non-root
+- **File:** `scripts/install.ts`, `scripts/sync-vfs.ts`, `scripts/vfs-bootstrap.ts`
+- **Masalah:** `EXEC_DIRS` hanya berisi `/bin`, `/sbin`, `/usr/bin`, `/usr/local/bin`. Aplikasi GUI di `/opt/<app>/` (asteracea, dome, iot-dashboard, taskmgr, dll) tidak diberi flag `x` → user non-root tidak bisa menjalankan tanpa `chmod`/`sudo` (`chmod: cannot access ... Permission denied` karena file milik root).
+- **Perubahan:** Tambah `"/opt"` ke `EXEC_DIRS` di ketiga script → entry `.js`/`.ts` di `/opt/<app>/` di-chmod `0755` (owner root rwx, group & others r-x) oleh `applyBinaryMode` saat install/bootstrap/sync.
+- **Dampak:** App `/opt` langsung bisa dijalankan user non-root tanpa `chmod` manual. Catatan: untuk sistem yang sudah ada, jalankan `npm run vfs:bootstrap` (atau `npm run install`) agar mode diterapkan ulang. Mode hanya diterapkan ke `.js`/`.ts` (bukan `.menu`/config/asset).
+- **Oleh:** Copilot · **Laporan/reproduksi:** kakang
+
+---
+
 ## 2026-08-10
 
 ### Script instalasi `npm run install` (Fresh Install Agent)
