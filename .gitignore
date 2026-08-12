@@ -29,6 +29,15 @@ src/.tsix_sdk/
 .vfs_cache/
 *.tsbuildinfo
 
+# --- Arsip / file besar yang tidak perlu di-track ---
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+*.bak.zip
+
 # --- Log ---
 *.log
 logs/
