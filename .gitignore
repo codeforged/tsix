@@ -75,3 +75,7 @@ src/mirror/home/*
 src/mirror/home/kakang/*
 !src/mirror/home/kakang/.gitkeep
 **/.sh_history
+
+# --- shared/ — isi personal/dev; KECUALI ekstensi .jpg yang tetap di-track ---
+shared/*
+!shared/*.jpg
