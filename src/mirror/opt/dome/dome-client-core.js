@@ -115,6 +115,24 @@
       state.windows.clear();
       state.focusedWid = null;
       state.zCounter = 100;
+
+      // Hapus juga elemen yang di-ekstrak ke layer global / body (launcher,
+      // modal, start-menu). Kalau tidak, saat DOME replay window WM setelah
+      // reconnect, launcher-overlay jadi DUPLIKAT (lama + baru) di
+      // __tsix_overlay_layer__ dan querySelector memilih yang basi (wid lama
+      // yang sudah mati) → tombol logout/reboot di launcher tidak merespon
+      // sampai halaman di-refresh (F5).
+      if (state.overlayLayer) {
+        try {
+          state.overlayLayer.innerHTML = "";
+        } catch (e) { }
+      }
+      const gm = document.getElementById("__global_start_menu__");
+      if (gm) {
+        try {
+          gm.remove();
+        } catch (e) { }
+      }
     };
 
     state.socket.onerror = () => {

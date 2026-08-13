@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-13
+
+### Tombol launcher (logout/reboot) mati setelah reboot — overlay layer tidak dibersihkan saat auto-reconnect
+- **File:** `src/mirror/opt/dome/dome-client-core.js`
+- **Masalah:** Setelah `reboot` (dari mana pun), WM Asteracea restart → DOME restart → WebSocket browser putus → browser auto-reconnect. Handler `onclose` hanya membersihkan `state.windows` (elemen window), TAPI **tidak membersihkan `__tsix_overlay_layer__`** tempat `launcher-overlay` di-ekstrak (rendering di atas semua window). Saat DOME replay state window WM, `buildDOM`/`handleMountNode` membuat `launcher-overlay` BARU → **duplikat** (lama basi + baru) di overlay layer. `findElementById()`/`querySelector()` mengembalikan yang **pertama (basi, terikat wid lama yang sudah mati)** → klik tombol `launcher-logout` / `launcher-reboot` terkirim ke wid mati → tidak merespon. `btn-start` ada di dalam window (dibersihkan & dibangun ulang) → tetap berfungsi. Refresh browser (F5) me-reset seluruh halaman → overlay layer kosong → replay bersih → tombol normal lagi.
+- **Perubahan:** Saat `onclose` (auto-reconnect), selain membersihkan `state.windows`, sekarang juga membersihkan `state.overlayLayer` (`innerHTML = ""`) dan menghapus `#__global_start_menu__` bila ada. Semua elemen itu di-replay ulang oleh DOME saat koneksi baru, jadi aman dibersihkan — mencegah duplikat & memastikan tombol launcher terikat ke window baru.
+- **Dampak:** Setelah reboot, tombol logout/reboot di launcher langsung berfungsi tanpa perlu F5. Deploy: sync `dome-client-core.js` ke VFS → **restart DOME** → hard-refresh browser (sekali).
+- **Oleh:** Copilot · **Laporan/reproduksi:** kakang
+
 ## 2026-08-06
 
 ### Maximize mengabaikan flag `maximizable` — double-click titlebar & menu taskbar tetap bisa maximize
