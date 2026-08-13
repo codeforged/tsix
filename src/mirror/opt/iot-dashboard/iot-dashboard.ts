@@ -92,13 +92,19 @@ export const main = Program(async (args: string[]) => {
     );
 
     const log = async (m: string) => {
+        if (!app.running) return; // window sudah ditutup — berhenti
         statusBuf += m + "\n";
         if (statusBuf.length > 2000) statusBuf = statusBuf.slice(-2000);
-        await app.update("status-txt", { text: statusBuf });
-        if (autoScroll) { app.update("status-scroll", { scrollTop: 999999 }).catch(() => { }); }
+        try {
+            await app.update("status-txt", { text: statusBuf });
+            if (autoScroll) { await app.update("status-scroll", { scrollTop: 999999 }); }
+        } catch (_) {
+            // Window sudah destroyed — jangan sampai jadi unhandled rejection
+        }
     };
 
     const updateUI = async () => {
+        if (!app.running) return; // window sudah ditutup — berhenti update
         // Sensor cards → targeted update (NO setContent)
         for (const s of SENSORS) {
             const v = sv[s.id];
@@ -169,6 +175,7 @@ export const main = Program(async (args: string[]) => {
     const lib = (global as any)._tsixLib;
     if (lib?.onEvent) {
         lib.onEvent("ipc_message", (msg: any) => {
+            if (!app.running) return; // window sudah ditutup — jangan proses lagi
             const payload = msg?.data || msg;
             if (!payload || payload.type !== "SENSOR_DATA") return;
             log(`📥 [${payload.timestamp}] Node ${payload.nodeId} | Sensors: ${JSON.stringify(payload.sensors)} | Relays: ${JSON.stringify(payload.relays)}`);
@@ -191,9 +198,15 @@ export const main = Program(async (args: string[]) => {
 
     // Slider input: update nilai fan speed via bindHandler (persists across setContent)
     app.win.bindHandler("sl-input-fan-speed", "input", (ev: any) => {
+        if (!app.running) return;
         const val = parseInt(ev?.value) || 50;
         app.update("sl-val-fan-speed", { text: val + "%" }).catch(() => { });
     });
+
+    // Saat window ditutup → running=false: hentikan while-loop & update UI,
+    // supaya handler ipc_message tidak memanggil update pada window yang
+    // sudah destroyed (dulu: unhandled rejection → Worker Fatal).
+    app.win.onClose(() => { app.running = false; });
 
     await app.win.flush();
 
