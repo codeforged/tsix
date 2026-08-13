@@ -125,6 +125,7 @@ function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string): void {
       item.endsWith(".png") ||
       item.endsWith(".gif") ||
       item.endsWith(".bmp") ||
+      item.endsWith(".b64") ||
       item.endsWith(".svg") ||
       item.endsWith(".webp") ||
       item.endsWith(".ico");
@@ -140,6 +141,7 @@ function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string): void {
       item.endsWith(".png") ||
       item.endsWith(".gif") ||
       item.endsWith(".bmp") ||
+      item.endsWith(".b64") ||
       item.endsWith(".webp") ||
       item.endsWith(".ico");
     const content = isBinary
