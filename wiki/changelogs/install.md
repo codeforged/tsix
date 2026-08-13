@@ -6,6 +6,13 @@
 
 ## 2026-08-13
 
+### Password prompt kini di-masking ('*') — tidak bocor saat diketik
+- **File:** `scripts/install.ts`
+- **Masalah:** Password (user baru, konfirmasi, dan root) tampil plaintext saat diketik (`Password for 'x' rahasia123`) — tidak aman kalau ada yang melihat layar.
+- **Perubahan:** Fungsi `promptPassword()` baru. `readline/promises` tidak punya mode silent, jadi: detach listener readline sementara (agar readline tidak meng-echo plaintext), baca stdin dalam raw-mode (echo terminal mati), tampilkan `*` per karakter, lalu pulihkan state readline. Handle Enter/Ctrl+D (submit), Backspace (hapus), Ctrl+C (batal, exit 130), escape sequence panah (diabaikan). Non-TTY (pipe/redirect) fallback ke prompt biasa. Diterapkan ke `Password for '<user>'`, `Confirm password`, dan `Root password`.
+- **Dampak:** Input password tersembunyi seperti di Ubuntu/Unix. Verifikasi PTY: tidak ada plaintext bocor, hash bcrypt tetap cocok.
+- **Oleh:** Copilot · **Laporan:** kakang
+
 ### Prompt "Default user login" diganti akun user ala Ubuntu (+ home directory)
 - **File:** `scripts/install.ts`, `scripts/lib/user-account.ts`, `wiki/course/23-development-workflow.md` (+`.en.md`), `docs/TSIX-Course-ID.html`, `docs/TSIX-Course-EN.html`
 - **Masalah:** Prompt `Default user login` tidak berguna — akun `root` sudah pasti dibuat otomatis dari `src/mirror/etc/{passwd,group,shadow}`.

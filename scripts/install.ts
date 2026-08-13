@@ -298,6 +298,102 @@ async function promptYesNo(
   return ans === "y" || ans === "yes" || ans === "true" || ans === "1";
 }
 
+/**
+ * PROMPT PASSWORD DENGAN MASKING (input tidak ditampilkan, diganti '*') —
+ * ala prompt password di Ubuntu/Unix.
+ *
+ * readline/promises tidak punya mode silent, jadi: detach listener readline
+ * sementara (agar readline tidak ikut meng-echo plaintext), baca stdin dalam
+ * raw-mode (echo terminal mati), tampilkan '*' per karakter, lalu pulihkan
+ * state readline semula. Handle: Enter/Ctrl+D submit, Backspace hapus,
+ * Ctrl+C batal (exit 130), escape sequence (panah) diabaikan.
+ * Non-TTY (pipe/redirect): fallback ke prompt biasa tanpa masking.
+ */
+async function promptPassword(
+  rl: readline.Interface,
+  question: string,
+): Promise<string> {
+  const stdin = process.stdin as any;
+  const stdout = process.stdout;
+  const isTTY = !!stdin.isTTY && typeof stdin.setRawMode === "function";
+
+  if (!isTTY) {
+    return prompt(rl, question); // tidak bisa masking di non-TTY
+  }
+
+  // Detach listener readline sementara agar tidak meng-echo plaintext.
+  const dataListeners = stdin.listeners("data");
+  const keyListeners = stdin.listeners("keypress");
+  stdin.removeAllListeners("data");
+  stdin.removeAllListeners("keypress");
+
+  const prevRaw = stdin.isRaw;
+  stdin.setEncoding("utf8");
+  try {
+    stdin.setRawMode(true);
+  } catch (_) {
+    // Gagal masuk raw-mode — pulihkan & fallback ke prompt biasa.
+    for (const l of dataListeners) stdin.on("data", l);
+    for (const l of keyListeners) stdin.on("keypress", l);
+    return prompt(rl, question);
+  }
+  stdin.resume();
+  stdout.write(`${question} `);
+
+  return new Promise<string>((resolve) => {
+    let pw = "";
+    let skipEscape = 0; // sisa karakter escape (mis. panah) yang diabaikan
+
+    const cleanup = () => {
+      stdin.removeListener("data", onData);
+      stdin.setRawMode(prevRaw);
+      stdin.pause();
+      for (const l of dataListeners) stdin.on("data", l);
+      for (const l of keyListeners) stdin.on("keypress", l);
+      stdin.resume();
+    };
+
+    const finish = (value: string, exitCode?: number) => {
+      cleanup();
+      stdout.write("\n");
+      if (exitCode !== undefined) process.exit(exitCode);
+      resolve(value);
+    };
+
+    const onData = (chunk: string) => {
+      for (const ch of chunk) {
+        if (skipEscape > 0) {
+          skipEscape--;
+          continue;
+        }
+        if (ch === "\u001b") {
+          skipEscape = 2; // sequence ESC [ x
+          continue;
+        }
+        if (ch === "\r" || ch === "\n" || ch === "\u0004") {
+          finish(pw); // Enter / Ctrl+D
+          return;
+        }
+        if (ch === "\u0003") {
+          finish("", 130); // Ctrl+C → batal
+          return;
+        }
+        if (ch === "\u007f" || ch === "\b") {
+          if (pw.length > 0) {
+            pw = pw.slice(0, -1);
+            stdout.write("\b \b");
+          }
+          continue;
+        }
+        pw += ch;
+        stdout.write("*");
+      }
+    };
+
+    stdin.on("data", onData);
+  });
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const cfg = loadConfig();
@@ -336,8 +432,8 @@ async function main() {
           );
           continue;
         }
-        newPass = await prompt(rl, `Password for '${newUser}'`, "");
-        const confirm = await prompt(rl, "Confirm password", "");
+        newPass = await promptPassword(rl, `Password for '${newUser}'`);
+        const confirm = await promptPassword(rl, "Confirm password");
         if (!newPass) {
           console.log("[INSTALL] Password tidak boleh kosong.");
           continue;
@@ -379,10 +475,9 @@ async function main() {
       );
 
       dbRel = await prompt(rl, "New database filename (e.g. system.db)", dbRel);
-      rootPassword = await prompt(
+      rootPassword = await promptPassword(
         rl,
         "Root password (leave empty to keep default)",
-        "",
       );
     }
 
