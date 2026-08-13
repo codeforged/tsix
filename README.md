@@ -90,10 +90,9 @@ npm run install
 ```
 
 The installer will ask you for:
-- Hostname
+- Hostname (interface addresses are derived from it: `<hostname>`, `<hostname>_2`)
 - Default login user
 - MQTT broker address
-- Per-interface node address
 - Default MQTT port
 - Kernel verbose mode (y/n)
 - New database path

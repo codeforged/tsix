@@ -195,7 +195,6 @@ function createDefaultConfig(): SysConfig {
       verbose: true,
       distroName: "Antigonon leptopus",
       engineName: "TSIX-Dinawari",
-      creator: "Andriansah, andriansah@yahoo.com",
     },
     logger: {
       defaultLevel: "INFO",
@@ -220,13 +219,13 @@ function createDefaultConfig(): SysConfig {
     network: {
       interfaces: [
         {
-          broker: "mqtt://192.168.1.204",
+          broker: "mqtt://localhost",
           deviceName: "smqtnl0",
           address: "tsix",
           defaultPort: 1883,
         },
         {
-          broker: "mqtt://192.168.1.204",
+          broker: "mqtt://localhost",
           deviceName: "smqtnl1",
           address: "tsix-node-2",
           defaultPort: 1883,
@@ -302,7 +301,6 @@ async function main() {
         "Hostname",
         cfg.shell.defaultHostname,
       );
-      // distroName & creator tidak diinput — itu identitas/kredit bawaan distro.
       cfg.shell.defaultUser = await prompt(
         rl,
         "Default user login",
@@ -317,14 +315,9 @@ async function main() {
       if (broker) {
         cfg.network.interfaces.forEach((i) => (i.broker = broker));
       }
-
-      for (const iface of cfg.network.interfaces) {
-        const addr = await prompt(
-          rl,
-          `Address ${iface.deviceName}`,
-          iface.address,
-        );
-        if (addr) iface.address = addr;
+      if (broker.includes("localhost") || broker.includes("127.0.0.1")) {
+        console.log("[INSTALL] Note: this requires a local MQTT broker (e.g. Mosquitto) to be running.");
+        console.log("          Install guide: https://mosquitto.org/download/");
       }
 
       const portStr = await prompt(
@@ -343,13 +336,21 @@ async function main() {
         cfg.kernel.verbose ?? true,
       );
 
-      dbRel = await prompt(rl, "Path database baru", dbRel);
+      dbRel = await prompt(rl, "New database filename (e.g. system.db)", dbRel);
       rootPassword = await prompt(
         rl,
-        "Password root baru (kosong = biarkan default)",
+        "Root password (leave empty to keep default)",
         "",
       );
     }
+
+    // Address interface otomatis mengikuti hostname (di semua mode):
+    //   interface[0] = <hostname>, interface[1..n] = <hostname>_2, _3, ...
+    // Terlalu teknis untuk ditanyakan ke user — cukup derive dari hostname.
+    const host = cfg.shell.defaultHostname || "tsix";
+    cfg.network.interfaces.forEach((iface, i) => {
+      iface.address = i === 0 ? host : `${host}_${i + 1}`;
+    });
 
     const dbPath = path.resolve(PROJECT_ROOT, dbRel);
 

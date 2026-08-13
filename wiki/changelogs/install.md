@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-08-13
+
+### Address interface otomatis dari hostname — prompt per-interface dihapus
+- **File:** `scripts/install.ts`, `README.md`
+- **Masalah:** Instalasi interaktif menanyakan address per-interface MQTT (`Address smqtnl0`, `Address smqtnl1`) — terlalu teknis untuk user biasa.
+- **Perubahan:** Prompt address per-interface dihapus. Address kini di-derive otomatis dari hostname di semua mode: `interface[0]` = `<hostname>`, `interface[1..n]` = `<hostname>_2`, `_3`, dst.
+- **Dampak:** Instalasi lebih ringkas (tidak perlu paham detail jaringan). Daftar pertanyaan installer di README ikut diperbarui.
+- **Oleh:** Copilot · **Laporan:** kakang
+
+---
+
 ## 2026-08-12
 
 ### `/opt` ditambahkan ke direktori eksekusi — GUI app bisa dijalankan user non-root
