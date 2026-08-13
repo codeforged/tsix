@@ -59,9 +59,16 @@ Thumbs.db
 .vscode/
 .idea/
 
-# --- Home direktori user & riwayat shell (file personal) ---
-# src/mirror/root/ & src/mirror/home/* berisi file personal/dev per user
-# (test coba-coba, .sh_history, dll) — JANGAN di-commit.
-src/mirror/root/
-src/mirror/home/
+# --- Isi home direktori user (file personal) — direktori-nya TETAP di-track ---
+# File personal/dev per user (test coba-coba, .sh_history, dll) TIDAK di-commit,
+# tapi direktori home dipertahankan via .gitkeep supaya /root, /home, /home/<user>
+# tetap hadir di clone fresh (dibutuhkan login/chdir). Installer skip file tanpa
+# ekstensi, jadi .gitkeep tidak ikut ter-sync ke VFS.
+src/mirror/root/*
+!src/mirror/root/.gitkeep
+src/mirror/home/*
+!src/mirror/home/.gitkeep
+!src/mirror/home/kakang/
+src/mirror/home/kakang/*
+!src/mirror/home/kakang/.gitkeep
 **/.sh_history
