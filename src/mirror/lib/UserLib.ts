@@ -230,7 +230,6 @@ export class StdLib {
     machine: string;
     runtime: string;
     engine: string;
-    creator: string;
   }> {
     return await this.dispatch(SyscallCode.UNAME, null);
   }

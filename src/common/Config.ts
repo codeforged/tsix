@@ -10,7 +10,6 @@ export interface SysConfig {
         verbose: boolean;
         distroName: string;
         engineName: string;
-        creator: string;
     };
     logger: {
         defaultLevel: string;

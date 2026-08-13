@@ -1129,7 +1129,6 @@ export class SyscallDispatcher {
           machine: process.arch === "x64" ? "x86_64" : process.arch,
           runtime: `Node.js ${process.version}`,
           engine: `${cfg.kernel.engineName} (TypeScript)`,
-          creator: cfg.kernel.creator,
         };
       }
       case SyscallCode.GETENV:

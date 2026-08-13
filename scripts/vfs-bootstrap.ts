@@ -86,15 +86,31 @@ async function main() {
                         item.endsWith(".css") ||
                         item.endsWith(".menu") ||
                         item.endsWith(".mp3") ||
-                        item.endsWith(".wav");
+                        item.endsWith(".wav") ||
+                        item.endsWith(".jpg") ||
+                        item.endsWith(".jpeg") ||
+                        item.endsWith(".png") ||
+                        item.endsWith(".gif") ||
+                        item.endsWith(".bmp") ||
+                        item.endsWith(".svg") ||
+                        item.endsWith(".webp") ||
+                        item.endsWith(".ico");
 
                     if (!isTarget) continue;
 
-                    // Binary assets (mp3/wav) disimpan sebagai latin1 string
-                    // (1 byte = 1 char) — cocok dengan Buffer.from(raw,"latin1")
-                    // di sisi app. Teks biasa pakai utf8.
+                    // Binary assets (audio/gambar raster) disimpan sebagai
+                    // latin1 string (1 byte = 1 char) — cocok dengan
+                    // Buffer.from(raw,"latin1") di sisi app. Teks pakai utf8.
                     const isBinary =
-                        item.endsWith(".mp3") || item.endsWith(".wav");
+                        item.endsWith(".mp3") ||
+                        item.endsWith(".wav") ||
+                        item.endsWith(".jpg") ||
+                        item.endsWith(".jpeg") ||
+                        item.endsWith(".png") ||
+                        item.endsWith(".gif") ||
+                        item.endsWith(".bmp") ||
+                        item.endsWith(".webp") ||
+                        item.endsWith(".ico");
                     const content = isBinary
                         ? fs.readFileSync(fullHostPath).toString("latin1")
                         : fs.readFileSync(fullHostPath, "utf8");
