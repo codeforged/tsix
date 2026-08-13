@@ -31,7 +31,7 @@ or PR discussion before merging.
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/yourusername/tsix.git
+git clone https://github.com/codeforged/tsix.git
 cd tsix
 npm install
 ```
