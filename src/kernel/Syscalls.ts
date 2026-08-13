@@ -1746,9 +1746,18 @@ export class SyscallDispatcher {
 
         const fullVfsPath = PathResolver.resolve(pcb.cwd, vfsPath);
 
-        // Ensure mount point exists in the current VFS structure
-        if (!this.bkfs.exists(fullVfsPath)) {
-          this.bkfs.mkdir(fullVfsPath, uid ?? 0, gid ?? 0, 0o755);
+        // Unix fidelity: mount point harus SUDAH ADA & berupa direktori.
+        // Sebelumnya auto-create diam-diam — sekarang ditolak seperti Linux
+        // ("mount point does not exist"). Fstab (boot) tetap bisa auto-create
+        // karena lewat processFstab, bukan syscall ini.
+        const { vfs: mntVfs, relativePath: mntRel } =
+          this.mountManager.resolve(fullVfsPath);
+        const mntNode = mntVfs.stat(mntRel);
+        if (!mntNode) {
+          throw new Error(`mount: mount point ${fullVfsPath} does not exist`);
+        }
+        if (mntNode.type !== "DIRECTORY") {
+          throw new Error(`mount: ${fullVfsPath} is not a directory`);
         }
 
         let driver: IVFS;

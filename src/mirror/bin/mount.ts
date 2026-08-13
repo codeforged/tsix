@@ -77,6 +77,18 @@ export default Program(async (args) => {
   }
 
   try {
+    // Unix fidelity: mount point harus SUDAH ADA & berupa direktori.
+    // Mount ke direktori yang tidak ada harus ditolak, bukan auto-create.
+    const targetStat = await fs.stat(vfsPath).catch(() => null);
+    if (!targetStat) {
+      await std.print(`mount: mount point ${vfsPath} does not exist\n`);
+      return;
+    }
+    if (targetStat.type !== "DIRECTORY") {
+      await std.print(`mount: ${vfsPath} is not a directory\n`);
+      return;
+    }
+
     const ok = await fs.mount(vfsPath, hostPath, isReadOnly, fsType, uid, gid);
     if (ok) {
       await std.print(

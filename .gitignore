@@ -29,6 +29,9 @@ src/.tsix_sdk/
 .vfs_cache/
 *.tsbuildinfo
 
+# --- Artifak test mount (host dir dibuat oleh Syscalls.test.ts) ---
+test-mount*
+
 # --- Arsip / file besar yang tidak perlu di-track ---
 *.zip
 *.tar

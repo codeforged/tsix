@@ -628,8 +628,8 @@ describe("SyscallDispatcher (A1)", () => {
     describe("MOUNT / UMOUNT", () => {
         it("A1.71 MOUNT – mount VFS at path", async () => {
             const pcb = createTestProcess(); // root
-            // Need mkdir first for mount point
-            vfs.mkdir("/mnt", 0, 0, 493);
+            // Mount point harus SUDAH ADA (Unix semantics) — buat /mnt/data dulu
+            vfs.mkdir("/mnt/data", 0, 0, 493);
             const result = await dispatcher.dispatch(pcb.pid, SyscallCode.MOUNT, {
                 vfsPath: "/mnt/data",
                 hostPath: "./test-mount",
@@ -640,7 +640,7 @@ describe("SyscallDispatcher (A1)", () => {
 
         it("A1.72 MOUNT – path already mounted (overmount)", async () => {
             const pcb = createTestProcess();
-            vfs.mkdir("/mnt2", 0, 0, 493);
+            vfs.mkdir("/mnt2/data", 0, 0, 493);
             await dispatcher.dispatch(pcb.pid, SyscallCode.MOUNT, {
                 vfsPath: "/mnt2/data",
                 hostPath: "./test-mount-a",
@@ -669,7 +669,7 @@ describe("SyscallDispatcher (A1)", () => {
 
         it("A1.74 UMOUNT – unmount VFS", async () => {
             const pcb = createTestProcess();
-            vfs.mkdir("/mnt4", 0, 0, 493);
+            vfs.mkdir("/mnt4/data", 0, 0, 493);
             await dispatcher.dispatch(pcb.pid, SyscallCode.MOUNT, {
                 vfsPath: "/mnt4/data",
                 hostPath: "./test-mount-umount",
