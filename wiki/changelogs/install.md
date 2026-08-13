@@ -6,6 +6,17 @@
 
 ## 2026-08-13
 
+### Prompt "Default user login" diganti akun user ala Ubuntu (+ home directory)
+- **File:** `scripts/install.ts`, `scripts/lib/user-account.ts`, `wiki/course/23-development-workflow.md` (+`.en.md`), `docs/TSIX-Course-ID.html`, `docs/TSIX-Course-EN.html`
+- **Masalah:** Prompt `Default user login` tidak berguna — akun `root` sudah pasti dibuat otomatis dari `src/mirror/etc/{passwd,group,shadow}`.
+- **Perubahan:** Prompt tersebut dihapus. Diganti pembuatan akun user biasa ala installer Ubuntu: `Username (empty to skip)` → `Password for '<user>'` → `Confirm password`, dengan validasi (username `^[a-z_][a-z0-9_-]*$`, password tidak kosong & harus cocok; username kosong = skip, cukup root). Logika pembuatan dipindah ke helper murni `createUserAccount()` di `scripts/lib/user-account.ts` (bisa diuji terpisah) yang:
+  - menambah entri ke `/etc/passwd` (UID ≥ 1000, gid `users` 100, shell `/bin/tsh.ts`),
+  - menambah hash bcrypt ke `/etc/shadow` (mode `0640`),
+  - menambahkan user sebagai member grup `users` di `/etc/group`,
+  - membuat `/home/<username>` (mode `0700`, milik user) — **home directory kini dibuat**.
+- **Dampak:** Fresh install bisa langsung punya akun non-root + home, tidak perlu `useradd` manual. Konsisten dengan `/bin/useradd.ts`.
+- **Oleh:** Copilot · **Laporan:** kakang
+
 ### Address interface otomatis dari hostname — prompt per-interface dihapus
 - **File:** `scripts/install.ts`, `README.md`
 - **Masalah:** Instalasi interaktif menanyakan address per-interface MQTT (`Address smqtnl0`, `Address smqtnl1`) — terlalu teknis untuk user biasa.

@@ -1,4 +1,5 @@
 import { BKFS } from "../src/vfs/BKFS";
+import { createUserAccount } from "./lib/user-account";
 import * as fs from "fs";
 import * as path from "path";
 import * as esbuild from "esbuild";
@@ -14,7 +15,8 @@ import type { SysConfig } from "../src/common/Config";
  *   2. Tulis hasil konfigurasi ke src/sysconfig.json.
  *   3. Buat file database .db yang BENAR-BENAR BARU (file lama otomatis di-backup).
  *   4. Sinkronkan seluruh src/mirror (rootfs) ke database baru (transpile TS -> JS + SetUID).
- *   5. (Opsional) set password root ke /etc/shadow.
+ *   5. (Opsional) Buat akun user biasa (username + password + konfirmasi) + home directory.
+ *   6. (Opsional) set password root ke /etc/shadow.
  *
  * Cara pakai (dari root project):
  *   npm run install                     -> interaktif, db default dari sysconfig.json
@@ -303,6 +305,8 @@ async function main() {
 
   let dbRel = defaultDbRel;
   let rootPassword = "";
+  let newUser = ""; // akun user biasa (opsional, ala installer Ubuntu)
+  let newPass = "";
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -319,11 +323,31 @@ async function main() {
         "Hostname",
         cfg.shell.defaultHostname,
       );
-      cfg.shell.defaultUser = await prompt(
-        rl,
-        "Default user login",
-        cfg.shell.defaultUser,
-      );
+
+      // Akun user biasa (root sudah pasti dibuat otomatis dari src/mirror).
+      // Alur ala installer Ubuntu: username → password → konfirmasi password.
+      // Kosongkan username untuk melewati (cukup akun root saja).
+      while (true) {
+        newUser = (await prompt(rl, "Username (empty to skip)", "")).trim();
+        if (!newUser) break; // skip — hanya root
+        if (!/^[a-z_][a-z0-9_-]*$/.test(newUser)) {
+          console.log(
+            "[INSTALL] Username tidak valid — pakai huruf kecil, angka, '_' atau '-'.",
+          );
+          continue;
+        }
+        newPass = await prompt(rl, `Password for '${newUser}'`, "");
+        const confirm = await prompt(rl, "Confirm password", "");
+        if (!newPass) {
+          console.log("[INSTALL] Password tidak boleh kosong.");
+          continue;
+        }
+        if (newPass !== confirm) {
+          console.log("[INSTALL] Password tidak cocok — ulangi.");
+          continue;
+        }
+        break;
+      }
 
       const broker = await prompt(
         rl,
@@ -460,6 +484,13 @@ async function main() {
       0o644,
     );
     console.log("[INSTALL] /etc/crontab dikosongkan");
+
+    // ============ 4.5 AKUN USER BARU (OPSIONAL) ============
+    // Root dibuat otomatis dari src/mirror. Bagian ini menambah akun user
+    // biasa + home directory-nya, sama seperti useradd (UID >= 1000, gid users).
+    if (newUser) {
+      createUserAccount(bkfs, newUser, newPass);
+    }
 
     // ============ 5. PASSWORD ROOT (OPSIONAL) ============
     if (rootPassword) {

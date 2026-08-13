@@ -8988,13 +8988,14 @@ scripts/lib/db-path.ts
 </code></pre>
 <h3>1. Fresh install (<code>npm run install</code>)</h3>
 <ol>
-<li>Ask interactive configuration: hostname, default user login, MQTT broker, per-interface address, default MQTT port, kernel verbose, new DB path, (optional) root password.</li>
+<li>Ask interactive configuration: hostname, user account (optional: username, password, confirm), MQTT broker, per-interface address, default MQTT port, kernel verbose, new DB path, (optional) root password.</li>
 <li>Write the result to <code>src/sysconfig.json</code> (stores the new <code>kernel.database</code>).</li>
 <li>Create a new <code>.db</code> file. If the file already exists and without <code>--force</code> → stop; with <code>--force</code> → the old file is backed up to <code>*.bak-&lt;timestamp&gt;</code>.</li>
 <li>Sync rootfs: <code>src/mirror</code> → <code>/</code>, then <code>src/common</code> → <code>/lib/common</code>. Each <code>.ts</code> is transpiled to a sidecar <code>.js</code>; executable directories get execute mode (<code>/sbin</code> = <code>0744</code>, others <code>0755</code>); <code>login</code>, <code>passwd</code>, <code>sudo</code> get SetUID (<code>4755</code> root).</li>
 <li>Sync explicit <code>/etc</code> files without extension: <code>passwd</code>, <code>shadow</code> (mode <code>0640</code>), <code>group</code>, <code>crontab</code>, <code>profile</code>, <code>motd</code>, <code>fstab.md</code>, <code>pkg-demo.conf</code>.</li>
 <li>Write a fresh <code>fstab.json</code> — only <code>/tmp</code> as ramfs (mode <code>1777</code> sticky); device-specific mounts are not carried over.</li>
 <li>Clear <code>/etc/crontab</code>.</li>
+<li>If a user account was provided → add an entry to <code>/etc/passwd</code> + <code>/etc/shadow</code> (bcrypt) + <code>users</code> group, then create <code>/home/&lt;username&gt;</code> (mode <code>0700</code>, owned by the user).</li>
 <li>If a root password is provided → it is bcrypt-hashed and written to <code>/etc/shadow</code>.</li>
 <li>Verify: total nodes, number of <code>passwd</code> accounts, group list, <code>shadow</code> entries.</li>
 </ol>

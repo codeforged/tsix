@@ -106,15 +106,16 @@ scripts/lib/db-path.ts
 
 ### 1. Fresh install (`npm run install`)
 
-1. Tanya konfigurasi interaktif: hostname, default user login, broker MQTT, address per-interface, port MQTT default, verbose kernel, path DB baru, (opsional) password root.
+1. Tanya konfigurasi interaktif: hostname, akun user biasa (opsional: username, password, konfirmasi), broker MQTT, address per-interface, port MQTT default, verbose kernel, path DB baru, (opsional) password root.
 2. Tulis hasil ke `src/sysconfig.json` (menyimpan `kernel.database` baru).
 3. Buat file `.db` baru. Jika file sudah ada dan tanpa `--force` → berhenti; dengan `--force` → file lama di-backup ke `*.bak-<timestamp>`.
 4. Sync rootfs: `src/mirror` → `/`, lalu `src/common` → `/lib/common`. Setiap `.ts` di-transpile jadi sidecar `.js`; direktori eksekusi diberi mode eksekusi (`/sbin` = `0744`, lainnya `0755`); `login`, `passwd`, `sudo` diberi SetUID (`4755` root).
 5. Sync eksplisit file `/etc` tanpa ekstensi: `passwd`, `shadow` (mode `0640`), `group`, `crontab`, `profile`, `motd`, `fstab.md`, `pkg-demo.conf`.
 6. Tulis `fstab.json` fresh — hanya `/tmp` sebagai ramfs (mode `1777` sticky); mount dev-spesifik tidak dibawa.
 7. Kosongkan `/etc/crontab`.
-8. Jika password root diisi → di-hash bcrypt dan ditulis ke `/etc/shadow`.
-9. Verifikasi: total node, jumlah akun `passwd`, daftar group, entri `shadow`.
+8. Jika akun user biasa diisi → tambah entri ke `/etc/passwd` + `/etc/shadow` (bcrypt) + grup `users`, lalu buat `/home/<username>` (mode `0700`, milik user).
+9. Jika password root diisi → di-hash bcrypt dan ditulis ke `/etc/shadow`.
+10. Verifikasi: total node, jumlah akun `passwd`, daftar group, entri `shadow`.
 
 ```bash
 npm run install                              # interaktif, path dari sysconfig

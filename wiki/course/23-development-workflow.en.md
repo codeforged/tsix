@@ -106,15 +106,16 @@ scripts/lib/db-path.ts
 
 ### 1. Fresh install (`npm run install`)
 
-1. Ask interactive configuration: hostname, default user login, MQTT broker, per-interface address, default MQTT port, kernel verbose, new DB path, (optional) root password.
+1. Ask interactive configuration: hostname, user account (optional: username, password, confirm), MQTT broker, per-interface address, default MQTT port, kernel verbose, new DB path, (optional) root password.
 2. Write the result to `src/sysconfig.json` (stores the new `kernel.database`).
 3. Create a new `.db` file. If the file already exists and without `--force` → stop; with `--force` → the old file is backed up to `*.bak-<timestamp>`.
 4. Sync rootfs: `src/mirror` → `/`, then `src/common` → `/lib/common`. Each `.ts` is transpiled to a sidecar `.js`; executable directories get execute mode (`/sbin` = `0744`, others `0755`); `login`, `passwd`, `sudo` get SetUID (`4755` root).
 5. Sync explicit `/etc` files without extension: `passwd`, `shadow` (mode `0640`), `group`, `crontab`, `profile`, `motd`, `fstab.md`, `pkg-demo.conf`.
 6. Write a fresh `fstab.json` — only `/tmp` as ramfs (mode `1777` sticky); device-specific mounts are not carried over.
 7. Clear `/etc/crontab`.
-8. If a root password is provided → it is bcrypt-hashed and written to `/etc/shadow`.
-9. Verify: total nodes, number of `passwd` accounts, group list, `shadow` entries.
+8. If a user account was provided → add an entry to `/etc/passwd` + `/etc/shadow` (bcrypt) + `users` group, then create `/home/<username>` (mode `0700`, owned by the user).
+9. If a root password is provided → it is bcrypt-hashed and written to `/etc/shadow`.
+10. Verify: total nodes, number of `passwd` accounts, group list, `shadow` entries.
 
 ```bash
 npm run install                              # interaktif, path dari sysconfig

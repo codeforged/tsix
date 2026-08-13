@@ -8987,13 +8987,14 @@ scripts/lib/db-path.ts
 </code></pre>
 <h3>1. Fresh install (<code>npm run install</code>)</h3>
 <ol>
-<li>Tanya konfigurasi interaktif: hostname, default user login, broker MQTT, address per-interface, port MQTT default, verbose kernel, path DB baru, (opsional) password root.</li>
+<li>Tanya konfigurasi interaktif: hostname, akun user biasa (opsional: username, password, konfirmasi), broker MQTT, address per-interface, port MQTT default, verbose kernel, path DB baru, (opsional) password root.</li>
 <li>Tulis hasil ke <code>src/sysconfig.json</code> (menyimpan <code>kernel.database</code> baru).</li>
 <li>Buat file <code>.db</code> baru. Jika file sudah ada dan tanpa <code>--force</code> → berhenti; dengan <code>--force</code> → file lama di-backup ke <code>*.bak-&lt;timestamp&gt;</code>.</li>
 <li>Sync rootfs: <code>src/mirror</code> → <code>/</code>, lalu <code>src/common</code> → <code>/lib/common</code>. Setiap <code>.ts</code> di-transpile jadi sidecar <code>.js</code>; direktori eksekusi diberi mode eksekusi (<code>/sbin</code> = <code>0744</code>, lainnya <code>0755</code>); <code>login</code>, <code>passwd</code>, <code>sudo</code> diberi SetUID (<code>4755</code> root).</li>
 <li>Sync eksplisit file <code>/etc</code> tanpa ekstensi: <code>passwd</code>, <code>shadow</code> (mode <code>0640</code>), <code>group</code>, <code>crontab</code>, <code>profile</code>, <code>motd</code>, <code>fstab.md</code>, <code>pkg-demo.conf</code>.</li>
 <li>Tulis <code>fstab.json</code> fresh — hanya <code>/tmp</code> sebagai ramfs (mode <code>1777</code> sticky); mount dev-spesifik tidak dibawa.</li>
 <li>Kosongkan <code>/etc/crontab</code>.</li>
+<li>Jika akun user biasa diisi → tambah entri ke <code>/etc/passwd</code> + <code>/etc/shadow</code> (bcrypt) + grup <code>users</code>, lalu buat <code>/home/&lt;username&gt;</code> (mode <code>0700</code>, milik user).</li>
 <li>Jika password root diisi → di-hash bcrypt dan ditulis ke <code>/etc/shadow</code>.</li>
 <li>Verifikasi: total node, jumlah akun <code>passwd</code>, daftar group, entri <code>shadow</code>.</li>
 </ol>
