@@ -5,7 +5,6 @@
  * terus menerus (bounce). Jalan 100% di browser — zero WebSocket per-frame.
  */
 DDC.onInit(function (ctx) {
-  document.querySelector('[data-tsix-id="path-display"]').textContent = "hahahaha";
   var W = ctx.width;
   var H = ctx.height;
   var c2 = ctx.canvas.getContext("2d");
