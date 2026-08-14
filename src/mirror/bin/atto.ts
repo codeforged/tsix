@@ -735,20 +735,32 @@ class SimpleTextEditor {
                 // Home / End / PgUp / PgDn / Del / Insert
                 // Catatan: untuk sequence yang diakhiri "~" (5~, 6~, 3~, 2~, 4~),
                 // "~" harus dikonsumsi — kalau tidak, sisa "~" ikut diketik.
-                if (seq2 === "H") { await endSelection(); this.cursorX = 0; this.monoPos = 0; if (!(await this.adjustHorizontalScroll())) await this.renderCursorOnly(); return; } // Home \x1b[H
-                if (seq2 === "F") { await endSelection(); await this.jumpToEnd(); return; }   // End \x1b[F
+                if (seq2 === "H") { await this.goHome(); return; } // Home \x1b[H — perluas selection ke awal baris kalau sedang seleksi
+                if (seq2 === "F") { await this.goEnd(); return; }  // End \x1b[F — perluas selection ke akhir baris kalau sedang seleksi
                 if (seq2 === "5") { await endSelection(); await std.getChar(); await this.pageUp(); return; }    // PgUp \x1b[5~
                 if (seq2 === "6") { await endSelection(); await std.getChar(); await this.pageDown(); return; }  // PgDn \x1b[6~
-                if (seq2 === "3") { await endSelection(); await std.getChar(); await this.deleteChar(); return; } // Del \x1b[3~
+                if (seq2 === "3") {
+                    // Del \x1b[3~ | Ctrl+Del \x1b[3;5~ | modifier lain \x1b[3;N~
+                    // Hapus selection kalau aktif; kalau tidak, hapus 1 karakter.
+                    const nx = await std.getChar();
+                    if (nx === ";") {
+                        await std.getChar(); // modifier (2=Shift, 5=Ctrl, dst.)
+                        await std.getChar(); // "~"
+                    }
+                    if (!(await this.deleteSelection())) {
+                        await this.deleteChar();
+                    }
+                    return;
+                }
                 if (seq2 === "2") { await endSelection(); await std.getChar(); return; } // Insert \x1b[2~ (belum ada mode insert)
-                if (seq2 === "4") { await endSelection(); await std.getChar(); await this.jumpToEnd(); return; } // End \x1b[4~ (fallback)
+                if (seq2 === "4") { await std.getChar(); await this.goEnd(); return; } // End \x1b[4~ (fallback)
 
                 if (seq2 === "1") {
                     const seq3 = await std.getChar();
                     if (seq3 === ";") {
                         const seq4 = await std.getChar();
                         if (seq4 === "2") {
-                            // Shift+Arrow → perluas selection
+                            // Shift+Arrow / Shift+Home / Shift+End → perluas selection
                             const seq5 = await std.getChar();
                             if (!this.selectionActive) {
                                 this.selectionActive = true;
@@ -758,6 +770,8 @@ class SimpleTextEditor {
                             else if (seq5 === "B") await this.moveDown();
                             else if (seq5 === "C") await this.moveRight();
                             else if (seq5 === "D") await this.moveLeft();
+                            else if (seq5 === "H") await this.goHome(); // Shift+Home → perluas ke awal baris
+                            else if (seq5 === "F") await this.goEnd();  // Shift+End → perluas ke akhir baris
                             if (this.selectionActive) {
                                 this.selectionEnd = { line: this.cursorY + this.offsetY, col: this.cursorX };
                             }
@@ -776,9 +790,7 @@ class SimpleTextEditor {
                         }
                     } else if (seq3 === "~") {
                         // Home key (fallback \x1b[1~)
-                        await endSelection();
-                        this.cursorX = 0; this.monoPos = 0;
-                        if (!(await this.adjustHorizontalScroll())) await this.renderCursorOnly();
+                        await this.goHome();
                         return;
                     }
                 }
@@ -1087,6 +1099,41 @@ class SimpleTextEditor {
         }
     }
 
+    /**
+     * Home: kalau sedang seleksi, perluas selection ke awal baris;
+     * kalau tidak, pindah kursor ke awal baris.
+     */
+    private async goHome() {
+        if (this.selectionActive) {
+            this.cursorX = 0;
+            this.offsetX = 0;
+            this.monoPos = 0;
+            this.selectionEnd = { line: this.cursorY + this.offsetY, col: this.cursorX };
+            await this.render();
+            return;
+        }
+        await this.jumpToHome();
+    }
+
+    /**
+     * End: kalau sedang seleksi, perluas selection ke akhir baris;
+     * kalau tidak, pindah kursor ke akhir baris.
+     */
+    private async goEnd() {
+        if (this.selectionActive) {
+            const line = this.lines[this.cursorY + this.offsetY] || "";
+            this.cursorX = line.length;
+            this.monoPos = this.cursorX;
+            if (this.cursorX >= this.offsetX + this.textWidth) {
+                this.offsetX = this.cursorX - this.textWidth + 1;
+            }
+            this.selectionEnd = { line: this.cursorY + this.offsetY, col: this.cursorX };
+            await this.render();
+            return;
+        }
+        await this.jumpToEnd();
+    }
+
     private async pageUp() {
         this.offsetY = Math.max(0, this.offsetY - this.screenHeight);
         await this.render();
@@ -1227,6 +1274,58 @@ class SimpleTextEditor {
             this.checkModified();
             await this.render();
         }
+    }
+
+    /**
+     * Hapus teks yang sedang terseleksi (dipakai Ctrl+Del / Del).
+     * Mengembalikan true jika ada teks yang benar-benar dihapus.
+     */
+    private async deleteSelection(): Promise<boolean> {
+        if (!this.selectionActive || !this.selectionStart || !this.selectionEnd) return false;
+        const start = this.selectionStart;
+        const end = this.selectionEnd;
+        // Pastikan start sebelum end
+        let s = start, e = end;
+        if (s.line > e.line || (s.line === e.line && s.col > e.col)) {
+            const t = s; s = e; e = t;
+        }
+        // Selection kosong (start == end) → tidak menghapus apa-apa
+        if (s.line === e.line && s.col === e.col) {
+            this.selectionActive = false;
+            this.selectionStart = null;
+            this.selectionEnd = null;
+            return false;
+        }
+
+        this.captureState(true);
+        if (s.line === e.line) {
+            // Satu baris: potong bagian [s.col, e.col)
+            const line = this.lines[s.line];
+            this.lines[s.line] = line.slice(0, s.col) + line.slice(e.col);
+        } else {
+            // Multi-baris: gabung kepala baris pertama + ekor baris terakhir
+            const firstHead = this.lines[s.line].slice(0, s.col);
+            const lastTail = this.lines[e.line].slice(e.col);
+            this.lines.splice(s.line, e.line - s.line + 1, firstHead + lastTail);
+        }
+
+        // Pindahkan kursor ke posisi awal selection (dengan scroll)
+        this.cursorX = s.col;
+        this.monoPos = s.col;
+        const absLine = s.line;
+        if (absLine < this.offsetY) this.offsetY = absLine;
+        else if (absLine >= this.offsetY + this.screenHeight) this.offsetY = absLine - this.screenHeight + 1;
+        this.cursorY = absLine - this.offsetY;
+        if (this.cursorX < this.offsetX) this.offsetX = this.cursorX;
+        else if (this.cursorX >= this.offsetX + this.textWidth) this.offsetX = this.cursorX - this.textWidth + 1;
+
+        this.changed = true;
+        this.checkModified();
+        this.selectionActive = false;
+        this.selectionStart = null;
+        this.selectionEnd = null;
+        await this.render();
+        return true;
     }
 
     private async deleteLine() {
@@ -1443,7 +1542,7 @@ class SimpleTextEditor {
     private async showHelp() {
         const helpText = [
             "┌─────────────────────────────────────────────────────────────────────┐",
-            "│                          ATTO Text Editor v1.83                     │",
+            "│                          ATTO Text Editor v1.84                     │",
             "├─────────────────────────────────────────────────────────────────────┤",
             "│ Ctrl+S: Save          │ Ctrl+F: Find     │ Ctrl+L: Find Next        │",
             "│ Ctrl+W: Save & Exit   │ Alt+R:  Replace  │ F1:     Help             │",
