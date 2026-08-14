@@ -42,7 +42,6 @@ void loop() {
     char data[128];
     sprintf(data, "Hello %lu", millis());
     nos.sendPacket("tsix", 2500, data);
-    Serial.println(data);
     lastSent = millis();
   }
 }
