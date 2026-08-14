@@ -7,6 +7,14 @@
 #define MQTT_SERVER "iot-hub.site"
 #define MQTT_PORT 1883
 
+// Relay pin definitions
+#ifdef ESP8266
+#define RELAY1_PIN D1
+#define RELAY2_PIN D2
+#else
+#define RELAY1_PIN 16
+#define RELAY2_PIN 17
+#endif
 
 char key[KEY_SIZE] = {0x81, 0xFF, 0x71, 0xED, 0x57, 0x4E, 0x54, 0x59,
                       0x76, 0x90, 0xAE, 0x7B, 0x04, 0xE4, 0xEF, 0x5F,
@@ -32,6 +40,22 @@ void onMessageReceived(const char *srcAddress, int srcPort, const char *payload)
   Serial.print(srcPort);
   Serial.print(" -> ");
   Serial.println(payload);
+
+  // Parse relay commands from iot-listener: "RELAY_1:ON" or "RELAY_2:OFF"
+  if (strncmp(payload, "RELAY_1:", 8) == 0)
+  {
+    relay1State = (strcmp(payload + 8, "ON") == 0);
+    digitalWrite(RELAY1_PIN, relay1State ? HIGH : LOW);
+    Serial.print("Relay 1: ");
+    Serial.println(relay1State ? "ON" : "OFF");
+  }
+  else if (strncmp(payload, "RELAY_2:", 8) == 0)
+  {
+    relay2State = (strcmp(payload + 8, "ON") == 0);
+    digitalWrite(RELAY2_PIN, relay2State ? HIGH : LOW);
+    Serial.print("Relay 2: ");
+    Serial.println(relay2State ? "ON" : "OFF");
+  }
 }
 
 void setup()
@@ -50,6 +74,12 @@ void setup()
 
   nos.begin();
   nos.onMessage(onMessageReceived);
+
+  Serial.println("System ready!");
+  Serial.print("Relay 1 pin: ");
+  Serial.println(RELAY1_PIN);
+  Serial.print("Relay 2 pin: ");
+  Serial.println(RELAY2_PIN);
 }
 
 void loop()
@@ -57,9 +87,20 @@ void loop()
   nos.loop();
   if (millis() - lastSent >= 5000)
   {
+    for (int i = 0; i < sensorCount; i++)
+    {
+      int delta = random(-10, 11);
+      sensorVals[i] = constrain(sensorVals[i] + delta, 1, 100);
+    }
     char data[128];
-    sprintf(data, "Hello %lu", millis());
-    nos.sendPacket("tsix", 2500, data);
+    sprintf(data, "%s:%d;%s:%d;%s:%d;%s:%d;R1:%d;R2:%d",
+            sensorIds[0], sensorVals[0],
+            sensorIds[1], sensorVals[1],
+            sensorIds[2], sensorVals[2],
+            sensorIds[3], sensorVals[3],
+            relay1State ? 1 : 0,
+            relay2State ? 1 : 0);
+    nos.sendPacket("antigonon", 1000, data);
     Serial.println(data);
     lastSent = millis();
   }

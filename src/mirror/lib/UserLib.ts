@@ -866,7 +866,8 @@ export class ShellLib {
     return ok;
   }
 
-  public async exit(code: number = 0) {
+  public async exit(code: number = 0) {    
+    //await this.setenv("EXIT_CODE", code.toString());
     return await this.dispatch(SyscallCode.EXIT, code);
   }
 
@@ -985,6 +986,10 @@ export class NetworkLib {
 
   public async close(fd: number): Promise<boolean> {
     return await this.dispatch(SyscallCode.CLOSE, fd);
+  }
+
+  public async cha20P1305Agent(fd: number, port: number, key: any): Promise<any> {
+    return await this.dispatch(SyscallCode.IOCTL, { fd, cmd:0x1001, arg: {port, sessionKey: key}});
   }
 
   public async ioctl(fd: number, cmd: number, arg: any): Promise<any> {

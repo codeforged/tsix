@@ -1038,6 +1038,7 @@ class SimpleTextEditor {
             this.monoPos = this.cursorX;
             this.checkModified();
             await this.adjustHorizontalScroll();
+            await this.render();
         }
     }
 

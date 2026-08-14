@@ -16,6 +16,7 @@ interface CompletionState {
  */
 export class main implements IProgram {
   private version: string = "1.1.4";
+  private name: string = "tsh";
   private std!: StdLib;
   private fs!: FsLib;
   private shell!: ShellLib;
@@ -901,7 +902,7 @@ export class main implements IProgram {
         // Buka/buat file tujuan redirection dengan flag "w" (Write)
         stdoutFd = await this.fs.open(redirectPath, "w");
       } catch (e: any) {
-        return `-bash: ${redirectPath}: ${e.message}`;
+        return `-${this.name}: ${redirectPath}: ${e.message}`;
       }
     }
 
@@ -936,9 +937,9 @@ export class main implements IProgram {
       try {
         const success = await this.shell.chdir(target);
         if (!success)
-          result = `-bash: cd: ${target}: No such file or directory`;
+          result = `-${this.name}: cd: ${target}: No such file or directory`;
       } catch (e: any) {
-        result = `-bash: cd: ${target}: ${e.message || "Permission denied"}`;
+        result = `-${this.name}: cd: ${target}: ${e.message || "Permission denied"}`;
       }
     } else if (cmd === "version") {
       result = "TSIX v0.1.0 (Dinawari)";
@@ -977,7 +978,7 @@ export class main implements IProgram {
     const binPath = await this.resolveBinary(cmd);
     if (!binPath) {
       if (redirectPath && stdoutFd !== undefined) await this.fs.close(stdoutFd);
-      return `-bash: ${cmd}: command not found`;
+      return `-${this.name}: ${cmd}: command not found`;
     }
 
     try {
@@ -986,7 +987,7 @@ export class main implements IProgram {
       if (stat && (stat.mode & 0x49) === 0) {
         if (redirectPath && stdoutFd !== undefined)
           await this.fs.close(stdoutFd);
-        return `-bash: ${binPath}: Permission denied`;
+        return `-${this.name}: ${binPath}: Permission denied`;
       }
 
       // Jalankan binary dengan meneruskan stdinFd dan stdoutFd
@@ -1025,7 +1026,7 @@ export class main implements IProgram {
       return typeof execResult === "string" ? execResult : "";
     } catch (e: any) {
       if (redirectPath && stdoutFd !== undefined) await this.fs.close(stdoutFd);
-      return `-bash: ${cmd}: ${e.message}`;
+      return `-${this.name}: ${cmd}: ${e.message}`;
     }
   }
 
