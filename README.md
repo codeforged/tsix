@@ -342,6 +342,19 @@ The loose files under [`wiki/`](wiki/) are internal working notes (author + AI) 
 
 ---
 
+## Acknowledgments
+
+The TSIX DOME browser client (GUI) builds on these open-source libraries:
+
+| Library | Version | Purpose | License |
+|---------|:-------:|---------|:-------:|
+| [xterm.js](https://xtermjs.org/) | 5.3.0 | Terminal emulator (PixelTerm) | MIT |
+| [CodeMirror](https://codemirror.net/) | 5.65.16 | Text editor (Eucalyptus) | MIT |
+| [Fabric.js](http://fabricjs.com/) | 5.3.1 | Canvas rendering (DDC widgets) | MIT |
+| [Lightweight Charts](https://www.tradingview.com/lightweight-charts/) | 5.2.0 | Real-time charts (dashboard) | Apache-2.0 |
+
+---
+
 ## License
 
 MIT License — see the `LICENSE` file for details.
