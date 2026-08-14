@@ -1,4 +1,4 @@
-# TSIX — Antigonon leptopus
+# TSIX
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License">
@@ -70,41 +70,46 @@ This project started as a way to remotely manage home automation — lights cont
 ## Key Features
 
 ### Kernel
-| Feature | Detail |
-|---------|--------|
-| **Syscall Dispatcher** | 60+ POSIX-inspired syscalls (OPEN, READ, WRITE, EXEC, WAITPID, SIGNAL, CHMOD...) |
-| **Scheduler** | Preemptive round-robin, process states, wait queue, signal handling (SIGKILL, SIGTERM, SIGINT, SIGSTOP...) |
-| **Permission Manager** | UID/GID, rwx bits, root bypass, SetUID & Saved UID (suid) support |
-| **Mount Manager** | Multi-VFS overlay, bind mount, union mount, nested mount points |
-| **Process Tree** | Parent-child links, orphan auto-reparent to init, zombie prevention |
-| **IPC** | Built-in `SEND_MSG` syscall + UUID-based identity messaging |
+
+| Feature                | Detail                                                                                                     |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Syscall Dispatcher** | 60+ POSIX-inspired syscalls (OPEN, READ, WRITE, EXEC, WAITPID, SIGNAL, CHMOD...)                           |
+| **Scheduler**          | Preemptive round-robin, process states, wait queue, signal handling (SIGKILL, SIGTERM, SIGINT, SIGSTOP...) |
+| **Permission Manager** | UID/GID, rwx bits, root bypass, SetUID & Saved UID (suid) support                                          |
+| **Mount Manager**      | Multi-VFS overlay, bind mount, union mount, nested mount points                                            |
+| **Process Tree**       | Parent-child links, orphan auto-reparent to init, zombie prevention                                        |
+| **IPC**                | Built-in `SEND_MSG` syscall + UUID-based identity messaging                                                |
 
 ### Filesystem (VFS)
-| Feature | Detail |
-|---------|--------|
+
+| Feature               | Detail                                                                          |
+| --------------------- | ------------------------------------------------------------------------------- |
 | **BKFS (SQLite VFS)** | Persistent filesystem in a single `.db` file, path traversal via parent_id tree |
-| **RAM VFS** | In-memory tree for the root filesystem (tmpfs-like) |
-| **HostVFS** | Bridge to the host filesystem (`/mnt/host`) via Node.js `fs` |
-| **Chunked I/O** | `readChunk`/`writeChunk` for progress-aware file operations |
-| **Unix Permissions** | Owner/group/others, mode rwx, SetUID bit |
+| **RAM VFS**           | In-memory tree for the root filesystem (tmpfs-like)                             |
+| **HostVFS**           | Bridge to the host filesystem (`/mnt/host`) via Node.js `fs`                    |
+| **Chunked I/O**       | `readChunk`/`writeChunk` for progress-aware file operations                     |
+| **Unix Permissions**  | Owner/group/others, mode rwx, SetUID bit                                        |
 
 ### Networking
-| Feature | Detail |
-|---------|--------|
+
+| Feature            | Detail                                                                   |
+| ------------------ | ------------------------------------------------------------------------ |
 | **MQTNL Protocol** | Binary + JSON encoding, CRC32 validation, magic bytes, version handshake |
-| **E2E Encryption** | RSA-2048 handshake + ChaCha20-Poly1305 session encryption |
-| **OTA Updates** | Over-the-air firmware update via MQTNL protocol |
-| **SCP** | Secure file transfer with encryption + password authentication |
+| **E2E Encryption** | RSA-2048 handshake + ChaCha20-Poly1305 session encryption                |
+| **OTA Updates**    | Over-the-air firmware update via MQTNL protocol                          |
+| **SCP**            | Secure file transfer with encryption + password authentication           |
 
 ### GUI (Emerald + DOME)
-| Feature | Detail |
-|---------|--------|
-| **DOME Engine** | WebSocket-based display server — renders UI in the browser |
+
+| Feature             | Detail                                                                   |
+| ------------------- | ------------------------------------------------------------------------ |
+| **DOME Engine**     | WebSocket-based display server — renders UI in the browser               |
 | **Emerald Widgets** | Screen, Window, button, div, input, lineChart, radialGauge, toggleSwitch |
-| **Modal Dialogs** | alert(), confirm(), question() — built-in |
-| **Window Manager** | Asteracea WM with taskbar, Z-index, focus management |
+| **Modal Dialogs**   | alert(), confirm(), question() — built-in                                |
+| **Window Manager**  | Asteracea WM with taskbar, Z-index, focus management                     |
 
 ### Security
+
 - **Process Isolation** — Each application runs in a separate Worker Thread
 - **Sandbox** — Node.js host APIs are restricted in User-Land
 - **Permission Model** — Unix rwx for files & devices
@@ -117,6 +122,7 @@ This project started as a way to remotely manage home automation — lights cont
 ## Quick Start
 
 ### Prerequisites
+
 - Node.js 18+
 - npm
 
@@ -132,6 +138,7 @@ npm run install
 ```
 
 The installer will ask you for:
+
 - Hostname (interface addresses are derived from it: `<hostname>`, `<hostname>_2`)
 - Default login user
 - MQTT broker address
@@ -141,6 +148,7 @@ The installer will ask you for:
 - (Optional) root password
 
 > [!NOTE] **Default credentials**
+>
 > - **User:** `root` — **Password:** `root` (default; hash bcrypt dibundel di `src/mirror/etc/shadow`).
 > - Ganti password dengan mengisi prompt **"Password root baru"** saat `npm run install`, atau jalankan `passwd` di dalam TSIX.
 > - Ini **default development yang didokumentasikan**, bukan rahasia. Untuk produksi/ekspos publik, selalu set password sendiri (jangan pakai default).
@@ -281,13 +289,13 @@ tsix/
 
 > Note: TSIX is an educational/experimental project. "Working" only means the component passes its test suite and boots in the reference environment — it is **not** production-ready. APIs and behavior may change without notice.
 
-| Component            | Status  | Tests    |
-|----------------------|---------|----------|
-| Kernel (syscalls, scheduler, perms, mount, devices, TTY) | Working | 354/359 |
-| VFS (BKFS, HostVFS)  | Working | 150/150  |
-| Common Utilities & Protocols (MQTNL) | Working | 140/143 |
-| GUI library (Emerald)| Working | 1/1      |
-| **TOTAL**            | **Working** | **645/653** |
+| Component                                                | Status      | Tests       |
+| -------------------------------------------------------- | ----------- | ----------- |
+| Kernel (syscalls, scheduler, perms, mount, devices, TTY) | Working     | 354/359     |
+| VFS (BKFS, HostVFS)                                      | Working     | 150/150     |
+| Common Utilities & Protocols (MQTNL)                     | Working     | 140/143     |
+| GUI library (Emerald)                                    | Working     | 1/1         |
+| **TOTAL**                                                | **Working** | **645/653** |
 
 > [!NOTE] **7 test failures bersifat pre-existing / environment** — 5 di `Syscalls` (mis. `SCREEN_INFO` butuh setup device), 2 di `Logger` (format timestamp). Dua file test (`SecurityAgent`, `F1-UtilityScripts`) gagal load. Tidak terkait perubahan fitur.
 
@@ -295,14 +303,14 @@ tsix/
 
 ## Use Cases
 
-| Area            | Capability |
-|:----------------|:-----------|
-| **IoT Gateway** | MQTNL protocol, OTA updates, ESP32 integration, Serial devices |
-| **Cloud Desktop** | DOME display server, Asteracea WM, PixelTerm, File Cruiser |
-| **Edge Platform** | TPKG package manager, crond scheduler, process isolation |
+| Area              | Capability                                                         |
+| :---------------- | :----------------------------------------------------------------- |
+| **IoT Gateway**   | MQTNL protocol, OTA updates, ESP32 integration, Serial devices     |
+| **Cloud Desktop** | DOME display server, Asteracea WM, PixelTerm, File Cruiser         |
+| **Edge Platform** | TPKG package manager, crond scheduler, process isolation           |
 | **Secure Tunnel** | AirTerm (remote terminal), SCP (file transfer) with E2E encryption |
-| **Dashboard** | IoT dashboard with real-time charts via DOME |
-| **Sandbox** | Isolated script execution in Worker Threads |
+| **Dashboard**     | IoT dashboard with real-time charts via DOME                       |
+| **Sandbox**       | Isolated script execution in Worker Threads                        |
 
 ---
 
@@ -316,18 +324,17 @@ TSIX is inspired by the **UNIX philosophy**:
 4. **Security via Simplicity** — UID/GID permission model, process isolation, root privileges
 5. **Unix Fidelity** — Emulating Unix/Linux behavior as closely as possible (semantics over mechanism); deviations are permitted only when constrained by the V8 runtime, and must be explicitly documented (see [see Four Core Principles](wiki/course/01-philosophy-big-picture.md))
 
-
 ---
 
 ## Documentation
 
 Official, structured documentation lives in [`wiki/course/`](wiki/course/README.md):
 
-| Page | Description |
-|:-----|:------------|
-| [Course — Overview](wiki/course/README.md) | Recommended entry point: module index & navigation |
-| [Course — Table of Contents](wiki/course/toc.md) | Detailed roadmap with code references |
-| [Course — Format](wiki/course/format.md) | Documentation style & conventions |
+| Page                                             | Description                                        |
+| :----------------------------------------------- | :------------------------------------------------- |
+| [Course — Overview](wiki/course/README.md)       | Recommended entry point: module index & navigation |
+| [Course — Table of Contents](wiki/course/toc.md) | Detailed roadmap with code references              |
+| [Course — Format](wiki/course/format.md)         | Documentation style & conventions                  |
 
 The loose files under [`wiki/`](wiki/) are internal working notes (author + AI) and are not part of the official documentation.
 
@@ -335,10 +342,10 @@ The loose files under [`wiki/`](wiki/) are internal working notes (author + AI) 
 
 ## Authors
 
-| Name | Role |
-|:-----|:-----|
+| Name                                             | Role                               |
+| :----------------------------------------------- | :--------------------------------- |
 | **Andriansah** (andriansah [at] yahoo [dot] com) | Lead Architect & Platform Composer |
-| **AI coding assistants** | Technical Implementation Partner |
+| **AI coding assistants**                         | Technical Implementation Partner   |
 
 ---
 
@@ -346,12 +353,12 @@ The loose files under [`wiki/`](wiki/) are internal working notes (author + AI) 
 
 The TSIX DOME browser client (GUI) builds on these open-source libraries:
 
-| Library | Version | Purpose | License |
-|---------|:-------:|---------|:-------:|
-| [xterm.js](https://xtermjs.org/) | 5.3.0 | Terminal emulator (PixelTerm) | MIT |
-| [CodeMirror](https://codemirror.net/) | 5.65.16 | Text editor (Eucalyptus) | MIT |
-| [Fabric.js](http://fabricjs.com/) | 5.3.1 | Canvas rendering (DDC widgets) | MIT |
-| [Lightweight Charts](https://www.tradingview.com/lightweight-charts/) | 5.2.0 | Real-time charts (dashboard) | Apache-2.0 |
+| Library                                                               | Version | Purpose                        |  License   |
+| --------------------------------------------------------------------- | :-----: | ------------------------------ | :--------: |
+| [xterm.js](https://xtermjs.org/)                                      |  5.3.0  | Terminal emulator (PixelTerm)  |    MIT     |
+| [CodeMirror](https://codemirror.net/)                                 | 5.65.16 | Text editor (Eucalyptus)       |    MIT     |
+| [Fabric.js](http://fabricjs.com/)                                     |  5.3.1  | Canvas rendering (DDC widgets) |    MIT     |
+| [Lightweight Charts](https://www.tradingview.com/lightweight-charts/) |  5.2.0  | Real-time charts (dashboard)   | Apache-2.0 |
 
 ---
 
