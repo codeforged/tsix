@@ -279,6 +279,18 @@ class SimpleTextEditor {
     private selectionStart: { line: number; col: number } | null = null;
     private selectionEnd: { line: number; col: number } | null = null;
     private clipboard: string = "";
+    /** Ukuran indentasi (jumlah spasi) — dari /etc/atto.json → general.tabSize */
+    private tabSize: number = 2;
+    /** String indentasi (tabSize spasi) */
+    private indentStr: string = "  ";
+    /** Warna foreground selection (SGR) — dari /etc/atto.json → general.selection.fg ("" = reverse video) */
+    private selectionFg: string = "";
+    /** Warna background selection (SGR) — dari /etc/atto.json → general.selection.bg ("" = reverse video) */
+    private selectionBg: string = "";
+    /** Warna foreground gutter/line number (SGR) — dari /etc/atto.json → general.gutter.fg */
+    private gutterFg: string = "90";
+    /** Warna background gutter/line number (SGR) — dari /etc/atto.json → general.gutter.bg ("" = tanpa bg) */
+    private gutterBg: string = "";
     public monoPos: number = 0;
     public screenWidth: number = 80;
     public screenHeight: number = 23;
@@ -460,6 +472,26 @@ class SimpleTextEditor {
                         if (Array.isArray(lc.keywords)) this.langKeywords = new Set(lc.keywords.map(String));
                         if (Array.isArray(lc.builtins)) this.langBuiltins = new Set(lc.builtins.map(String));
                     }
+                    // Config umum (indentasi, dst.) dari section "general"
+                    if (cfg.general && typeof cfg.general === "object") {
+                        const n = parseInt(cfg.general.tabSize, 10);
+                        if (!isNaN(n) && n >= 1 && n <= 8) {
+                            this.tabSize = n;
+                            this.indentStr = " ".repeat(n);
+                        }
+                        // Warna selection (kalau diisi fg/bg; kosong → reverse video)
+                        const sel = cfg.general.selection;
+                        if (sel && typeof sel === "object") {
+                            this.selectionFg = codeOf(sel.fg, "");
+                            this.selectionBg = bgOf(sel.bg, "");
+                        }
+                        // Warna gutter / line number
+                        const gutter = cfg.general.gutter;
+                        if (gutter && typeof gutter === "object") {
+                            this.gutterFg = codeOf(gutter.fg, this.gutterFg);
+                            this.gutterBg = bgOf(gutter.bg, this.gutterBg);
+                        }
+                    }
                 }
             }
         } catch (_) {
@@ -485,6 +517,11 @@ class SimpleTextEditor {
         return [from, to];
     }
 
+    /** Kode ANSI untuk gutter (line number) — fg + bg dari general.gutter */
+    private gutterSgr(): string {
+        return `\x1b[${[this.gutterFg, this.gutterBg].filter(Boolean).join(";")}m`;
+    }
+
     /** Render isi satu baris: gutter + teks (syntax highlight) + overlay selection */
     private renderLineContent(lineIdx: number, blockStarts: boolean[], sliceStart: number, sliceEnd: number): string {
         const line = this.lines[lineIdx] || "";
@@ -498,18 +535,25 @@ class SimpleTextEditor {
                 const before = this.highlightLine(line, blockStarts[lineIdx] || false, sliceStart, s);
                 const selected = this.highlightLine(line, blockStarts[lineIdx] || false, s, e);
                 const after = this.highlightLine(line, blockStarts[lineIdx] || false, e, sliceEnd);
-                // Reverse video untuk area terseleksi. Syntax highlight memakai kode
-                // ANSI nol-lebar dengan reset (\x1b[0m) di tiap token, jadi setiap
-                // reset di dalam area terseleksi diikuti reverse lagi agar highlight
-                // tidak putus di tengah token.
-                text = before + "\x1b[7m" + selected.replace(/\x1b\[0m/g, "\x1b[0m\x1b[7m") + "\x1b[27m" + after;
+                // Warna selection: kalau general.selection.fg/bg diisi → pakai warna
+                // tersebut; kalau kosong → reverse video (default). Syntax highlight
+                // memakai kode ANSI nol-lebar dengan reset (\x1b[0m) di tiap token,
+                // jadi setiap reset di dalam area terseleksi diikuti kode selection
+                // lagi agar highlight tidak putus di tengah token.
+                const selStart = this.selectionFg || this.selectionBg
+                    ? "\x1b[" + [this.selectionFg, this.selectionBg].filter(Boolean).join(";") + "m"
+                    : "\x1b[7m";
+                const selEnd = this.selectionFg || this.selectionBg
+                    ? "\x1b[" + [this.selectionFg ? "39" : "", this.selectionBg ? "49" : ""].filter(Boolean).join(";") + "m"
+                    : "\x1b[27m";
+                text = before + selStart + selected.replace(/\x1b\[0m/g, "\x1b[0m" + selStart) + selEnd + after;
             } else {
                 text = this.highlightLine(line, blockStarts[lineIdx] || false, sliceStart, sliceEnd);
             }
         } else {
             text = this.highlightLine(line, blockStarts[lineIdx] || false, sliceStart, sliceEnd);
         }
-        return `\x1b[90m${lineNum}\x1b[0m ${text}`;
+        return `${this.gutterSgr()}${lineNum}\x1b[0m ${text}`;
     }
 
     public async render() {
@@ -531,7 +575,7 @@ class SimpleTextEditor {
             } else {
                 // Blue Tilde for empty lines beyond EOF
                 const lineNum = String(lineIdx + 1).padStart(this.numWidth, " ");
-                output += `\x1b[90m${lineNum}\x1b[0m \x1b[34m~\x1b[0m`;
+                output += `${this.gutterSgr()}${lineNum}\x1b[0m \x1b[34m~\x1b[0m`;
             }
         }
 
@@ -754,6 +798,7 @@ class SimpleTextEditor {
                 }
                 if (seq2 === "2") { await endSelection(); await std.getChar(); return; } // Insert \x1b[2~ (belum ada mode insert)
                 if (seq2 === "4") { await std.getChar(); await this.goEnd(); return; } // End \x1b[4~ (fallback)
+                if (seq2 === "Z") { await this.indentSelection(-1); return; } // Shift+Tab \x1b[Z → unindent baris terseleksi
 
                 if (seq2 === "1") {
                     const seq3 = await std.getChar();
@@ -823,6 +868,12 @@ class SimpleTextEditor {
                 await this.render();
                 return;
             }
+            return;
+        }
+
+        // Tab dengan selection aktif → indent baris terseleksi (bukan menyalin/akhiri)
+        if (char === "\t" && this.selectionActive) {
+            await this.indentSelection(1);
             return;
         }
 
@@ -971,7 +1022,7 @@ class SimpleTextEditor {
 
         // 4. REGULAR EDITING
         if (char === "\t") {
-            char = "  "; // Convert tab to 2 spaces
+            char = this.indentStr; // Convert tab ke spasi sesuai general.tabSize
         }
 
         if (char === "\r" || char === "\n") {
@@ -1326,6 +1377,55 @@ class SimpleTextEditor {
         this.selectionEnd = null;
         await this.render();
         return true;
+    }
+
+    /**
+     * Indent (dir=1) atau unindent (dir=-1) baris-baris yang terseleksi.
+     * Jumlah spasi = this.tabSize (dari /etc/atto.json → general.tabSize).
+     * Selection tetap aktif supaya Tab bisa ditekan berulang.
+     */
+    private async indentSelection(dir: 1 | -1) {
+        if (!this.selectionActive || !this.selectionStart || !this.selectionEnd) return;
+        const a = this.selectionStart;
+        const b = this.selectionEnd;
+        let lineStart = a.line, lineEnd = b.line;
+        if (lineStart > lineEnd) { const t = lineStart; lineStart = lineEnd; lineEnd = t; }
+
+        this.captureState(true);
+        const deltas = new Map<number, number>();
+        const indentStr = this.indentStr;
+        for (let i = lineStart; i <= lineEnd; i++) {
+            const line = this.lines[i];
+            if (dir === 1) {
+                this.lines[i] = indentStr + line;
+                deltas.set(i, this.tabSize);
+            } else {
+                // Unindent: buang sampai tabSize spasi awal
+                let remove = 0;
+                while (remove < this.tabSize && line[remove] === " ") remove++;
+                this.lines[i] = line.slice(remove);
+                deltas.set(i, -remove);
+            }
+        }
+
+        // Geser kolom anchor/end + kursor sesuai perubahan per baris
+        const shift = (pos: { line: number; col: number } | null) => {
+            if (!pos) return;
+            const d = deltas.get(pos.line);
+            if (d !== undefined) pos.col = Math.max(0, pos.col + d);
+        };
+        shift(this.selectionStart);
+        shift(this.selectionEnd);
+        const curLine = this.cursorY + this.offsetY;
+        const d = deltas.get(curLine);
+        if (d !== undefined) {
+            this.cursorX = Math.max(0, this.cursorX + d);
+            this.monoPos = this.cursorX;
+        }
+
+        this.changed = true;
+        this.checkModified();
+        await this.render();
     }
 
     private async deleteLine() {

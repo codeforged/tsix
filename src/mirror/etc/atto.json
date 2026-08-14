@@ -1,4 +1,15 @@
 {
+  "general": {
+    "tabSize": 2,
+    "selection": {
+      "fg": "30",
+      "bg": "47"
+    },
+    "gutter": {
+      "fg": "30",
+      "bg": "0"
+    }
+  },
   "default": {
     "keyword": "34",
     "string": "32",
@@ -13,7 +24,7 @@
   "typescript": {
     "keyword": "94",
     "statusBar": {
-      "fg": "93",
+      "fg": "30",
       "bg": "90"
     },
     "keywords": [
