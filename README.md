@@ -14,6 +14,48 @@ Its flagship use case is a complete **IoT stack** — the MQTNL protocol (MQTT-b
 TSIX keeps evolving, so expect rough edges and breaking changes between versions.
 
 <p align="center">
+  <img src="./wiki/diagram/complete-diagram-ring1.png" alt="Ring 1 — Kernel Core" width="640">
+  <br>
+  <em>Ring 1 — Kernel Core (Syscalls, Scheduler, Permission, Mount, GUI Registry).</em>
+</p>
+
+<p align="center">
+  <img src="./wiki/diagram/complete-diagram-ring2.png" alt="Ring 2 — HAL &amp; File System" width="640">
+  <br>
+  <em>Ring 2 — HAL &amp; File System (BKFS, RamFS, HostVFS, device drivers).</em>
+</p>
+
+<p align="center">
+  <img src="./wiki/diagram/complete-diagram-ring3.png" alt="Ring 3 — User Libraries" width="640">
+  <br>
+  <em>Ring 3 — User Libraries (UserLib, NetworkLib, Emerald, WorkerEntry).</em>
+</p>
+
+<p align="center">
+  <img src="./wiki/diagram/complete-diagram-ring4.png" alt="Ring 4 — Applications" width="640">
+  <br>
+  <em>Ring 4 — Applications (init, shell, daemons, Asteracea WM, GUI apps).</em>
+</p>
+
+<p align="center">
+  <img src="./wiki/diagram/complete-diagram-gui.png" alt="GUI / Display Pipeline" width="640">
+  <br>
+  <em>GUI / Display Pipeline (Emerald → kernel → DOME → browser).</em>
+</p>
+
+<p align="center">
+  <img src="./wiki/diagram/complete-diagram-net.png" alt="Networking &amp; IoT Stack" width="640">
+  <br>
+  <em>Networking &amp; IoT Stack (MQTNL → E2E → MQTT → OTA/SCP/AirTerm/ESP32).</em>
+</p>
+
+<p align="center">
+  <img src="./wiki/console-sc.png" alt="TSIX Console (TTY)" width="720">
+  <br>
+  <em>TSIX console — TTY login &amp; shell.</em>
+</p>
+
+<p align="center">
   <img src="./wiki/desktop-sc.png" alt="TSIX Desktop (Asteracea WM)" width="720">
   <br>
   <em>Asteracea Window Manager — desktop environment (taskbar, launcher, apps).</em>
@@ -108,12 +150,6 @@ After installation, `src/sysconfig.json` points to the new database and the syst
 ```bash
 npm start
 ```
-
-<p align="center">
-  <img src="./wiki/console-sc.png" alt="TSIX Console (TTY)" width="720">
-  <br>
-  <em>TSIX console — TTY login & shell.</em>
-</p>
 
 ### Install Options
 

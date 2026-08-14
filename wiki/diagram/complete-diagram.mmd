@@ -1,0 +1,236 @@
+# TSIX — Complete Architecture Diagram (paling mutakhir, 2026-08-14)
+#
+# Diagram dipecah per divisi/ring agar tetap kompak & tidak melebar horizontal.
+# Berisi 8 diagram:
+#   1. Ring 1 — Kernel Core              → flowchart TB  [README]
+#   2. Ring 2 — HAL & File System        → flowchart TB  [README]
+#   3. Ring 3 — User Libraries           → flowchart TB  [README]
+#   4. Ring 4 — Applications             → flowchart TB  [README]
+#   5. GUI / Display Pipeline            → flowchart TB  [README]
+#   6. Networking & IoT Stack            → flowchart LR  [README]
+#   7. Boot Sequence                     → sequenceDiagram
+#   8. Alur Syscall & IPC                → flowchart LR
+#
+# Render tiap diagram ke PNG dengan mermaid-cli (mmdc) atau mermaid.live.
+# Kernel: Dinawari v0.2.22 — berjalan di atas Node.js/V8 (bukan bare metal).
+
+## 1) Ring 1 — Kernel Core
+
+```mermaid
+flowchart TB
+    V8["V8 / Node.js (Ring 0)"]
+    K["Kernel.ts<br/>bootstrap & init (Dinawari)"]
+    SC["Syscalls.ts<br/>60+ POSIX syscalls"]
+    SCH["Scheduler.ts<br/>round-robin, signals, saved UID"]
+    PM["PermissionManager<br/>UID/GID rwx"]
+    MM["MountManager<br/>multi-VFS overlay"]
+    PO["PortManager"]
+    GR["GUIRegistry<br/>window → PID"]
+    TM["TTYManager + virtual consoles"]
+    R2["→ Ring 2: VFS & Devices"]
+    R4["→ Ring 4: /bin/init.ts (PID 1)"]
+    DOME["DOME (display server)"]
+
+    V8 --> K
+    K --> SC & SCH & PM & MM & PO & GR & TM
+    SC --> R2
+    SC --> SCH
+    SCH --> R4
+    GR --> DOME
+```
+
+## 2) Ring 2 — HAL & File System
+
+```mermaid
+flowchart TB
+    MM["MountManager (Ring 1)"]
+    SC["Syscalls (Ring 1)"]
+    VFS["VFS layer"]
+    BKFS["BKFS — SQLite<br/>persistent filesystem"]
+    RAM["RamFS — /tmp (tmpfs)"]
+    HV["HostVFS — /mnt/host"]
+    DEV["Device Drivers"]
+    KB["Keyboard"]
+    TTY["TTY / virtual console"]
+    PIPE["Pipe"]
+    SOCK["Socket"]
+    SER["Serial (+ auto-detect)"]
+    SCR["Screen"]
+    NUL["Null"]
+    AUX["aux-devices<br/>(MCP23017, ...)"]
+    HOSTFS["Host filesystem (Node fs)"]
+
+    MM --> VFS
+    SC --> VFS
+    SC --> DEV
+    VFS --> BKFS & RAM & HV
+    HV --> HOSTFS
+    DEV --> KB & TTY & PIPE & SOCK & SER & SCR & NUL & AUX
+```
+
+## 3) Ring 3 — User Libraries
+
+```mermaid
+flowchart TB
+    WE["WorkerEntry<br/>Direct Memory Execution (esbuild)"]
+    UL["UserLib — syscall bridge,<br/>events, IPC"]
+    NL["NetworkLib — MQTNL client"]
+    PF["PacketForwarder"]
+    EM["Emerald — GUI widgets"]
+    AF["Application / IProgram framework"]
+    SC["Syscalls (Ring 1)"]
+    APP["App (Ring 4)"]
+    NET["Networking / IoT (MQTNL)"]
+    GUI["GUI / DOME"]
+
+    APP --> AF
+    AF --> UL
+    WE --> UL
+    UL --> SC
+    NL --> NET
+    PF --> NL
+    EM --> GUI
+```
+
+## 4) Ring 4 — Applications
+
+```mermaid
+flowchart TB
+    INIT["/bin/init.ts — PID 1"]
+    SH["/bin/tsh.ts — shell"]
+    BIN["bin tools: ls cat chmod passwd<br/>sudo grep atto (editor) ..."]
+    SBIN["sbin daemons: tpkgd scpd<br/>airtermd crond otad ..."]
+    WM["Asteracea — Window Manager"]
+    GUI["GUI apps: pixelterm, eucalyptus,<br/>file-cruiser, cashew, iot-dashboard,<br/>taskmgr, set-theme, ddc widgets"]
+    UL["UserLib (Ring 3)"]
+    DOME["DOME (display server)"]
+
+    INIT --> SH
+    INIT --> SBIN
+    INIT --> WM
+    BIN --> UL
+    SBIN --> UL
+    WM --> DOME
+    GUI --> DOME
+```
+
+## 5) GUI / Display Pipeline
+
+```mermaid
+flowchart TB
+    APP["App (Emerald / TGA)"]
+    W["Window object"]
+    WIDGETS["widgets: div, button, input,<br/>lineChart, radialGauge, toggleSwitch"]
+    K["Kernel (GUI_REQ syscall)"]
+    DOME["DOME engine (WebSocket)"]
+    BROWSER["Browser (dome-client)"]
+    X["xterm — terminal (pixelterm)"]
+    CM["CodeMirror — editor (eucalyptus)"]
+    DDC["DDC — native JS widget"]
+
+    APP --> W --> WIDGETS
+    W --> K
+    K --> DOME
+    DOME -->|WebSocket :8080| BROWSER
+    BROWSER --> X
+    BROWSER --> CM
+    BROWSER --> DDC
+    X -->|term_input / term_resize| DOME
+    CM -->|cm_save / cm_set_value| DOME
+    DDC -->|ddc_msg| DOME
+```
+
+## 6) Networking & IoT Stack
+
+```mermaid
+flowchart LR
+    APP["App / daemon"]
+    NL["NetworkLib"]
+    DRV["SimpleMQTNLDriver"]
+    PROTO["MQTNL protocol<br/>binary + JSON, CRC32"]
+    SEC["SecurityAgent<br/>RSA-2048 + ChaCha20-Poly1305"]
+    BROKER["MQTT broker (internet)"]
+    DEV["ESP32 / gateway / MCP23017"]
+    OTA["OTAd — OTA update"]
+    SCP["SCPd — file transfer"]
+    AT["AirTermd — remote terminal"]
+
+    APP --> NL
+    NL --> DRV
+    DRV --> PROTO
+    PROTO --> SEC
+    SEC --> BROKER
+    BROKER --> DEV
+    PROTO --> OTA
+    PROTO --> SCP
+    PROTO --> AT
+    DRV -->|serial bridge| DEV
+```
+
+## 7) Boot Sequence
+
+```mermaid
+sequenceDiagram
+    participant B as Bootstrap (host)
+    participant M as main.ts (Node.js)
+    participant K as Kernel.ts (Dinawari)
+    participant F as BKFS (SQLite)
+    participant I as /bin/init.ts (PID 1)
+    participant S as /bin/tsh.ts (shell)
+    participant W as Asteracea (WM)
+
+    Note over B: bootstrap.sh / .bat
+    B->>M: node src/main.ts
+    M->>K: new Kernel() + kernel.boot()
+
+    activate K
+    K->>F: mount / (BKFS)
+    K->>K: process /etc/fstab.json<br/>(mount /tmp ramfs, /mnt/host ...)
+    K->>K: init TTYs + register devices
+    K->>K: serial auto-detect + HAL drivers<br/>+ pre-compile framework libs
+    K->>K: ensure default auth & groups
+    K-->>M: boot complete
+    deactivate K
+
+    M->>K: kernel.runInit()
+    K->>I: spawn process (PID 1)
+
+    activate I
+    I->>I: run /etc/rc.local (start daemons)
+    alt GUI login
+        I->>W: launch asteracea (WM) → desktop
+        activate W
+        Note over W: Taskbar, launcher, pinned apps
+        deactivate W
+    else TTY login
+        I->>S: login → /bin/tsh.ts (shell)
+        activate S
+        Note over S: User session active
+        deactivate S
+    end
+    deactivate I
+```
+
+## 8) Alur Syscall & IPC
+
+```mermaid
+flowchart LR
+    APP["App (Worker Thread)"]
+    UL["UserLib (libc-like)"]
+    IPC["IPC postMessage / SEND_MSG"]
+    SC["Syscall Dispatcher (main thread)"]
+    K["Kernel services"]
+    GR["GUIRegistry"]
+    DOME["DOME (display server)"]
+    BK["BKFS / Devices / Scheduler"]
+
+    APP -->|syscall call| UL
+    APP <-->|worker IPC| IPC
+    UL -->|dispatch SyscallCode| SC
+    SC -->|route| BK
+    SC -->|GUI_REQ| GR
+    BK -->|return| SC
+    GR --> DOME
+    SC -->|response postMessage| UL
+    UL --> APP
+```
