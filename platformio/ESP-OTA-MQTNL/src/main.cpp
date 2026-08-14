@@ -9,7 +9,7 @@
 #include <tsixOTA.h>
 #include <noslib.h>
 
-#define MQTT_SERVER "192.168.0.109"
+#define MQTT_SERVER "192.168.1.204"
 #define MQTT_PORT 1883
 
 const char *fwVersion = "1.0.9";

@@ -1,9 +1,9 @@
 #include <Arduino.h>
 #include <noslib.h>
 
-#define WIFI_SSID "BabamGo"
-#define WIFI_PASSWORD "bismillah"
-#define MQTT_SERVER "iot-hub.site"
+#define WIFI_SSID "Your WiFi SSID"
+#define WIFI_PASSWORD "Your WiFi Password"
+#define MQTT_SERVER "broker.hivemq.com"
 #define MQTT_PORT 1883
 
 
@@ -41,7 +41,7 @@ void loop() {
   {
     char data[128];
     sprintf(data, "Hello %lu", millis());
-    nos.sendPacket("tsix", 2500, data);
+    nos.sendPacket("mactsix", 2500, data);
     lastSent = millis();
   }
 }
