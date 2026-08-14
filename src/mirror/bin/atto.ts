@@ -829,9 +829,16 @@ class SimpleTextEditor {
             this.changed = true;
             this.monoPos = this.cursorX;
             this.checkModified();
-
-            if (!(await this.adjustHorizontalScroll())) {
-                await this.renderCurrentLine();
+            // Detect if we just typed the closing of a block comment "*/"
+            const afterPos = this.cursorX;
+            const updatedLine = this.lines[lineIdx];
+            if (afterPos >= 2 && updatedLine[afterPos - 2] === "*" && updatedLine[afterPos - 1] === "/") {
+                // Re-render full editor to update syntax highlighting across lines
+                await this.render();
+            } else {
+                if (!(await this.adjustHorizontalScroll())) {
+                    await this.renderCurrentLine();
+                }
             }
         }
     }
@@ -1275,7 +1282,7 @@ class SimpleTextEditor {
     private async showHelp() {
         const helpText = [
             "┌─────────────────────────────────────────────────────────────┐",
-            "│                   ATTO Text Editor help 1.8                 │",
+            "│                    ATTO Text Editor v1.82                   │",
             "├─────────────────────────────────────────────────────────────┤",
             "│ Ctrl+S: Save       │ Ctrl+F: Find        │ Ctrl+L: Find Next│",
             "│ Ctrl+W: Save & Exit│ Alt+R : Replace     │ F1    : Help     │",

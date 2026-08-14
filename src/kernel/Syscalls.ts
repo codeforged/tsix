@@ -1210,7 +1210,9 @@ export class SyscallDispatcher {
 
       case SyscallCode.EXIT: {
         const exitCode = (args as number) || 0;
-        pcb.exitCode = exitCode;
+        if (pcb.exitCode === undefined) {
+          pcb.exitCode = exitCode;
+        }
         // Non-blocking cleanup: allows worker to receive the result of this syscall
         // before it gets terminated by the kernel.
         this.cleanupProcess(pid).catch(() => { });

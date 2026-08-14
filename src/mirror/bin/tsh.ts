@@ -863,9 +863,12 @@ export class main implements IProgram {
     }
 
     // Wait for ALL processes in the pipeline
+    let lastExitCode = 0;
     for (const pid of pipelinePids) {
-      await this.shell.waitpid(pid);
+      lastExitCode = await this.shell.waitpid(pid);
     }
+    await this.shell.setenv("ERROR_LEVEL", lastExitCode.toString());
+    await this.shell.setenv("?", lastExitCode.toString());
 
     return "";
   }
@@ -928,40 +931,58 @@ export class main implements IProgram {
     let result = "";
     let commandFound = true;
 
+    let exitCode = 0;
     // 4. Handle Built-ins
     if (cmd === "help") {
       result =
         "Available commands: cd, exit, export, version, help, history, ps, whoami";
+      exitCode = 0;
     } else if (cmd === "cd") {
       const target = args[0] || "/";
       try {
         const success = await this.shell.chdir(target);
-        if (!success)
+        if (!success) {
           result = `-${this.name}: cd: ${target}: No such file or directory`;
+          exitCode = 1;
+        } else {
+          exitCode = 0;
+        }
       } catch (e: any) {
         result = `-${this.name}: cd: ${target}: ${e.message || "Permission denied"}`;
+        exitCode = 1;
       }
     } else if (cmd === "version") {
       result = "TSIX v0.1.0 (Dinawari)";
+      exitCode = 0;
     } else if (cmd === "export") {
       if (args.length === 0) {
         result = "Usage: export NAME=VALUE";
+        exitCode = 1;
       } else {
         const pair = args[0].split("=");
-        if (pair.length === 2) await this.shell.setenv(pair[0], pair[1]);
+        if (pair.length === 2) {
+          await this.shell.setenv(pair[0], pair[1]);
+          exitCode = 0;
+        } else {
+          exitCode = 1;
+        }
       }
     } else if (cmd === "history") {
       result = await this.handleBuiltinHistory(args);
+      exitCode = 0;
     } else if (cmd === "exit") {
       result = "Goodbye!";
       this.isRunning = false;
       await this.shell.exit();
+      exitCode = 0;
     } else {
       commandFound = false;
     }
 
     // Jika built-in dijalankan dan ada redirection/pipe
     if (commandFound) {
+      await this.shell.setenv("ERROR_LEVEL", exitCode.toString());
+      await this.shell.setenv("?", exitCode.toString());
       if (stdoutFd !== undefined) {
         if (result) await this.fs.write(stdoutFd, result + "\n");
         // Only close if it was a redirection or we are NOT in a pipeline
@@ -978,6 +999,8 @@ export class main implements IProgram {
     const binPath = await this.resolveBinary(cmd);
     if (!binPath) {
       if (redirectPath && stdoutFd !== undefined) await this.fs.close(stdoutFd);
+      await this.shell.setenv("ERROR_LEVEL", "127");
+      await this.shell.setenv("?", "127");
       return `-${this.name}: ${cmd}: command not found`;
     }
 
@@ -987,6 +1010,8 @@ export class main implements IProgram {
       if (stat && (stat.mode & 0x49) === 0) {
         if (redirectPath && stdoutFd !== undefined)
           await this.fs.close(stdoutFd);
+        await this.shell.setenv("ERROR_LEVEL", "126");
+        await this.shell.setenv("?", "126");
         return `-${this.name}: ${binPath}: Permission denied`;
       }
 
@@ -1014,8 +1039,10 @@ export class main implements IProgram {
 
         // Foreground: Wait for process
         this.foregroundPid = pid;
-        await this.shell.waitpid(pid);
+        const exitCode = await this.shell.waitpid(pid);
         this.foregroundPid = null;
+        await this.shell.setenv("ERROR_LEVEL", exitCode.toString());
+        await this.shell.setenv("?", exitCode.toString());
 
         if (redirectPath && stdoutFd !== undefined)
           await this.fs.close(stdoutFd);
@@ -1026,6 +1053,8 @@ export class main implements IProgram {
       return typeof execResult === "string" ? execResult : "";
     } catch (e: any) {
       if (redirectPath && stdoutFd !== undefined) await this.fs.close(stdoutFd);
+      await this.shell.setenv("ERROR_LEVEL", "1");
+      await this.shell.setenv("?", "1");
       return `-${this.name}: ${cmd}: ${e.message}`;
     }
   }
@@ -1065,7 +1094,7 @@ export class main implements IProgram {
   }
 
   private async expandVariables(text: string): Promise<string> {
-    const regex = /\$([a-zA-Z0-9_]+)/g;
+    const regex = /\$([a-zA-Z0-9_]+|\?)/g;
     let result = text;
     const matches = text.matchAll(regex);
     for (const match of matches) {
