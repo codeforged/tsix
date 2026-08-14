@@ -3,7 +3,8 @@
 
 #define WIFI_SSID "BabamGo"
 #define WIFI_PASSWORD "bismillah"
-#define MQTT_SERVER "broker.hivemq.com"
+#define MQTT_SERVER "192.168.1.204"
+//#define MQTT_SERVER "broker.hivemq.com"
 #define MQTT_PORT 1883
 
 char key[KEY_SIZE] = {0x81, 0xFF, 0x71, 0xED, 0x57, 0x4E, 0x54, 0x59,
