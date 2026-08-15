@@ -212,8 +212,13 @@ export class SyscallDispatcher {
 
     for (const [pid, rec] of privilege) {
       const canDecrypt = rec.root && rec.decrypt;
+      // Label "decrypted" HANYA jujur jika driver BENAR-BENAR mendekripsi data
+      // (sniff.decrypted). Kalau driver tidak punya kunci utk port itu (mis.
+      // trafik air-type server yang dekripsi manual di app), data tetap ciphertext
+      // → ditampilkan mentah dengan label "encrypted", walau root meminta --decrypt.
+      const actuallyDecrypted = canDecrypt && sniff.decrypted === true;
       let payload: any;
-      if (canDecrypt) {
+      if (actuallyDecrypted) {
         payload = { ...sniff, mode: "decrypted" };
       } else {
         const raw = sniff.raw;

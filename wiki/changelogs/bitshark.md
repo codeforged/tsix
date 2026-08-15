@@ -4,6 +4,21 @@
 
 ---
 
+## 2026-08-16
+
+### Fix: badge 🔓 tidak jujur — data masih ciphertext padahal mode decrypt
+- **File:** `src/kernel/devices/SimpleMQTNLDriver.ts`, `src/kernel/Syscalls.ts`
+- **Gejala:** bitshark root + `--decrypt` menampilkan badge `🔓`, tapi data masih hex ciphertext (mis. trafik air-type ke port 2500).
+- **Akar masalah:** badge `🔓` ditentukan dari "root && minta --decrypt", bukan dari apakah data **benar-benar** terdekripsi. Driver hanya mendekripsi paket yang port-nya punya session key di `portSecurity` (via `cha20P1305Agent`). Trafik air-type **server** (port 2500) tidak pernah terdaftar di driver — kunci E2E disimpan di aplikasi (server dekripsi manual per-koneksi), jadi driver cuma meneruskan ciphertext. Badge pun berbohong.
+- **Perubahan:**
+  - **Driver**: sniff kini punya field `decrypted` — RX: `true` hanya jika driver benar-benar mendekripsi (port punya key & hasil non-kosong); TX: `portSec.hasSessionKey()`. 
+  - **`forwardSniff`**: label `"decrypted"` (🔓) hanya jika `root && --decrypt && sniff.decrypted === true`. Kalau driver tidak punya kunci, tetap ditampilkan ciphertext dengan label `"encrypted"` (🔒) walau root.
+- **Dampak:** badge jujur. Trafik air-type server tetap 🔒 ciphertext (E2E terjaga bahkan dari sniffer kernel — kunci tidak pernah bocor ke driver). Trafik yang port-nya punya key di driver (mis. air-type client incoming, app pakai `cha20P1305Agent` statis) akan tampil 🔓 plaintext saat root + `--decrypt`.
+- **Deploy:** restart kernel (perubahan driver + syscall).
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-15
 
 ### Keamanan: sniffer 2 mode + opt-in `--decrypt` — plaintext hanya untuk ROOT yang sadar minta

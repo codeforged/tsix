@@ -189,9 +189,14 @@ export class SimpleMQTNLDriver implements IDevice {
             const isBinary = proto.getName() === "Binary";
 
             let decryptedPayload: any;
+            // Apakah `data` benar-benar hasil DEKRIPSI? Kalau driver tidak punya
+            // session key utk port ini (mis. air-type server yang dekripsi manual
+            // di app), `data` hanyalah passthrough ciphertext.
+            let actuallyDecrypted = false;
             if (isBinary) {
                 // [PROTOCOL 1.1] Always use Raw path for Binary Protocol
                 decryptedPayload = portSec.securePacketInRaw(assembledPayload as Buffer);
+                if (decryptedPayload) actuallyDecrypted = true;
 
                 // [FALLBACK] If decryption failed, but we are using binary protocol, 
                 // permit the raw payload (Plain Mode) to support optimized OTA.
@@ -201,6 +206,9 @@ export class SimpleMQTNLDriver implements IDevice {
             } else {
                 // [PROTOCOL 1.0] Legacy path
                 decryptedPayload = portSec.securePacketIn(assembledPayload as string);
+                // Hanya benar 'decrypted' kalau driver punya key utk port ini
+                // (portSecurity) dan hasilnya non-kosong. Tanpa key → passthrough.
+                actuallyDecrypted = portSec.hasSessionKey() && !!decryptedPayload;
             }
 
             if (!decryptedPayload && assembledPayload.length > 0) {
@@ -225,6 +233,7 @@ export class SimpleMQTNLDriver implements IDevice {
                 size: Buffer.isBuffer(decryptedPayload) ? decryptedPayload.length : String(decryptedPayload || "").length,
                 data: Buffer.isBuffer(decryptedPayload) ? decryptedPayload.toString("utf8") : decryptedPayload,
                 raw: Buffer.isBuffer(assembledPayload) ? assembledPayload.toString("utf8") : assembledPayload,
+                decrypted: actuallyDecrypted,
             });
 
 
@@ -397,6 +406,10 @@ export class SimpleMQTNLDriver implements IDevice {
             size: Buffer.isBuffer(payload) ? payload.length : String(payload).length,
             data: Buffer.isBuffer(payload) ? payload.toString("utf8") : payload,
             raw: Buffer.isBuffer(securedPayload) ? securedPayload.toString("utf8") : securedPayload,
+            // TX: `data` = plaintext hanya kalau driver akan mengenkripsi (punya key
+            // utk srcPort). Tanpa key (mis. air-type server kirim ciphertext manual),
+            // `data` sebenarnya ciphertext → decrypted:false.
+            decrypted: portSec.hasSessionKey(),
         });
 
         // --- FRAGMENTATION LAYER ---
