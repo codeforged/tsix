@@ -2177,6 +2177,391 @@ export class ConnectedDataGrid {
   }
 }
 
+// ============================================================
+// CONNECTED TABULATOR — Data grid via Tabulator v6 (browser-side)
+// ============================================================
+
+/**
+ * ConnectedTabulator — DataGrid berbasis Tabulator v6 (browser-side widget).
+ *
+ * TIDAK menggantikan ConnectedDataGrid — widget BARU dengan API yang sama.
+ * Semua render (sort, resize kolom, selection, scroll) ditangani Tabulator
+ * di sisi browser (pola custom widget ala codemirror/xterm/lightweight-charts).
+ * App hanya mengirim data: shell.send(domePid) → dome.ts relay → browser.
+ *
+ * Keuntungan vs ConnectedDataGrid (render virtual-DOM app-side):
+ *  - Bebas dari bug render/setContent/race-condition yang dulu.
+ *  - Traffic IPC jauh lebih kecil: data dikirim sekali, render di browser.
+ *
+ * Usage (Emerald):
+ *   const grid = new ConnectedTabulator({ id: "sensor", columns, data });
+ *   await app.mount(grid.build());
+ *   await grid.mount(app, onSort, onRowClick, onRowContextMenu);
+ *   await grid.setData(rows);          // ganti data penuh
+ *   await grid.appendData(newRows);    // tambah inkremental
+ *
+ * API SAMA dengan ConnectedDataGrid → cashew TTabulatorGrid tinggal
+ * membungkus class ini tanpa mengubah aplikasi consumer.
+ */
+export class ConnectedTabulator {
+  public readonly wrapId: string;
+  public columns: DataGridColumn[];
+  public data: Record<string, any>[];
+  private gridId: string;
+  private screen: Screen | null = null;
+  private lib: any = null;
+  private domePid = 0;
+  // Antrean pesan yang belum bisa dikirim karena PID DOME belum ter-resolve
+  // (race mount vs setData/refresh di pola cashew). Di-flush saat pid siap.
+  private pendingDome: { type: string; extra: Record<string, any> }[] = [];
+  private sortKey: string | null = null;
+  private sortDir: "asc" | "desc" | null = null;
+  private onSortCb: ((key: string, dir: "asc" | "desc") => void) | null = null;
+  private onRowClickCb:
+    | ((index: number, record: Record<string, any>) => void)
+    | null = null;
+  private onRowCtxCb:
+    | ((index: number, record: Record<string, any>, x: number, y: number) => void)
+    | null = null;
+  private onSelChangeCb:
+    | ((index: number, record: Record<string, any> | null) => void)
+    | null = null;
+  // SELECTION — index = kunci stabil per datarow (INDEX ≠ ROW NUMBER).
+  // Di-generate app-side via WeakMap, ditandai ke browser lewat field
+  // `_tsixKey` (objek user tidak pernah dimutasi).
+  private selectedRowKey: number | null = null;
+  private rowKeys: WeakMap<object, number> = new WeakMap();
+  private nextRowKey = 1;
+  private height?: number | string;
+  private maxRows = 0;
+  private selectable: boolean;
+
+  constructor(opts: {
+    id: string;
+    columns: DataGridColumn[];
+    data?: Record<string, any>[];
+    /** Tinggi tetap wrapper (number = px, atau string "300px"). Tanpa ini: auto + scroll internal */
+    height?: number | string;
+    /** Batas maksimum baris di tampilan (dipangkas dari depan) */
+    maxRows?: number;
+    /** Aktifkan seleksi baris (single) — default true */
+    selectable?: boolean;
+  }) {
+    this.gridId = opts.id;
+    this.wrapId = `tb-${opts.id}`;
+    this.columns = opts.columns || [];
+    this.data = opts.data || [];
+    this.height = opts.height;
+    this.maxRows = opts.maxRows ?? 0;
+    this.selectable = opts.selectable !== false;
+  }
+
+  /** Bangun node <tabulator> — browser menginisialisasi dari props saat mount. */
+  build(): IDOMNode {
+    return {
+      id: this.wrapId,
+      tag: "tabulator",
+      props: {
+        cols: this.columns,
+        data: this.decorateRows(this.data),
+        height: this.height,
+        selectable: this.selectable,
+        maxRows: this.maxRows,
+      },
+      children: [],
+    };
+  }
+
+  /** Pasang ke Screen — bind event handler browser → app + resolve PID DOME. */
+  async mount(
+    screen: Screen,
+    onSort?: (key: string, dir: "asc" | "desc") => void,
+    onRowClick?: (index: number, record: Record<string, any>) => void,
+    onRowContextMenu?: (
+      index: number,
+      record: Record<string, any>,
+      x: number,
+      y: number,
+    ) => void,
+    onSelectionChange?: (
+      index: number,
+      record: Record<string, any> | null,
+    ) => void,
+  ): Promise<void> {
+    this.screen = screen;
+    this.onSortCb = onSort || null;
+    this.onRowClickCb = onRowClick || null;
+    this.onRowCtxCb = onRowContextMenu || null;
+    this.onSelChangeCb = onSelectionChange || null;
+    this.lib = (global as any)._tsixLib;
+    const w = screen.win;
+
+    // Event dari browser (dome-client-tabulator.js → GUI_EVENT → bindHandler)
+    w.bindHandler(this.wrapId, "tb_sort", (ev: any) => {
+      try {
+        const v = JSON.parse(ev?.value || "{}");
+        if (v.key && v.dir) {
+          const prev = `${this.sortKey}:${this.sortDir}`;
+          this.sortKey = v.key;
+          this.sortDir = v.dir;
+          // Jangan double-fire jika ini echo dari toggleSort() programmatic
+          if (this.onSortCb && `${v.key}:${v.dir}` !== prev) {
+            this.onSortCb(v.key, v.dir);
+          }
+        }
+      } catch (_) {
+        /* parse gagal — abaikan */
+      }
+    });
+    w.bindHandler(this.wrapId, "tb_rowclick", (ev: any) => {
+      try {
+        const v = JSON.parse(ev?.value || "{}");
+        if (v.key != null && this.onRowClickCb) {
+          const rec = this.getRecord(Number(v.key));
+          if (rec) this.onRowClickCb(Number(v.key), rec);
+        }
+      } catch (_) {
+        /* parse gagal — abaikan */
+      }
+    });
+    w.bindHandler(this.wrapId, "tb_contextmenu", (ev: any) => {
+      try {
+        const v = JSON.parse(ev?.value || "{}");
+        if (v.key != null && this.onRowCtxCb) {
+          const rec = this.getRecord(Number(v.key));
+          if (rec) this.onRowCtxCb(Number(v.key), rec, v.x || 0, v.y || 0);
+        }
+      } catch (_) {
+        /* parse gagal — abaikan */
+      }
+    });
+    w.bindHandler(this.wrapId, "tb_select", (ev: any) => {
+      try {
+        const v = JSON.parse(ev?.value || "{}");
+        this.selectedRowKey = v.key != null ? Number(v.key) : null;
+        if (this.onSelChangeCb) {
+          this.onSelChangeCb(this.selectedIndex, this.selectedRecord);
+        }
+      } catch (_) {
+        /* parse gagal — abaikan */
+      }
+    });
+
+    // Resolve PID DOME (relay app → browser via shell.send — pola TChart).
+    // Dipanggil sekali di mount supaya pid segera siap; sendToDome tetap
+    // meng-queue pesan jika pid belum ter-resolve (race dengan refresh()).
+    await this.ensureDomePid();
+
+    // Pasang warna theme aktif ke grid (browser) + ikuti perubahan theme.
+    await this.sendTheme();
+    this.lib?.onEvent?.("ipc_message", this.onThemeMsg);
+  }
+
+  /**
+   * Kirim warna theme aktif ke browser (TB_THEME → scoped CSS vars grid).
+   * Grid ikut theme bahkan sebelum root CSS var ter-set (self-sufficient).
+   */
+  private async sendTheme(): Promise<void> {
+    const c: any = (theme as any).colors || {};
+    await this.sendToDome("TB_THEME", {
+      colors: {
+        bg: c.bg,
+        surface: c.surface,
+        accent: c.accent,
+        text: c.text,
+        textDim: c.textDim,
+        textMuted: c.textMuted,
+        borderColor: c.border,
+        accentBg: c.accentBg,
+      },
+    });
+  }
+
+  /** Saat theme berubah (app lain panggil theme.switchTo) → re-push warna. */
+  private onThemeMsg = (msg: any): void => {
+    const ev = msg?.data || msg;
+    if (ev?.type === "THEME_CHANGED") void this.sendTheme();
+  };
+
+  /** Kirim pesan ke browser via DOME (pola TChart/uPlot). */
+  private async sendToDome(
+    type: string,
+    extra: Record<string, any> = {},
+  ): Promise<void> {
+    if (!this.screen || !this.lib?.shell) return;
+    // PID belum diketahui → antre dulu; ensureDomePid akan flush saat siap.
+    if (!this.domePid) {
+      this.pendingDome.push({ type, extra });
+      await this.ensureDomePid();
+      return;
+    }
+    await this._rawSend(type, extra);
+  }
+
+  private async _rawSend(
+    type: string,
+    extra: Record<string, any>,
+  ): Promise<void> {
+    if (!this.domePid || !this.screen || !this.lib?.shell) return;
+    try {
+      await this.lib.shell.send(this.domePid, {
+        type,
+        wid: this.screen.wid,
+        targetId: this.wrapId,
+        ...extra,
+      });
+    } catch (_) {
+      /* serialization error — skip */
+    }
+  }
+
+  /** Resolve PID DOME dari ps(); flush pesan yang sempat terantre. */
+  private async ensureDomePid(): Promise<number> {
+    if (this.domePid) return this.domePid;
+    try {
+      const ps = await this.lib?.shell?.ps?.();
+      const dome = (ps || []).find((p: any) => p.name?.includes("dome"));
+      this.domePid = dome ? dome.pid : 0;
+      if (this.domePid) {
+        const q = this.pendingDome;
+        this.pendingDome = [];
+        for (const m of q) await this._rawSend(m.type, m.extra);
+      }
+    } catch (_) {
+      /* DOME mungkin belum running */
+    }
+    return this.domePid;
+  }
+
+  /** Ganti seluruh data lalu kirim ke browser. */
+  async setData(data: Record<string, any>[]): Promise<void> {
+    const changed = data !== this.data;
+    this.data = Array.isArray(data) ? [...data] : [];
+    // Array baru → reset cursor. Refresh pakai array sama → kunci stabil, seleksi dipertahankan.
+    if (changed) this.selectedRowKey = null;
+    await this.sendToDome("TB_DATA", { rows: this.decorateRows(this.data) });
+    if (!changed && this.selectedRowKey != null) {
+      await this.sendToDome("TB_SELECT", { key: this.selectedRowKey });
+    }
+  }
+
+  /**
+   * appendData(): Tambah data baru SECARA INKREMENTAL.
+   * Hanya baris BARU yang dikirim ke browser (TB_APPEND → Tabulator.addData) —
+   * tanpa rebuild grid. Render tetap di browser, jadi sangat hemat IPC.
+   * Jika melebihi maxRows → baris tertua dipangkas & grid di-replace penuh.
+   */
+  async appendData(records: Record<string, any>[]): Promise<void> {
+    if (!records || records.length === 0) return;
+    const newRows = Array.isArray(records) ? [...records] : [];
+    this.data.push(...newRows);
+    if (this.maxRows && this.data.length > this.maxRows) {
+      this.data = this.data.slice(-this.maxRows);
+      await this.sendToDome("TB_DATA", { rows: this.decorateRows(this.data) });
+      return;
+    }
+    await this.sendToDome("TB_APPEND", { rows: this.decorateRows(newRows) });
+  }
+
+  /** Ganti definisi kolom lalu kirim ke browser. */
+  async setColumns(columns: DataGridColumn[]): Promise<void> {
+    this.columns = columns || [];
+    await this.sendToDome("TB_COLS", { cols: this.columns });
+  }
+
+  /** Sort programmatic (dari app): toggle asc ↔ desc, lalu kirim ke browser. */
+  async toggleSort(key: string): Promise<void> {
+    if (this.sortKey === key) {
+      this.sortDir = this.sortDir === "asc" ? "desc" : "asc";
+    } else {
+      this.sortKey = key;
+      this.sortDir = "asc";
+    }
+    if (this.onSortCb && this.sortDir) this.onSortCb(key, this.sortDir);
+    await this.sendToDome("TB_SORT", { key, dir: this.sortDir });
+  }
+
+  /** State sort saat ini. */
+  get sort(): { key: string; dir: "asc" | "desc" } | null {
+    return this.sortKey && this.sortDir
+      ? { key: this.sortKey, dir: this.sortDir }
+      : null;
+  }
+
+  // ============================================================
+  // SELECTION — cursor berbasis row-key stabil (INDEX ≠ ROW NUMBER)
+  // ============================================================
+
+  /** Kunci stabil baris yang dipilih; -1 jika tak ada. */
+  get selectedIndex(): number {
+    return this.findByKey(this.selectedRowKey) !== null
+      ? (this.selectedRowKey as number)
+      : -1;
+  }
+
+  /** Rekaman baris yang dipilih (copy, tanpa field internal). */
+  get selectedRecord(): Record<string, any> | null {
+    const rec = this.findByKey(this.selectedRowKey);
+    return rec ? { ...rec } : null;
+  }
+
+  /** Ambil data row berdasarkan row-key (index stabil). Return shallow copy. */
+  getRecord(index: number): Record<string, any> | null {
+    const rec = this.findByKey(index);
+    return rec ? { ...rec } : null;
+  }
+
+  /** Semua data saat ini (copy, tanpa field internal). */
+  getData(): Record<string, any>[] {
+    return this.data.map((r) => ({ ...r }));
+  }
+
+  /** Programmatic select berdasarkan row-key. index = -1 → clear. */
+  async setSelectedIndex(index: number): Promise<void> {
+    this.selectedRowKey = this.findByKey(index) ? index : null;
+    await this.sendToDome("TB_SELECT", { key: this.selectedRowKey });
+  }
+
+  /** Hapus seleksi. */
+  async clearSelection(): Promise<void> {
+    this.selectedRowKey = null;
+    await this.sendToDome("TB_CLEAR_SELECT", {});
+  }
+
+  /** Hancurkan grid di browser. */
+  async destroy(): Promise<void> {
+    await this.sendToDome("TB_DESTROY", {});
+  }
+
+  // ============================================================
+  // INTERNAL
+  // ============================================================
+
+  /**
+   * Salin baris + tempel `_tsixKey` (kunci stabil). Objek asli user tidak
+   * pernah dimutasi — kunci di-cache via WeakMap, jadi tahan sort/refresh.
+   */
+  private decorateRows(rows: Record<string, any>[]): Record<string, any>[] {
+    return rows.map((r) => ({ ...r, _tsixKey: this.getRowKey(r) }));
+  }
+
+  /** Generate (atau ambil cache) kunci stabil untuk sebuah datarow. */
+  private getRowKey(rec: object): number {
+    let k = this.rowKeys.get(rec);
+    if (k === undefined) {
+      k = this.nextRowKey++;
+      this.rowKeys.set(rec, k);
+    }
+    return k;
+  }
+
+  /** Cari datarow berdasarkan row-key-nya (dalam urutan data saat ini). */
+  private findByKey(key: number | null): Record<string, any> | null {
+    if (key === null) return null;
+    return this.data.find((r) => this.getRowKey(r) === key) || null;
+  }
+}
+
 export function slider(props: Record<string, any> = {}): IDOMNode {
   const id = props.id || uuidv4();
   const value = props.value ?? 50; const min = props.min ?? 0; const max = props.max ?? 100;

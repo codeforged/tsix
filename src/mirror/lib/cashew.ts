@@ -27,6 +27,7 @@ import {
   buildSevenSegmentHtml,
   isLightColor,
   ConnectedDataGrid,
+  ConnectedTabulator,
   DataGridColumn,
 } from "@tsix/emerald";
 import { IDOMNode } from "../../common/GUITypes";
@@ -2340,6 +2341,177 @@ export class TDataGrid extends TComponent {
   }
 
   /** Auto-bind oleh TForm.run() — daftarkan header sort + klik row + render awal */
+  bindEventHandler(screen: Screen): void {
+    this._screen = screen;
+    void this.grid
+      .mount(
+        screen,
+        (key, dir) => {
+          if (this.onSort) this.onSort(key, dir);
+        },
+        (index, record) => {
+          if (this.onRowClick) this.onRowClick(index, record);
+        },
+      )
+      .catch(() => {});
+  }
+
+  /** Auto-refresh oleh TForm.run() — render data awal */
+  async refresh(screen: Screen): Promise<void> {
+    await this.grid.setData(this._data);
+  }
+}
+
+// ================================================================
+// TTABULATORGRID — DataGrid berbasis Tabulator v6 (browser-side)
+// ================================================================
+
+/**
+ * TTabulatorGrid — DataGrid Delphi-style (membungkus ConnectedTabulator).
+ *
+ * API 100% SAMA dengan TDataGrid — aplikasi consumer tinggal ganti
+ * `new TDataGrid(...)` → `new TTabulatorGrid(...)` tanpa perubahan lain.
+ *
+ * Berbeda dari TDataGrid (render virtual-DOM app-side), grid ini dirender
+ * di sisi browser oleh library Tabulator v6: sort, resize kolom, selection,
+ * dan scroll ditangani Tabulator sendiri → bebas dari bug render/setContent
+ * yang dulu, dan traffic IPC jauh lebih kecil.
+ *
+ * Usage:
+ *   const grid = new TTabulatorGrid("sensor", [
+ *     { key: "node_id", label: "Node", width: 140 },
+ *     { key: "value", label: "Nilai", width: 80, align: "right" },
+ *     { key: "timestamp", label: "Waktu", width: "40%" },
+ *   ], [], { height: 300 });
+ *   form.add(grid);
+ *   await grid.setData(rows);      // async — bisa di-await
+ *
+ * Properti & metode sama persis dengan TDataGrid:
+ *   - columns / data (setter convenience)
+ *   - onSort / onRowClick (callback)
+ *   - sort / selectedIndex / selectedRecord / getRecord()
+ *   - setData / appendData / setColumns / setSelectedIndex / clearSelection
+ */
+export class TTabulatorGrid extends TComponent {
+  public onSort: ((key: string, dir: "asc" | "desc") => void) | null = null;
+  /** Dipanggil saat baris diklik: (indexStabilRowKey, record) — index BUKAN nomor baris */
+  public onRowClick:
+    | ((index: number, record: Record<string, any>) => void)
+    | null = null;
+  private _columns: DataGridColumn[];
+  private _data: Record<string, any>[];
+  private grid: ConnectedTabulator;
+  private _screen: Screen | null = null;
+
+  constructor(
+    id: string,
+    columns: DataGridColumn[] = [],
+    data: Record<string, any>[] = [],
+    opts: { height?: number | string; maxRows?: number } = {},
+  ) {
+    super(id);
+    this._columns = columns;
+    this._data = data;
+    this.tag = "div";
+    this.grid = new ConnectedTabulator({
+      id,
+      columns,
+      data,
+      height: opts.height,
+      maxRows: opts.maxRows,
+    });
+  }
+
+  /** Definisi kolom — setter convenience (design-time & runtime) */
+  set columns(v: DataGridColumn[]) {
+    this._columns = v;
+    this.grid.columns = v;
+    if (this._screen) void this.grid.setColumns(v).catch(() => {});
+  }
+  get columns(): DataGridColumn[] {
+    return this._columns;
+  }
+
+  /** Data — setter fire-and-forget (convenience). Untuk await, pakai setData(). */
+  set data(v: Record<string, any>[]) {
+    this._data = v;
+    this.grid.data = v;
+    if (this._screen) void this.grid.setData(v).catch(() => {});
+  }
+  get data(): Record<string, any>[] {
+    return this._data;
+  }
+
+  /** State sort saat ini: { key, dir } atau null */
+  get sort(): { key: string; dir: "asc" | "desc" } | null {
+    return this.grid.sort;
+  }
+
+  // ============================================================
+  // SELECTION — cursor berbasis row-key stabil (INDEX ≠ ROW NUMBER)
+  // ============================================================
+
+  /** Kunci stabil baris yang dipilih; -1 jika tak ada */
+  get selectedIndex(): number {
+    return this.grid.selectedIndex;
+  }
+
+  /** Rekaman baris yang dipilih (copy) */
+  get selectedRecord(): Record<string, any> | null {
+    return this.grid.selectedRecord;
+  }
+
+  /** Ambil data row berdasarkan row-key (index stabil). */
+  getRecord(index: number): Record<string, any> | null {
+    return this.grid.getRecord(index);
+  }
+
+  /** Programmatic select berdasarkan row-key. index = -1 → clear. */
+  async setSelectedIndex(index: number): Promise<void> {
+    await this.grid.setSelectedIndex(index);
+  }
+
+  /** Hapus seleksi */
+  async clearSelection(): Promise<void> {
+    await this.grid.clearSelection();
+  }
+
+  /**
+   * Sort programmatic (dari app): toggle asc ↔ desc.
+   * (Tambahan — TDataGrid tidak punya ini; API lain 100% sama.)
+   */
+  async toggleSort(key: string): Promise<void> {
+    await this.grid.toggleSort(key);
+  }
+
+  /** Ganti data — async method (bisa di-await) */
+  async setData(v: Record<string, any>[]): Promise<void> {
+    this._data = v;
+    this.grid.data = v;
+    if (this._screen) await this.grid.setData(v);
+  }
+
+  /**
+   * Tambah data baru INKREMENTAL — hanya baris baru yang dikirim ke browser
+   * (Tabulator.addData). Hemat traffic WS untuk data yang terus bertambah.
+   */
+  async appendData(v: Record<string, any>[]): Promise<void> {
+    this._data = [...(this._data || []), ...v];
+    if (this._screen) await this.grid.appendData(v);
+  }
+
+  /** Ganti kolom — async method */
+  async setColumns(v: DataGridColumn[]): Promise<void> {
+    this._columns = v;
+    this.grid.columns = v;
+    if (this._screen) await this.grid.setColumns(v);
+  }
+
+  build(): IDOMNode {
+    return this.grid.build();
+  }
+
+  /** Auto-bind oleh TForm.run() — daftarkan sort + klik row + render awal */
   bindEventHandler(screen: Screen): void {
     this._screen = screen;
     void this.grid

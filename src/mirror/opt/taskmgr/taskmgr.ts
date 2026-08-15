@@ -1,5 +1,5 @@
 import { Program, std, shell } from "@tsix/Application";
-import { Screen, div, button, span, h1, ConnectedDataGrid, DataGridColumn } from "@tsix/emerald";
+import { Screen, div, button, span, h1, ConnectedDataGrid, ConnectedTabulator, DataGridColumn } from "@tsix/emerald";
 import { theme } from "@tsix/theme";
 
 /**
@@ -24,13 +24,13 @@ export const main = Program(async (args: string[]) => {
 
     // DataGrid untuk tabel task (sortable, selectable, resizable columns)
     const columns: DataGridColumn[] = [
-        { key: "icon", label: "", width: 32, sortable: false, resizable: false, align: "center" },
-        { key: "pid", label: "PID", width: 50, align: "right" },
+        { key: "icon", label: "", width: 60, sortable: false, resizable: false, align: "center" },
+        { key: "pid", label: "PID", width: 60, align: "right" },
         { key: "name", label: "Name", width: "40%" },
         { key: "state", label: "State", width: 80 },
-        { key: "user", label: "User", width: 60 },
+        { key: "user", label: "User", width: 100 },
     ];
-    const grid = new ConnectedDataGrid({
+    const grid = new ConnectedTabulator({
         id: "taskgrid",
         columns,
         height: "100%",

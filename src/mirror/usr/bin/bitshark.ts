@@ -30,6 +30,7 @@ import {
   VStack,
   TComponent,
   Spacer,
+  TTabulatorGrid
 } from "@tsix/cashew";
 
 export const appMode = "gui";
@@ -78,7 +79,7 @@ export const main = Program(async () => {
 
   form.add(HStack({padding: "5px"}, lblIface, selIface, btnToggle, btnClear, btnFilter, status));
 
-  const grid = new TDataGrid(
+  const grid = new TTabulatorGrid(
     "packets",
     [
       { key: "no", label: "#", width: 40, align: "right" },

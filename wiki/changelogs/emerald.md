@@ -1,0 +1,32 @@
+# Changelog Emerald Widget Toolkit
+
+> Format: `YYYY-MM-DD | Perubahan | Oleh`
+
+---
+
+## 2026-08-15
+
+### ConnectedTabulator — DataGrid baru berbasis Tabulator v6 (browser-side, theme-aware)
+- **File:**
+  - `src/mirror/lib/emerald.ts` — class `ConnectedTabulator` (API identik `ConnectedDataGrid`)
+  - `src/mirror/lib/cashew.ts` — class `TTabulatorGrid` (API identik `TDataGrid`)
+  - `src/mirror/opt/dome/dome-client-tabulator.js` **(baru)** — widget browser-side Tabulator
+  - `src/mirror/opt/dome/dome-client.html` — CDN Tabulator 6.3.0 (JS + CSS `midnight`)
+  - `src/mirror/opt/dome/dome-client-dom.js` — special-case tag `tabulator` di `buildDOM()`
+  - `src/mirror/opt/dome/dome.ts` — relay `TB_*` (8 pesan) + static asset `dome-client-tabulator.js`
+  - `src/mirror/opt/file-cruiser/file-cruiser.ts` — migrasi daftar file ke `ConnectedTabulator`
+  - `src/mirror/opt/taskmgr/taskmgr.ts` — migrasi ke `ConnectedTabulator`
+  - `src/mirror/usr/bin/bitshark.ts` — migrasi ke `TTabulatorGrid`
+  - `src/mirror/opt/test/tab-demo.ts`, `tab-demo-csh.ts` **(baru)** — demo emerald & cashew
+- **Latar belakang:** `ConnectedDataGrid` (render virtual-DOM app-side) sudah lama buggy (race `setContent`/mount, scroll reset saat seleksi, repaint sel di luar viewport, traffic IPC per-cell) dan sudah beberapa kali diperbaiki namun tidak tuntas. Pilihan: tambahkan grid browser-side yang stabil alih-alih memperbaiki yang lama.
+- **Perubahan:**
+  - **Widget baru** `ConnectedTabulator` (Emerald) & `TTabulatorGrid` (Cashew) — **ditambahkan, TIDAK menggantikan** `ConnectedDataGrid`/`TDataGrid` yang lama. Semua render (sort, resize kolom, selection, scroll) ditangani **Tabulator v6 di sisi browser** → bebas bug render, traffic IPC jauh lebih kecil (data dikirim sekali, render di browser).
+  - **API 100% identik** dengan `ConnectedDataGrid`/`TDataGrid` → aplikasi consumer cukup ganti class, tidak perlu ubah logika. Ditambah `toggleSort()` di `TTabulatorGrid` (superset).
+  - Komunikasi app→browser via relay DOME `TB_DATA / TB_APPEND / TB_COLS / TB_SORT / TB_SELECT / TB_CLEAR_SELECT / TB_DESTROY / TB_THEME` (pola `TChart`/uPlot); browser→app via event `tb_sort / tb_rowclick / tb_contextmenu / tb_select` (masuk ke `bindHandler`).
+  - **Row-key stabil** via field `_tsixKey` (WeakMap app-side, objek user tidak dimutasi) → `selectedIndex`/`getRecord` tahan sort/refresh; `appendData()` inkremental (hanya baris baru dikirim).
+  - **Race safety:** queue app-side `pendingDome` sampai PID DOME ter-resolve (`ensureDomePid`) + retry browser-side `withGrid` menunggu `initTabulator`.
+  - **Theme-aware:** CSS Tabulator v6 hasil kompilasi memakai warna hardcoded (bukan CSS vars) → override stylesheet memetakan ke CSS var theme TSIX (`--bg/--surface/--accent/--text/--border/--accent-bg`) + push `TB_THEME` (warna `theme.colors`) saat mount & saat `THEME_CHANGED` → grid ikut dark/light theme secara otomatis.
+  - `mount()` mendapat callback opsional ke-5 `onSelectionChange(index, record|null)` — menangani deselect (Tabulator toggle seleksi saat baris terpilih diklik lagi).
+  - **Migrasi:** File Cruiser (daftar file + seleksi + double-click, field tersembunyi `_name/_isDir/_mode`, baris virtual `..`), Task Manager (`ConnectedTabulator`), bitshark (`TTabulatorGrid`).
+- **Dampak:** Grid baru stabil, ringan, dan theme-aware; bug `ConnectedDataGrid` tidak lagi menghalangi app baru. Deploy: re-sync VFS + **restart DOME** (static asset di-cache saat startup) + hard-refresh browser (sekali).
+- **Oleh:** Copilot · **Konsep, migrasi & validasi:** kakang

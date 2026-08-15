@@ -72,7 +72,15 @@ interface BrowserMessage {
   | "CHART_DESTROY"
   | "DDC_MSG"
   | "DDC_RESIZE"
-  | "DDC_STOP";
+  | "DDC_STOP"
+  | "TB_DATA"
+  | "TB_APPEND"
+  | "TB_COLS"
+  | "TB_SORT"
+  | "TB_SELECT"
+  | "TB_CLEAR_SELECT"
+  | "TB_DESTROY"
+  | "TB_THEME";
   wid?: string;
   pid?: number;
   title?: string;
@@ -208,6 +216,7 @@ export const main = Program(async (args: string[]) => {
       "dome-client-term.js",
       "dome-client-codemirror.js",
       "dome-client-chart.js",
+      "dome-client-tabulator.js",
       "dome-client-ddc.js",
       "dome-client-res.js",
       "dome-client-dom.js",
@@ -570,6 +579,77 @@ export const main = Program(async (args: string[]) => {
           type: "DDC_STOP",
           wid: payload.wid,
           targetId: payload.targetId,
+        });
+      }
+      // TB_DATA relay: emerald/cashew â†' DOME â†' browser (Tabulator setData)
+      if (payload?.type === "TB_DATA") {
+        broadcastToAll({
+          type: "TB_DATA",
+          wid: payload.wid,
+          targetId: payload.targetId,
+          rows: payload.rows,
+        });
+      }
+      // TB_APPEND relay: emerald/cashew â†' DOME â†' browser (Tabulator addData)
+      if (payload?.type === "TB_APPEND") {
+        broadcastToAll({
+          type: "TB_APPEND",
+          wid: payload.wid,
+          targetId: payload.targetId,
+          rows: payload.rows,
+        });
+      }
+      // TB_COLS relay: emerald/cashew â†' DOME â†' browser (Tabulator setColumns)
+      if (payload?.type === "TB_COLS") {
+        broadcastToAll({
+          type: "TB_COLS",
+          wid: payload.wid,
+          targetId: payload.targetId,
+          cols: payload.cols,
+        });
+      }
+      // TB_SORT relay: emerald/cashew â†' DOME â†' browser (Tabulator setSort)
+      if (payload?.type === "TB_SORT") {
+        broadcastToAll({
+          type: "TB_SORT",
+          wid: payload.wid,
+          targetId: payload.targetId,
+          key: payload.key,
+          dir: payload.dir,
+        });
+      }
+      // TB_SELECT relay: emerald/cashew â†' DOME â†' browser (select row by key)
+      if (payload?.type === "TB_SELECT") {
+        broadcastToAll({
+          type: "TB_SELECT",
+          wid: payload.wid,
+          targetId: payload.targetId,
+          key: payload.key,
+        });
+      }
+      // TB_CLEAR_SELECT relay: emerald/cashew â†' DOME â†' browser (deselect all)
+      if (payload?.type === "TB_CLEAR_SELECT") {
+        broadcastToAll({
+          type: "TB_CLEAR_SELECT",
+          wid: payload.wid,
+          targetId: payload.targetId,
+        });
+      }
+      // TB_DESTROY relay: emerald/cashew â†' DOME â†' browser (destroy grid)
+      if (payload?.type === "TB_DESTROY") {
+        broadcastToAll({
+          type: "TB_DESTROY",
+          wid: payload.wid,
+          targetId: payload.targetId,
+        });
+      }
+      // TB_THEME relay: emerald â†' DOME â†' browser (warna theme aktif ke grid)
+      if (payload?.type === "TB_THEME") {
+        broadcastToAll({
+          type: "TB_THEME",
+          wid: payload.wid,
+          targetId: payload.targetId,
+          colors: payload.colors,
         });
       }
       // TERM_THEME relay: pixelterm â†' DOME â†' browser (update xterm theme)

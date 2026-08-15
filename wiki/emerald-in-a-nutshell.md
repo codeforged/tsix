@@ -2,7 +2,7 @@
 
 **Tuntunan Lengkap Membuat Aplikasi GUI Berbasis TSIX Menggunakan Emerald Widget Toolkit**
 
-> Versi 1.3 | 2026-07-25
+> Versi 1.4 | 2026-08-15
 
 ---
 
@@ -1045,6 +1045,8 @@ Setiap Connected Widget:
 | `ConnectedIndicatorLamp` | Indicator lamp | `setOn(bool)` |
 | `ConnectedToggle` | Toggle switch + click | `setOn(bool)` + `mount(screen, onChangeCb)` |
 | `ConnectedRelayCard` | Relay card | `setOn(bool)` |
+| `ConnectedDataGrid` | Data grid (sort/resize, render app-side) | `setData(rows)`, `appendData(rows)`, `setColumns(cols)` |
+| `ConnectedTabulator` | Data grid via Tabulator v6 (render browser-side) | `setData(rows)`, `appendData(rows)`, `setColumns(cols)`, `toggleSort(key)` |
 
 ### Pola Dasar
 
@@ -1108,6 +1110,68 @@ await fanToggle.mount(app, async () => {
 ```
 
 > **PENTING:** `ConnectedToggle` otomatis handle klik dan update visual — kamu cukup baca `toggle.on` di callback.
+
+### ConnectedTabulator — Data Grid (browser-side, sortable + resizable + theme-aware)
+
+`ConnectedTabulator` adalah data grid berbasis **Tabulator v6** yang dirender 100% di sisi browser (pola custom widget ala `codemirror`/`xterm`/lightweight-charts — lihat §13.3). Berbeda dari `ConnectedDataGrid` (render virtual-DOM app-side), **sort, resize kolom, selection, dan scroll ditangani Tabulator sendiri** → bebas bug render/setContent dan traffic IPC jauh lebih kecil (data dikirim sekali, render di browser).
+
+```typescript
+import { ConnectedTabulator } from "@tsix/emerald";
+
+const grid = new ConnectedTabulator({
+  id: "sensor",
+  columns: [
+    { key: "node_id", label: "Node", width: 150 },
+    { key: "value", label: "Nilai", width: 80, align: "right" },
+    { key: "timestamp", label: "Waktu", width: "40%" },
+  ],
+  height: "100%",        // number = px, atau string "300px"
+  maxRows: 500,          // opsional — batas baris di tampilan
+});
+
+// 1. Build node + mount window (taruh di container flex dengan minHeight:0)
+await app.mount(div({ id: "wrap", style: { flex: "1", minHeight: "0" } }, grid.build()));
+
+// 2. Mount ke screen + callback
+await grid.mount(
+  app,
+  (key, dir) => { /* onSort(key, dir) */ },
+  (index, record) => { /* onRowClick — index = row-key STABIL */ },
+  (index, record, x, y) => { /* onRowContextMenu */ },
+  (index, record) => { /* onSelectionChange — record null saat deselect */ },
+);
+
+// 3. Update data
+await grid.setData(rows);        // ganti penuh
+await grid.appendData(newRows);  // inkremental — hanya baris baru dikirim
+await grid.setColumns(cols);
+await grid.toggleSort("value");  // programmatic sort asc/desc
+
+// 4. Seleksi (row-key stabil, tahan sort/refresh)
+grid.selectedIndex;   // -1 jika tak ada
+const rec = grid.selectedRecord; // copy record terpilih
+const r = grid.getRecord(index);
+await grid.setSelectedIndex(index);
+await grid.clearSelection();
+```
+
+**Properti kolom (`DataGridColumn`):** `key`, `label`, `width` (number px atau string `"40%"`), `align` (`"left"|"center"|"right"`), `sortable` (default `true`), `resizable` (default `true`).
+
+**Field tersembunyi:** Tabulator hanya merender kolom yang terdaftar — field ekstra di data (mis. `_name`, `_isDir`) aman dipakai untuk logika app tanpa tampil (pola dipakai File Cruiser untuk path/exec).
+
+**Theme-aware:** grid otomatis mengikuti theme aktif TSIX (dark/light) — warna dipetakan ke CSS var theme dan di-push ulang saat `THEME_CHANGED`.
+
+**Cashew (Delphi-style):** `TTabulatorGrid` membungkus class ini dengan API identik `TDataGrid` — tinggal ganti class:
+
+```typescript
+import { TTabulatorGrid } from "@tsix/cashew";
+const grid = new TTabulatorGrid("sensor", columns, [], { height: 300 });
+form.add(grid);
+grid.onRowClick = (idx, rec) => { /* idx = row-key stabil */ };
+await grid.setData(rows);
+```
+
+> **PENTING:** Penggunaan membutuhkan DOME yang memuat `dome-client-tabulator.js` — setelah update perlu **restart DOME** + hard-refresh browser (sekali).
 
 ### Studi Kasus: IoT Dashboard (`gui-test.ts`)
 
@@ -1287,6 +1351,7 @@ VFS explorer dengan navigasi, toolbar, dan operasi file (view, info, copy, cut, 
 - Double-click detection untuk masuk folder
 - Toolbar dengan enable/disable tombol berdasarkan seleksi
 - Tab completion untuk path input
+- Daftar file dirender `ConnectedTabulator` (sort/resize/select native di browser, double-click app-side)
 
 ```typescript
 // Toolbar dengan tombol dinamis
@@ -1395,6 +1460,7 @@ sevenSegment(props): IDOMNode
 indicatorLamp(props): IDOMNode
 toggleSwitch(props): IDOMNode
 slider(props): IDOMNode
+dataGrid(props): IDOMNode  // tabel statis (tanpa interaksi sort)
 
 // SVG Builders (untuk update manual via innerHTML)
 buildLineChartSvg(props): string
@@ -1421,6 +1487,8 @@ class ConnectedSevenSegment { build(), mount(screen), setValue(val) }
 class ConnectedIndicatorLamp { build(), mount(screen), setOn(bool) }
 class ConnectedToggle { build(), mount(screen, onChangeCb?), setOn(bool) }
 class ConnectedRelayCard { build(), mount(screen), setOn(bool) }
+class ConnectedDataGrid { build(), mount(screen, onSort?, onRowClick?, onRowContextMenu?), setData(), appendData(), setColumns(), toggleSort() }
+class ConnectedTabulator { build(), mount(screen, onSort?, onRowClick?, onRowContextMenu?, onSelectionChange?), setData(), appendData(), setColumns(), toggleSort(), getRecord(), setSelectedIndex(), clearSelection() }
 ```
 
 ### Screen API

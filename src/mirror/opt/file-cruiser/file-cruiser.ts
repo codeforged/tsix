@@ -9,6 +9,7 @@ import {
   input,
   text,
   paragraph,
+  ConnectedTabulator,
 } from "@tsix/emerald";
 import { theme } from "@tsix/theme";
 
@@ -33,6 +34,19 @@ export const main = Program(async (args: string[]) => {
   let clipboard = null;
   let selected = null;
   let lastClick = { id: "", time: 0 };
+
+  // ── DataGrid (Tabulator) — daftar file, dirender di browser ──
+  // Sort kolom dimatikan (urutan tetap: direktori dulu, lalu nama — sama
+  // seperti sebelumnya). Resize kolom aktif (drag tepi header).
+  const grid = new ConnectedTabulator({
+    id: "filelist",
+    columns: [
+      { key: "name", label: "Name", sortable: true },
+      { key: "size", label: "Size", width: 100, align: "right", sortable: true },
+      { key: "modified", label: "Modified", width: 130, align: "right", sortable: true },
+    ],
+    height: "100%",
+  });
 
   const icon = (e) => (e.type === "DIRECTORY" ? "📁" : "📄");
   const isExe = (m) => !!(m & 1);
@@ -517,25 +531,6 @@ export const main = Program(async (args: string[]) => {
     }
   }
 
-  function makeClickHandler(name, isDir, isExeFile) {
-    return () => {
-      const now = Date.now();
-      const ep = currentPath.replace(/\/$/, "") + "/" + name;
-      if (lastClick.id === name && now - lastClick.time < 400) {
-        lastClick = { id: "", time: 0 };
-        if (isDir) enterDir(name);
-        else if (isExeFile) {
-          selected = name;
-          execSel();
-        }
-      } else {
-        lastClick = { id: name, time: now };
-        selected = name;
-        refreshSelection();
-      }
-    };
-  }
-
   async function refreshSelection() {
     const sel = selected;
     const hasSel = !!sel;
@@ -550,15 +545,8 @@ export const main = Program(async (args: string[]) => {
     await app.update("tb-delete", { disabled: hasSel ? "" : "1" });
     await app.update("tb-exec", { disabled: hasExe ? "" : "1" });
     await app.update("tb-paste", { disabled: hasClip ? "" : "1" });
-    // Highlight ".." row jika dipilih
-    if (currentPath !== "/") {
-      await app.update("row-..", { style: { ...rs(sel === ".."), background: sel === ".." ? theme.colors.bgAlt : theme.colors.bg } });
-    }
-    for (let i = 0; i < entries.length; i++) {
-      const e = entries[i];
-      const bg = e.name === sel ? theme.colors.bgAlt : theme.colors.bg;
-      await app.update("row-" + i, { style: { ...rs(false), background: bg } });
-    }
+    // Highlight baris terpilih ditangani Tabulator (native) — tidak perlu
+    // update background manual per-baris lagi.
     const dc = entries.filter((e) => e.type === "DIRECTORY").length;
     const fc = entries.filter((e) => e.type === "FILE").length;
     let st = dc + " dirs · " + fc + " files";
@@ -586,33 +574,22 @@ export const main = Program(async (args: string[]) => {
       return;
     }
     await app.update("error-msg", { text: "" });
-    const rows = [];
+
+    // Bangun baris untuk Tabulator grid. Field tersembunyi `_name`, `_isDir`,
+    // `_mode` dipakai logika app (path/exec) — tidak dirender Tabulator.
+    const rows: Record<string, any>[] = [];
     // Virtual ".." — selalu di baris pertama
     if (currentPath !== "/") {
-      rows.push(
-        div(
-          { id: "row-..", onClickId: "row-..", style: rs(true) },
-          span({
-            text: "📂 ..",
-            style: { flex: "1", color: theme.colors.accent, fontWeight: "700" },
-          }),
-          span({ text: "", style: { width: "80px", textAlign: "right", marginRight: "4px" } }),
-          span({ text: "", style: { width: "110px", textAlign: "right", fontSize: "11px" } }),
-        ),
-      );
+      rows.push({ name: "📂 ..", _name: "..", size: "", _isDir: true, modified: "" });
     }
-    for (let i = 0; i < entries.length; i++) {
-      const e = entries[i];
-      const rid = "row-" + i;
-      const exeFile = e.type !== "DIRECTORY" && isExe(e.mode || 0);
-      // Hitung size — untuk file pake sz(), untuk direktori async hitung isi
+    for (const e of entries) {
       let sizeText = "";
       if (e.type === "DIRECTORY") {
         try {
           const sub = await fs.ls(currentPath.replace(/\/$/, "") + "/" + e.name);
           if (sub && Array.isArray(sub)) {
-            const dirs = sub.filter(i => i.type === "DIRECTORY").length;
-            const files = sub.filter(i => i.type === "FILE").length;
+            const dirs = sub.filter((i) => i.type === "DIRECTORY").length;
+            const files = sub.filter((i) => i.type === "FILE").length;
             sizeText = dirs + "d/" + files + "f";
           }
         } catch (_) {
@@ -621,51 +598,18 @@ export const main = Program(async (args: string[]) => {
       } else {
         sizeText = sz(e);
       }
-      rows.push(
-        div(
-          { id: rid, onClickId: rid, style: rs(false) },
-          span({
-            text: icon(e) + " " + e.name,
-            style: {
-              flex: "1",
-              color: e.type === "DIRECTORY" ? theme.colors.accent : theme.colors.text,
-            },
-          }),
-          span({
-            text: sizeText,
-            style: {
-              width: "80px",
-              color: theme.colors.textMuted,
-              textAlign: "right",
-              marginRight: "4px",
-            },
-          }),
-          span({
-            text: fmtDate(e.modified_at),
-            style: {
-              width: "110px",
-              color: theme.colors.textMuted,
-              textAlign: "right",
-              fontFamily: "monospace",
-              fontSize: "11px",
-            },
-          }),
-        ),
-      );
+      rows.push({
+        name: icon(e) + " " + e.name,
+        _name: e.name,
+        size: sizeText,
+        _isDir: e.type === "DIRECTORY",
+        _mode: e.mode || 0,
+        modified: fmtDate(e.modified_at),
+      });
     }
-    await app.setContent("list-container", div({ id: "file-list" }, ...rows));
-    const w = app.win;
-    // ".." — double-click untuk naik, single-click untuk select
-    if (currentPath !== "/") {
-      w.onClick("row-..", makeClickHandler("..", true, false));
-    }
-    for (let i = 0; i < entries.length; i++) {
-      const e = entries[i];
-      const rid = "row-" + i;
-      const exeFile = e.type !== "DIRECTORY" && isExe(e.mode || 0);
-      w.onClick(rid, makeClickHandler(e.name, e.type === "DIRECTORY", exeFile));
-    }
-    await w.flush();
+
+    selected = null;
+    await grid.setData(rows);
     await refreshSelection();
   }
 
@@ -718,18 +662,6 @@ export const main = Program(async (args: string[]) => {
     await w.flush();
   }
 
-  const rs = (b) => ({
-    display: "flex",
-    alignItems: "center",
-    padding: "3px 6px",
-    background: b ? theme.colors.buttonBg : theme.colors.card,
-    borderRadius: "3px",
-    marginBottom: "1px",
-    fontFamily: "monospace",
-    fontSize: "12px",
-    minHeight: "22px",
-    cursor: "pointer",
-  });
   const tb = () => ({
     background: theme.colors.buttonBg,
     color: theme.colors.textDim,
@@ -933,30 +865,14 @@ export const main = Program(async (args: string[]) => {
             overflow: "hidden",
           },
         },
+        // Header + body grid dirender Tabulator (sort/resize/select native)
         div(
           {
-            id: "table-header",
-            style: {
-              display: "flex",
-              padding: "2px 6px",
-              borderBottom: "1px solid #333",
-              fontFamily: "monospace",
-              fontSize: "11px",
-              color: theme.colors.textMuted,
-              marginBottom: "2px",
-            },
+            id: "list-container",
+            style: { flex: "1", minHeight: "0", display: "flex", flexDirection: "column" },
           },
-          span({ text: "Name", style: { textAlign: "left",flex: "1" } }),
-          span({
-            text: "Size",
-            style: { width: "80px", textAlign: "center", marginRight: "4px", color: theme.colors.textMuted, fontSize: "11px" },
-          }),
-          span({
-            text: "Modified",
-            style: { width: "110px", textAlign: "center", color: theme.colors.textMuted, fontSize: "11px" },
-          }),
+          grid.build(),
         ),
-        div({ id: "list-container", style: { flex: "1", overflowY: "auto" } }),
       ),
     ),
     "content-root",
@@ -1011,6 +927,36 @@ export const main = Program(async (args: string[]) => {
   await app.on("tb-paste", "click", pasteSel);
   await app.on("tb-rename", "click", renameSel);
   await app.on("tb-delete", "click", deleteSel);
+
+  // ── Bind grid (Tabulator): single-click select, double-click aksi ──
+  await grid.mount(
+    app,
+    undefined,
+    (key, rec) => {
+      const name = rec?._name;
+      if (!name) return;
+      const now = Date.now();
+      if (lastClick.id === name && now - lastClick.time < 400) {
+        lastClick = { id: "", time: 0 };
+        selected = name;
+        if (name === "..") { void goUp(); return; }
+        if (rec._isDir) { void enterDir(name); return; }
+        if (rec._mode !== undefined && isExe(rec._mode)) { void execSel(); return; }
+        // File biasa — cukup ter-select
+        void refreshSelection();
+      } else {
+        lastClick = { id: name, time: now };
+        selected = name;
+        void refreshSelection();
+      }
+    },
+    undefined,
+    (key, rec) => {
+      // Seleksi berubah (termasuk deselect saat klik baris terpilih lagi)
+      selected = rec ? rec._name : null;
+      void refreshSelection();
+    },
+  );
 
   await refreshTree();
   await refreshList();

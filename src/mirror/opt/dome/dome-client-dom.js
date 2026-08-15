@@ -128,6 +128,23 @@
       return el;
     }
 
+    // Special: Tabulator data grid widget (ConnectedTabulator).
+    // Library Tabulator di-load di dome-client.html; inisialisasi dilakukan
+    // oleh dome-client-tabulator.js. Tag ini menandakan DOME bahwa elemen
+    // adalah container grid — bukan DOM biasa.
+    if (node.tag === "tabulator") {
+      el = document.createElement("div");
+      el.setAttribute("data-tsix-id", node.id);
+      el.style.width = "100%";
+      el.style.height = "100%";
+      el.style.minHeight = "120px";
+      el.style.overflow = "hidden";
+      el._tabNodeId = node.id;
+      el._tabWid = wid;
+      setTimeout(() => TSIX.initTabulator(el, wid, node.props || {}), 100);
+      return el;
+    }
+
     if (node.tag === "text") {
       el = document.createTextNode(node.props?.text || "");
     } else {
