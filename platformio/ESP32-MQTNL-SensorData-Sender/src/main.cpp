@@ -1,8 +1,8 @@
 #include <Arduino.h>
 #include <noslib.h>
 
-#define WIFI_SSID "Your WiFi SSID"
-#define WIFI_PASSWORD "Your WiFi Password"
+#define WIFI_SSID "Your SSID"
+#define WIFI_PASSWORD "Your SSID Password"
 #define MQTT_SERVER "broker.hivemq.com"
 #define MQTT_PORT 1883
 

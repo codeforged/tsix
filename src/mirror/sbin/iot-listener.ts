@@ -1,5 +1,3 @@
-import { UserLib } from "../lib/UserLib";
-
 // -- 1. Buat Databasenya
 // CREATE DATABASE IF NOT EXISTS antigonon_iot;
 // USE antigonon_iot;
@@ -14,7 +12,7 @@ import { UserLib } from "../lib/UserLib";
 // );
 // -- 3. Cek data nanti pake ini
 // -- SELECT * FROM sensor_data ORDER BY created_at DESC LIMIT 10;
-
+import { UserLib } from "../lib/UserLib";
 export default class IotListener {
     async execute(lib: UserLib, args: string[]) {
         const white = "\x1b[97m";
@@ -34,10 +32,10 @@ export default class IotListener {
 
         // Simulated MySQL Config
         const DB_CONFIG = {
-            host: "192.168.1.204",
-            user: "tsix_admin",
-            password: "thequickbrownfox",
-            database: "antigonon_iot"
+            host: "your ip/hostname",
+            user: "your db user",
+            password: "your password",
+            database: "your db"
         };
 
         // await lib.std.print(`${white}Starting IoT Listener Service (Antigonon IoT)...${reset}\n`);
