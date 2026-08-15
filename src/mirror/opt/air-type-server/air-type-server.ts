@@ -73,7 +73,7 @@ export const main = Program(async (args: string[]) => {
   }
 
   await std.print(
-    `\t🖥 Air-Type Server aktif di MQTNL port ${port} · 🔒 ${fingerprint.slice(0, 12)}…\n`,
+    `\tAir-Type Server aktif di MQTNL port ${port} · 🔒 ${fingerprint.slice(0, 12)}…\n`,
   );
   await std.log(
     `[air-type-server] Server chat aktif di port ${port} (fingerprint ${fingerprint.slice(0, 12)}…).`,
