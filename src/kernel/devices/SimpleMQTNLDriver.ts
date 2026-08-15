@@ -208,7 +208,9 @@ export class SimpleMQTNLDriver implements IDevice {
                 return;
             }
 
-            // [SNIFFER] RX — tangkap payload SETELAH dekripsi (plaintext, terbaca langsung)
+            // [SNIFFER] RX — `data` = hasil DEKRIPSI (plaintext, terbaca langsung),
+            // `raw` = yang benar-benar tiba di wire (masih encrypted). Kernel
+            // memfilter siapa dapat versi mana: root → `data`, non-root → `raw`.
             this.emitSniff({
                 type: "NET_SNIFF",
                 dir: "RX",
@@ -222,6 +224,7 @@ export class SimpleMQTNLDriver implements IDevice {
                 protocol: isBinary ? "Binary" : "JSON",
                 size: Buffer.isBuffer(decryptedPayload) ? decryptedPayload.length : String(decryptedPayload || "").length,
                 data: Buffer.isBuffer(decryptedPayload) ? decryptedPayload.toString("utf8") : decryptedPayload,
+                raw: Buffer.isBuffer(assembledPayload) ? assembledPayload.toString("utf8") : assembledPayload,
             });
 
 
@@ -369,7 +372,17 @@ export class SimpleMQTNLDriver implements IDevice {
         const useRaw = protocol.getName() === "Binary";
         const prefix = protocol.getTopicPrefix();
 
-        // [SNIFFER] TX — tangkap payload SEBELUM dienkripsi (plaintext, terbaca langsung)
+        // Security: Prioritize specific local port (e.g., 4000 for otad) then fallback to global
+        let portSec = this.portSecurity.get(srcPort);
+        if (!portSec) portSec = this.security;
+
+        // [BYPASS SECURITY] If using Binary protocol (useRaw), DO NOT add security overhead.
+        // This ensures the payload length matches exactly what the receiver expects (e.g. for OTA flash alignment).
+        const securedPayload = useRaw ? payload : (typeof payload === "string" ? portSec.securePacketOut(payload) : JSON.stringify(payload));
+
+        // [SNIFFER] TX — `data` = payload SEBELUM enkripsi (plaintext), `raw` = yang
+        // benar-benar keluar ke wire (encrypted). Kernel memfilter siapa dapat versi
+        // mana: root → `data` (plain), non-root → `raw` (encrypted).
         this.emitSniff({
             type: "NET_SNIFF",
             dir: "TX",
@@ -383,15 +396,8 @@ export class SimpleMQTNLDriver implements IDevice {
             protocol: useRaw ? "Binary" : "JSON",
             size: Buffer.isBuffer(payload) ? payload.length : String(payload).length,
             data: Buffer.isBuffer(payload) ? payload.toString("utf8") : payload,
+            raw: Buffer.isBuffer(securedPayload) ? securedPayload.toString("utf8") : securedPayload,
         });
-
-        // Security: Prioritize specific local port (e.g., 4000 for otad) then fallback to global
-        let portSec = this.portSecurity.get(srcPort);
-        if (!portSec) portSec = this.security;
-
-        // [BYPASS SECURITY] If using Binary protocol (useRaw), DO NOT add security overhead.
-        // This ensures the payload length matches exactly what the receiver expects (e.g. for OTA flash alignment).
-        const securedPayload = useRaw ? payload : (typeof payload === "string" ? portSec.securePacketOut(payload) : JSON.stringify(payload));
 
         // --- FRAGMENTATION LAYER ---
         const chunks: (string | Buffer)[] = [];

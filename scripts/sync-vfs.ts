@@ -98,7 +98,10 @@ async function main() {
       for (const part of parts) {
         currentPath += "/" + part;
         if (!bkfs.exists(currentPath)) {
-          bkfs.mkdir(currentPath);
+          // /etc/air-type = data runtime chat (history/known_hosts) yang ditulis
+          // air-type sebagai non-root → world-writable (0o777).
+          const dirMode = currentPath === "/etc/air-type" ? 0o777 : 0o755;
+          bkfs.mkdir(currentPath, 0, 0, dirMode);
         }
       }
 

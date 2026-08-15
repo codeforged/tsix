@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-08-15
+
+### Keamanan: sniffer 2 mode + opt-in `--decrypt` — plaintext hanya untuk ROOT yang sadar minta
+- **File:** `src/kernel/devices/SimpleMQTNLDriver.ts`, `src/kernel/Syscalls.ts`, `src/mirror/lib/UserLib.ts`, `src/mirror/usr/bin/bitshark.ts`
+- **Latar:** titik sadap bitshark sebelumnya di **setelah dekripsi** (plaintext) untuk semua pemakai — non-root bisa membaca isi trafik E2E (mis. chat air-type) milik user lain. Berbahaya. (Dilanjutkan iterasi: root pun tidak otomatis dapat plaintext — harus sadar minta `--decrypt`.)
+- **Perubahan:**
+  - **Driver** `emitSniff` kini mengirim **dua bentuk** per paket: `data` (plaintext: TX sebelum enkripsi / RX setelah dekripsi) dan `raw` (payload yang benar-benar di wire, masih encrypted). Titik emit TX dipindah setelah `securedPayload` dihitung.
+  - **Syscall** `NET_SNIFFER_REGISTER` (argumen bisa `string iface` atau `{iface, decrypt}`): catat `{ root, decrypt }` → `netSniffers` = `Map<iface, Map<pid, {root, decrypt}>>`.
+  - **`forwardSniff`**: **default SEMUA (termasuk root) menerima `raw` (encrypted, `mode:"encrypted"`)**. Hanya **ROOT && decrypt:true** yang menerima `data` (decrypted, `mode:"decrypted"`). Plaintext = keputusan sadar (flag `--decrypt`), bukan hak otomatis.
+  - **Bitshark**: flag `--decrypt`/`-d` → register dengan `decrypt:true`; kolom Proto badge `🔒` (encrypted) / `🔓` (decrypted); status bar menampilkan mode.
+- **Model:** meniru Wireshark — default lihat wire (mentah); dekripsi hanya untuk yang berhak (root) dan **secara eksplisit memintanya**. Trafik yang memang tidak terenkripsi (mis. handshake RSA awal) tetap terlihat plaintext untuk semua — wajar.
+- **Deploy:** rebuild kernel + re-sync `src/mirror/lib/UserLib.ts` & `src/mirror/usr/bin/bitshark.ts` ke VFS (UserLib framework di-precompile saat boot) + restart.
+- **Catatan:** `Syscalls.test.ts` gagal load di harness vitest (Cannot find module '../common/SyscallCode' dari UserLib.js/WorkerEntry.js) — **pre-existing**, terbukti juga gagal saat perubahan di-stash. `TTYDevice.test.ts` tetap lolos.
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-02
 
 ### Traffic WS hemat — incremental append + coalescing

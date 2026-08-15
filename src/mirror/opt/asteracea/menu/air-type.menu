@@ -1,0 +1,5 @@
+name=Air-Type
+icon=✈️
+command=/opt/air-type/air-type.js
+#mode server: jalankan dari terminal →  air-type --serve [port]
+pinned_launcher=false

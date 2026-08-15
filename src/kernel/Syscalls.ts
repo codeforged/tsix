@@ -41,8 +41,13 @@ export class SyscallDispatcher {
     { resolve: (v: any) => void; reject: (e: Error) => void }
   > = new Map();
 
-  // Network Sniffer (bitshark): interfaceName ("*" = semua) → Set<pid>
-  private netSniffers: Map<string, Set<number>> = new Map();
+  // Network Sniffer (bitshark): interfaceName ("*" = semua) → (PID → izin).
+  // Izin: { root: apakah pendaftar root, decrypt: apakah MINTA hasil dekripsi }.
+  // Plaintext hanya dikirim jika root && decrypt (opt-in eksplisit via --decrypt).
+  private netSniffers: Map<
+    string,
+    Map<number, { root: boolean; decrypt: boolean }>
+  > = new Map();
   // Driver yang sudah di-wire onSniff (hindari duplikat callback)
   private wiredSniffers = new Set<SimpleMQTNLDriver>();
 
@@ -173,19 +178,53 @@ export class SyscallDispatcher {
   }
 
   /**
-   * forwardSniff(): Teruskan paket sniffer ke semua PID yang terdaftar
-   * untuk interface tsb (atau "*" = semua interface).
+   * forwardSniff(): Teruskan paket sniffer ke semua PID yang terdaftar untuk
+   * interface tsb (atau "*" = semua interface).
+   *
+   * PEMFILTERAN PRIVILEGE (anti sadap plaintext):
+   *   - Default SEMUA (termasuk root) menerima `data` = `raw` (payload di wire,
+   *     masih encrypted) — mode "encrypted".
+   *   - Hanya ROOT yang MENYADARI meminta (`--decrypt`) menerima `data` = hasil
+   *     dekripsi (plaintext) — mode "decrypted". Dekripsi adalah keputusan sadar.
    * App menerima via lib.onEvent("ipc_message") → msg.data.type === "NET_SNIFF".
    */
   private forwardSniff(sniff: any): void {
     if (!sniff || !sniff.iface) return;
-    const targets = new Set<number>();
-    const allSet = this.netSniffers.get("*");
-    const ifaceSet = this.netSniffers.get(sniff.iface);
-    if (allSet) for (const p of allSet) targets.add(p);
-    if (ifaceSet) for (const p of ifaceSet) targets.add(p);
-    for (const pid of targets) {
-      this.scheduler.sendEvent(pid, "ipc_message", { data: sniff });
+
+    // Gabungkan pendaftar dari "*" dan interface spesifik → (PID → izin).
+    const privilege = new Map<number, { root: boolean; decrypt: boolean }>();
+    const merge = (m?: Map<number, { root: boolean; decrypt: boolean }>) => {
+      if (!m) return;
+      for (const [pid, rec] of m) {
+        const prev = privilege.get(pid);
+        if (prev === undefined) {
+          privilege.set(pid, { root: rec.root, decrypt: rec.decrypt });
+        } else {
+          // Konservatif: root = SEMUA pendaftaran harus root; decrypt = cukup
+          // satu pendaftaran yang minta (PID yang sama, root-nya konsisten).
+          prev.root = prev.root && rec.root;
+          prev.decrypt = prev.decrypt || rec.decrypt;
+        }
+      }
+    };
+    merge(this.netSniffers.get("*"));
+    merge(this.netSniffers.get(sniff.iface));
+
+    for (const [pid, rec] of privilege) {
+      const canDecrypt = rec.root && rec.decrypt;
+      let payload: any;
+      if (canDecrypt) {
+        payload = { ...sniff, mode: "decrypted" };
+      } else {
+        const raw = sniff.raw;
+        payload = {
+          ...sniff,
+          data: raw === undefined || raw === null ? "(encrypted)" : String(raw),
+          size: raw === undefined || raw === null ? 0 : String(raw).length,
+          mode: "encrypted",
+        };
+      }
+      this.scheduler.sendEvent(pid, "ipc_message", { data: payload });
     }
   }
 
@@ -1996,11 +2035,28 @@ export class SyscallDispatcher {
 
       // --- Network Sniffer (bitshark) ---
       case SyscallCode.NET_SNIFFER_REGISTER: {
-        const iface = args == null ? "*" : String(args);
+        // Dua bentuk argumen:
+        //   lama: string iface ("*" / "smqtnl0" / dll)
+        //   baru: { iface, decrypt } — decrypt=true = MINTA hasil dekripsi
+        let iface = "*";
+        let wantDecrypt = false;
+        if (args != null && typeof args === "object") {
+          iface = String((args as any).iface ?? "*");
+          wantDecrypt = !!(args as any).decrypt;
+        } else {
+          iface = args == null ? "*" : String(args);
+        }
         this.ensureSnifferWiring();
-        if (!this.netSniffers.has(iface)) this.netSniffers.set(iface, new Set());
-        this.netSniffers.get(iface)!.add(pid);
-        this.logger.info(`[SNIFF] PID ${pid} sniffing interface "${iface}"`);
+        if (!this.netSniffers.has(iface)) this.netSniffers.set(iface, new Map());
+        const isRootSniffer = this.isRoot(pcb);
+        // Izin: plaintext (decrypted) HANYA dikabulkan jika ROOT && decrypt
+        // (opt-in eksplisit via flag --decrypt di bitshark). Non-root tidak pernah.
+        this.netSniffers
+          .get(iface)!
+          .set(pid, { root: isRootSniffer, decrypt: wantDecrypt });
+        this.logger.info(
+          `[SNIFF] PID ${pid} (${isRootSniffer ? "ROOT" : "user"}${wantDecrypt ? ", decrypt:ON" : ""}) sniffing "${iface}"`,
+        );
         return true;
       }
 

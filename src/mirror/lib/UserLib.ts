@@ -778,10 +778,11 @@ export class ShellLib {
   /**
    * netSnifferRegister(): Daftarkan proses ini sebagai network sniffer (bitshark).
    * iface: "smqtnl0" | "smqtnl1" | "*" (semua interface).
+   * decrypt: true = MINTA hasil dekripsi (plaintext) — hanya dikabulkan jika ROOT.
    * Paket diterima via lib.onEvent("ipc_message") → msg.data.type === "NET_SNIFF".
    */
-  public async netSnifferRegister(iface: string = "*"): Promise<boolean> {
-    return await this.dispatch(SyscallCode.NET_SNIFFER_REGISTER, iface);
+  public async netSnifferRegister(iface: string = "*", decrypt: boolean = false): Promise<boolean> {
+    return await this.dispatch(SyscallCode.NET_SNIFFER_REGISTER, { iface, decrypt });
   }
 
   /** netSnifferUnregister(): Hentikan sniffing interface. */

@@ -10,7 +10,9 @@
  * Kernel mengirim event "NET_SNIFF" via ipc_message ke proses ini
  * (syscall NET_SNIFFER_REGISTER = 72).
  *
- * Jalankan:  bitshark
+ * Jalankan:
+ *   bitshark            → hanya lihat encrypted (wire)
+ *   bitshark --decrypt  → (ROOT saja) lihat hasil dekripsi (plaintext)
  * (Pastikan DOME running)
  *
  * (c) 2026 TSIX Project
@@ -38,7 +40,11 @@ export const appMode = "gui";
 /** Nilai interface asli per index combobox (label tampilan boleh beda). */
 const IFACES = ["*", "smqtnl0", "smqtnl1"];
 
-export const main = Program(async () => {
+export const main = Program(async (args: string[]) => {
+  // Mode dekripsi: hanya efektif kalau ROOT + flag --decrypt (opt-in eksplisit).
+  // Tanpa flag ini (atau non-root), semua payload ditampilkan mentah (encrypted).
+  const decryptMode = args.includes("--decrypt") || args.includes("-d");
+
   const form = new TForm("🦈 Bitshark — Network Sniffer", 940, 660);
 
   // ── Toolbar ──
@@ -75,7 +81,9 @@ export const main = Program(async () => {
   btnFilter.caption = "🔍 Filter";
 
   const status = new TLabel("status", { color: "var(--text-muted, #888)" });
-  status.caption = "⏸ idle — pilih interface lalu Start";
+  status.caption = decryptMode
+    ? "⏸ idle · 🔓 decrypt ON (dihormati hanya jika ROOT)"
+    : "⏸ idle — pilih interface lalu Start · 🔒 encrypted";
 
   form.add(HStack({padding: "5px"}, lblIface, selIface, btnToggle, btnClear, btnFilter, status));
 
@@ -328,7 +336,7 @@ export const main = Program(async () => {
       src: `${sniff.srcAddress}:${sniff.srcPort}`,
       dst: `${sniff.dstAddress}:${sniff.dstPort}`,
       port: sniff.dstPort,
-      proto: sniff.protocol,
+      proto: sniff.protocol + (sniff.mode === "encrypted" ? " 🔒" : sniff.mode === "decrypted" ? " 🔓" : ""),
       size: sniff.size,
       flag: flagName(sniff.flag ?? 0),
       data: (dataStr || "").slice(0, 140),
@@ -694,10 +702,11 @@ export const main = Program(async () => {
     const iface = IFACES[selIface.selectedIndex] || "*";
     if (sniffing) {
       currentIface = iface;
-      await shell.netSnifferRegister(iface);
+      await shell.netSnifferRegister(iface, decryptMode);
       btnToggle.caption = "⏹ Stop";
-      status.caption =
-        iface === "*" ? "🟢 Menangkap SEMUA interface..." : `🟢 Menangkap ${iface}...`;
+      status.caption = `${decryptMode ? "🔓" : "🔒"} ${
+        iface === "*" ? "Menangkap SEMUA interface..." : `Menangkap ${iface}...`
+      } (${decryptMode ? "decrypt:ON" : "encrypted"})`;
     } else {
       await shell.netSnifferUnregister(iface);
       btnToggle.caption = "▶️ Start Sniffing";
@@ -712,8 +721,8 @@ export const main = Program(async () => {
     if (next === currentIface) return;
     await shell.netSnifferUnregister(currentIface);
     currentIface = next;
-    await shell.netSnifferRegister(next);
-    status.caption = `🟢 Ganti → ${next === "*" ? "SEMUA" : next}`;
+    await shell.netSnifferRegister(next, decryptMode);
+    status.caption = `🟢 Ganti → ${next === "*" ? "SEMUA" : next} · ${decryptMode ? "🔓 decrypt:ON" : "🔒 encrypted"}`;
   };
 
   // ── Cleanup saat window ditutup ──
