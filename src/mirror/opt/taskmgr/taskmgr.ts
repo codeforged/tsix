@@ -24,7 +24,7 @@ export const main = Program(async (args: string[]) => {
 
     // DataGrid untuk tabel task (sortable, selectable, resizable columns)
     const columns: DataGridColumn[] = [
-        { key: "icon", label: "", width: 60, sortable: false, resizable: false, align: "center" },
+        { key: "icon", label: " ", width: 30, sortable: false, resizable: false, align: "center" },
         { key: "pid", label: "PID", width: 60, align: "right" },
         { key: "name", label: "Name", width: "40%" },
         { key: "state", label: "State", width: 80 },

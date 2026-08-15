@@ -179,6 +179,19 @@ export const main = Program(async (args: string[]) => {
       await app.update("status-bar", { text: "❌ " + e.message });
     }
   }
+
+  async function goHome() {
+    let homeDir = "/";
+    try {
+      const e = await shell.getenv("HOME");
+      if (e) homeDir = e;
+    } catch (_) { }
+
+    if (expandedDirs.has(homeDir)) expandedDirs.delete(homeDir);
+    else expandedDirs.add(homeDir);
+    refreshExplorer();
+  }
+
   async function closeFile() {
     if (!(await checkDirty())) return;
     currentFile = null;
@@ -336,6 +349,13 @@ export const main = Program(async (args: string[]) => {
           },
         },
         button({
+          id: "tb-home",
+          text: "🏠",
+          title: "Home",
+          style: tb(),
+          onClickId: "tb-home",
+        }),
+        button({
           id: "tb-new",
           text: "📄 New",
           style: tb(),
@@ -390,8 +410,8 @@ export const main = Program(async (args: string[]) => {
         {
           id: "explorer-panel",
           style: {
-            width: "260px",
-            minWidth: "180px",
+            width: "200px",
+            minWidth: "150px",
             overflowY: "auto",
             flexShrink: "0",
           },
@@ -409,7 +429,7 @@ export const main = Program(async (args: string[]) => {
         style: {
           width: "5px",
           cursor: "col-resize",
-          background: "rgba(76,175,80,0.2)",
+          background: "rgba(77, 74, 64, 0.2)",
           flexShrink: "0",
         },
       }),
@@ -463,6 +483,7 @@ export const main = Program(async (args: string[]) => {
     "content-root",
   );
 
+  await app.on("tb-home", "click", goHome);
   await app.on("tb-new", "click", closeFile);
   await app.on("tb-save", "click", saveFile);
   await app.on("tb-saveas", "click", async () => {

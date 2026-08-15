@@ -34,6 +34,9 @@ export const main = Program(async (args: string[]) => {
   let clipboard = null;
   let selected = null;
   let lastClick = { id: "", time: 0 };
+  // Riwayat navigasi Back / Forward
+  let historyBack: string[] = [];
+  let historyForward: string[] = [];
 
   // ── DataGrid (Tabulator) — daftar file, dirender di browser ──
   // Sort kolom dimatikan (urutan tetap: direktori dulu, lalu nama — sama
@@ -485,26 +488,43 @@ export const main = Program(async (args: string[]) => {
     }
   }
 
+  // ── Navigasi + riwayat (Back / Forward) ──
+  async function navigateTo(path: string) {
+    const p = path === "/" ? "/" : path.replace(/\/+$/, "");
+    if (p === currentPath) return; // path sama — skip (hindari riwayat dobel)
+    if (historyBack[historyBack.length - 1] !== currentPath) {
+      historyBack.push(currentPath);
+    }
+    historyForward = [];
+    currentPath = p;
+    await refreshList();
+  }
+  async function goBack() {
+    if (historyBack.length === 0) return;
+    historyForward.push(currentPath);
+    currentPath = historyBack.pop()!;
+    await refreshList();
+  }
+  async function goForward() {
+    if (historyForward.length === 0) return;
+    historyBack.push(currentPath);
+    currentPath = historyForward.pop()!;
+    await refreshList();
+  }
   async function enterDir(name) {
     if (name === "..") {
       await goUp();
       return;
     }
-    currentPath = currentPath.replace(/\/$/, "") + "/" + name;
-    selected = null;
-    await refreshList();
+    await navigateTo(currentPath.replace(/\/$/, "") + "/" + name);
   }
   async function goUp() {
     const p = currentPath.replace(/\/$/, "").split("/");
     p.pop();
-    currentPath = p.join("/") || "/";
-    selected = null;
-    await refreshList();
+    await navigateTo(p.join("/") || "/");
   }
   async function goHome() {
-    currentPath = homeDir;
-    selected = null;
-    await refreshList();
+    await navigateTo(homeDir);
   }
 
   async function navigateToPath() {
@@ -518,10 +538,8 @@ export const main = Program(async (args: string[]) => {
     try {
       const s = await fs.stat(path);
       if (s && s.type === "DIRECTORY") {
-        currentPath = path;
-        selected = null;
+        await navigateTo(path);
         await app.update("status-bar", { text: "📂 " + path });
-        await refreshList();
       } else {
         await app.update("status-bar", { text: "⚠️ Not a directory: " + path });
       }
@@ -545,6 +563,8 @@ export const main = Program(async (args: string[]) => {
     await app.update("tb-delete", { disabled: hasSel ? "" : "1" });
     await app.update("tb-exec", { disabled: hasExe ? "" : "1" });
     await app.update("tb-paste", { disabled: hasClip ? "" : "1" });
+    await app.update("tb-back", { disabled: historyBack.length ? "" : "1" });
+    await app.update("tb-forward", { disabled: historyForward.length ? "" : "1" });
     // Highlight baris terpilih ditangani Tabulator (native) — tidak perlu
     // update background manual per-baris lagi.
     const dc = entries.filter((e) => e.type === "DIRECTORY").length;
@@ -561,7 +581,7 @@ export const main = Program(async (args: string[]) => {
   }
 
   async function refreshList() {
-    await app.update("path-display", { text: "📂 " + (currentPath || "/") });
+    // await app.update("path-display", { text: "📂 " + (currentPath || "/") });
     await app.update("path-input", { value: currentPath });
     try {
       entries = (await fs.ls(currentPath)) || [];
@@ -651,9 +671,8 @@ export const main = Program(async (args: string[]) => {
           const fp = dir.replace(/\/$/, "") + "/" + d.name;
           const tid = "tree-" + fp.replace(/\//g, "_");
           w.onClick(tid, () => {
-            currentPath = fp;
             selected = null;
-            refreshList();
+            void navigateTo(fp);
           });
         }
       } catch (e) { }
@@ -715,17 +734,17 @@ export const main = Program(async (args: string[]) => {
           onClickId: "btn-refresh",
         }),
       ),
-      span({
-        id: "path-display",
-        text: "📂 /",
-        style: {
-          display: "block",
-          marginTop: "4px",
-          color: theme.colors.accent,
-          fontFamily: "monospace",
-          fontSize: "13px",
-        },
-      }),
+      // span({
+      //   id: "path-display",
+      //   text: "📂 /",
+      //   style: {
+      //     display: "block",
+      //     marginTop: "4px",
+      //     color: theme.colors.accent,
+      //     fontFamily: "monospace",
+      //     fontSize: "13px",
+      //   },
+      // }),
       span({
         id: "error-msg",
         text: "",
@@ -747,10 +766,24 @@ export const main = Program(async (args: string[]) => {
           display: "flex",
           gap: "4px",
           padding: "4px 0",
-          borderBottom: "1px solid #333",
+          borderBottom: `1px solid ${theme.colors.border}`,
           marginBottom: "4px",
         },
       },
+      button({
+        id: "tb-back",
+        text: "⬅",
+        title: "Back (history)",
+        style: tb(),
+        onClickId: "tb-back",
+      }),
+      button({
+        id: "tb-forward",
+        text: "➡",
+        title: "Forward (history)",
+        style: tb(),
+        onClickId: "tb-forward",
+      }),
       button({
         id: "tb-home",
         text: "🏠",
@@ -758,6 +791,7 @@ export const main = Program(async (args: string[]) => {
         style: tb(),
         onClickId: "tb-home",
       }),
+      span({ style: { width: "8px" } }),
       button({
         id: "tb-view",
         text: "👁",
@@ -851,7 +885,7 @@ export const main = Program(async (args: string[]) => {
         style: {
           width: "5px",
           cursor: "col-resize",
-          background: "rgba(76,175,80,0.2)",
+          background: "rgba(77, 74, 64, 0.2)",
           flexShrink: "0",
         },
       }),
@@ -901,9 +935,8 @@ export const main = Program(async (args: string[]) => {
     refreshTree();
   });
   await app.on("tree-root", "click", () => {
-    currentPath = "/";
     selected = null;
-    refreshList();
+    void navigateTo("/");
   });
   app.win.bindHandler("path-input", "input", (ev) => {
     if (ev.value !== undefined) currentPath = String(ev.value);
@@ -917,6 +950,8 @@ export const main = Program(async (args: string[]) => {
       await app.update("path-input", { value: currentPath });
     }
   });
+  await app.on("tb-back", "click", goBack);
+  await app.on("tb-forward", "click", goForward);
   await app.on("tb-home", "click", goHome);
   await app.on("tb-view", "click", viewSel);
   await app.on("tb-edit", "click", editSel);

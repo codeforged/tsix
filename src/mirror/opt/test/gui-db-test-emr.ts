@@ -17,7 +17,7 @@
 
 import { Program, std, db } from "@tsix/Application";
 import {
-    Screen, div, button, paragraph, span, ConnectedDataGrid,
+    Screen, div, button, paragraph, span, ConnectedDataGrid, ConnectedTabulator,
 } from "@tsix/emerald";
 import { theme } from "@tsix/theme";
 
@@ -42,7 +42,7 @@ export const main = Program(async (args: string[]) => {
     });
 
     // ── DataGrid (tampil + sort) ──
-    const grid = new ConnectedDataGrid({
+    const grid = new ConnectedTabulator({
         id: "sensor",
         columns: [
             { key: "id", label: "ID", width: 60, align: "right" },

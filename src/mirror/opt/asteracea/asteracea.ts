@@ -2418,7 +2418,7 @@ export const main = Program(async (args: string[]) => {
             payload.pid,
             payload.wid,
             payload.title || `PID ${payload.pid}`,
-            payload.icon || "💻",
+            payload.icon || "▶️",
             appState,
           );
         }

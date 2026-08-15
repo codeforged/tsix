@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-08-15
+
+### Navigasi Back / Forward — riwayat folder di toolbar
+- **File:** `src/mirror/opt/file-cruiser/file-cruiser.ts`
+- **Perubahan:**
+  - Toolbar: tambah tombol `⬅ Back` & `➡ Forward` sebelum `🏠 Home` (auto-disable saat stack kosong).
+  - Riwayat navigasi dua stack (`historyBack` / `historyForward`) + helper `navigateTo()`, `goBack()`, `goForward()`.
+  - Semua jalur ganti direktori kini lewat `navigateTo()`: `enterDir`, `goUp`, `goHome`, tombol Go (`navigateToPath`), klik tree, klik root tree → otomatis tercatat di riwayat (dedupe path berurutan, forward di-reset saat navigasi baru).
+  - `refreshSelection()` update state disabled tombol Back/Forward.
+- **Dampak:** Penjelajahan folder lebih natural; user bisa kembali/maju ke folder yang pernah dikunjungi.
+- **Oleh:** Copilot · **Permintaan:** kakang
+
+---
+
 ## 2026-07-28
 
 ### Info panel — custom modal dua kolom

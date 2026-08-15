@@ -20,7 +20,7 @@
  */
 
 import { Program, std, db } from "@tsix/Application";
-import { TForm, TButton, TLabel, TDataGrid, HStack } from "@tsix/cashew";
+import { TForm, TButton, TLabel, TDataGrid, HStack, TTabulatorGrid } from "@tsix/cashew";
 
 export const appMode = "gui";
 
@@ -59,11 +59,11 @@ export const main = Program(async (args: string[]) => {
     form.add(toolbar);
 
     // ── DataGrid ──
-    const grid = new TDataGrid("sensor", [
-        { key: "id", label: "ID", width: 30, align: "right" },
-        { key: "node_id", label: "Node", width: 70 },
-        { key: "sensor_id", label: "Sensor", width: 30 },
-        { key: "value", label: "Nilai", width: 30, align: "right" },
+    const grid = new TTabulatorGrid("sensor", [
+        { key: "id", label: "ID", width: 60, align: "right" },
+        { key: "node_id", label: "Node", width: 140 },
+        { key: "sensor_id", label: "Sensor", width: 90 },
+        { key: "value", label: "Nilai", width: 80, align: "right" },
         { key: "timestamp", label: "Waktu", width: "40%" },
     ], [], { height: 340});
     form.add(grid);
