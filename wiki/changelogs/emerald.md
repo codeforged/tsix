@@ -55,3 +55,14 @@
   - Contoh: File Cruiser → `new Screen({ title: "File Cruiser", icon: "📁", ... })`.
 - **Dampak:** Judul window bisa punya ikon di kiri. Tanpa `icon`, tampilan identik seperti sebelumnya (judul di kiri). Deploy: sync `emerald.ts` + modul DOME ke VFS → **restart DOME** + hard-refresh browser.
 - **Oleh:** Copilot · **Permintaan:** kakang
+
+### Icon title bar tidak tampak di sebagian app — `icon` tercecer di relay CREATE_WINDOW + auto-icon default
+- **File:** `src/mirror/opt/dome/dome.ts`, `src/mirror/lib/emerald.ts`, `src/mirror/lib/cashew.ts`, `src/mirror/opt/eucalyptus/eucalyptus.ts`, `src/mirror/opt/ddc-sample/ddc-sample*.ts`
+- **Masalah:** Sebagian window tampak punya ikon (app dengan emoji di string title, mis. taskmgr), tapi app yang pakai opsi `icon` eksplisit (file-cruiser) tidak — karena di `dome.ts` `case CREATE_WINDOW`, broadcast ke browser **tidak menyertakan `icon`** → tercecer di relay. App tanpa `icon` sama sekali (eucalyptus, DDC samples) juga tanpa ikon.
+- **Perubahan:**
+  - `dome.ts`: broadcast `CREATE_WINDOW` kini menyertakan `icon: node?.props?.icon || "🪟"` (+ field `icon` di `BrowserMessage`).
+  - `emerald.ts`: helper `splitTitleIcon()` — `icon` eksplisit menang; kalau tidak, emoji di awal judul dipakai sebagai icon (judul dibersihkan, versi asli tetap untuk taskbar); fallback default `🪟` → **semua window otomatis punya ikon**.
+  - `cashew.ts`: `TFormOptions` + `icon` (diteruskan ke `Screen`), jadi app Delphi-style (DDC) bisa kasih ikon.
+  - Ikon eksplisit: eucalyptus `✏️`, DDC sample0..6 (`👋🎨🎈🧊🔥🚶🔥`).
+- **Dampak:** Semua window menampilkan ikon di title bar (eksplisit, emoji-judul, atau default 🪟). Deploy: sync `emerald.ts`, `cashew.ts`, `dome.ts`, dan app terkait ke VFS → **restart DOME** + hard-refresh browser.
+- **Oleh:** Copilot · **Laporan & permintaan:** kakang

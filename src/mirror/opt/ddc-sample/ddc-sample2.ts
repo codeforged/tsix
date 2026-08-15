@@ -101,7 +101,7 @@ export const main = Program(async (_args: string[]) => {
   // ================================================================
   // FORM — Delphi style
   // ================================================================
-  const form = new TForm("DDC Sample 2 — Balloon Pop", 560, 560);
+  const form = new TForm({ title: "DDC Sample 2 — Balloon Pop", icon: "🎈", width: 560, height: 560 });
   form.style = { ...form.style, padding: "0", margin: "0" };
 
   // --- Header ---

@@ -24,7 +24,7 @@ export const main = Program(async (_args: string[]) => {
   // ================================================================
   // FORM — Delphi style
   // ================================================================
-  const form = new TForm("DDC Sample 3 — Three.js Cube", 520, 520);
+  const form = new TForm({ title: "DDC Sample 3 — Three.js Cube", icon: "🧊", width: 520, height: 520 });
   form.style = { ...form.style, padding: "0", margin: "0" };
 
   const stage = new TPanel("stage", {

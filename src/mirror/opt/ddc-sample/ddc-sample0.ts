@@ -23,6 +23,7 @@ export const main = Program(async (_args: string[]) => {
   // ================================================================
   const form = new TForm({
     title: "DDC Sample 0 — Hello World",
+    icon: "👋",
     width: 500,
     height: 100,
     maximizable: false,

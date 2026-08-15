@@ -84,6 +84,7 @@ interface BrowserMessage {
   wid?: string;
   pid?: number;
   title?: string;
+  icon?: string;
   action?: string;
   node?: any;
   props?: Record<string, any>;
@@ -799,6 +800,7 @@ export const main = Program(async (args: string[]) => {
             wid,
             pid,
             title: entry.title,
+            icon: node?.props?.icon || "▶️",
             fullscreen: node?.props?.fullscreen || false,
             width: entry.width,
             height: entry.height,

@@ -21,6 +21,7 @@ export const main = Program(async (args: string[]) => {
   const domePid = (ps.find((p: any) => p.name.includes("dome")) || {}).pid || 0;
   const app = new Screen({
     title: "Eucalyptus",
+    icon: "✏️",
     width: 900,
     height: 600,
     resizable: true,

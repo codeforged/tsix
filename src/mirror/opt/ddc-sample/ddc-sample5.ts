@@ -30,6 +30,7 @@ export const main = Program(async (_args: string[]) => {
   // ================================================================
   const form = new TForm({
     title: "DDC Sample 5 — 3D Walk",
+    icon: "🚶",
     width: 640,
     height: 480,
     frameless: false,

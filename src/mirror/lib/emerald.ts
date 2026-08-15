@@ -2593,6 +2593,38 @@ export function slider(props: Record<string, any> = {}): IDOMNode {
   );
 }
 
+/**
+ * splitTitleIcon(): Pisahkan ikon dari judul window untuk title bar.
+ * - icon eksplisit → dipakai langsung (judul tidak diubah)
+ * - tanpa icon, tapi judul diawali emoji → emoji jadi icon, judul dibersihkan
+ * - selain itu → default "▶️" (biar semua window punya ikon)
+ */
+function splitTitleIcon(
+  title: string,
+  explicitIcon?: string,
+): { icon: string; title: string } {
+  if (explicitIcon) return { icon: explicitIcon, title };
+  const t = (title || "App").trim();
+  if (t.length === 0) return { icon: "▶️", title: t };
+  const first = t.codePointAt(0)!;
+  const isEmojiLike =
+    (first >= 0x1f000 && first <= 0x1faff) || // Emoji (📊📁🔥 dst)
+    (first >= 0x2600 && first <= 0x27bf) || // Misc Symbols + Dingbats (✏️⚙️)
+    (first >= 0x2b00 && first <= 0x2bff) || // Arrows / misc
+    first === 0xfe0f; // variation selector (warna emoji)
+  if (!isEmojiLike) return { icon: "▶️", title: t };
+  // Konsumsi emoji + variation selector (✏️ = U+270F + U+FE0F)
+  let len = String.fromCodePoint(first).length;
+  let cp = t.codePointAt(len);
+  while (cp === 0xfe0f || cp === 0x20e3) {
+    len += 1;
+    cp = t.codePointAt(len);
+  }
+  const icon = t.slice(0, len);
+  const rest = t.slice(len).trim();
+  return { icon, title: rest || "App" };
+}
+
 export class Window {
   /** Window ID (unik, auto-generated) */
   public readonly wid: string;
@@ -2690,6 +2722,13 @@ export class Window {
       _resizable = resizable;
     }
 
+    // Pisahkan ikon title bar: icon eksplisit → dipakai; else emoji awal judul;
+    // else default 🪟. Judul tampilan dibersihkan dari emoji pendahulunya
+    // (title asli tetap dipakai untuk event ke taskbar).
+    const _split = splitTitleIcon(_title, _icon);
+    const _displayTitle = _split.title;
+    const _displayIcon = _split.icon;
+
     this.wid = uuidv4();
 
     if (_lib) {
@@ -2711,8 +2750,8 @@ export class Window {
       id: this.wid,
       tag: "window",
       props: {
-        title: _title,
-        icon: _icon,
+        title: _displayTitle,
+        icon: _displayIcon,
         fullscreen: _fullscreen,
         width: _width,
         height: _height,

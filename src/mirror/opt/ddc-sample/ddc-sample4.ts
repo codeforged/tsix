@@ -23,7 +23,7 @@ export const main = Program(async (_args: string[]) => {
   // ================================================================
   // FORM — Delphi style
   // ================================================================
-  const form = new TForm("DDC Sample 4 — Fire Animation", 800, 400);
+  const form = new TForm({ title: "DDC Sample 4 — Fire Animation", icon: "🔥", width: 800, height: 400 });
   // Full-bleed: hilangkan padding default TForm (12px) yang bikin frame di tepi
   form.style = { ...form.style, padding: "0", margin: "0" };
 

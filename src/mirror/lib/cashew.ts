@@ -114,6 +114,8 @@ export class TComponent {
 /** Opsi pembuatan TForm via object literal */
 export interface TFormOptions {
   title: string;
+  /** Ikon/emoji di kiri judul title bar (opsional) */
+  icon?: string;
   width?: number;
   height?: number;
   /** Bisa di-maximize (default: true) */
@@ -131,6 +133,7 @@ export interface TFormOptions {
 export class TForm extends TComponent {
   private _screen!: Screen;
   private _title: string;
+  private _icon?: string;
   private _width: number;
   private _height: number;
   private _maximizable: boolean;
@@ -166,6 +169,7 @@ export class TForm extends TComponent {
     if (typeof titleOrOpts === "object" && titleOrOpts !== null) {
       const o = titleOrOpts as TFormOptions;
       this._title = o.title ?? "Untitled";
+      this._icon = o.icon;
       this._width = o.width ?? 800;
       this._height = o.height ?? 600;
       this._maximizable = o.maximizable ?? true;
@@ -175,6 +179,7 @@ export class TForm extends TComponent {
       userStyle = o.style;
     } else {
       this._title = titleOrOpts;
+      this._icon = undefined;
       this._width = width;
       this._height = height;
       this._maximizable = maximizable;
@@ -199,6 +204,9 @@ export class TForm extends TComponent {
 
   set title(v: string) {
     this._title = v;
+  }
+  set icon(v: string | undefined) {
+    this._icon = v;
   }
   set width(w: number) {
     this._width = w;
@@ -240,6 +248,7 @@ export class TForm extends TComponent {
 
     const opts: any = {
       title: this._title,
+      icon: this._icon,
       width: this._width,
       height: this._height,
       maximizable: this._maximizable,

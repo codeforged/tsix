@@ -29,7 +29,7 @@ export const main = Program(async (_args: string[]) => {
   // ================================================================
   // FORM — Delphi style (flat, no nested declarative DOM!)
   // ================================================================
-  const form = new TForm("DDC Sample — Fabric Particles", 640, 480);
+  const form = new TForm({ title: "DDC Sample — Fabric Particles", icon: "🎨", width: 640, height: 480 });
   form.style = { ...form.style, padding: "0", margin: "0" };
   // --- Header ---
   const lblTitle = new TLabel("lbl-title");
