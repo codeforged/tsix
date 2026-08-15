@@ -1,5 +1,5 @@
 name=PixelTerm
-icon=🖵
+icon=💻
 command=/opt/pixelterm/pixelterm.js
 #tambahkan --huponexit atau -hue untuk mengirim SIGHUP ke child process saat pixelterm ditutup
 params=-hue
