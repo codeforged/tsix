@@ -44,3 +44,14 @@
 - **Perubahan:** Ganti `table.on("rowContextMenu", ...)` → `table.on("rowContext", ...)` + `e.preventDefault()` agar menu konteks native browser tidak ikut muncul. Event outbound tetap `tb_contextmenu` (tidak berubah di sisi app).
 - **Dampak:** Context menu Task Manager (Close SIGTERM / Kill SIGKILL) kembali berfungsi. Deploy: sync `dome-client-tabulator.js` ke VFS → **restart DOME** + hard-refresh browser.
 - **Oleh:** Copilot · **Laporan:** kakang (taskmgr)
+
+### Title bar dengan ikon — opsi `icon` pada Window/Screen (ikon dulu, baru judul)
+- **File:** `src/mirror/lib/emerald.ts`, `src/mirror/opt/dome/dome-client-windows.js`, `src/mirror/opt/dome/dome-client-ui.js`, `src/mirror/opt/dome/dome-client.html`
+- **Perubahan:**
+  - `WindowOptions`/`ScreenOptions` + opsi baru `icon?: string` (emoji/teks). Diteruskan via `CREATE_WINDOW` → title bar.
+  - `dome-client-windows.js`: title bar kini membangun dua span terpisah — `.tsix-titlebar-icon` (kiri) + `.tsix-titlebar-title` (judul). `btnContainer` (`margin-left:auto`) tetap menempel kanan.
+  - `dome-client-ui.js` `handleWindowTitle`: query diarahkan ke `.tsix-titlebar-title` (fallback `.tsix-titlebar span`) — update judul tidak salah sasaran ke span ikon.
+  - `dome-client.html`: CSS `.tsix-titlebar-icon` (margin-right, ukuran 14px).
+  - Contoh: File Cruiser → `new Screen({ title: "File Cruiser", icon: "📁", ... })`.
+- **Dampak:** Judul window bisa punya ikon di kiri. Tanpa `icon`, tampilan identik seperti sebelumnya (judul di kiri). Deploy: sync `emerald.ts` + modul DOME ke VFS → **restart DOME** + hard-refresh browser.
+- **Oleh:** Copilot · **Permintaan:** kakang

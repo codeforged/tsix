@@ -21,7 +21,7 @@ export const main = Program(async (args: string[]) => {
   theme.watch();
   const ps = await shell.ps();
   const domePid = (ps.find((p: any) => p.name.includes("dome")) || {}).pid || 0;
-  const app = new Screen("File Cruiser", undefined, false, 860, 540);
+  const app = new Screen({ title: "File Cruiser", icon: "📁", width: 860, height: 540 });
   //let currentPath = args[0] || "/";
   let homeDir = "/";
   try {

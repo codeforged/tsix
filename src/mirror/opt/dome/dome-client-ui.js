@@ -389,7 +389,8 @@
     const { wid, title } = msg;
     const win = S.windows.get(wid);
     if (!win) return;
-    const span = win.el.querySelector(".tsix-titlebar span");
+    let span = win.el.querySelector(".tsix-titlebar .tsix-titlebar-title");
+    if (!span) span = win.el.querySelector(".tsix-titlebar span"); // fallback
     if (span) span.textContent = title || "App";
   }
 

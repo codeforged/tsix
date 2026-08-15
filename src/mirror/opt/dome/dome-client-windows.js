@@ -66,6 +66,7 @@
       wid,
       pid,
       title,
+      icon,
       fullscreen,
       width,
       height,
@@ -101,7 +102,18 @@
     if (!frameless) {
       const titleBar = document.createElement("div");
       titleBar.className = "tsix-titlebar";
-      titleBar.innerHTML = "<span>" + (title || "App") + "</span>";
+      // Ikon (opsional) di kiri, lalu judul — dua span terpisah biar
+      // handleWindowTitle (query .tsix-titlebar-title) tidak salah sasaran.
+      if (icon) {
+        const iconSpan = document.createElement("span");
+        iconSpan.className = "tsix-titlebar-icon";
+        iconSpan.textContent = icon;
+        titleBar.appendChild(iconSpan);
+      }
+      const titleSpan = document.createElement("span");
+      titleSpan.className = "tsix-titlebar-title";
+      titleSpan.textContent = title || "App";
+      titleBar.appendChild(titleSpan);
 
       // Button container (right side): minimize | restore | close
       const btnContainer = document.createElement("span");

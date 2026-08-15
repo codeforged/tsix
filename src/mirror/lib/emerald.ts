@@ -236,6 +236,8 @@ interface EventCallback {
 
 export interface WindowOptions {
   title: string;
+  /** Ikon/emoji yang tampil di kiri judul title bar (opsional) */
+  icon?: string;
   lib?: UserLib;
   fullscreen?: boolean;
   width?: number;
@@ -2659,6 +2661,7 @@ export class Window {
     let _frameless: boolean;
     let _maximizable: boolean;
     let _resizable: boolean;
+    let _icon: string | undefined;
 
     if (
       typeof titleOrOpts === "object" &&
@@ -2667,6 +2670,7 @@ export class Window {
     ) {
       const opts = titleOrOpts as WindowOptions;
       _title = opts.title;
+      _icon = opts.icon;
       _lib = opts.lib;
       _fullscreen = opts.fullscreen ?? false;
       _width = opts.width;
@@ -2676,6 +2680,7 @@ export class Window {
       _resizable = opts.resizable ?? true;
     } else {
       _title = titleOrOpts as string;
+      _icon = undefined;
       _lib = lib;
       _fullscreen = fullscreen;
       _width = width;
@@ -2707,6 +2712,7 @@ export class Window {
       tag: "window",
       props: {
         title: _title,
+        icon: _icon,
         fullscreen: _fullscreen,
         width: _width,
         height: _height,
@@ -3560,6 +3566,8 @@ export class Window {
  */
 export interface ScreenOptions {
   title: string;
+  /** Ikon/emoji yang tampil di kiri judul title bar (opsional) */
+  icon?: string;
   lib?: UserLib;
   fullscreen?: boolean;
   width?: number;
@@ -3604,6 +3612,7 @@ export class Screen {
       const opts = titleOrOpts as ScreenOptions;
       const {
         title,
+        icon: ic = undefined,
         lib: l,
         fullscreen: fs = false,
         width: w,
@@ -3614,6 +3623,7 @@ export class Screen {
       } = opts;
       this.win = new Window({
         title,
+        icon: ic,
         lib: l,
         fullscreen: fs,
         width: w,
