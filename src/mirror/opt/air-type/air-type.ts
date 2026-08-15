@@ -356,10 +356,18 @@ export const main = Program(async (args: string[]) => {
     await form.screen.update("history", { scrollTop: 999999 });
   }
 
-  async function renderRooms() {
-    roomList.items = rooms;
-    roomList.selectedIndex = Math.max(0, rooms.indexOf(currentRoom));
-    await roomList.refresh(form.screen);
+  // Serialisasi render daftar room — cegah dua setContent("room-list") yang
+  // tumpang tindih (race) yang membuat item ter-duplikasi di browser.
+  let roomsRenderChain: Promise<void> = Promise.resolve();
+  function renderRooms(): Promise<void> {
+    roomsRenderChain = roomsRenderChain
+      .then(async () => {
+        roomList.items = rooms;
+        roomList.selectedIndex = Math.max(0, rooms.indexOf(currentRoom));
+        await roomList.refresh(form.screen);
+      })
+      .catch(() => {});
+    return roomsRenderChain;
   }
 
   function pushMsg(room: string, msg: ChatMsg, persist = true) {
@@ -391,10 +399,19 @@ export const main = Program(async (args: string[]) => {
   }
 
   async function setRoom(room: string) {
-    if (room === currentRoom) return;
+    const isSwitch = room !== currentRoom;
     currentRoom = room;
+    // Selalu sinkronkan label judul room — bahkan jika room == currentRoom.
+    // Dipanggil dari createRoom (auto-join) maupun klik daftar room.
     await form.screen.update("lbl-room", { text: "# " + room });
-    await renderRooms();
+    // Flush eksplisit: update lbl-room JANGAN menunggu batch setTimeout — supaya
+    // langsung tampil walau setelahnya ada setContent dari renderRooms/renderHistory.
+    await form.screen.win.flush();
+    if (!isSwitch) return; // sudah di room ini — tidak perlu re-render/join ulang
+    // CATATAN: TIDAK memanggil renderRooms() di sini. Klik room sudah ditangani
+    // refresh internal TListBox; render ulang list room dilakukan eksplisit di
+    // createRoom / broadcast server. Ini mencegah DUA setContent("room-list")
+    // yang tumpang tindih → item ter-duplikasi.
     await renderHistory();
     if (!isServer && clientFd >= 0) {
       await clientSend({ t: "join", room, nick: nickname }).catch(() => {});
@@ -862,9 +879,11 @@ export const main = Program(async (args: string[]) => {
     if (!room) return;
     if (!rooms.includes(room)) {
       rooms.push(room);
-      await renderRooms();
     }
     await setRoom(room);
+    // Render daftar room SETELAH currentRoom berubah (highlight room baru benar),
+    // dan hanya SEKALI — hindari race setContent yang menduplikasi item.
+    await renderRooms();
     if (isServer) {
       broadcastRooms(serverSocket);
       await serverSys(serverSocket, room, `${nickname} membuat #${room}`);

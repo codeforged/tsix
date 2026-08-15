@@ -6,6 +6,36 @@
 
 ## 2026-08-16
 
+### Fix: daftar room duplikat saat klik room (race setContent)
+- **File:** `src/mirror/opt/air-type/air-type.ts`
+- **Gejala:** klik salah satu room di panel kiri → daftar room langsung jadi dobel (general, general, games, games, ...).
+- **Akar masalah (race condition):** klik item memicu **dua** `setContent("room-list")` yang tumpang tindih:
+  1. refresh internal `TListBox` (fire-and-forget, tidak di-await) dari handler klik.
+  2. `setRoom` → `renderRooms` → `roomList.refresh` → `setContent` lagi.
+  Karena keduanya `await` round-trip GUI, pesan IPC saling interleave → item ke-mount dua kali.
+- **Perbaikan:**
+  - `setRoom` **tidak lagi** memanggil `renderRooms()` (highlight sudah ditangani refresh internal TListBox saat klik).
+  - `createRoom`: `renderRooms()` dipindah **setelah** `setRoom` (biar highlight room baru benar) dan hanya sekali.
+  - `renderRooms()` di-**serialisasi** (promise-chain) agar panggilan yang tumpang tindih (mis. broadcast server) tidak race.
+- **Oleh:** Copilot
+
+---
+
+## 2026-08-16
+
+### Fix minor: label judul room (lbl-room) tidak berubah saat bikin room baru
+- **File:** `src/mirror/opt/air-type/air-type.ts`
+- **Gejala:** setelah buat room (auto-join), label judul di kanan atas (lbl-room) tetap menampilkan room lama (mis. "# general").
+- **Perbaikan (`setRoom`):**
+  - Label judul room kini **selalu** di-sinkronkan — bahkan jika `room === currentRoom` (guard lama `if (room === currentRoom) return;` melewatkan update label).
+  - Update label di-**flush eksplisit** (`form.screen.win.flush()`) agar tidak bergantung pada batch `setTimeout(0)` yang bisa tertunda oleh `setContent` dari `renderRooms`/`renderHistory` yang beruntun.
+- **Catatan:** `Screen` (emerald) tidak punya `flush()` — pakai `form.screen.win.flush()`.
+- **Oleh:** Copilot
+
+---
+
+## 2026-08-16
+
 ### Refactor: install.ts kembali generik + `/opt/air-type/configure.ts` (setup permission)
 - **File:** `src/mirror/opt/air-type/configure.ts` **(baru)**, `scripts/install.ts`, `scripts/vfs-bootstrap.ts`, `scripts/sync-vfs.ts`
 - **Latar (keberatan user):** special-case `vfsDir === "/etc/air-type" ? 0o777 : 0o755` bikin script sync (install.ts & kawan-kawan) jadi tidak generik — nama aplikasi nempel di script inti.
