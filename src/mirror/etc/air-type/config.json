@@ -1,5 +1,6 @@
 {
   "server": "",
   "port": 2500,
-  "nickname": ""
+  "nickname": "",
+  "aliveInterval": 10
 }

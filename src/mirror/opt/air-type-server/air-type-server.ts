@@ -73,7 +73,7 @@ export const main = Program(async (args: string[]) => {
     yellowMax: 299,
     redMin: 300,
     staleMs: 300000,        // cleanup: buang client idle > staleMs (default = redMin)
-    presenceInterval: 5000, // broadcast presence periodik (ms)
+    presenceInterval: 12000, // broadcast presence periodik (ms)
   };
   try {
     const raw = await fs.readFile(PRESENCE_CONFIG_PATH);
