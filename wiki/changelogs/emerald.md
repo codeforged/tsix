@@ -37,3 +37,10 @@
 - **Perubahan:** Tambahkan `pointerEvents: "auto"` pada overlay + box di `Window.alert()`, `Window.question()`, dan `Screen._fileDialog()` (style `overlay` + `box` di `getStyle`) — konsisten dengan `confirm()`.
 - **Dampak:** Semua dialog modal Emerald (alert, confirm, question, open/save file) kini interaktif. Deploy: sync `emerald.ts` ke VFS → restart app yang bersangkutan.
 - **Oleh:** Copilot · **Laporan:** kakang (bitshark)
+
+### Context menu (klik kanan) Task Manager tidak muncul — nama event Tabulator salah (`rowContextMenu` → `rowContext`)
+- **File:** `src/mirror/opt/dome/dome-client-tabulator.js`
+- **Masalah:** Di Tabulator v6, event klik-kanan baris bernama **`rowContext`** — bukan `rowContextMenu` (itu nama *option* `contextMenu`, bukan event). Akibatnya listener tidak pernah terpanggil → `tb_contextmenu` tidak terkirim ke app → `showContextMenu()` di taskmgr tidak pernah dieksekusi → klik kanan tidak memunculkan menu.
+- **Perubahan:** Ganti `table.on("rowContextMenu", ...)` → `table.on("rowContext", ...)` + `e.preventDefault()` agar menu konteks native browser tidak ikut muncul. Event outbound tetap `tb_contextmenu` (tidak berubah di sisi app).
+- **Dampak:** Context menu Task Manager (Close SIGTERM / Kill SIGKILL) kembali berfungsi. Deploy: sync `dome-client-tabulator.js` ke VFS → **restart DOME** + hard-refresh browser.
+- **Oleh:** Copilot · **Laporan:** kakang (taskmgr)

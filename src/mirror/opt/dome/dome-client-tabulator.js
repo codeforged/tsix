@@ -198,7 +198,11 @@
       });
     });
 
-    table.on("rowContextMenu", (e, row) => {
+    // Event klik-kanan Tabulator v6 = "rowContext" (BUKAN "rowContextMenu" —
+    // itu nama option contextMenu, bukan event). preventDefault() agar menu
+    // konteks native browser tidak ikut muncul.
+    table.on("rowContext", (e, row) => {
+      e.preventDefault();
       TSIX.send({
         wid,
         targetId,
