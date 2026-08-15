@@ -6,6 +6,33 @@
 
 ## 2026-08-16
 
+### `air-type.ts` (GUI) di-strip jadi murni client-only
+- **File:** `src/mirror/opt/air-type/air-type.ts`
+- **Latar:** server sudah dipisah ke daemon headless `/opt/air-type-server/` — biar tidak dobel, semua fungsi server di GUI client dihapus.
+- **Dihapus:** `isServer`/`--serve` parsing, `serverSocket`, `clients`, `roomMembers`, `pubKey`/`privateKey`/`fingerprint`, dan fungsi `serverSendToPeer`, `relayToRoom`, `broadcastRooms`, `serverSys`, `serverHandleChat`, `serverHandlePacket`, `serverLoop`, `serverSetup` (+ interface `Peer`). Semua cabang `isServer` di `setupNetwork`/`sendMessage`/`createRoom`/`setRoom`/`onClose`/statusBar/lblRole diramping.
+- **Hasil:** `air-type` = client GUI murni (handshake RSA + chat). Server headless = `air-type-server` (daemon, auto-start via rc.local).
+- **Oleh:** Copilot
+
+---
+
+## 2026-08-16
+
+### Server dipisah jadi daemon headless `/opt/air-type-server/air-type-server.ts` (tanpa GUI)
+- **File:** `src/mirror/opt/air-type-server/air-type-server.ts` **(baru)**, `src/mirror/etc/rc.local.ts`
+- **Latar:** server chat tidak perlu GUI — yang GUI cukup client (`air-type`). Server dijadikan daemon headless, pola `airtermd`/`otad`.
+- **`air-type-server.ts` (baru, `/opt/air-type-server/`):**
+  - Headless hub/relay — TIDAK ada UI (tanpa `appMode`, tanpa cashew). CLI: `air-type-server [port]` (default 2500).
+  - RSA handshake (client minta pubkey → kirim session key terenkripsi RSA) → per-koneksi session key ChaCha20 dinamis.
+  - Dekripsi manual per-koneksi hanya untuk routing protokol (room), lalu relay terenkripsi ke anggota room. **Tidak mencatat isi chat** (jaga semangat E2E) — hanya log routing.
+  - **Daemonize**: `shell.daemonize("Air-Type Server")` → jalan di background seperti airtermd/otad.
+- **`rc.local.ts`**: air-type-server di-start otomatis saat boot (exec `/opt/air-type-server/air-type-server.js`), setelah IoT-Listener.
+- **Catatan:** `air-type.ts` (GUI) masih punya mode `--serve` sebagai fallback server ber-GUI; untuk produksi gunakan `air-type-server`.
+- **Oleh:** Copilot
+
+---
+
+## 2026-08-16
+
 ### Fix: daftar room duplikat saat klik room (race setContent)
 - **File:** `src/mirror/opt/air-type/air-type.ts`
 - **Gejala:** klik salah satu room di panel kiri → daftar room langsung jadi dobel (general, general, games, games, ...).

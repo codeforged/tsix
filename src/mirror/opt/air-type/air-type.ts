@@ -7,9 +7,11 @@
  *   - Setelah handshake, semua payload chat dienkripsi end-to-end per link.
  *   - Server (hub) meneruskan pesan room ke semua anggota room yang lain.
  *
- * Dua peran dalam satu binary:
- *   air-type --serve [port]              → server/hub (punya UI juga)
- *   air-type <serverAddr> [port] [nick]  → client
+ * Aplikasi ini HANYA CLIENT (GUI). Server chat headless terpisah di
+ * /opt/air-type-server/air-type-server.ts (daemon, tanpa GUI) — jalan otomatis
+ * saat boot (rc.local) atau manual: air-type-server [port].
+ *
+ *   air-type <serverAddr> [port] [nick]  → client (GUI)
  *
  * Konfigurasi & history disimpan di /etc/air-type/:
  *   /etc/air-type/config.json    — { server, port, nickname } (default)
@@ -63,20 +65,10 @@ interface ChatMsg {
   sys?: boolean;
 }
 
-interface Peer {
-  addr: string;          // alamat MQTNL client (pkt.src)
-  port: number;          // port sumber client (pkt.port / localPort client)
-  agent: SecurityAgent;  // session key dinamis per-koneksi
-  nick: string;
-  room: string;
-  lastSeen: number;
-}
-
 export const main = Program(async (args: string[]) => {
   // ──────────────────────────────────────────────────────────
-  // ARGS & PERAN
+  // ARGS (client-only — server headless terpisah /opt/air-type-server/)
   // ──────────────────────────────────────────────────────────
-  const isServer = args.includes("--serve") || args.includes("-s");
   const pos = args.filter((a) => !a.startsWith("-"));
 
   let cfg: any = { server: "", port: DEFAULT_PORT, nickname: "" };
@@ -92,23 +84,15 @@ export const main = Program(async (args: string[]) => {
   // mengisi via dialog setelah window mount (di onSetup), lalu simpan ke config.
   let nicknameProvided = !!cfg.nickname;
 
-  if (isServer) {
-    if (pos[0]) port = parseInt(pos[0]) || DEFAULT_PORT;
-    if (pos[1]) {
-      nickname = pos[1];
-      nicknameProvided = true;
-    }
-  } else {
-    serverAddr = pos[0] || cfg.server || "";
-    if (pos[1]) port = parseInt(pos[1]) || cfg.port || DEFAULT_PORT;
-    if (pos[2]) {
-      nickname = pos[2];
-      nicknameProvided = true;
-    }
+  serverAddr = pos[0] || cfg.server || "";
+  if (pos[1]) port = parseInt(pos[1]) || cfg.port || DEFAULT_PORT;
+  if (pos[2]) {
+    nickname = pos[2];
+    nicknameProvided = true;
   }
 
   await std.log(
-    `[air-type] Mode: ${isServer ? "SERVER" : "CLIENT"} | nick=${nickname} | port=${port}`,
+    `[air-type] Mode: CLIENT | nick=${nickname} | port=${port}`,
     "air-type",
   );
 
@@ -123,15 +107,7 @@ export const main = Program(async (args: string[]) => {
   let inputText = "";
   let clientFd = -1;
   let clientLocalPort = 0;
-  let serverSocket = -1;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
-
-  // Keadaan server (hub)
-  const clients = new Map<string, Peer>();
-  const roomMembers = new Map<string, Set<string>>();
-  let pubKey = "";
-  let privateKey = "";
-  let fingerprint = "";
 
   // ──────────────────────────────────────────────────────────
   // PERSISTENSI HISTORY (load awal)
@@ -170,7 +146,7 @@ export const main = Program(async (args: string[]) => {
     fontSize: "11px",
     fontWeight: "700",
   });
-  lblRole.caption = isServer ? "🖥 SERVER" : "📡 CLIENT";
+  lblRole.caption = "📡 CLIENT";
 
   const lblNick = new TLabel("lbl-nick", { fontSize: "12px" });
   lblNick.caption = `👤 ${nickname}`;
@@ -279,9 +255,7 @@ export const main = Program(async (args: string[]) => {
 
   // Status bar bawah
   const statusBar = new TStatusBar("status");
-  statusBar.text = isServer
-    ? `🖥 Server :${port} · 🔒 E2E chacha20 (RSA handshake)`
-    : `📡 ${serverAddr || "?"}:${port} · 🔒 E2E chacha20 (RSA handshake)`;
+  statusBar.text = `📡 ${serverAddr || "?"}:${port} · 🔒 E2E chacha20 (RSA handshake)`;
   form.add(statusBar);
 
   // ──────────────────────────────────────────────────────────
@@ -413,7 +387,7 @@ export const main = Program(async (args: string[]) => {
     // createRoom / broadcast server. Ini mencegah DUA setContent("room-list")
     // yang tumpang tindih → item ter-duplikasi.
     await renderHistory();
-    if (!isServer && clientFd >= 0) {
+    if (clientFd >= 0) {
       await clientSend({ t: "join", room, nick: nickname }).catch(() => {});
     }
   }
@@ -579,240 +553,26 @@ export const main = Program(async (args: string[]) => {
     }, PING_INTERVAL);
   }
 
-  // ──────────────────────────────────────────────────────────
-  // NETWORK — SERVER (hub + relay)
-  // ──────────────────────────────────────────────────────────
-  async function serverSendToPeer(socket: number, peer: Peer, obj: any) {
-    const enc = peer.agent.securePacketOut(JSON.stringify(obj));
-    await net.sendto(socket, peer.addr, peer.port, enc, FLAG, port);
-  }
-
-  async function relayToRoom(socket: number, room: string, obj: any, exceptSid: string = "") {
-    const members = roomMembers.get(room);
-    if (!members) return;
-    const payload = JSON.stringify(obj);
-    for (const sid of members) {
-      if (sid === exceptSid) continue;
-      const peer = clients.get(sid);
-      if (!peer) continue;
-      try {
-        const enc = peer.agent.securePacketOut(payload);
-        await net.sendto(socket, peer.addr, peer.port, enc, FLAG, port);
-      } catch (_) { /* skip */ }
-    }
-  }
-
-  function broadcastRooms(socket: number) {
-    const payload = { t: "rooms", list: rooms };
-    for (const peer of clients.values()) {
-      void serverSendToPeer(socket, peer, payload).catch(() => {});
-    }
-  }
-
-  async function serverSys(socket: number, room: string, text: string) {
-    const ts = Date.now();
-    pushMsg(room, { from: "★", text, ts, sys: true }, true);
-    await relayToRoom(socket, room, { t: "sys", room, text, ts });
-  }
-
-  async function serverHandleChat(socket: number, client: Peer, msg: any) {
-    const sid = `${client.addr}:${client.port}`;
-    const t = msg.t;
-
-    if (t === "ping") return;
-
-    if (t === "join" || t === "create") {
-      let room = String(msg.room || "general").replace(/^#/, "").trim() || "general";
-      client.nick = msg.nick || client.nick || client.addr;
-
-      // Tinggalkan room lama
-      if (client.room && client.room !== room) {
-        roomMembers.get(client.room)?.delete(sid);
-      }
-      client.room = room;
-
-      if (!rooms.includes(room)) {
-        rooms.push(room);
-        void renderRooms();
-        broadcastRooms(socket);
-      }
-      if (!roomMembers.has(room)) roomMembers.set(room, new Set());
-      roomMembers.get(room)!.add(sid);
-
-      // Kirim daftar room ke client baru
-      await serverSendToPeer(socket, client, { t: "rooms", list: rooms }).catch(() => {});
-      await serverSys(socket, room, `${client.nick} bergabung ke #${room}`);
-      return;
-    }
-
-    if (t === "msg") {
-      const room = String(msg.room || client.room || "general");
-      const chat = {
-        from: client.nick || client.addr,
-        text: String(msg.text || ""),
-        ts: msg.ts || Date.now(),
-      };
-      // UI server: tampilkan lokal (jika sedang di room tsb)
-      pushMsg(room, chat, true);
-      // Relay ke anggota room lain (sender tidak menerima ulang)
-      await relayToRoom(socket, room, { t: "chat", room, from: chat.from, text: chat.text, ts: chat.ts }, sid);
-      return;
-    }
-
-    if (t === "nick") {
-      const oldNick = client.nick || client.addr;
-      const newNick = String(msg.nick || oldNick).trim() || oldNick;
-      if (newNick !== oldNick) {
-        client.nick = newNick;
-        await serverSys(socket, client.room || "general", `${oldNick} kini dikenal sebagai ${newNick}`);
-      }
-      return;
-    }
-
-    if (t === "leave") {
-      const room = String(msg.room || client.room || "");
-      if (room) {
-        roomMembers.get(room)?.delete(sid);
-        if (client.room === room) client.room = "";
-        await serverSys(socket, room, `${client.nick || client.addr} meninggalkan #${room}`);
-      }
-      return;
-    }
-  }
-
-  async function serverHandlePacket(socket: number, pkt: any) {
-    const sid = `${pkt.src}:${pkt.port}`;
-    const raw =
-      typeof pkt.data === "string"
-        ? pkt.data
-        : Buffer.isBuffer(pkt.data)
-          ? pkt.data.toString("utf8")
-          : "";
-
-    // Langkah 1: minta public key
-    if (raw === "__request::key-exchange") {
-      await net.sendto(socket, pkt.src, pkt.port, `__pubkey::${pubKey}::${fingerprint}`, FLAG, port);
-      return;
-    }
-
-    // Langkah 3: terima session key (dienkripsi RSA) → simpan agent per-koneksi
-    if (typeof raw === "string" && raw.startsWith("__secretkey::")) {
-      try {
-        const sessionKey = SecurityAgent.decryptWithPrivateKey(
-          privateKey,
-          raw.slice("__secretkey::".length),
-        );
-        const agent = new SecurityAgent();
-        agent.setSessionKey(sessionKey);
-        clients.set(sid, { addr: pkt.src, port: pkt.port, agent, nick: "", room: "", lastSeen: Date.now() });
-        await net.sendto(socket, pkt.src, pkt.port, "__status::done", FLAG, port);
-        await std.log(`[air-type] 🔐 Client ${sid} handshake OK — E2E session aktif.`, "air-type");
-      } catch (e: any) {
-        await std.log(`[air-type] Handshake GAGAL dari ${sid}: ${e?.message || e}`, "air-type");
-      }
-      return;
-    }
-
-    // Chat (terenkripsi) — dekripsi manual per-koneksi
-    const client = clients.get(sid);
-    if (!client) return;
-    client.lastSeen = Date.now();
-
-    const decrypted = client.agent.securePacketIn(typeof raw === "string" ? raw : "");
-    if (!decrypted) return;
-    let msg: any;
-    try {
-      msg = JSON.parse(decrypted);
-    } catch (_) {
-      return;
-    }
-    await serverHandleChat(socket, client, msg);
-  }
-
-  async function serverLoop(socket: number) {
-    let lastCleanup = Date.now();
-    while (running) {
-      try {
-        const pkt = await net.recv(socket);
-        if (pkt) {
-          await serverHandlePacket(socket, pkt);
-        }
-        // Cleanup client yang diam (dianggap keluar)
-        if (Date.now() - lastCleanup > CLEANUP_INTERVAL) {
-          lastCleanup = Date.now();
-          const now = Date.now();
-          for (const [sid, peer] of clients.entries()) {
-            if (now - peer.lastSeen > STALE_MS) {
-              if (peer.room) roomMembers.get(peer.room)?.delete(sid);
-              clients.delete(sid);
-              await std.log(`[air-type] Client ${sid} dianggap keluar (idle).`, "air-type");
-            }
-          }
-        }
-      } catch (e) {
-        break;
-      }
-    }
-  }
-
-  async function serverSetup() {
-    try {
-      pubKey = (await fs.readFile(`${RSA_DIR}/id_rsa.pub`)) || "";
-      privateKey = (await fs.readFile(`${RSA_DIR}/id_rsa`)) || "";
-    } catch (_) { /* kosong */ }
-
-    if (!pubKey || !privateKey) {
-      setStatus(`❌ Identitas RSA tidak ditemukan di ${RSA_DIR}. Jalankan 'init' dulu.`);
-      await std.log(`[air-type] CRITICAL: RSA keys tidak ada di ${RSA_DIR}.`, "air-type");
-      return;
-    }
-
-    fingerprint = SecurityAgent.getFingerprint(pubKey);
-
-    const socket = await net.socket();
-    if (socket < 0) {
-      setStatus("❌ Gagal membuat socket server.");
-      return;
-    }
-    const ok = await net.bind(socket, port);
-    if (!ok) {
-      setStatus(`❌ Port ${port} sudah dipakai.`);
-      return;
-    }
-    serverSocket = socket;
-
-    setStatus(`🖥 Server aktif :${port} · 🔒 ${fingerprint.slice(0, 12)}…`);
-    await std.log(
-      `[air-type] 🖥 Server chat aktif di MQTNL port ${port} (fingerprint ${fingerprint.slice(0, 12)}…).`,
-      "air-type",
-    );
-    await serverLoop(socket);
-  }
-
   async function setupNetwork() {
-    if (isServer) {
-      await serverSetup();
-    } else {
-      if (!serverAddr) {
-        const ans = await TDialogs.input(
-          form.screen,
-          "Server",
-          "Alamat MQTNL node yang menjalankan 'air-type --serve' (BUKAN IP).\nContoh: tsix, tsix-node-2 (lihat sysconfig network.interfaces[].address).\n\nAlamat server:",
-          cfg.server || "",
-        );
-        if (!ans || !ans.trim()) {
-          setStatus("❌ Tidak ada alamat server — tutup aplikasi.");
-          return;
-        }
-        serverAddr = ans.trim();
-        statusBar.text = `📡 ${serverAddr}:${port} · 🔒 E2E chacha20 (RSA handshake)`;
+    if (!serverAddr) {
+      const ans = await TDialogs.input(
+        form.screen,
+        "Server",
+        "Alamat MQTNL node yang menjalankan air-type-server (BUKAN IP).\nContoh: tsix, tsix-node-2 (lihat sysconfig network.interfaces[].address).\n\nAlamat server:",
+        cfg.server || "",
+      );
+      if (!ans || !ans.trim()) {
+        setStatus("❌ Tidak ada alamat server — tutup aplikasi.");
+        return;
       }
-      await clientSetup();
+      serverAddr = ans.trim();
+      statusBar.text = `📡 ${serverAddr}:${port} · 🔒 E2E chacha20 (RSA handshake)`;
     }
+    await clientSetup();
   }
 
   // ──────────────────────────────────────────────────────────
-  // KIRIM PESAN (shared server/client)
+  // KIRIM PESAN (client → server)
   // ──────────────────────────────────────────────────────────
   async function sendMessage() {
     const text = inputText.trim();
@@ -835,41 +595,23 @@ export const main = Program(async (args: string[]) => {
           sys: true,
           own: true,
         }, true);
-        if (!isServer && clientFd >= 0 && connected) {
+        if (clientFd >= 0 && connected) {
           await clientSend({ t: "nick", nick: newNick }).catch(() => {});
-        } else if (isServer) {
-          await relayToRoom(serverSocket, currentRoom, {
-            t: "sys",
-            room: currentRoom,
-            text: `${oldNick} kini dikenal sebagai ${nickname}`,
-            ts: Date.now(),
-          }).catch(() => {});
         }
       }
       return;
     }
 
-    if (!isServer && !connected) {
+    if (!connected) {
       setStatus("⏳ Belum terhubung ke server — pesan tidak terkirim.");
       return;
     }
 
     const ts = Date.now();
-    if (isServer) {
-      pushMsg(currentRoom, { from: nickname, text, ts, own: true }, true);
-      await relayToRoom(serverSocket, currentRoom, {
-        t: "chat",
-        room: currentRoom,
-        from: nickname,
-        text,
-        ts,
-      });
-    } else {
-      pushMsg(currentRoom, { from: nickname, text, ts, own: true }, true);
-      await clientSend({ t: "msg", room: currentRoom, text, ts }).catch(() => {
-        setStatus("⚠️ Gagal mengirim (server tidak merespons).");
-      });
-    }
+    pushMsg(currentRoom, { from: nickname, text, ts, own: true }, true);
+    await clientSend({ t: "msg", room: currentRoom, text, ts }).catch(() => {
+      setStatus("⚠️ Gagal mengirim (server tidak merespons).");
+    });
   }
 
   async function createRoom() {
@@ -884,12 +626,7 @@ export const main = Program(async (args: string[]) => {
     // Render daftar room SETELAH currentRoom berubah (highlight room baru benar),
     // dan hanya SEKALI — hindari race setContent yang menduplikasi item.
     await renderRooms();
-    if (isServer) {
-      broadcastRooms(serverSocket);
-      await serverSys(serverSocket, room, `${nickname} membuat #${room}`);
-    } else {
-      await clientSend({ t: "create", room, nick: nickname }).catch(() => {});
-    }
+    await clientSend({ t: "create", room, nick: nickname }).catch(() => {});
   }
 
   // ──────────────────────────────────────────────────────────
@@ -933,7 +670,6 @@ export const main = Program(async (args: string[]) => {
     if (pingTimer) clearInterval(pingTimer);
     void saveHistory();
     if (clientFd >= 0) void net.close(clientFd).catch(() => {});
-    if (serverSocket >= 0) void net.close(serverSocket).catch(() => {});
     void std.log("[air-type] Aplikasi ditutup.", "air-type");
   };
 

@@ -76,6 +76,16 @@ export default class RcLocal {
             await lib.std.print(`[rc.local] Warning: Failed to start iot-listener: ${e.message}\n`);
         }
 
+        // Start Air-Type Server Daemon (chat hub E2E, headless)
+        try {
+            const result = await lib.shell.exec("/opt/air-type-server/air-type-server.js", [], undefined, undefined, undefined);
+            if (result) {
+                await lib.std.print(`${ok} [rc.local] Air-Type Server started (PID ${result.pid}).\n`);
+            }
+        } catch (e: any) {
+            await lib.std.print(`[rc.local] Warning: Failed to start air-type-server: ${e.message}\n`);
+        }
+
 
         // Marker kesiapan DOME — dibersihkan dulu supaya yang ditunggu
         // benar-benar fresh dari DOME yang baru start (VFS persisten lintas boot).
