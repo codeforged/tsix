@@ -57,6 +57,8 @@ const CONFIG_PATH = "/etc/air-type/config.json";
 const HISTORY_PATH = "/etc/air-type/history.json";
 const KNOWN_HOSTS_PATH = "/etc/air-type/known_hosts";
 const FLAG = PacketFlags.FLAG_DATA;
+// Identity Asteracea (Window Manager) — untuk push desktop notification (toast).
+const AST_IDENTITY = "3ec3ffe9-e0a6-411f-b7e3-c9ff0b00556c";
 
 interface ChatMsg {
   from: string;
@@ -607,6 +609,13 @@ export const main = Program(async (args: string[]) => {
     }
   }
 
+  /** Push notifikasi desktop via Asteracea — toast di pojok layar. */
+  async function pushDesktopNotif(title: string, message: string) {
+    try {
+      await shell.send(AST_IDENTITY, { type: "DESKTOP_NOTIF", title, message });
+    } catch (_) { /* WM tidak tersedia (air-type di terminal) — abaikan */ }
+  }
+
   function handleServerMsg(msg: any) {
     try {
       if (msg.t === "chat") {
@@ -616,6 +625,10 @@ export const main = Program(async (args: string[]) => {
           void renderRooms();
         }
         pushMsg(room, { from: msg.from, text: msg.text, ts: msg.ts || Date.now() }, true);
+        // Notifikasi desktop — hanya pesan dari orang lain (bukan nickname sendiri).
+        if (String(msg.from) && String(msg.from) !== nickname) {
+          void pushDesktopNotif(`✈️ ${msg.from} · #${room}`, String(msg.text || ""));
+        }
       } else if (msg.t === "sys") {
         const room = String(msg.room || "general");
         if (!rooms.includes(room)) {

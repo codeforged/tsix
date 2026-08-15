@@ -6,6 +6,17 @@
 
 ## 2026-08-16
 
+### Fitur: desktop notification saat ada pesan masuk dari orang lain
+- **File:** `src/mirror/opt/air-type/air-type.ts`
+- **Cara:** saat client menerima pesan chat dari nick LAIN (bukan nickname sendiri), kirim `shell.send(AST_IDENTITY, {type:"DESKTOP_NOTIF", title, message})` ke Asteracea (identity `3ec3ffe9-e0a6-411f-b7e3-c9ff0b00556c`) → muncul toast desktop.
+- **Title:** `✈️ <from> · #<room>` · **Message:** isi pesan.
+- **Catatan:** hanya pesan chat (bukan sys/join/leave). Kalau air-type dijalankan tanpa WM (terminal saja), send di-`catch` → diam.
+- **Oleh:** Copilot
+
+---
+
+## 2026-08-16
+
 ### Fix: anggota room dobel saat buka-tutup-buka aplikasi (reconnect)
 - **File:** `src/mirror/opt/air-type/air-type.ts`, `src/mirror/opt/air-type-server/air-type-server.ts`
 - **Gejala:** buka → tutup → buka air-type → nick muncul 2x di daftar anggota room.
