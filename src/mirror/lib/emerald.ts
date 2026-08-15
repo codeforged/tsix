@@ -3324,6 +3324,7 @@ export class Window {
             alignItems: "center",
             justifyContent: "center",
             zIndex: "9999",
+            pointerEvents: "auto", // overlay layer global pointerEvents none
           },
         },
         div(
@@ -3338,6 +3339,7 @@ export class Window {
               maxWidth: "400px",
               textAlign: "center",
               boxShadow: "0 8px 40px rgba(0,0,0,0.6)",
+              pointerEvents: "auto",
             },
           },
           span({
@@ -3425,6 +3427,7 @@ export class Window {
             alignItems: "center",
             justifyContent: "center",
             zIndex: "9999",
+            pointerEvents: "auto", // overlay layer global pointerEvents none
           },
         },
         div(
@@ -3438,6 +3441,7 @@ export class Window {
               minWidth: "320px",
               maxWidth: "420px",
               boxShadow: "0 8px 40px rgba(0,0,0,0.6)",
+              pointerEvents: "auto",
             },
           },
           span({
@@ -3963,6 +3967,7 @@ export class Screen {
           alignItems: "center",
           justifyContent: "center",
           zIndex: "9999",
+          pointerEvents: "auto", // overlay layer global pointerEvents none
         },
         box: {
           background: "var(--bg, #0d1b2a)",
@@ -3975,6 +3980,7 @@ export class Screen {
           flexDirection: "column",
           boxShadow: "0 12px 48px rgba(0,0,0,0.7)",
           overflow: "hidden",
+          pointerEvents: "auto",
         },
         header: {
           padding: "12px 16px",

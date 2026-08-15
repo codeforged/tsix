@@ -30,3 +30,10 @@
   - **Migrasi:** File Cruiser (daftar file + seleksi + double-click, field tersembunyi `_name/_isDir/_mode`, baris virtual `..`), Task Manager (`ConnectedTabulator`), bitshark (`TTabulatorGrid`).
 - **Dampak:** Grid baru stabil, ringan, dan theme-aware; bug `ConnectedDataGrid` tidak lagi menghalangi app baru. Deploy: re-sync VFS + **restart DOME** (static asset di-cache saat startup) + hard-refresh browser (sekali).
 - **Oleh:** Copilot · **Konsep, migrasi & validasi:** kakang
+
+### Alert / Question / File Dialog tidak bisa diklik (tombol OK "cuek") — overlay layer global `pointer-events: none`
+- **File:** `src/mirror/lib/emerald.ts`
+- **Masalah:** Layer overlay global (`#__tsix_overlay_layer__`) dipasang `pointer-events: none` (dome-client-core.js) agar tidak memblokir klik ke window di bawahnya. `confirm()` eksplisit set `pointerEvents: "auto"`, tetapi `alert()`, `question()`, dan `_fileDialog()` **tidak** — dialog-dialog itu di-mount ke layer tersebut tanpa re-enable → dialog tampil tapi tidak menerima klik sama sekali (OK/Cancel "cuek"). Terlihat di bitshark: popup detail paket (`TDialogs.alert`) tidak bisa di-OK.
+- **Perubahan:** Tambahkan `pointerEvents: "auto"` pada overlay + box di `Window.alert()`, `Window.question()`, dan `Screen._fileDialog()` (style `overlay` + `box` di `getStyle`) — konsisten dengan `confirm()`.
+- **Dampak:** Semua dialog modal Emerald (alert, confirm, question, open/save file) kini interaktif. Deploy: sync `emerald.ts` ke VFS → restart app yang bersangkutan.
+- **Oleh:** Copilot · **Laporan:** kakang (bitshark)
