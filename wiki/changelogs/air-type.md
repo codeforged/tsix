@@ -6,6 +6,43 @@
 
 ## 2026-08-16
 
+### `configure.ts` terpisah per paket (server vs client)
+- **File:** `src/mirror/opt/air-type-server/configure.ts` **(baru)**, `src/mirror/opt/air-type/configure.ts`
+- **Latar:** server dan client chat adalah paket aplikasi terpisah — masing-masing punya configure.ts sendiri.
+- **Server (`/opt/air-type-server/configure.ts`, baru):**
+  - Setup `/etc/air-type-server` → 0o777 (config.json gampang diedit non-root).
+  - Periksa identitas RSA (`/etc/keys/rsa`) → warning jika belum ada (server butuh untuk handshake E2E).
+- **Client (`/opt/air-type/configure.ts`):** kembali khusus `/etc/air-type` (data client: history, known_hosts, config client) → 0o777.
+- **Struktur paket:**
+  ```
+  /opt/air-type/          → air-type.ts + configure.ts (client GUI)
+  /opt/air-type-server/   → air-type-server.ts + configure.ts (server daemon)
+  ```
+- **Oleh:** Copilot
+
+---
+
+## 2026-08-16
+
+### Fitur: kehadiran anggota per room (bullet hijau/kuning/merah)
+- **File:** `src/mirror/opt/air-type/air-type.ts`, `src/mirror/opt/air-type-server/air-type-server.ts`
+- **Server (`air-type-server.ts`):**
+  - Config presence baru `/etc/air-type-server/config.json` (auto-dibuat bila belum ada): `greenMax` (10), `yellowMax` (299), `redMin` (300), `staleMs` (300000), `presenceInterval` (5000). `configure.ts` ikut menyiapkan `/etc/air-type-server` (0o777).
+  - `broadcastPresence()`: kirim daftar anggota per-room (`{nick, lastSeen}`) + threshold warna ke semua client. Dipanggil saat join/create, ganti nick, leave, cleanup stale, dan periodik tiap `presenceInterval`.
+  - Cleanup idle memakai `staleMs` dari config (default 300 dtk = redMin).
+- **Client (`air-type.ts`):**
+  - Config client + `aliveInterval` (detik, default 10) → interval ping keepalive dinamis.
+  - Daftar room di-render custom (bukan TListBox): tiap room = baris `# nama` (klik → pindah room, highlight) + baris anggota `● nick`.
+  - Bullet warna by umur `lastSeen`: `<=greenMax` → hijau `#4caf50`, `<redMin` → kuning `#ffc107`, `>=redMin` → merah `#f44336`. Threshold diambil dari broadcast presence server (bisa di-override).
+  - `presenceTimer` 4 dtk → refresh warna bullet lokal (umur bertambah walau tanpa broadcast baru).
+  - Handler `t:"presence"` di `handleServerMsg` untuk update `membersByRoom` + thresholds.
+- **Perilaku:** client yang sehat ping tiap `aliveInterval` → bullet hijau; yang berhenti ping lama makin kuning → merah.
+- **Oleh:** Copilot
+
+---
+
+## 2026-08-16
+
 ### `air-type.ts` (GUI) di-strip jadi murni client-only
 - **File:** `src/mirror/opt/air-type/air-type.ts`
 - **Latar:** server sudah dipisah ke daemon headless `/opt/air-type-server/` — biar tidak dobel, semua fungsi server di GUI client dihapus.

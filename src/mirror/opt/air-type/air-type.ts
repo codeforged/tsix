@@ -13,6 +13,11 @@
  *
  *   air-type <serverAddr> [port] [nick]  → client (GUI)
  *
+ * Kehadiran anggota: daftar room menampilkan anggota yang join (● nick) dengan
+ * warna bullet berdasarkan umur signal alive — hijau (segar), kuning (ragu),
+ * merah (timeout). Interval alive di config.json client (aliveInterval, default
+ * 10 dtk); threshold warna (hijau/kuning/merah) di /etc/air-type-server/config.json.
+ *
  * Konfigurasi & history disimpan di /etc/air-type/:
  *   /etc/air-type/config.json    — { server, port, nickname } (default)
  *   /etc/air-type/history.json   — riwayat chat per-room (ditulis saat runtime)
@@ -34,7 +39,6 @@ import {
   TLabel,
   TButton,
   TEdit,
-  TListBox,
   TStatusBar,
   TSplitHorizontal,
   HStack,
@@ -53,9 +57,6 @@ const CONFIG_PATH = "/etc/air-type/config.json";
 const HISTORY_PATH = "/etc/air-type/history.json";
 const KNOWN_HOSTS_PATH = "/etc/air-type/known_hosts";
 const FLAG = PacketFlags.FLAG_DATA;
-const PING_INTERVAL = 25000;            // client keepalive (ms)
-const STALE_MS = 90000;                 // server: buang client yang diam > 90s
-const CLEANUP_INTERVAL = 30000;
 
 interface ChatMsg {
   from: string;
@@ -71,10 +72,16 @@ export const main = Program(async (args: string[]) => {
   // ──────────────────────────────────────────────────────────
   const pos = args.filter((a) => !a.startsWith("-"));
 
-  let cfg: any = { server: "", port: DEFAULT_PORT, nickname: "" };
+  let cfg: any = { server: "", port: DEFAULT_PORT, nickname: "", aliveInterval: 10 };
   try {
     cfg = { ...cfg, ...(JSON.parse((await fs.readFile(CONFIG_PATH)) || "{}")) };
   } catch (_) { /* config optional */ }
+
+  // Interval signal alive (detik) — dari config client (default 10 dtk).
+  // Server memakai lastSeen (dari ping ini) untuk menentukan warna bullet
+  // anggota di semua client (hijau/kuning/merah).
+  const aliveIntervalSec = Math.max(3, parseInt(cfg.aliveInterval) || 10);
+  const pingIntervalMs = aliveIntervalSec * 1000;
 
   const defaultNick = (await shell.getenv("HOSTNAME")) || "node";
   let port = DEFAULT_PORT;
@@ -108,6 +115,12 @@ export const main = Program(async (args: string[]) => {
   let clientFd = -1;
   let clientLocalPort = 0;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
+  let presenceTimer: ReturnType<typeof setInterval> | null = null;
+
+  // Keanggotaan room + umur signal alive (dari broadcast presence server).
+  const membersByRoom: Record<string, { nick: string; lastSeen: number }[]> = {};
+  // Threshold warna bullet (hijau/kuning/merah) — default, di-override server.
+  let presenceThresholds = { greenMax: 10, yellowMax: 299, redMin: 300 };
 
   // ──────────────────────────────────────────────────────────
   // PERSISTENSI HISTORY (load awal)
@@ -187,9 +200,15 @@ export const main = Program(async (args: string[]) => {
   lblRooms.caption = "📁 ROOMS";
   leftPanel.add(lblRooms);
 
-  const roomList = new TListBox("room-list");
-  roomList.items = rooms;
-  leftPanel.add(roomList);
+  const roomListBox = TScrollBox("room-list", {
+    flex: "1",
+    minHeight: "0",
+    background: "var(--surface, rgba(0,0,0,0.2))",
+    border: "1px solid var(--border, #333)",
+    borderRadius: "6px",
+    padding: "4px",
+  });
+  leftPanel.add(roomListBox);
 
   const btnNewRoom2 = new TButton("btn-newroom2", {
     height: "28px",
@@ -332,13 +351,94 @@ export const main = Program(async (args: string[]) => {
 
   // Serialisasi render daftar room — cegah dua setContent("room-list") yang
   // tumpang tindih (race) yang membuat item ter-duplikasi di browser.
+  // Tiap room = baris header (# nama) + baris anggota (● nick) di bawahnya.
+  // Warna bullet = umur signal alive anggota: hijau (segar) / kuning (ragu) /
+  // merah (timeout). Threshold diambil dari broadcast presence server.
   let roomsRenderChain: Promise<void> = Promise.resolve();
+  function bulletColor(lastSeen: number): string {
+    const age = Math.floor((Date.now() - lastSeen) / 1000);
+    if (age <= presenceThresholds.greenMax) return "#4caf50"; // hijau: alive segar
+    if (age < presenceThresholds.redMin) return "#ffc107";     // kuning: mencurigakan
+    return "#f44336";                                          // merah: timeout
+  }
+  function safeId(s: string): string {
+    return String(s).replace(/[^A-Za-z0-9_-]/g, "-");
+  }
   function renderRooms(): Promise<void> {
     roomsRenderChain = roomsRenderChain
       .then(async () => {
-        roomList.items = rooms;
-        roomList.selectedIndex = Math.max(0, rooms.indexOf(currentRoom));
-        await roomList.refresh(form.screen);
+        const rows: IDOMNode[] = [];
+        for (const room of rooms) {
+          const isActive = room === currentRoom;
+          rows.push({
+            id: `room-row-${safeId(room)}`,
+            tag: "div",
+            props: {
+              onClickId: `room-row-${safeId(room)}`,
+              style: {
+                padding: "5px 4px",
+                cursor: "pointer",
+                fontSize: "12px",
+                fontWeight: "700",
+                color: isActive ? "var(--accent, #4caf50)" : "var(--text, #e0e0e0)",
+                background: isActive ? "var(--accent-bg, rgba(76,175,80,0.15))" : "transparent",
+                borderRadius: "4px",
+              },
+              text: `# ${room}`,
+            },
+            children: [],
+          });
+          const members = membersByRoom[room] || [];
+          members.forEach((m, i) => {
+            const memId = `member-${safeId(room)}-${i}`;
+            rows.push({
+              id: memId,
+              tag: "div",
+              props: {
+                style: {
+                  padding: "2px 4px 2px 18px",
+                  fontSize: "11px",
+                  color: "var(--text-dim, #aaa)",
+                },
+              },
+              children: [
+                {
+                  id: `bullet-${memId}`,
+                  tag: "span",
+                  props: {
+                    style: {
+                      display: "inline-block",
+                      width: "8px",
+                      height: "8px",
+                      borderRadius: "50%",
+                      background: bulletColor(m.lastSeen),
+                      marginRight: "6px",
+                      verticalAlign: "middle",
+                    },
+                    text: "",
+                  },
+                  children: [],
+                },
+                {
+                  id: `name-${memId}`,
+                  tag: "span",
+                  props: { style: {}, text: m.nick },
+                  children: [],
+                },
+              ],
+            });
+          });
+        }
+        await form.screen.setContent("room-list", ...rows);
+        // Bind klik room header (aman: registerHandler REPLACE, bukan stack).
+        for (const room of rooms) {
+          form.screen.on(`room-row-${safeId(room)}`, "click", () => {
+            void setRoom(room)
+              .then(() => renderRooms())
+              .catch(() => {});
+          });
+        }
+        await form.screen.win.flush();
       })
       .catch(() => {});
     return roomsRenderChain;
@@ -367,7 +467,7 @@ export const main = Program(async (args: string[]) => {
   async function saveConfig() {
     try {
       try { await fs.mkdir("/etc/air-type"); } catch (_) { /* sudah ada */ }
-      const data = { server: serverAddr || cfg.server || "", port, nickname };
+      const data = { server: serverAddr || cfg.server || "", port, nickname, aliveInterval: aliveIntervalSec };
       await fs.writeFile(CONFIG_PATH, JSON.stringify(data, null, 2));
     } catch (_) { /* non-fatal */ }
   }
@@ -382,10 +482,10 @@ export const main = Program(async (args: string[]) => {
     // langsung tampil walau setelahnya ada setContent dari renderRooms/renderHistory.
     await form.screen.win.flush();
     if (!isSwitch) return; // sudah di room ini — tidak perlu re-render/join ulang
-    // CATATAN: TIDAK memanggil renderRooms() di sini. Klik room sudah ditangani
-    // refresh internal TListBox; render ulang list room dilakukan eksplisit di
-    // createRoom / broadcast server. Ini mencegah DUA setContent("room-list")
-    // yang tumpang tindih → item ter-duplikasi.
+    // CATATAN: setRoom TIDAK memanggil renderRooms() di sini — klik baris room
+    // di renderRooms() sudah memanggil renderRooms() ulang setelah setRoom untuk
+    // meng-highlight room aktif. Ini mencegah DUA setContent("room-list") yang
+    // tumpang tindih → item ter-duplikasi.
     await renderHistory();
     if (clientFd >= 0) {
       await clientSend({ t: "join", room, nick: nickname }).catch(() => {});
@@ -519,6 +619,27 @@ export const main = Program(async (args: string[]) => {
           }
           void renderRooms();
         }
+      } else if (msg.t === "presence") {
+        // Keanggotaan room + umur signal alive → warna bullet.
+        if (msg.thresholds) {
+          presenceThresholds = {
+            greenMax: parseInt(msg.thresholds.greenMax) || presenceThresholds.greenMax,
+            yellowMax: parseInt(msg.thresholds.yellowMax) || presenceThresholds.yellowMax,
+            redMin: parseInt(msg.thresholds.redMin) || presenceThresholds.redMin,
+          };
+        }
+        if (msg.rooms && typeof msg.rooms === "object") {
+          for (const k of Object.keys(membersByRoom)) delete membersByRoom[k];
+          for (const k of Object.keys(msg.rooms)) {
+            if (Array.isArray(msg.rooms[k])) {
+              membersByRoom[k] = msg.rooms[k]
+                .filter((m: any) => m && m.nick)
+                .map((m: any) => ({ nick: String(m.nick), lastSeen: Number(m.lastSeen) || 0 }));
+              if (!rooms.includes(k)) rooms.push(k);
+            }
+          }
+        }
+        void renderRooms();
       }
     } catch (_) { /* ignore */ }
   }
@@ -547,10 +668,11 @@ export const main = Program(async (args: string[]) => {
       }
     })();
 
-    // Keepalive agar server tidak menganggap client mati
+    // Keepalive agar server tidak menganggap client mati — interval dari config
+    // client (aliveInterval, default 10 dtk) → warna bullet anggota tetap hijau.
     pingTimer = setInterval(() => {
       if (running && clientFd >= 0) void clientSend({ t: "ping" }).catch(() => {});
-    }, PING_INTERVAL);
+    }, pingIntervalMs);
   }
 
   async function setupNetwork() {
@@ -648,11 +770,14 @@ export const main = Program(async (args: string[]) => {
       await form.screen.update("lbl-nick", { text: `👤 ${nickname}` });
     }
 
-    roomList.onClick = (idx, item) => {
-      void setRoom(item);
-    };
     await renderRooms();
     await renderHistory();
+
+    // Refresh warna bullet tiap beberapa detik — umur signal alive bertambah
+    // walau tanpa broadcast presence baru (hijau → kuning → merah).
+    presenceTimer = setInterval(() => {
+      if (running) void renderRooms();
+    }, 4000);
 
     // Keydown (Enter) — TEdit cashew tidak punya onKeyDown native, jadi pakai
     // screen.on langsung (meng-set onKeydownId pada elemen input).
@@ -668,6 +793,7 @@ export const main = Program(async (args: string[]) => {
     running = false;
     connected = false;
     if (pingTimer) clearInterval(pingTimer);
+    if (presenceTimer) clearInterval(presenceTimer);
     void saveHistory();
     if (clientFd >= 0) void net.close(clientFd).catch(() => {});
     void std.log("[air-type] Aplikasi ditutup.", "air-type");

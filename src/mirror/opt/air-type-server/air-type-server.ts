@@ -26,8 +26,8 @@ import { PacketFlags } from "@common/PacketFlags";
 
 const DEFAULT_PORT = 2500;
 const RSA_DIR = "/etc/keys/rsa";
+const PRESENCE_CONFIG_PATH = "/etc/air-type-server/config.json";
 const FLAG = PacketFlags.FLAG_DATA;
-const STALE_MS = 90000; // buang client yang diam > 90s
 const CLEANUP_INTERVAL = 30000;
 
 interface Peer {
@@ -61,6 +61,31 @@ export const main = Program(async (args: string[]) => {
   const roomMembers = new Map<string, Set<string>>();
   const rooms: string[] = ["general"];
 
+  // --- Konfigurasi presence (umur signal alive → warna bullet) ---
+  // Hijau 0..greenMax dtk · Kuning greenMax+1..yellowMax dtk · Merah >= redMin dtk.
+  // Default: hijau 0..10, kuning 11..299, merah >=300. Bisa diubah via
+  // /etc/air-type-server/config.json, misal:
+  //   {"greenMax":15,"yellowMax":240,"redMin":300,"staleMs":300000,"presenceInterval":5000}
+  let presenceCfg = {
+    greenMax: 10,
+    yellowMax: 299,
+    redMin: 300,
+    staleMs: 300000,        // cleanup: buang client idle > staleMs (default = redMin)
+    presenceInterval: 5000, // broadcast presence periodik (ms)
+  };
+  try {
+    const raw = await fs.readFile(PRESENCE_CONFIG_PATH);
+    if (raw) {
+      presenceCfg = { ...presenceCfg, ...(JSON.parse(raw) || {}) };
+    } else {
+      await fs.writeFile(PRESENCE_CONFIG_PATH, JSON.stringify(presenceCfg, null, 2));
+    }
+  } catch (_) {
+    // file belum ada → tulis default supaya mudah diedit user
+    try { await fs.mkdir("/etc/air-type-server"); } catch (_2) { /* sudah ada */ }
+    try { await fs.writeFile(PRESENCE_CONFIG_PATH, JSON.stringify(presenceCfg, null, 2)); } catch (_3) { /* non-fatal */ }
+  }
+
   const socket = await net.socket();
   if (socket < 0) {
     await std.print("❌ Gagal membuat socket server.\n");
@@ -73,7 +98,7 @@ export const main = Program(async (args: string[]) => {
   }
 
   await std.print(
-    `\tAir-Type Server aktif di MQTNL port ${port} · 🔒 ${fingerprint.slice(0, 12)}…\n`,
+    `\t  Air-Type Server aktif di MQTNL port ${port} · 🔒 ${fingerprint.slice(0, 12)}…\n`,
   );
   await std.log(
     `[air-type-server] Server chat aktif di port ${port} (fingerprint ${fingerprint.slice(0, 12)}…).`,
@@ -120,6 +145,31 @@ export const main = Program(async (args: string[]) => {
     }
   }
 
+  /** Broadcast daftar anggota per-room + threshold warna bullet ke semua client. */
+  function broadcastPresence() {
+    const roomsData: Record<string, { nick: string; lastSeen: number }[]> = {};
+    for (const [room, members] of roomMembers.entries()) {
+      const list: { nick: string; lastSeen: number }[] = [];
+      for (const sid of members) {
+        const p = clients.get(sid);
+        if (p) list.push({ nick: p.nick || sid, lastSeen: p.lastSeen });
+      }
+      roomsData[room] = list;
+    }
+    const payload = {
+      t: "presence",
+      thresholds: {
+        greenMax: presenceCfg.greenMax,
+        yellowMax: presenceCfg.yellowMax,
+        redMin: presenceCfg.redMin,
+      },
+      rooms: roomsData,
+    };
+    for (const peer of clients.values()) {
+      void sendToPeer(peer, payload).catch(() => {});
+    }
+  }
+
   async function serverSys(room: string, text: string) {
     await relayToRoom(room, { t: "sys", room, text, ts: Date.now() });
   }
@@ -150,6 +200,7 @@ export const main = Program(async (args: string[]) => {
       await sendToPeer(client, { t: "rooms", list: rooms }).catch(() => {});
       await serverSys(room, `${client.nick} bergabung ke #${room}`);
       await std.log(`[air-type-server] ${client.nick} join #${room}`, "air-type-server");
+      broadcastPresence();
       return;
     }
 
@@ -173,6 +224,7 @@ export const main = Program(async (args: string[]) => {
       if (newNick !== oldNick) {
         client.nick = newNick;
         await serverSys(client.room || "general", `${oldNick} kini dikenal sebagai ${newNick}`);
+        broadcastPresence();
       }
       return;
     }
@@ -183,6 +235,7 @@ export const main = Program(async (args: string[]) => {
         roomMembers.get(room)?.delete(sid);
         if (client.room === room) client.room = "";
         await serverSys(room, `${client.nick || client.addr} meninggalkan #${room}`);
+        broadcastPresence();
       }
       return;
     }
@@ -245,24 +298,33 @@ export const main = Program(async (args: string[]) => {
     await handleChat(client, msg);
   }
 
-  // --- Loop utama + cleanup ---
+  // --- Loop utama + cleanup + presence periodik ---
   let lastCleanup = Date.now();
+  let lastPresence = Date.now();
   while (true) {
     try {
       const pkt = await net.recv(socket);
       if (pkt) await handlePacket(pkt);
 
+      const now = Date.now();
       // Cleanup client yang diam (dianggap keluar)
-      if (Date.now() - lastCleanup > CLEANUP_INTERVAL) {
-        lastCleanup = Date.now();
-        const now = Date.now();
+      if (now - lastCleanup > CLEANUP_INTERVAL) {
+        lastCleanup = now;
+        let changed = false;
         for (const [sid, peer] of clients.entries()) {
-          if (now - peer.lastSeen > STALE_MS) {
+          if (now - peer.lastSeen > presenceCfg.staleMs) {
             if (peer.room) roomMembers.get(peer.room)?.delete(sid);
             clients.delete(sid);
+            changed = true;
             await std.log(`[air-type-server] Client ${sid} dianggap keluar (idle).`, "air-type-server");
           }
         }
+        if (changed) broadcastPresence();
+      }
+      // Refresh presence periodik — jaga lastSeen member tetap segar di semua client
+      if (now - lastPresence > presenceCfg.presenceInterval) {
+        lastPresence = now;
+        broadcastPresence();
       }
     } catch (e) {
       break;

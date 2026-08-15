@@ -1,5 +1,5 @@
 /**
- * configure.ts — Air-Type: setup pasca-instalasi (jalankan sebagai ROOT).
+ * configure.ts — Air-Type (client): setup pasca-instalasi (jalankan sebagai ROOT).
  *
  * Tugas:
  *   1. Pastikan direktori data /etc/air-type ada.
@@ -11,6 +11,9 @@
  *     mirror→VFS polos) tanpa pengecualian per-aplikasi.
  *   - Setup spesifik aplikasi dipindah ke sini: dijalankan manual sebagai root,
  *     dan nanti di-integrasikan sebagai post-install hook paket tpkg.
+ *   - Client dan server adalah PAKET TERPISAH, masing-masing punya configure.ts:
+ *       /opt/air-type/configure.js          → /etc/air-type (data client)
+ *       /opt/air-type-server/configure.js   → /etc/air-type-server (config server)
  *
  * Cara pakai (root):
  *   /opt/air-type/configure.js
