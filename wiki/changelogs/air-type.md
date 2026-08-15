@@ -6,6 +6,23 @@
 
 ## 2026-08-16
 
+### Fix: anggota room dobel saat buka-tutup-buka aplikasi (reconnect)
+- **File:** `src/mirror/opt/air-type/air-type.ts`, `src/mirror/opt/air-type-server/air-type-server.ts`
+- **Gejala:** buka → tutup → buka air-type → nick muncul 2x di daftar anggota room.
+- **Akar masalah:** sid koneksi = `addr:localPort`, dan localPort client acak per sesi. Saat tutup tanpa `leave`, sesi lama masih nyangkut di server (baru di-bersihkan setelah `staleMs` 300 dtk); buka lagi = sid baru → dianggap anggota baru → dobel.
+- **Fix client (`air-type.ts`):**
+  - `clientId` STABIL (UUID acak, disimpan di config.json) — dikirim di pesan `join`/`create`.
+  - `onClose` sekarang mengirim `{t:"leave"}` sebelum socket ditutup → server langsung menghapus anggota (graceful), bukan nunggu timeout.
+- **Fix server (`air-type-server.ts`):**
+  - Track `clientIdToSid` (clientId → sid).
+  - Saat `join`/`create` dengan clientId yang sudah punya sesi lama → sesi lama dibuang (keluar dari room + clients) dulu, baru sesi baru masuk → tidak dobel.
+  - Bersihkan mapping `clientIdToSid` saat `leave` dan saat cleanup idle.
+- **Oleh:** Copilot
+
+---
+
+## 2026-08-16
+
 ### `configure.ts` terpisah per paket (server vs client)
 - **File:** `src/mirror/opt/air-type-server/configure.ts` **(baru)**, `src/mirror/opt/air-type/configure.ts`
 - **Latar:** server dan client chat adalah paket aplikasi terpisah — masing-masing punya configure.ts sendiri.

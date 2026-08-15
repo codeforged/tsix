@@ -66,6 +66,12 @@ interface ChatMsg {
   sys?: boolean;
 }
 
+/** clientId stabil (persisted di config) — identitas unik pengguna untuk anti-duplikat reconnect. */
+function genClientId(): string {
+  const r4 = () => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0");
+  return `${r4()}${r4()}-${r4()}-${r4()}-${r4()}${r4()}`;
+}
+
 export const main = Program(async (args: string[]) => {
   // ──────────────────────────────────────────────────────────
   // ARGS (client-only — server headless terpisah /opt/air-type-server/)
@@ -82,6 +88,11 @@ export const main = Program(async (args: string[]) => {
   // anggota di semua client (hijau/kuning/merah).
   const aliveIntervalSec = Math.max(3, parseInt(cfg.aliveInterval) || 10);
   const pingIntervalMs = aliveIntervalSec * 1000;
+
+  // clientId STABIL — identitas unik pengguna/node (tersimpan di config.json).
+  // Server memakai ini saat reconnect (buka-tutup-buka) untuk menggantikan sesi
+  // lama → anggota tidak dobel di daftar room.
+  let clientId = cfg.clientId || genClientId();
 
   const defaultNick = (await shell.getenv("HOSTNAME")) || "node";
   let port = DEFAULT_PORT;
@@ -467,7 +478,7 @@ export const main = Program(async (args: string[]) => {
   async function saveConfig() {
     try {
       try { await fs.mkdir("/etc/air-type"); } catch (_) { /* sudah ada */ }
-      const data = { server: serverAddr || cfg.server || "", port, nickname, aliveInterval: aliveIntervalSec };
+      const data = { server: serverAddr || cfg.server || "", port, nickname, aliveInterval: aliveIntervalSec, clientId };
       await fs.writeFile(CONFIG_PATH, JSON.stringify(data, null, 2));
     } catch (_) { /* non-fatal */ }
   }
@@ -488,7 +499,7 @@ export const main = Program(async (args: string[]) => {
     // tumpang tindih → item ter-duplikasi.
     await renderHistory();
     if (clientFd >= 0) {
-      await clientSend({ t: "join", room, nick: nickname }).catch(() => {});
+      await clientSend({ t: "join", room, nick: nickname, clientId }).catch(() => {});
     }
   }
 
@@ -584,7 +595,7 @@ export const main = Program(async (args: string[]) => {
       await new Promise((r) => setTimeout(r, 200));
 
       // Gabung room "general" (default) — server akan membalas daftar room.
-      await clientSend({ t: "join", room: "general", nick: nickname });
+      await clientSend({ t: "join", room: "general", nick: nickname, clientId });
       connected = true;
 
       setStatus(`✅ Terhubung · 🔒 E2E chacha20 · fp ${fp.slice(0, 12)}…`);
@@ -748,7 +759,7 @@ export const main = Program(async (args: string[]) => {
     // Render daftar room SETELAH currentRoom berubah (highlight room baru benar),
     // dan hanya SEKALI — hindari race setContent yang menduplikasi item.
     await renderRooms();
-    await clientSend({ t: "create", room, nick: nickname }).catch(() => {});
+    await clientSend({ t: "create", room, nick: nickname, clientId }).catch(() => {});
   }
 
   // ──────────────────────────────────────────────────────────
@@ -789,13 +800,21 @@ export const main = Program(async (args: string[]) => {
     void setupNetwork();
   };
 
-  form.onClose = () => {
+  form.onClose = async () => {
     running = false;
     connected = false;
     if (pingTimer) clearInterval(pingTimer);
     if (presenceTimer) clearInterval(presenceTimer);
     void saveHistory();
-    if (clientFd >= 0) void net.close(clientFd).catch(() => {});
+    if (clientFd >= 0) {
+      // Kabari server kita pergi (graceful) — anggota langsung hilang dari
+      // daftar room, bukan nunggu timeout. Kalau leave gagal (proses dibunuh),
+      // clientId di server tetap membersihkan sesi lama saat reconnect.
+      try {
+        await clientSend({ t: "leave", room: currentRoom, clientId });
+      } catch (_) { /* socket sudah mati */ }
+      try { await net.close(clientFd); } catch (_) { /* ignore */ }
+    }
     void std.log("[air-type] Aplikasi ditutup.", "air-type");
   };
 

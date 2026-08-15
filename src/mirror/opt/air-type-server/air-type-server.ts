@@ -36,7 +36,8 @@ interface Peer {
   agent: SecurityAgent; // session key dinamis per-koneksi
   nick: string;
   room: string;
-  lastSeen: number; 
+  lastSeen: number;
+  clientId?: string; // identitas stabil client (anti-duplikat saat reconnect)
 }
 
 export const main = Program(async (args: string[]) => {
@@ -59,6 +60,7 @@ export const main = Program(async (args: string[]) => {
   // --- State hub ---
   const clients = new Map<string, Peer>();
   const roomMembers = new Map<string, Set<string>>();
+  const clientIdToSid = new Map<string, string>(); // clientId → sid (dedup reconnect)
   const rooms: string[] = ["general"];
 
   // --- Konfigurasi presence (umur signal alive → warna bullet) ---
@@ -182,6 +184,22 @@ export const main = Program(async (args: string[]) => {
     if (t === "ping") return;
 
     if (t === "join" || t === "create") {
+      // Dedup reconnect: kalau clientId ini sudah punya sesi lama (buka-tutup-buka),
+      // buang sesi lama dulu biar tidak dobel di daftar anggota.
+      const clientId = msg.clientId ? String(msg.clientId) : "";
+      if (clientId) {
+        const oldSid = clientIdToSid.get(clientId);
+        if (oldSid && oldSid !== sid) {
+          const oldPeer = clients.get(oldSid);
+          if (oldPeer?.room) roomMembers.get(oldPeer.room)?.delete(oldSid);
+          clients.delete(oldSid);
+          clientIdToSid.delete(clientId);
+          await std.log(`[air-type-server] Sesi lama ${oldSid} (${oldPeer?.nick || "?"}) digantikan reconnect (${clientId}).`, "air-type-server");
+        }
+        clientIdToSid.set(clientId, sid);
+        client.clientId = clientId;
+      }
+
       let room = String(msg.room || "general").replace(/^#/, "").trim() || "general";
       client.nick = msg.nick || client.nick || client.addr;
 
@@ -234,9 +252,11 @@ export const main = Program(async (args: string[]) => {
       if (room) {
         roomMembers.get(room)?.delete(sid);
         if (client.room === room) client.room = "";
-        await serverSys(room, `${client.nick || client.addr} meninggalkan #${room}`);
-        broadcastPresence();
       }
+      if (client.clientId) clientIdToSid.delete(client.clientId);
+      clients.delete(sid);
+      await serverSys(room || "general", `${client.nick || client.addr} meninggalkan #${room || "?"}`);
+      broadcastPresence();
       return;
     }
   }
@@ -314,6 +334,7 @@ export const main = Program(async (args: string[]) => {
         for (const [sid, peer] of clients.entries()) {
           if (now - peer.lastSeen > presenceCfg.staleMs) {
             if (peer.room) roomMembers.get(peer.room)?.delete(sid);
+            if (peer.clientId) clientIdToSid.delete(peer.clientId);
             clients.delete(sid);
             changed = true;
             await std.log(`[air-type-server] Client ${sid} dianggap keluar (idle).`, "air-type-server");
