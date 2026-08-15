@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-08-16
+
+### Refactor: install.ts kembali generik + `/opt/air-type/configure.ts` (setup permission)
+- **File:** `src/mirror/opt/air-type/configure.ts` **(baru)**, `scripts/install.ts`, `scripts/vfs-bootstrap.ts`, `scripts/sync-vfs.ts`
+- **Latar (keberatan user):** special-case `vfsDir === "/etc/air-type" ? 0o777 : 0o755` bikin script sync (install.ts & kawan-kawan) jadi tidak generik — nama aplikasi nempel di script inti.
+- **Perubahan:**
+  - **Hapus special-case `/etc/air-type`** dari `install.ts`, `vfs-bootstrap.ts`, `sync-vfs.ts` → sync kembali polos (semua direktori 0o755).
+  - **`configure.ts` (baru, di `/opt/air-type/`):** setup pasca-instalasi — pastikan `/etc/air-type` ada + `chmod 0o777` (world-writable) agar air-type non-root bisa menulis `history.json`/`known_hosts`. Dijalankan sebagai **ROOT** (`/opt/air-type/configure.js`). Idempotent.
+- **Deploy:** setelah install/update, jalankan `/opt/air-type/configure.js` (root) supaya permission data dir benar. Integrasi **post-install hook tpkg menyusul** (user akan cek tpkg dulu).
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-15
 
 ### Fix: kirim pesan tidak ada efek — onInput di-set di onSetup (terlambat)

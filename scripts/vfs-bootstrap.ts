@@ -65,10 +65,9 @@ async function main() {
         // Recursive sync function
         const syncDir = (hostDir: string, vfsDir: string) => {
             if (!bkfs.exists(vfsDir)) {
-                // /etc/air-type = data runtime chat (history/known_hosts) yang
-                // ditulis air-type sebagai non-root → world-writable (0o777).
-                const dirMode = vfsDir === "/etc/air-type" ? 0o777 : 0o755;
-                bkfs.mkdir(vfsDir, 0, 0, dirMode);
+                // Sync generik: semua direktori 0o755. Setup permission khusus
+                // aplikasi (mis. /etc/air-type → 0o777) oleh configure.ts app tsb.
+                bkfs.mkdir(vfsDir, 0, 0, 0o755);
                 console.log(`[VFS-Bootstrap] Created directory: ${vfsDir}`);
             }
 

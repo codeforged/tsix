@@ -96,10 +96,9 @@ function parseArgs(argv: string[]): InstallOptions {
 /** Sync rekursif src/mirror -> VFS (sama seperti vfs-bootstrap). */
 function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string): void {
   if (!bkfs.exists(vfsDir)) {
-    // /etc/air-type = direktori data runtime chat (history.json / known_hosts)
-    // yang ditulis aplikasi air-type sebagai non-root → world-writable (0o777).
-    const dirMode = vfsDir === "/etc/air-type" ? 0o777 : 0o755;
-    bkfs.mkdir(vfsDir, 0, 0, dirMode);
+    // Sync generik: semua direktori 0o755. Setup permission khusus aplikasi
+    // (mis. /etc/air-type → 0o777) dilakukan oleh configure.ts aplikasi tsb.
+    bkfs.mkdir(vfsDir, 0, 0, 0o755);
     console.log(`[INSTALL] mkdir ${vfsDir}`);
   }
 
