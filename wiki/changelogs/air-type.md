@@ -6,6 +6,19 @@
 
 ## 2026-08-16
 
+### Ganti `setInterval` → `TTimer` (managed cashew)
+- **File:** `src/mirror/opt/air-type/air-type.ts`
+- **Alasan:** `setInterval` global berbahaya — timer tetap jalan walau form sudah close (bocor). `TTimer` pakai managed timer dari Screen → auto-cleanup saat form ditutup.
+- **Perubahan:**
+  - `presenceTimer` (refresh warna bullet 4 dtk) dan `pingTimer` (keepalive, interval dari `aliveInterval` config) kini `TTimer` — dibuat + `form.add()` sebelum `form.run()` (biar ter-bind ke Screen saat autoBind).
+  - Di-`enable`: presence di `onSetup`, ping setelah handshake OK di `clientSetup`.
+  - Di-`onClose`: `enabled = false` (eksplisit, walau auto-cleanup sudah jalan).
+- **Oleh:** Copilot
+
+---
+
+## 2026-08-16
+
 ### Fitur: desktop notification saat ada pesan masuk dari orang lain
 - **File:** `src/mirror/opt/air-type/air-type.ts`
 - **Cara:** saat client menerima pesan chat dari nick LAIN (bukan nickname sendiri), kirim `shell.send(AST_IDENTITY, {type:"DESKTOP_NOTIF", title, message})` ke Asteracea (identity `3ec3ffe9-e0a6-411f-b7e3-c9ff0b00556c`) → muncul toast desktop.

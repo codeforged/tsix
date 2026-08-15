@@ -44,6 +44,7 @@ import {
   HStack,
   TDialogs,
   TScrollBox,
+  TTimer,
 } from "@tsix/cashew";
 
 export const appMode = "gui";
@@ -127,8 +128,6 @@ export const main = Program(async (args: string[]) => {
   let inputText = "";
   let clientFd = -1;
   let clientLocalPort = 0;
-  let pingTimer: ReturnType<typeof setInterval> | null = null;
-  let presenceTimer: ReturnType<typeof setInterval> | null = null;
 
   // Keanggotaan room + umur signal alive (dari broadcast presence server).
   const membersByRoom: Record<string, { nick: string; lastSeen: number }[]> = {};
@@ -289,6 +288,22 @@ export const main = Program(async (args: string[]) => {
   const statusBar = new TStatusBar("status");
   statusBar.text = `📡 ${serverAddr || "?"}:${port} · 🔒 E2E chacha20 (RSA handshake)`;
   form.add(statusBar);
+
+  // Timer managed (TTimer) — auto-cleanup saat form ditutup. JANGAN pakai
+  // setInterval global: timer tetap jalan walau form sudah close (bocor).
+  // presence: refresh warna bullet tiap 4 dtk.
+  const presenceTimer = new TTimer("tmr-presence", 4000, false);
+  presenceTimer.onTimer = () => {
+    if (running) void renderRooms();
+  };
+  form.add(presenceTimer);
+
+  // ping: keepalive ke server (interval dari config aliveInterval).
+  const pingTimer = new TTimer("tmr-ping", pingIntervalMs, false);
+  pingTimer.onTimer = () => {
+    if (running && clientFd >= 0) void clientSend({ t: "ping" }).catch(() => {});
+  };
+  form.add(pingTimer);
 
   // ──────────────────────────────────────────────────────────
   // FUNGSI RENDER UI
@@ -694,9 +709,7 @@ export const main = Program(async (args: string[]) => {
 
     // Keepalive agar server tidak menganggap client mati — interval dari config
     // client (aliveInterval, default 10 dtk) → warna bullet anggota tetap hijau.
-    pingTimer = setInterval(() => {
-      if (running && clientFd >= 0) void clientSend({ t: "ping" }).catch(() => {});
-    }, pingIntervalMs);
+    pingTimer.enabled = true;
   }
 
   async function setupNetwork() {
@@ -799,9 +812,7 @@ export const main = Program(async (args: string[]) => {
 
     // Refresh warna bullet tiap beberapa detik — umur signal alive bertambah
     // walau tanpa broadcast presence baru (hijau → kuning → merah).
-    presenceTimer = setInterval(() => {
-      if (running) void renderRooms();
-    }, 4000);
+    presenceTimer.enabled = true;
 
     // Keydown (Enter) — TEdit cashew tidak punya onKeyDown native, jadi pakai
     // screen.on langsung (meng-set onKeydownId pada elemen input).
@@ -816,8 +827,9 @@ export const main = Program(async (args: string[]) => {
   form.onClose = async () => {
     running = false;
     connected = false;
-    if (pingTimer) clearInterval(pingTimer);
-    if (presenceTimer) clearInterval(presenceTimer);
+    // Matikan timer managed (selain auto-cleanup saat close, eksplisit lebih jelas).
+    pingTimer.enabled = false;
+    presenceTimer.enabled = false;
     void saveHistory();
     if (clientFd >= 0) {
       // Kabari server kita pergi (graceful) — anggota langsung hilang dari
