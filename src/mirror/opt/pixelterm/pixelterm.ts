@@ -162,6 +162,7 @@ export const main = Program(async (args: string[]) => {
   // TTY, update env LINES/COLUMNS semua proses di TTY itu, & kirim SIGWINCH.
   // Jalur ini PER-TTY — aman untuk banyak instance pixelterm & tidak bergantung
   // pada forwarding IPC RESIZE ke child (biar atto selalu dapat ukuran benar).
+  let warnedTtyPerm = false; // log sekali saja kalau /dev/ttyN ditolak (mis. non-root)
   async function applyTtySize(rows: number, cols: number) {
     try {
       const ttyFd = await fs.open(`/dev/tty${ttyId}`, "w+");
@@ -169,7 +170,20 @@ export const main = Program(async (args: string[]) => {
         await fs.ioctl(ttyFd, 3, { lines: rows, columns: cols }); // TIOCSWINSZ
         await fs.close(ttyFd);
       }
-    } catch (_) {}
+    } catch (e) {
+      // Jangan gagal diam-diam: kalau open /dev/ttyN ditolak, TIOCSWINSZ tidak jalan
+      // → getScreenInfo() app (mis. atto) stale & tanpa SIGWINCH (hanya IPC fallback).
+      if (!warnedTtyPerm) {
+        warnedTtyPerm = true;
+        try {
+          await std.log(
+            `[pixelterm] WARN: cannot open /dev/tty${ttyId} for TIOCSWINSZ — ${(e as any)?.message || e}. ` +
+              `Resize falls back to IPC only; getScreenInfo() in apps (e.g. atto) may stay stale.`,
+            "pixelterm",
+          );
+        } catch (_) {}
+      }
+    }
   }
 
   // Set default terminal size (akan diupdate pas xterm.js ngirim ukuran asli)

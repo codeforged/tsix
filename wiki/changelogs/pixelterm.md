@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-08-15
+
+### Fix resize atto saat pixelterm dijalankan non-root — /dev/ttyN kini world-accessible
+- **File:** `src/kernel/devices/TTYDevice.ts`, `src/mirror/opt/pixelterm/pixelterm.ts`
+- **Gejala:** atto tidak mau resize (layar tetap 80x24 / status bar tidak ikut) ketika pixelterm dijalankan **non-root**; kalau root aman.
+- **Akar masalah:** `applyTtySize()` membuka `/dev/ttyN` dengan `"w+"` lalu `ioctl(fd, 3)` (TIOCSWINSZ). Device `/dev/ttyN` default `mode = 0o600` (root-only, dari `device.mode ?? 0o600` di syscall OPEN) → non-root ditolak `Permission Denied`, error ditelan `catch` → TIOCSWINSZ tidak pernah jalan → `tty.height/width` tidak di-update → `getScreenInfo()` atto stale 80x24 & tanpa SIGWINCH; hanya IPC RESIZE fallback yang jalan (heuristik "deepest child" → tidak konsisten).
+- **Perubahan:**
+  - `TTYDevice.ts`: default `uid=0, gid=0, mode=0o666` — semua user boleh membuka `/dev/ttyN` untuk kontrol terminal (TIOCSWINSZ, clear, dan `less`/`more` yang buka `/dev/tty` dengan "r"). Konsisten dengan model keamanan existing (shell.write/read/send via PID tidak punya ownership check); root tetap bisa chmod/chown per-device.
+  - `pixelterm.ts`: `applyTtySize()` kini log warning sekali jika open `/dev/ttyN` ditolak (tidak lagi gagal diam-diam).
+- **Deploy:** kernel perlu restart agar mode device baru aktif; pixelterm cukup relaunch.
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-05
 
 ### Fix resize multi-instance — status bar atto ikut cursor di SEMUA pixelterm

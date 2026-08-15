@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-08-15
+
+### /dev/ttyN kini world-accessible (0o666) — pixelterm non-root bisa resize TTY
+- **File:** `src/kernel/devices/TTYDevice.ts`, `src/mirror/opt/pixelterm/pixelterm.ts`
+- **Masalah:** Device `/dev/ttyN` default `mode = 0o600` (root-only, dari `device.mode ?? 0o600` di syscall OPEN) → pixelterm yang dijalankan **non-root** gagal `fs.open("/dev/ttyN", "w+")` untuk TIOCSWINSZ → TTY tidak ke-resize, `getScreenInfo()` app (mis. atto) tetap 80x24 & tanpa SIGWINCH (hanya IPC RESIZE fallback yang tidak konsisten).
+- **Perubahan:**
+  - **`TTYDevice.ts`:** default `uid=0, gid=0, mode=0o666` — semua user boleh membuka `/dev/ttyN` untuk kontrol terminal (TIOCSWINSZ ioctl 3, clear ioctl 1) dan `less`/`more` yang buka `/dev/tty` dengan "r" (butuh READ). Konsisten dengan model keamanan existing (shell.write/read/send via PID tidak punya ownership check); root tetap bisa chmod/chown per-device.
+  - **`pixelterm.ts`:** `applyTtySize()` log warning sekali jika open `/dev/ttyN` ditolak (tidak lagi gagal diam-diam).
+- **Dampak:** Resize atto di pixelterm non-root kini sama seperti root. Deploy: restart kernel agar mode device baru aktif.
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-12
 
 ### Saved UID — login manager (WM) bisa re-elevate ke root utk switch user
