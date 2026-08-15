@@ -359,7 +359,7 @@ The TSIX DOME browser client (GUI) builds on these open-source libraries:
 | [CodeMirror](https://codemirror.net/)                                 | 5.65.16 | Text editor (Eucalyptus)       |    MIT     |
 | [Fabric.js](http://fabricjs.com/)                                     |  5.3.1  | Canvas rendering (DDC widgets) |    MIT     |
 | [Lightweight Charts](https://www.tradingview.com/lightweight-charts/) |  5.2.0  | Real-time charts (dashboard)   | Apache-2.0 |
-| [Tabulator](https://www.tabulator.info/) |  6.3.0  |            Data Grid           | Apache-2.0 |
+| [Tabulator](https://www.tabulator.info/) |  6.3.0  |            Data Grid           |    MIT     |
 
 ---
 
