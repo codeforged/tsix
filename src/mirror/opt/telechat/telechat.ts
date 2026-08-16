@@ -175,7 +175,7 @@ export const main = Program(async (args: string[]) => {
     minWidth: "0",
     fontSize: "12px",
   });
-  serverInput.placeholder = "Alamat server (misal: tsix-node-2:2510)…";
+  serverInput.placeholder = "Server address (e.g., tsix-node-2:2510)…";
   serverInput.onInput = (val) => {
     serverInputText = val;
   };
@@ -216,7 +216,7 @@ export const main = Program(async (args: string[]) => {
     color: "var(--text-muted, #888)",
     fontSize: "11px",
   });
-  lblStatusTop.caption = "⏳ menyiapkan…";
+  lblStatusTop.caption = "⏳ initializing…";
 
   const btnNewRoom = new TButton("btn-newroom", {
     height: "28px",
@@ -226,7 +226,7 @@ export const main = Program(async (args: string[]) => {
     color: "#2196f3",
     border: "1px solid rgba(33,150,243,0.4)",
   });
-  btnNewRoom.caption = "＋ Room Baru";
+  btnNewRoom.caption = "＋ New Room";
   btnNewRoom.onClick = () => void createRoom();
 
   form.add(
@@ -246,7 +246,7 @@ export const main = Program(async (args: string[]) => {
     ),
   );
 
-  // ── Panel kiri (30%) — daftar room + anggota #lobby ──
+  // ── Panel kiri (30%) — room list + anggota #lobby ──
   const leftPanel = new TPanel("left-panel", {
     padding: "6px",
     display: "flex",
@@ -259,7 +259,7 @@ export const main = Program(async (args: string[]) => {
     fontSize: "11px",
     fontWeight: "700",
   });
-  lblRooms.caption = "📁 RUANG OBRALAN";
+  lblRooms.caption = "📁 CHAT ROOMS";
   leftPanel.add(lblRooms);
 
   const roomListBox = TScrollBox("room-list", {
@@ -279,8 +279,9 @@ export const main = Program(async (args: string[]) => {
     background: "rgba(33,150,243,0.12)",
     color: "#2196f3",
     border: "1px solid rgba(33,150,243,0.4)",
+    display: "none",
   });
-  btnNewRoom2.caption = "＋ Buat Room";
+  btnNewRoom2.caption = "＋ Create Room";
   btnNewRoom2.onClick = () => void createRoom();
   leftPanel.add(btnNewRoom2);
 
@@ -312,7 +313,7 @@ export const main = Program(async (args: string[]) => {
   rightPanel.add(historyBox);
 
   const input = new TEdit("msg-input", { flex: "1", minWidth: "0" });
-  input.placeholder = `Tulis pesan di ${currentRoom}… (Enter kirim, / untuk perintah)`;
+  input.placeholder = `Write a message in ${currentRoom}… (Enter to send, / for commands)`;
   input.props.autofocus = true;
   // PENTING: set onInput SEBELUM form.run() — cashew auto-bind event saat run().
   input.onInput = (val) => {
@@ -326,7 +327,7 @@ export const main = Program(async (args: string[]) => {
     color: "#4caf50",
     border: "1px solid #4caf50",
   });
-  btnSend.caption = "➤ Kirim";
+  btnSend.caption = "➤ Send";
   btnSend.onClick = () => void sendMessage();
 
   rightPanel.add(HStack({ padding: "0" }, input, btnSend));
@@ -667,13 +668,13 @@ export const main = Program(async (args: string[]) => {
   async function clientHandshake(): Promise<boolean> {
     const fd = await net.socket();
     if (fd < 0) {
-      setStatus("❌ Gagal membuat socket.");
+      setStatus("❌ Failed to create socket.");
       return false;
     }
     clientLocalPort = 5000 + Math.floor(Math.random() * 4000);
     const ok = await net.bind(fd, clientLocalPort);
     if (!ok) {
-      setStatus("❌ Gagal bind port lokal.");
+      setStatus("❌ Failed to bind local port.");
       return false;
     }
     clientFd = fd;
@@ -691,14 +692,14 @@ export const main = Program(async (args: string[]) => {
 
       const pubPkt = await waitForPacket(fd, "__pubkey::", 6000);
       if (!pubPkt) {
-        setStatus(`❌ Tidak ada balasan dari ${serverAddr}:${port}.`);
+        setStatus(`❌ No reply from ${serverAddr}:${port}.`);
         return false;
       }
       const parts = pubPkt.split("::");
       const serverPub = parts[1];
       const fp = parts[2];
       if (!serverPub || !fp) {
-        setStatus("❌ Server tidak mengirim public key/fingerprint.");
+        setStatus("❌ Server did not send public key/fingerprint.");
         return false;
       }
 
@@ -706,7 +707,7 @@ export const main = Program(async (args: string[]) => {
       const trusted = await verifyKnownHost(serverAddr, fp);
       if (!trusted) {
         setStatus(
-          `⚠️ Fingerprint ${serverAddr} BERUBAH — kemungkinan MITM! Ditolak.`,
+          `⚠️ Fingerprint ${serverAddr} CHANGED — possible MITM! Rejected.`,
         );
         return false;
       }
@@ -728,7 +729,7 @@ export const main = Program(async (args: string[]) => {
 
       const donePkt = await waitForPacket(fd, "__status::done", 6000);
       if (!donePkt) {
-        setStatus("❌ Handshake tidak selesai (server menolak key).");
+        setStatus("❌ Handshake incomplete (server rejected key).");
         return false;
       }
 
@@ -737,7 +738,7 @@ export const main = Program(async (args: string[]) => {
       await net.ioctl(fd, 0x1001, { port: clientLocalPort, sessionKey });
       await new Promise((r) => setTimeout(r, 200));
 
-      setStatus(`✅ Terhubung · 🔒 E2E chacha20 · fp ${fp.slice(0, 12)}…`);
+      setStatus(`✅ Connected · 🔒 E2E chacha20 · fp ${fp.slice(0, 12)}…`);
       await std.log(
         `[telechat] ✅ Handshake OK dengan ${serverAddr}:${port} (fp ${fp.slice(0, 12)}…)`,
         "telechat",
@@ -773,12 +774,12 @@ export const main = Program(async (args: string[]) => {
   async function handleNickTaken(message: string) {
     const ans = await TDialogs.input(
       form.screen,
-      "Nickname dipakai",
-      `${message}\nMasukkan nickname lain:`,
+      "Nickname in use",
+      `${message}\nEnter another nickname:`,
       nickname,
     );
     if (!ans || !ans.trim()) {
-      setStatus("⚠️ Nickname ditolak — tidak jadi terhubung.");
+      setStatus("⚠️ Nickname rejected — connection cancelled.");
       return;
     }
     nickname = ans.trim();
@@ -824,6 +825,9 @@ export const main = Program(async (args: string[]) => {
                     background: "transparent",
                   },
           });
+          form.screen.update("btn-newroom2", {
+            style: { display: role === "admin" ? "block" : "none" },
+          });
         } catch (_) {
           /* ignore */
         }
@@ -832,7 +836,7 @@ export const main = Program(async (args: string[]) => {
             LOBBY,
             {
               from: "★",
-              text: `Status presensi kamu: ${statusName(activeStatus)}`,
+              text: `Your presence status: ${statusName(activeStatus)}`,
               ts: Date.now(),
               sys: true,
               own: true,
@@ -921,7 +925,7 @@ export const main = Program(async (args: string[]) => {
           void handleNickTaken(String(msg.message || ""));
         } else if (code === "BANNED") {
           banned = true;
-          setStatus("🚫 Kamu di-ban dari server ini.");
+          setStatus("🚫 You are banned from this server.");
           void disconnect();
         } else if (code === "ROOM_DENIED") {
           // Tetap di room saat ini (server menolak pindah)
@@ -932,7 +936,7 @@ export const main = Program(async (args: string[]) => {
           room,
           {
             from: "⚠",
-            text: String(msg.message || "Kamu di-kick."),
+            text: String(msg.message || "You were kicked."),
             ts: Date.now(),
             err: true,
           },
@@ -944,7 +948,7 @@ export const main = Program(async (args: string[]) => {
             LOBBY,
             {
               from: "★",
-              text: `Kamu dipindahkan kembali ke ${LOBBY}.`,
+              text: `You were moved back to ${LOBBY}.`,
               ts: Date.now(),
               sys: true,
               own: true,
@@ -958,14 +962,14 @@ export const main = Program(async (args: string[]) => {
           LOBBY,
           {
             from: "⚠",
-            text: String(msg.message || "Kamu di-ban."),
+            text: String(msg.message || "You were banned."),
             ts: Date.now(),
             err: true,
           },
           true,
         );
         banned = true;
-        setStatus("🚫 Di-ban oleh admin — koneksi diputus.");
+        setStatus("🚫 Banned by admin — connection disconnected.");
         void disconnect();
       }
     } catch (_) {
@@ -1000,7 +1004,7 @@ export const main = Program(async (args: string[]) => {
       // Loop berhenti → koneksi putus
       if (running && connected) {
         connected = false;
-        setStatus("🔌 Koneksi terputus — klik Connect untuk reconnect.");
+        setStatus("🔌 Connection lost — click Connect to reconnect.");
         try {
           btnConnect.caption = "Connect";
         } catch (_) {
@@ -1021,8 +1025,8 @@ export const main = Program(async (args: string[]) => {
     if (banned) {
       await TDialogs.alert(
         form.screen,
-        "🚫 Di-ban",
-        "Akun kamu di-ban oleh admin. Tidak bisa terhubung.",
+        "🚫 Banned",
+        "Your account is banned by an admin. Cannot connect.",
       );
       return;
     }
@@ -1046,11 +1050,11 @@ export const main = Program(async (args: string[]) => {
       const ans = await TDialogs.input(
         form.screen,
         "Server",
-        "Alamat MQTNL node yang menjalankan telechatd (BUKAN IP).\nContoh: tsix, tsix-node-2 (lihat sysconfig network.interfaces[].address).\n\nAlamat server:",
+        "MQTNL node address running telechatd (NOT IP).\nExample: tsix, tsix-node-2.\n\nServer address:",
         cfg.server || "",
       );
       if (!ans || !ans.trim()) {
-        setStatus("❌ Tidak ada alamat server — tutup aplikasi.");
+        setStatus("❌ No server address — closing application.");
         return;
       }
       serverAddr = ans.trim();
@@ -1062,7 +1066,7 @@ export const main = Program(async (args: string[]) => {
     } catch (_) {
       /* ignore */
     }
-    setStatus(`🔌 Menghubungkan ke ${serverAddr}:${port}…`);
+    setStatus(`🔌 Connecting to ${serverAddr}:${port}…`);
     void saveConfig();
 
     const ok = await clientHandshake();
@@ -1116,7 +1120,7 @@ export const main = Program(async (args: string[]) => {
     } catch (_) {
       /* ignore */
     }
-    setStatus("🔌 Terputus.");
+    setStatus("🔌 Disconnected.");
   }
 
   // ──────────────────────────────────────────────────────────
@@ -1135,16 +1139,16 @@ export const main = Program(async (args: string[]) => {
         {
           from: "★",
           text:
-            "💬 Perintah TeleChat:\n" +
-            "  /nickname <nama>     — ganti nickname\n" +
+            "💬 TeleChat Commands:\n" +
+            "  /nickname <nama>     — change nickname\n" +
             "  /status <0|1|2>      — 0 Inactive · 1 Visible · 2 Invisible\n" +
-            "  /kick <nama>         — (admin) kick dari room saat ini\n" +
-            "  /ban <nama>          — (admin) ban permanen + putus koneksi\n" +
+            "  /kick <nama>         — (admin) kick from current room\n" +
+            "  /ban <nama>          — (admin) permanent ban + disconnect\n" +
             "  /role <nama> <r>     — (admin) set admin|guest\n" +
-            "  /rooms               — daftar room\n" +
-            "  /who                 — anggota room saat ini\n" +
-            "  /clear               — bersihkan history layar (lokal)\n" +
-            "  /help                — bantuan ini",
+            "  /rooms               — room list\n" +
+            "  /who                 — current room members\n" +
+            "  /clear               — clear chat history (local)\n" +
+            "  /help                — this help",
           ts: Date.now(),
           sys: true,
           own: true,
@@ -1162,34 +1166,34 @@ export const main = Program(async (args: string[]) => {
     // Perintah server (parser di telechatd) — kirim sebagai t:"cmd"
     if (text.startsWith("/")) {
       if (!connected) {
-        setStatus("⏳ Belum terhubung ke server — perintah tidak terkirim.");
+        setStatus("⏳ Not connected to server — command not sent.");
         return;
       }
       await clientSend({ t: "cmd", room: currentRoom, text, clientId }).catch(
         () => {
-          setStatus("⚠️ Gagal mengirim (server tidak merespons).");
+          setStatus("⚠️ Failed to send (server not responding).");
         },
       );
       return;
     }
 
     if (!connected) {
-      setStatus("⏳ Belum terhubung ke server — pesan tidak terkirim.");
+      setStatus("⏳ Not connected to server — message not sent.");
       return;
     }
 
     const ts = Date.now();
     pushMsg(currentRoom, { from: nickname, text, ts, own: true }, true);
     await clientSend({ t: "msg", room: currentRoom, text, ts }).catch(() => {
-      setStatus("⚠️ Gagal mengirim (server tidak merespons).");
+      setStatus("⚠️ Failed to send (server not responding).");
     });
   }
 
   async function createRoom() {
     const raw = await TDialogs.input(
       form.screen,
-      "＋ Room Baru",
-      "Nama room (tanpa '#'):",
+      "＋ New Room",
+      "Room name (without '#'):",
       "",
     );
     if (!raw) return;
@@ -1200,12 +1204,12 @@ export const main = Program(async (args: string[]) => {
       .toLowerCase();
     if (!room) return;
     if (!connected) {
-      setStatus("⏳ Belum terhubung — tidak bisa membuat room.");
+      setStatus("⏳ Not connected — cannot create room.");
       return;
     }
     // Server yang memvalidasi hak admin (ADMIN_ONLY) & keunikan nama.
     await clientSend({ t: "create", room: "#" + room, clientId }).catch(() => {
-      setStatus("⚠️ Gagal mengirim (server tidak merespons).");
+      setStatus("⚠️ Failed to send (server not responding).");
     });
     // Optimis: tambah ke daftar & pindah — bila ditolak server, room akan
     // hilang dari daftar saat broadcast rooms berikutnya.
@@ -1223,7 +1227,7 @@ export const main = Program(async (args: string[]) => {
       const ans = await TDialogs.input(
         form.screen,
         "Nickname",
-        "Belum ada nickname di config.\nMasukkan nama kamu:",
+        "No nickname in config.\nEnter your name:",
         nickname,
       );
       if (ans && ans.trim()) nickname = ans.trim();
@@ -1269,7 +1273,7 @@ export const main = Program(async (args: string[]) => {
         /* ignore */
       }
     }
-    void std.log("[telechat] Aplikasi ditutup.", "telechat");
+    void std.log("[telechat] Application closed.", "telechat");
   };
 
   await form.run();

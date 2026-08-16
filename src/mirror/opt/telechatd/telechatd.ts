@@ -1,6 +1,6 @@
 /**
  * telechatd.ts — 💬 TeleChat Server: hub chat E2E headless (CLI daemon)
- *
+ * 
  * Server chat real-time antar node TSIX. Headless daemon — TIDAK ada GUI; yang
  * punya GUI hanya client (telechat). Pola seperti air-type-server.
  *
@@ -46,6 +46,62 @@ const ROOMS_PATH = `${CONFIG_DIR}/rooms.json`;
 const LOG_DIR = `${CONFIG_DIR}/logs`;
 const FLAG = PacketFlags.FLAG_DATA;
 const LOBBY = "#lobby";
+const PID_FILE = `/tmp/telechatd.pid`;
+
+// ─── Helpers pidfile & proses ───
+async function readPid(): Promise<number | null> {
+  try {
+    const raw = await fs.readFile(PID_FILE);
+    if (!raw) return null;
+    const n = parseInt(String(raw).trim(), 10);
+    return isNaN(n) ? null : n;
+  } catch {
+    return null;
+  }
+}
+async function writePid(): Promise<void> {
+  try { await fs.mkdir(CONFIG_DIR); } catch (_) { }
+  await fs.writeFile(PID_FILE, String(shell.getPid()));
+}
+async function removePid(): Promise<void> {
+  try { await fs.unlink(PID_FILE); } catch (_) { }
+}
+async function isTelechatdAlive(pid: number): Promise<boolean> {
+  try {
+    const procs = await shell.ps();
+    return (
+      Array.isArray(procs) &&
+      procs.some(
+        (p: any) =>
+          p.pid === pid &&
+          String(p.name || "").toLowerCase().includes("telechat") &&
+          p.state !== "EXITED"
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+async function stop(): Promise<boolean> {
+  const pid = await readPid();
+  if (!pid) {
+    await std.print("[telechatd] No PID file — daemon is not running.\n");
+    return false;
+  }
+  if (!(await isTelechatdAlive(pid))) {
+    await std.print(`[telechatd] PID ${pid} is not active — cleaning pidfile.\n`);
+    await removePid();
+    return false;
+  }
+  await std.print(`[telechatd] stopping PID ${pid}...\n`);
+  try { await shell.kill(pid, 15); } catch (_) { }
+  await std.sleep(300);
+  if (await isTelechatdAlive(pid)) {
+    try { await shell.kill(pid, 9); } catch (_) { }
+  }
+  await removePid();
+  return true;
+}
 
 // ────────────────────────────────────────────────────────────
 // MODEL DATA (spek §3)
@@ -82,6 +138,21 @@ interface Peer {
 }
 
 export const main = Program(async (args: string[]) => {
+  if (args.includes("--stop")) {
+    await stop();
+    return;
+  }
+  if (args.includes("--restart")) {
+    await stop();
+  }
+
+  const selfPid = shell.getPid();
+  const existing = await readPid();
+  if (existing && existing !== selfPid && (await isTelechatdAlive(existing))) {
+    await std.log(`telechatd is already running (PID ${existing}) — use --restart to restart.`, "telechatd");
+    return;
+  }
+
   const foreground = args.includes("--fg");
   const port =
     parseInt(args.find((a) => /^\d+$/.test(a)) || "") || DEFAULT_PORT;
@@ -272,6 +343,9 @@ export const main = Program(async (args: string[]) => {
     }
   }
 
+  // Tulis PID file (setelah daemonize)
+  await writePid();
+
   // ────────────────────────────────────────────────────────────
   // RELAY HELPERS
   // ────────────────────────────────────────────────────────────
@@ -302,7 +376,7 @@ export const main = Program(async (args: string[]) => {
     const payload = { t: "rooms", list: rooms.map((r) => r.room_id) };
     for (const peer of clients.values()) {
       if (!peer.joined) continue;
-      void sendToPeer(peer, payload).catch(() => {});
+      void sendToPeer(peer, payload).catch(() => { });
     }
   }
 
@@ -331,7 +405,7 @@ export const main = Program(async (args: string[]) => {
     };
     for (const peer of clients.values()) {
       if (!peer.joined) continue;
-      void sendToPeer(peer, payload).catch(() => {});
+      void sendToPeer(peer, payload).catch(() => { });
     }
   }
 
@@ -849,16 +923,16 @@ export const main = Program(async (args: string[]) => {
           t: "sys",
           room,
           text:
-            "💬 Perintah TeleChat:\n" +
-            "  /nickname <nama>     — ganti nickname\n" +
+            "💬 TeleChat Commands:\n" +
+            "  /nickname <name>     — change nickname\n" +
             "  /status <0|1|2>      — 0 Inactive · 1 Visible · 2 Invisible\n" +
-            "  /kick <nama>         — (admin) kick dari room saat ini\n" +
-            "  /ban <nama>          — (admin) ban permanen + putus koneksi\n" +
-            "  /role <nama> <r>     — (admin) set admin|guest\n" +
-            "  /rooms               — daftar room\n" +
-            "  /who                 — anggota room saat ini\n" +
-            "  /help                — bantuan ini\n" +
-            "Client-local: /clear (bersihkan history layar)",
+            "  /kick <name>         — (admin) kick from current room\n" +
+            "  /ban <name>          — (admin) permanent ban + disconnect\n" +
+            "  /role <name> <r>     — (admin) set admin|guest\n" +
+            "  /rooms               — room list\n" +
+            "  /who                 — current room members\n" +
+            "  /help                — this help\n" +
+            "Client-local: /clear (clear chat history)",
           ts: Date.now(),
         });
         return;
