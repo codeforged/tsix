@@ -167,7 +167,7 @@ export const main = Program(async (args: string[]) => {
   // ──────────────────────────────────────────────────────────
   // UI (Cashew)
   // ──────────────────────────────────────────────────────────
-  const form = new TForm({ title: "💬 TeleChat", width: 900, height: 600 });
+  const form = new TForm({ title: "💬 TeleChat v1.3", width: 900, height: 600 });
 
   // ── Top Toolbar (spek §5): input alamat server + Connect/Disconnect ──
   const serverInput = new TEdit("server-input", {
@@ -351,7 +351,7 @@ export const main = Program(async (args: string[]) => {
   const pingTimer = new TTimer("tmr-ping", pingIntervalMs, false);
   pingTimer.onTimer = () => {
     if (running && connected && clientFd >= 0) {
-      void clientSend({ t: "ping", ts: Date.now() }).catch(() => {});
+      void clientSend({ t: "ping", ts: Date.now() }).catch(() => { });
     }
   };
   form.add(pingTimer);
@@ -485,7 +485,7 @@ export const main = Program(async (args: string[]) => {
             children: [],
           });
           // Hanya #lobby yang menampilkan daftar anggota (spek §5)
-          if (room === LOBBY) {
+          if (room === LOBBY || room === currentRoom) {
             const members = membersByRoom[room] || [];
             members.forEach((m, i) => {
               const memId = `member-${safeId(room)}-${i}`;
@@ -535,12 +535,12 @@ export const main = Program(async (args: string[]) => {
           form.screen.on(roomId, "click", () => {
             void setRoom(room)
               .then(() => renderRooms())
-              .catch(() => {});
+              .catch(() => { });
           });
         }
         await form.screen.win.flush();
       })
-      .catch(() => {});
+      .catch(() => { });
     return roomsRenderChain;
   }
 
@@ -611,7 +611,7 @@ export const main = Program(async (args: string[]) => {
     if (!isSwitch) return;
     await renderHistory();
     if (connected && clientFd >= 0) {
-      await clientSend({ t: "switch", room, clientId }).catch(() => {});
+      await clientSend({ t: "switch", room, clientId }).catch(() => { });
     }
   }
 
@@ -759,7 +759,7 @@ export const main = Program(async (args: string[]) => {
       active_status: activeStatus,
       phone: cfg.phone_number || "",
       email: cfg.email || "",
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   /** Push notifikasi desktop via Asteracea — toast di pojok layar. */
@@ -809,21 +809,21 @@ export const main = Program(async (args: string[]) => {
             style:
               role === "admin"
                 ? {
-                    padding: "2px 8px",
-                    borderRadius: "10px",
-                    fontSize: "11px",
-                    fontWeight: "700",
-                    color: "#ffb74d",
-                    background: "rgba(255,183,77,0.12)",
-                  }
+                  padding: "2px 8px",
+                  borderRadius: "10px",
+                  fontSize: "11px",
+                  fontWeight: "700",
+                  color: "#ffb74d",
+                  background: "rgba(255,183,77,0.12)",
+                }
                 : {
-                    padding: "2px 8px",
-                    borderRadius: "10px",
-                    fontSize: "11px",
-                    fontWeight: "700",
-                    color: "var(--text-dim,#aaa)",
-                    background: "transparent",
-                  },
+                  padding: "2px 8px",
+                  borderRadius: "10px",
+                  fontSize: "11px",
+                  fontWeight: "700",
+                  color: "var(--text-dim,#aaa)",
+                  background: "transparent",
+                },
           });
           form.screen.update("btn-newroom2", {
             style: { display: role === "admin" ? "block" : "none" },
@@ -1142,9 +1142,11 @@ export const main = Program(async (args: string[]) => {
             "💬 TeleChat Commands:\n" +
             "  /nickname <nama>     — change nickname\n" +
             "  /status <0|1|2>      — 0 Inactive · 1 Visible · 2 Invisible\n" +
-            "  /kick <nama>         — (admin) kick from current room\n" +
-            "  /ban <nama>          — (admin) permanent ban + disconnect\n" +
-            "  /role <nama> <r>     — (admin) set admin|guest\n" +
+            "  /kick <name>         — (admin) kick from current room\n" +
+            "  /unkick <name>       — (admin) unkick from current room\n" +
+            "  /ban <name>          — (admin) permanent ban + disconnect\n" +
+            "  /unban <name>        — (admin) remove permanent ban\n" +
+            "  /role <name> <r>     — (admin) set admin|guest\n" +
             "  /rooms               — room list\n" +
             "  /who                 — current room members\n" +
             "  /clear               — clear chat history (local)\n" +

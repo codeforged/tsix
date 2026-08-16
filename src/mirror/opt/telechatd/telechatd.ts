@@ -839,6 +839,104 @@ export const main = Program(async (args: string[]) => {
         return;
       }
 
+      case "/unkick": {
+        if (!isAdmin) {
+          await sendToPeer(peer, {
+            t: "error",
+            code: "ADMIN_ONLY",
+            message: "Hanya admin yang bisa /unkick.",
+          });
+          return;
+        }
+        if (!argStr) {
+          await sendToPeer(peer, {
+            t: "error",
+            code: "USAGE",
+            message: "Usage: /unkick <nickname>",
+          });
+          return;
+        }
+        let targetUser = undefined;
+        for (const u of users.values()) {
+          if (u.nickname === argStr) {
+            targetUser = u;
+            break;
+          }
+        }
+        if (!targetUser) {
+          await sendToPeer(peer, {
+            t: "error",
+            code: "NOT_FOUND",
+            message: `Pengguna "${argStr}" tidak ditemukan.`,
+          });
+          return;
+        }
+        if (room === LOBBY) {
+          await sendToPeer(peer, {
+            t: "error",
+            code: "USAGE",
+            message: "Tidak ada status kick untuk #lobby.",
+          });
+          return;
+        }
+        const idx = targetUser.kicked_rooms.indexOf(room);
+        if (idx !== -1) {
+          targetUser.kicked_rooms.splice(idx, 1);
+          await saveUsers();
+        }
+        await serverSys(
+          room,
+          `${argStr} di-unkick dari ${room} oleh ${peer.nick}`,
+        );
+        await logActivity(
+          `${peer.nick} (${peer.clientId}) unkick ${argStr} (${targetUser.client_id}) dari ${room}`,
+        );
+        return;
+      }
+
+      case "/unban": {
+        if (!isAdmin) {
+          await sendToPeer(peer, {
+            t: "error",
+            code: "ADMIN_ONLY",
+            message: "Hanya admin yang bisa /unban.",
+          });
+          return;
+        }
+        if (!argStr) {
+          await sendToPeer(peer, {
+            t: "error",
+            code: "USAGE",
+            message: "Usage: /unban <nickname>",
+          });
+          return;
+        }
+        let targetUser = undefined;
+        for (const u of users.values()) {
+          if (u.nickname === argStr) {
+            targetUser = u;
+            break;
+          }
+        }
+        if (!targetUser) {
+          await sendToPeer(peer, {
+            t: "error",
+            code: "NOT_FOUND",
+            message: `Pengguna "${argStr}" tidak ditemukan.`,
+          });
+          return;
+        }
+        if (targetUser.is_banned) {
+          targetUser.is_banned = false;
+          await saveUsers();
+        }
+        await serverSys(room, `${argStr} di-unban oleh ${peer.nick}`);
+        await logActivity(
+          `${peer.nick} (${peer.clientId}) unban ${argStr} (${targetUser.client_id})`,
+        );
+        return;
+      }
+
       case "/role": {
         if (!isAdmin) {
           await sendToPeer(peer, {
@@ -927,7 +1025,9 @@ export const main = Program(async (args: string[]) => {
             "  /nickname <name>     — change nickname\n" +
             "  /status <0|1|2>      — 0 Inactive · 1 Visible · 2 Invisible\n" +
             "  /kick <name>         — (admin) kick from current room\n" +
+            "  /unkick <name>       — (admin) unkick from current room\n" +
             "  /ban <name>          — (admin) permanent ban + disconnect\n" +
+            "  /unban <name>        — (admin) remove permanent ban\n" +
             "  /role <name> <r>     — (admin) set admin|guest\n" +
             "  /rooms               — room list\n" +
             "  /who                 — current room members\n" +
