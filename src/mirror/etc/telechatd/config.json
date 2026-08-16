@@ -1,0 +1,10 @@
+{
+  "port": 2510,
+  "defaultRole": "guest",
+  "adminClientIds": [],
+  "onlineMaxAge": 60,
+  "staleMs": 300000,
+  "presenceInterval": 5000,
+  "cleanupInterval": 30000,
+  "logMessageContent": true
+}

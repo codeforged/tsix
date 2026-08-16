@@ -1,0 +1,10 @@
+{
+  "server": "",
+  "port": 2510,
+  "nickname": "",
+  "clientId": "",
+  "heartbeatInterval": 15,
+  "active_status": 1,
+  "phone_number": "",
+  "email": ""
+}
