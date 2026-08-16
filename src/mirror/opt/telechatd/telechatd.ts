@@ -1,6 +1,6 @@
 /**
  * telechatd.ts — 💬 TeleChat Server: hub chat E2E headless (CLI daemon)
- * 
+ *  dd
  * Server chat real-time antar node TSIX. Headless daemon — TIDAK ada GUI; yang
  * punya GUI hanya client (telechat). Pola seperti air-type-server.
  *
@@ -879,10 +879,21 @@ export const main = Program(async (args: string[]) => {
           });
           return;
         }
+        // Ensure kicked_rooms array exists
+        if (!Array.isArray(targetUser.kicked_rooms)) targetUser.kicked_rooms = [];
         const idx = targetUser.kicked_rooms.indexOf(room);
         if (idx !== -1) {
           targetUser.kicked_rooms.splice(idx, 1);
           await saveUsers();
+        }
+        // If the user is currently online, move them back to the room they were unkick from
+        const targetPeer = findPeerByNick(argStr);
+        if (targetPeer) {
+          await joinRoom(targetPeer, room);
+          await sendToPeer(targetPeer, {
+            t: "info",
+            text: `You have been unkick to ${room} by ${peer.nick}.`,
+          });
         }
         await serverSys(
           room,
@@ -891,6 +902,8 @@ export const main = Program(async (args: string[]) => {
         await logActivity(
           `${peer.nick} (${peer.clientId}) unkick ${argStr} (${targetUser.client_id}) dari ${room}`,
         );
+        // Notify all clients about updated presence
+        broadcastPresence();
         return;
       }
 
