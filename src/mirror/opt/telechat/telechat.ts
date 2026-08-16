@@ -888,6 +888,8 @@ export const main = Program(async (args: string[]) => {
         // Keanggotaan room + umur signal alive → indikator hijau/merah
         if (msg.onlineMaxAge)
           onlineMaxAge = parseInt(msg.onlineMaxAge) || onlineMaxAge;
+        const serverTime = msg.serverTime || Date.now();
+        const offset = Date.now() - serverTime;
         if (msg.rooms && typeof msg.rooms === "object") {
           for (const k of Object.keys(membersByRoom)) delete membersByRoom[k];
           for (const k of Object.keys(msg.rooms)) {
@@ -896,7 +898,7 @@ export const main = Program(async (args: string[]) => {
                 .filter((m: any) => m && m.nick)
                 .map((m: any) => ({
                   nick: String(m.nick),
-                  lastSeen: Number(m.lastSeen) || 0,
+                  lastSeen: (Number(m.lastSeen) || 0) + offset,
                 }));
               if (!rooms.includes(k)) rooms.push(k);
             }

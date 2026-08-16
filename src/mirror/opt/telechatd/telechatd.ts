@@ -326,6 +326,7 @@ export const main = Program(async (args: string[]) => {
     const payload = {
       t: "presence",
       onlineMaxAge: cfg.onlineMaxAge,
+      serverTime: Date.now(),
       rooms: roomsData,
     };
     for (const peer of clients.values()) {
