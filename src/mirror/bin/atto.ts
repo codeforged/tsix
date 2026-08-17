@@ -278,6 +278,8 @@ class SimpleTextEditor {
     private selectionActive: boolean = false;
     private selectionStart: { line: number; col: number } | null = null;
     private selectionEnd: { line: number; col: number } | null = null;
+    private lastSelectionStart: { line: number; col: number } | null = null;
+    private lastSelectionEnd: { line: number; col: number } | null = null;
     private clipboard: string = "";
     /** Ukuran indentasi (jumlah spasi) — dari /etc/atto.json → general.tabSize */
     private tabSize: number = 2;
@@ -611,27 +613,37 @@ class SimpleTextEditor {
     }
 
     /**
-     * Salin teks terseleksi ke clipboard lalu nonaktifkan selection.
-     * (Copy sebenarnya: teks utuh multi-baris dimasukkan ke clipboard.)
+     * Mengembalikan teks terseleksi dalam editor.
      */
-    private finalizeSelection(): void {
+    private getSelectionText(): string {
         if (this.selectionActive && this.selectionStart && this.selectionEnd) {
             const start = this.selectionStart;
             const end = this.selectionEnd;
-            // Pastikan start sebelum end
             let s = start, e = end;
             if (s.line > e.line || (s.line === e.line && s.col > e.col)) {
                 s = end; e = start;
             }
             const lines = this.lines.slice(s.line, e.line + 1);
             if (lines.length === 1) {
-                this.clipboard = lines[0].slice(s.col, e.col);
+                return lines[0].slice(s.col, e.col);
             } else {
                 const first = lines[0].slice(s.col);
                 const last = lines[lines.length - 1].slice(0, e.col);
-                const middle = lines.slice(1, -1).join("\n");
-                this.clipboard = [first, middle, last].filter(Boolean).join("\n");
+                const middle = lines.slice(1, -1);
+                return [first, ...middle, last].join("\n");
             }
+        }
+        return "";
+    }
+
+    /**
+     * Salin teks terseleksi ke clipboard lalu nonaktifkan selection.
+     */
+    private finalizeSelection(): void {
+        if (this.selectionActive) {
+            this.clipboard = this.getSelectionText();
+            this.lastSelectionStart = this.selectionStart;
+            this.lastSelectionEnd = this.selectionEnd;
         }
         this.selectionActive = false;
         this.selectionStart = null;
@@ -769,7 +781,9 @@ class SimpleTextEditor {
 
                 // Tombol navigasi non-arrow: kalau sedang selection, salin lalu
                 // akhiri selection biar highlight tidak tertinggal.
-                const endSelection = async () => {
+                // Mematikan visual selection ketika kursor dipindahkan tanpa Shift,
+                // namun menyimpan koordinat range selection terakhirnya untuk Ctrl+X
+                const finalizeOnNav = async () => {
                     if (this.selectionActive) {
                         this.finalizeSelection();
                         await this.render();
@@ -779,10 +793,10 @@ class SimpleTextEditor {
                 // Home / End / PgUp / PgDn / Del / Insert
                 // Catatan: untuk sequence yang diakhiri "~" (5~, 6~, 3~, 2~, 4~),
                 // "~" harus dikonsumsi — kalau tidak, sisa "~" ikut diketik.
-                if (seq2 === "H") { await this.goHome(); return; } // Home \x1b[H — perluas selection ke awal baris kalau sedang seleksi
-                if (seq2 === "F") { await this.goEnd(); return; }  // End \x1b[F — perluas selection ke akhir baris kalau sedang seleksi
-                if (seq2 === "5") { await endSelection(); await std.getChar(); await this.pageUp(); return; }    // PgUp \x1b[5~
-                if (seq2 === "6") { await endSelection(); await std.getChar(); await this.pageDown(); return; }  // PgDn \x1b[6~
+                if (seq2 === "H") { await finalizeOnNav(); await this.goHome(false); return; } // Home \x1b[H
+                if (seq2 === "F") { await finalizeOnNav(); await this.goEnd(false); return; }  // End \x1b[F
+                if (seq2 === "5") { await finalizeOnNav(); await std.getChar(); await this.pageUp(); return; }    // PgUp \x1b[5~
+                if (seq2 === "6") { await finalizeOnNav(); await std.getChar(); await this.pageDown(); return; }  // PgDn \x1b[6~
                 if (seq2 === "3") {
                     // Del \x1b[3~ | Ctrl+Del \x1b[3;5~ | modifier lain \x1b[3;N~
                     // Hapus selection kalau aktif; kalau tidak, hapus 1 karakter.
@@ -791,13 +805,22 @@ class SimpleTextEditor {
                         await std.getChar(); // modifier (2=Shift, 5=Ctrl, dst.)
                         await std.getChar(); // "~"
                     }
-                    if (!(await this.deleteSelection())) {
+                    if (this.selectionActive) {
+                        await this.deleteSelection();
+                    } else if (this.lastSelectionStart && this.lastSelectionEnd) {
+                        this.selectionActive = true;
+                        this.selectionStart = this.lastSelectionStart;
+                        this.selectionEnd = this.lastSelectionEnd;
+                        await this.deleteSelection();
+                        this.lastSelectionStart = null;
+                        this.lastSelectionEnd = null;
+                    } else {
                         await this.deleteChar();
                     }
                     return;
                 }
-                if (seq2 === "2") { await endSelection(); await std.getChar(); return; } // Insert \x1b[2~ (belum ada mode insert)
-                if (seq2 === "4") { await std.getChar(); await this.goEnd(); return; } // End \x1b[4~ (fallback)
+                if (seq2 === "2") { await std.getChar(); return; } // Insert \x1b[2~ (belum ada mode insert)
+                if (seq2 === "4") { await std.getChar(); await finalizeOnNav(); await this.goEnd(false); return; } // End \x1b[4~ (fallback)
                 if (seq2 === "Z") { await this.indentSelection(-1); return; } // Shift+Tab \x1b[Z → unindent baris terseleksi
 
                 if (seq2 === "1") {
@@ -810,13 +833,15 @@ class SimpleTextEditor {
                             if (!this.selectionActive) {
                                 this.selectionActive = true;
                                 this.selectionStart = { line: this.cursorY + this.offsetY, col: this.cursorX };
+                                this.lastSelectionStart = null;
+                                this.lastSelectionEnd = null;
                             }
                             if (seq5 === "A") await this.moveUp();
                             else if (seq5 === "B") await this.moveDown();
                             else if (seq5 === "C") await this.moveRight();
                             else if (seq5 === "D") await this.moveLeft();
-                            else if (seq5 === "H") await this.goHome(); // Shift+Home → perluas ke awal baris
-                            else if (seq5 === "F") await this.goEnd();  // Shift+End → perluas ke akhir baris
+                            else if (seq5 === "H") await this.goHome(true); // Shift+Home → perluas ke awal baris
+                            else if (seq5 === "F") await this.goEnd(true);  // Shift+End → perluas ke akhir baris
                             if (this.selectionActive) {
                                 this.selectionEnd = { line: this.cursorY + this.offsetY, col: this.cursorX };
                             }
@@ -826,6 +851,7 @@ class SimpleTextEditor {
                         if (seq4 === "5") {
                             // Ctrl+Arrow → lompat kata / Ctrl+Home / Ctrl+End
                             const seq5 = await std.getChar();
+                            await finalizeOnNav();
                             if (seq5 === "C") { await this.jumpToNextWord(); return; }
                             if (seq5 === "D") { await this.jumpToPrevWord(); return; }
                             if (seq5 === "A") { for (let k = 0; k < 5; k++) await this.moveUp(); return; }
@@ -835,21 +861,20 @@ class SimpleTextEditor {
                         }
                     } else if (seq3 === "~") {
                         // Home key (fallback \x1b[1~)
-                        await this.goHome();
+                        await finalizeOnNav();
+                        await this.goHome(false);
                         return;
                     }
                 }
-                // Arrow biasa
-                if (seq2 === "A") { await this.moveUp(); }
-                else if (seq2 === "B") { await this.moveDown(); }
-                else if (seq2 === "C") { await this.moveRight(); }
-                else if (seq2 === "D") { await this.moveLeft(); }
-                // Kalau sebelumnya sedang selection, arrow biasa = finalize (copy)
-                if (this.selectionActive) {
-                    this.finalizeSelection();
-                    await this.render();
+                // Arrow biasa (menonaktifkan selection visual saat navigasi)
+                if (seq2 === "A" || seq2 === "B" || seq2 === "C" || seq2 === "D") {
+                    await finalizeOnNav();
+                    if (seq2 === "A") await this.moveUp();
+                    else if (seq2 === "B") await this.moveDown();
+                    else if (seq2 === "C") await this.moveRight();
+                    else if (seq2 === "D") await this.moveLeft();
+                    return;
                 }
-                return;
             } else if (seq1 === "O") {
                 await std.getChar(); // consume O
                 const seq2 = await std.getChar();
@@ -871,6 +896,112 @@ class SimpleTextEditor {
             return;
         }
 
+        // Ctrl+X (Cut) dengan selection aktif atau last selection yang tersimpan
+        if (char === "\u0018") {
+            if (this.selectionActive) {
+                this.finalizeSelection();
+            }
+            if (this.lastSelectionStart && this.lastSelectionEnd) {
+                const start = this.lastSelectionStart;
+                const end = this.lastSelectionEnd;
+                let s = start, e = end;
+                if (s.line > e.line || (s.line === e.line && s.col > e.col)) {
+                    s = end; e = start;
+                }
+
+                const destLine = this.cursorY + this.offsetY;
+                const destCol = this.cursorX;
+
+                let isInside = false;
+                if (destLine > s.line && destLine < e.line) {
+                    isInside = true;
+                } else if (destLine === s.line && destLine === e.line) {
+                    if (destCol >= s.col && destCol <= e.col) isInside = true;
+                } else if (destLine === s.line) {
+                    if (destCol >= s.col) isInside = true;
+                } else if (destLine === e.line) {
+                    if (destCol <= e.col) isInside = true;
+                }
+
+                if (isInside) {
+                    // Cukup hapus selection saja (standard Cut)
+                    this.selectionActive = true;
+                    this.selectionStart = start;
+                    this.selectionEnd = end;
+                    await this.deleteSelection();
+                } else {
+                    // Hitung koordinat destinasi baru setelah selection dihapus
+                    let newDestLine = destLine;
+                    let newDestCol = destCol;
+                    if (destLine > e.line || (destLine === e.line && destCol >= e.col)) {
+                        if (s.line === e.line) {
+                            if (destLine === s.line) {
+                                newDestCol = destCol - (e.col - s.col);
+                            }
+                        } else {
+                            if (destLine === e.line) {
+                                newDestLine = s.line;
+                                newDestCol = s.col + (destCol - e.col);
+                            } else {
+                                newDestLine = destLine - (e.line - s.line);
+                            }
+                        }
+                    }
+
+                    // 1. Hapus selection asal
+                    this.selectionActive = true;
+                    this.selectionStart = start;
+                    this.selectionEnd = end;
+                    await this.deleteSelection();
+
+                    // 2. Set kursor ke destinasi baru
+                    this.cursorX = newDestCol;
+                    this.monoPos = newDestCol;
+                    if (newDestLine < this.offsetY) {
+                        this.offsetY = newDestLine;
+                    } else if (newDestLine >= this.offsetY + this.screenHeight) {
+                        this.offsetY = newDestLine - this.screenHeight + 1;
+                    }
+                    this.cursorY = newDestLine - this.offsetY;
+
+                    // 3. Paste clipboard ke kursor saat ini
+                    const lineIdx = newDestLine;
+                    const line = this.lines[lineIdx] || "";
+                    const parts = this.clipboard.split("\n");
+                    if (parts.length === 1) {
+                        this.lines[lineIdx] = line.slice(0, this.cursorX) + this.clipboard + line.slice(this.cursorX);
+                        this.cursorX += this.clipboard.length;
+                        this.monoPos = this.cursorX;
+                    } else {
+                        const head = line.slice(0, this.cursorX);
+                        const tail = line.slice(this.cursorX);
+                        const first = parts[0];
+                        const last = parts[parts.length - 1];
+                        const middle = parts.slice(1, -1);
+                        this.lines.splice(lineIdx, 1, head + first, ...middle, last + tail);
+                        this.cursorX = last.length;
+                        this.monoPos = this.cursorX;
+                        const absLine = lineIdx + (parts.length - 1);
+                        if (absLine < this.offsetY) this.offsetY = absLine;
+                        else if (absLine >= this.offsetY + this.screenHeight) this.offsetY = absLine - this.screenHeight + 1;
+                        this.cursorY = absLine - this.offsetY;
+                    }
+
+                    if (this.cursorX < this.offsetX) this.offsetX = this.cursorX;
+                    else if (this.cursorX >= this.offsetX + this.textWidth) this.offsetX = this.cursorX - this.textWidth + 1;
+
+                    this.changed = true;
+                    this.checkModified();
+                    await this.render();
+                }
+
+                // Bersihkan data selection terakhir setelah digunakan
+                this.lastSelectionStart = null;
+                this.lastSelectionEnd = null;
+            }
+            return;
+        }
+
         // Tab dengan selection aktif → indent baris terseleksi (bukan menyalin/akhiri)
         if (char === "\t" && this.selectionActive) {
             await this.indentSelection(1);
@@ -881,6 +1012,12 @@ class SimpleTextEditor {
         if (this.selectionActive) {
             this.finalizeSelection();
             await this.render();
+            // Bersihkan data selection terakhir karena ada pengetikan
+            this.lastSelectionStart = null;
+            this.lastSelectionEnd = null;
+        } else if (char !== "\u0018") {
+            this.lastSelectionStart = null;
+            this.lastSelectionEnd = null;
         }
 
         // 2. SEARCH MODE INPUT
@@ -965,6 +1102,7 @@ class SimpleTextEditor {
         if (char === "\u0013") { await this.save(); return; }               // Ctrl+S
         if (char === "\u001a") { this.undo(); await this.render(); return; } // Ctrl+Z
         if (char === "\u0019") { this.redo(); await this.render(); return; } // Ctrl+Y
+
         if (char === "\u0016") { // Ctrl+V (Paste)
             if (this.clipboard) {
                 this.captureState();
@@ -1052,7 +1190,7 @@ class SimpleTextEditor {
             this.cursorX += char.length;
             this.changed = true;
             this.monoPos = this.cursorX;
-            this.checkModified(); 
+            this.checkModified();
             const afterPos = this.cursorX;
             const updatedLine = this.lines[lineIdx];
             const isClose = afterPos >= 2 && updatedLine[afterPos - 2] === "*" && updatedLine[afterPos - 1] === "/";
@@ -1154,8 +1292,12 @@ class SimpleTextEditor {
      * Home: kalau sedang seleksi, perluas selection ke awal baris;
      * kalau tidak, pindah kursor ke awal baris.
      */
-    private async goHome() {
-        if (this.selectionActive) {
+    /**
+     * Home: kalau sedang seleksi, perluas selection ke awal baris;
+     * kalau tidak, pindah kursor ke awal baris.
+     */
+    private async goHome(expandSelection: boolean = false) {
+        if (expandSelection && this.selectionActive) {
             this.cursorX = 0;
             this.offsetX = 0;
             this.monoPos = 0;
@@ -1170,8 +1312,8 @@ class SimpleTextEditor {
      * End: kalau sedang seleksi, perluas selection ke akhir baris;
      * kalau tidak, pindah kursor ke akhir baris.
      */
-    private async goEnd() {
-        if (this.selectionActive) {
+    private async goEnd(expandSelection: boolean = false) {
+        if (expandSelection && this.selectionActive) {
             const line = this.lines[this.cursorY + this.offsetY] || "";
             this.cursorX = line.length;
             this.monoPos = this.cursorX;
@@ -1640,23 +1782,23 @@ class SimpleTextEditor {
     }
 
     private async showHelp() {
-        const helpText = [
-            "┌─────────────────────────────────────────────────────────────────────┐",
-            "│                          ATTO Text Editor v1.84                     │",
-            "├─────────────────────────────────────────────────────────────────────┤",
-            "│ Ctrl+S: Save          │ Ctrl+F: Find     │ Ctrl+L: Find Next        │",
-            "│ Ctrl+W: Save & Exit   │ Alt+R:  Replace  │ F1:     Help             │",
-            "│ Shift+Arrow: Select   │ Ctrl+V: Paste    │ Ctrl+A: Start            │",
-            "│ Ctrl+C: Exit          │ Ctrl+Z: Undo     │ Ctrl+E: End              │",
-            "│ Ctrl+K: Delete Line   │ Ctrl+Y: Redo     │ Ctrl+←/→: Word           │",
-            "│ Home: Begin of Col    │ End: End of Col  │ Ctrl+Home: Begin of file │",
-            "│ Ctrl+End: End of file │ PgUp: Page Up    │ PgDn: Page Down          │",
-            "├─────────────────────────────────────────────────────────────────────┤",
-            "│                    Press any key to continue...                     │",
-            "└─────────────────────────────────────────────────────────────────────┘"
+        const helpText = [ 
+            "┌────────────────────────────────────────────────────────────────────────┐",
+            "│                          ATTO Text Editor v1.85                        │",
+            "├────────────────────────────────────────────────────────────────────────┤",
+            "│ Ctrl+S: Save          │ Ctrl+F: Find     │ Ctrl+L: Find Next           │",
+            "│ Ctrl+W: Save & Exit   │ Alt+R:  Replace  │ F1:     Help                │",
+            "│ Shift+Arrow: Select   │ Ctrl+V: Paste    │ Ctrl+X: Paste & Cut         │",
+            "│ Ctrl+C: Exit          │ Ctrl+Z: Undo     │ Ctrl+A/E: Begin/End of Line │",
+            "│ Ctrl+K: Delete Line   │ Ctrl+Y: Redo     │ Ctrl+←/→: Word              │",
+            "│ Home: Begin of Col    │ End: End of Col  │ Ctrl+Home: Begin of file    │",
+            "│ Ctrl+End: End of file │ PgUp: Page Up    │ PgDn: Page Down             │",
+            "├────────────────────────────────────────────────────────────────────────┤",
+            "│                    Press any key to continue...                        │",
+            "└────────────────────────────────────────────────────────────────────────┘"
         ];
         const startRow = Math.max(1, Math.floor((this.screenHeight - helpText.length) / 2));
-        const startCol = Math.max(1, Math.floor((this.screenWidth - 63) / 2));
+        const startCol = Math.max(1, Math.floor((this.screenWidth - 72) / 2));
 
         let output = "\x1b[?25l";
         for (let i = 0; i < helpText.length; i++) {
