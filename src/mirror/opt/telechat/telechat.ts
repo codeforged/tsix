@@ -167,7 +167,11 @@ export const main = Program(async (args: string[]) => {
   // ──────────────────────────────────────────────────────────
   // UI (Cashew)
   // ──────────────────────────────────────────────────────────
-  const form = new TForm({ title: "💬 TeleChat v1.3", width: 900, height: 600 });
+  const form = new TForm({
+    title: "💬 TeleChat v1.3",
+    width: 900,
+    height: 600,
+  });
 
   // ── Top Toolbar (spek §5): input alamat server + Connect/Disconnect ──
   const serverInput = new TEdit("server-input", {
@@ -351,7 +355,7 @@ export const main = Program(async (args: string[]) => {
   const pingTimer = new TTimer("tmr-ping", pingIntervalMs, false);
   pingTimer.onTimer = () => {
     if (running && connected && clientFd >= 0) {
-      void clientSend({ t: "ping", ts: Date.now() }).catch(() => { });
+      void clientSend({ t: "ping", ts: Date.now() }).catch(() => {});
     }
   };
   form.add(pingTimer);
@@ -535,12 +539,12 @@ export const main = Program(async (args: string[]) => {
           form.screen.on(roomId, "click", () => {
             void setRoom(room)
               .then(() => renderRooms())
-              .catch(() => { });
+              .catch(() => {});
           });
         }
         await form.screen.win.flush();
       })
-      .catch(() => { });
+      .catch(() => {});
     return roomsRenderChain;
   }
 
@@ -611,7 +615,7 @@ export const main = Program(async (args: string[]) => {
     if (!isSwitch) return;
     await renderHistory();
     if (connected && clientFd >= 0) {
-      await clientSend({ t: "switch", room, clientId }).catch(() => { });
+      await clientSend({ t: "switch", room, clientId }).catch(() => {});
     }
   }
 
@@ -759,7 +763,7 @@ export const main = Program(async (args: string[]) => {
       active_status: activeStatus,
       phone: cfg.phone_number || "",
       email: cfg.email || "",
-    }).catch(() => { });
+    }).catch(() => {});
   }
 
   /** Push notifikasi desktop via Asteracea — toast di pojok layar. */
@@ -809,21 +813,21 @@ export const main = Program(async (args: string[]) => {
             style:
               role === "admin"
                 ? {
-                  padding: "2px 8px",
-                  borderRadius: "10px",
-                  fontSize: "11px",
-                  fontWeight: "700",
-                  color: "#ffb74d",
-                  background: "rgba(255,183,77,0.12)",
-                }
+                    padding: "2px 8px",
+                    borderRadius: "10px",
+                    fontSize: "11px",
+                    fontWeight: "700",
+                    color: "#ffb74d",
+                    background: "rgba(255,183,77,0.12)",
+                  }
                 : {
-                  padding: "2px 8px",
-                  borderRadius: "10px",
-                  fontSize: "11px",
-                  fontWeight: "700",
-                  color: "var(--text-dim,#aaa)",
-                  background: "transparent",
-                },
+                    padding: "2px 8px",
+                    borderRadius: "10px",
+                    fontSize: "11px",
+                    fontWeight: "700",
+                    color: "var(--text-dim,#aaa)",
+                    background: "transparent",
+                  },
           });
           form.screen.update("btn-newroom2", {
             style: { display: role === "admin" ? "block" : "none" },

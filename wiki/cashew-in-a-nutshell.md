@@ -10,27 +10,60 @@ Cashew sudah termasuk dalam library TSIX. Tinggal import:
 
 ```typescript
 import {
+  // Window & dasar
   TForm,
-  TPanel,
+  TDialogs,
+  TComponent,
+
+  // Input & kontrol dasar
   TLabel,
   TButton,
   TEdit,
   TMemo,
   TCheckBox,
-  TListBox,
-  TStatusBar,
   TRadioButton,
   TComboBox,
-  TDialogs,
+  TListBox,
+  TStatusBar,
+  TSlider,
+
+  // Container
+  TPanel,
+  TGroupBox,
+
+  // Layout helpers
   TScrollBox,
   TFlowPanel,
   TGridPanel,
   TSplitHorizontal,
   TSplitVertical,
-  TGroupBox,
   HStack,
   VStack,
   Spacer,
+  alTop,
+  alBottom,
+  alLeft,
+  alRight,
+  alClient,
+  alCenter,
+
+  // IoT Widgets
+  TSensorCard,
+  TRelayCard,
+  TLineChart,
+  TRadialGauge,
+  TSevenSegment,
+  TIndicatorLamp,
+  TToggleSwitch,
+  TVerticalGauge,
+  TChart,
+
+  // Timer
+  TTimer,
+
+  // Data Grid
+  TDataGrid,
+  TTabulatorGrid,
 } from "@tsix/cashew";
 ```
 
@@ -62,10 +95,10 @@ export const main = Program(async () => {
   status.text = "✅ Siap";
   form.add(status);
 
-  form.onSetup = async (screen) => {
-    btnClick.bind(screen);
-    lblCounter.bind(screen);
-    status.bind(screen);
+  // onSetup opsional — untuk inisialisasi data/event tambahan setelah mount
+  // (TForm.run() sudah auto-bind semua event & auto-refresh komponen)
+  form.onSetup = async () => {
+    // misal: load data awal grid/chart
   };
 
   await form.run();
@@ -90,6 +123,7 @@ await form.run();
 // Bentuk 2 — object literal
 const form = new TForm({
   title: "Judul",
+  icon: "🚀", // ikon/emoji di kiri title bar (opsional)
   width: 800,
   height: 600,
   maximizable: true, // bisa di-maximize (default true)
@@ -103,6 +137,7 @@ const form = new TForm({
 | Opsi          | Tipe                  | Default | Fungsi                                                                       |
 | :------------ | :-------------------- | :------ | :--------------------------------------------------------------------------- |
 | `title`       | string                | —       | Judul window                                                                 |
+| `icon`        | string                | —       | Ikon/emoji di kiri judul title bar (opsional)                                |
 | `width`       | number                | `800`   | Lebar window (px)                                                            |
 | `height`      | number                | `600`   | Tinggi window (px)                                                           |
 | `maximizable` | boolean               | `true`  | Bisa di-maximize                                                             |
@@ -118,8 +153,10 @@ Semua opsi juga bisa di-set lewat properti: `form.maximizable = false`, `form.fr
 | `form.add(component)`      | Tambah komponen              |
 | `form.alert(title, msg)`   | Dialog info                  |
 | `form.confirm(title, msg)` | Dialog konfirmasi            |
+| `form.update(id, props)`   | Update props elemen tertentu |
 | `form.screen`              | Akses Screen (buat TDialogs) |
 | `form.onSetup`             | Callback setelah mount       |
+| `form.onClose`             | Callback saat form ditutup   |
 
 ### TPanel — Container
 
@@ -147,6 +184,7 @@ const btn = new TButton("btn-save", {
   marginRight: "5px",
 });
 btn.caption = "Simpan";
+btn.enabled = false; // disable/enable tombol
 btn.onClick = () => {
   /* action */
 };
@@ -207,7 +245,8 @@ cmb.onChange = (idx, item) => console.log(item);
 const lb = new TListBox("lst-sensor");
 lb.items = ["Sensor 1", "Sensor 2", "Sensor 3"];
 lb.onClick = (idx, item) => console.log(item);
-// Panggil lb.refresh(screen) setelah set items
+// TForm.run() auto-refresh saat mount; kalau items berubah saat runtime,
+// panggil lb.refresh(screen) manual untuk rebuild item
 ```
 
 ### TStatusBar — Status Bar
@@ -216,6 +255,262 @@ lb.onClick = (idx, item) => console.log(item);
 const status = new TStatusBar("status");
 status.text = "✅ Ready";
 ```
+
+---
+
+## 🌡️ IoT Widgets
+
+Komponen IoT siap pakai — semuanya bisa di-update runtime lewat method `setXxx()` (targeted update ke browser, tanpa rebuild seluruh DOM). Cocok untuk dashboard sensor/relay.
+
+### TSensorCard — Kartu Sensor
+
+Kartu berisi label, ikon, nilai + progress bar.
+
+```typescript
+const card = new TSensorCard("temp", {
+  label: "Temperature",
+  unit: "°C",
+  icon: "🌡️",
+  color: "#f44336",
+  value: 45,
+  min: 0,
+  max: 100,
+});
+form.add(card);
+await card.setValue(52.5); // update nilai + progress bar (pct otomatis)
+```
+
+### TRelayCard — Kartu Relay ON/OFF
+
+```typescript
+const relay = new TRelayCard("fan", {
+  label: "FAN",
+  icon: "🌀",
+  color: "#4caf50",
+  active: true,
+});
+form.add(relay);
+await relay.setActive(false); // tampil "⚫ OFF" / "🟢 ON"
+```
+
+### TLineChart — Line Chart (spline + fill)
+
+```typescript
+const chart = new TLineChart("temp-chart", {
+  data: [25, 30, 28, 35, 32],
+  color: "#f44336",
+  spline: true, // kurva halus (Catmull-Rom)
+  fill: true, // area di bawah garis
+  maxPoints: 15, // auto-scroll saat data penuh
+});
+form.add(chart);
+await chart.setData([26, 31, 29, 36, 33]); // update + animasi scroll
+```
+
+### TRadialGauge — Gauge Melingkar
+
+```typescript
+const gauge = new TRadialGauge("cpu", {
+  value: 72,
+  min: 0,
+  max: 100,
+  color: "#4caf50",
+  label: "CPU",
+  unit: "%",
+  size: 100,
+});
+form.add(gauge);
+await gauge.setValue(80); // targeted arc/needle update (smooth)
+```
+
+### TSevenSegment — Display 7-Segment
+
+```typescript
+const seg = new TSevenSegment("counter", {
+  value: 42.5,
+  digits: 4,
+  decimals: 1,
+  color: "#4caf50",
+  scale: 1,
+});
+form.add(seg);
+await seg.setValue(43.2);
+```
+
+### TIndicatorLamp — Lampu Indikator (glow)
+
+```typescript
+const lamp = new TIndicatorLamp("power", {
+  color: "#4caf50",
+  on: true,
+  label: "POWER",
+});
+form.add(lamp);
+await lamp.setOn(false); // lampu mati + label redup
+```
+
+### TToggleSwitch — Switch ON/OFF (bisa diklik)
+
+Otomatis toggle visual + border card saat diklik, lalu panggil `onClick`.
+
+```typescript
+const tgl = new TToggleSwitch("fan-toggle", {
+  color: "#4caf50",
+  on: false,
+  label: "FAN",
+});
+tgl.onClick = async () => {
+  console.log("FAN is", tgl.on ? "ON" : "OFF");
+};
+form.add(tgl);
+```
+
+### TVerticalGauge — Tabung Kaca Vertikal
+
+```typescript
+const vg = new TVerticalGauge("water", {
+  value: 75,
+  color: "#2196f3",
+  label: "Water Level",
+  unit: "%",
+  w: 60,
+  h: 180,
+});
+form.add(vg);
+await vg.setValue(80); // level air naik smooth
+```
+
+### TSlider — Slider Range
+
+Otomatis update value display saat digeser + panggil `onInput`.
+
+```typescript
+const sl = new TSlider("brightness", {
+  value: 70,
+  min: 0,
+  max: 100,
+  color: "#ffeb3b",
+  label: "Brightness",
+  unit: "%",
+});
+sl.onInput = (val) => console.log(val);
+form.add(sl);
+```
+
+---
+
+## ⏱️ TTimer — Timer ala Delphi
+
+Timer interval yang **otomatis di-cleanup** saat form ditutup (managed timer dari Screen).
+
+```typescript
+const timer = new TTimer("tmr-update", 2000, true); // (id, interval ms, enabled)
+timer.onTimer = async () => {
+  await gauge.setValue(...);
+};
+form.add(timer);
+
+// Kontrol runtime
+timer.enabled = false; // stop
+timer.interval = 5000; // ganti interval (auto-restart)
+```
+
+---
+
+## 📈 TChart — Real-time Chart (Lightweight Charts)
+
+Chart real-time smooth-scroll via DOME IPC ke browser (library **TradingView Lightweight Charts** v5 di-load di `dome-client.html`). Mendukung **multi-series** dengan range Y per-series (price scale terpisah).
+
+```typescript
+const chart = new TChart("sys-chart", {
+  width: 300,
+  height: 250,
+  maxPoints: 60,
+  series: [
+    {
+      key: "temp",
+      color: "#f44336",
+      label: "Temperature",
+      minValue: 15,
+      maxValue: 45,
+    },
+    { key: "cpu", color: "#4caf50", label: "CPU" },
+    { key: "mem", color: "#2196f3", label: "Memory" },
+  ],
+});
+form.add(chart);
+
+form.onSetup = async () => {
+  await chart.initChart(); // WAJIB — init chart di browser setelah mount
+};
+
+// Push satu titik (single series) / multi series
+await chart.pushData(Date.now() / 1000, 42); // single
+await chart.pushData(Date.now() / 1000, { temp: 30, cpu: 55, mem: 45 }); // multi
+
+// Atau set sekaligus
+await chart.setData([t1, t2, t3], [v1, v2, v3]);
+
+// Hancurkan chart
+await chart.destroy();
+```
+
+---
+
+## 🗃️ Data Grid — TDataGrid & TTabulatorGrid
+
+Dua kelas data grid dengan **API 100% identik** — tinggal ganti class-nya:
+
+- **`TDataGrid`** — render virtual-DOM app-side (berbasis `ConnectedDataGrid` Emerald).
+- **`TTabulatorGrid`** — render **di sisi browser** oleh library **Tabulator v6** (sort, resize kolom, selection, scroll ditangani Tabulator sendiri → bebas bug render, traffic IPC jauh lebih kecil). Superset: punya `toggleSort()` tambahan.
+
+```typescript
+const grid = new TTabulatorGrid("sensor", [
+  { key: "node_id", label: "Node", width: 150 },
+  { key: "value", label: "Nilai", width: 80, align: "right" },
+  { key: "timestamp", label: "Waktu", width: "40%" },
+], [], { height: 300 });
+form.add(grid);
+
+// Data awal — di-set via onSetup (dipanggil TForm.run setelah mount)
+form.onSetup = async () => {
+  await grid.setData([
+    { node_id: "espMultiSensor", value: 12, timestamp: "2026-02-24 07:29:37" },
+    { node_id: "espMultiSensor", value: 42, timestamp: "2026-02-24 07:29:37" },
+  ]);
+};
+
+// Event: klik header → sort, klik baris → detail
+grid.onSort = (key, dir) => console.log(`sort ${key} ${dir}`);
+grid.onRowClick = (idx, rec) => {
+  const r = grid.getRecord(idx); // index = row-key stabil (BUKAN nomor baris)
+  const sel = grid.selectedIndex;
+  console.log("selected:", r?.value);
+};
+
+// Properti & metode
+grid.columns = [...];               // ganti kolom (design-time / runtime)
+await grid.appendData([...]);       // tambah baris INKREMENTAL (hemat traffic)
+await grid.setColumns([...]);
+await grid.setSelectedIndex(-1);    // clear selection
+await grid.clearSelection();
+await grid.toggleSort("value");     // ONLY TTabulatorGrid — sort programmatic
+const s = grid.sort;                // { key, dir } atau null
+```
+
+| Properti / Metode                          | Fungsi                                                                 |
+| :----------------------------------------- | :--------------------------------------------------------------------- |
+| `columns` / `data` (setter)                | Ganti kolom / data (fire-and-forget; kalau mau await pakai `setXxx()`) |
+| `sort`                                     | State sort saat ini: `{ key, dir }` atau `null`                        |
+| `selectedIndex` / `selectedRecord`         | Baris terpilih (row-key stabil)                                        |
+| `getRecord(index)`                         | Ambil record via row-key                                               |
+| `setData(rows)`                            | Ganti data (async)                                                     |
+| `appendData(rows)`                         | Tambah baris inkremental (async)                                       |
+| `setColumns(cols)`                         | Ganti kolom (async)                                                    |
+| `setSelectedIndex(i)` / `clearSelection()` | Select / clear programmatic                                            |
+| `toggleSort(key)`                          | Sort programmatic (hanya `TTabulatorGrid`)                             |
+
+> **Catatan kolom:** `DataGridColumn` = `{ key, label, width?, sortable?, resizable?, align? }`. `width` bisa number (px) atau string CSS (`"20%"`). Field data yang tidak terdaftar sebagai kolom (mis. `_name`) tetap bisa dipakai logika app tanpa tampil di grid.
 
 ---
 
@@ -242,17 +537,20 @@ lblTitle.style = { gridColumn: "1 / -1" };
 
 ### Layout Helpers
 
-| Helper                                | Fungsi                                                    |
-| :------------------------------------ | :-------------------------------------------------------- |
-| **`TGridPanel(id, cols?, style?)**    | Panel dengan CSS Grid, jumlah kolom tetap                 |
-| **`TFlowPanel(id, style?)**           | Flex wrap — item otomatis pindah baris                    |
-| **`TScrollBox(id, style?)**           | Panel dengan overflow auto (scroll)                       |
-| **`TSplitHorizontal(c1, c2, ratio?)** | Dua panel bersebelahan (kiri \| kanan) — **bisa di-drag** |
-| **`TSplitVertical(c1, c2, ratio?)**   | Dua panel bertumpuk (atas \| bawah) — **bisa di-drag**    |
-| **`TGroupBox(id, caption, style?)**   | Panel dengan border + label (kayak GroupBox Delphi)       |
-| **`HStack(...children)**              | Flex row horizontal                                       |
-| **`VStack(...children)**              | Flex column vertical                                      |
-| **`Spacer(size?)**                    | Pengisi ruang fleksibel                                   |
+| Helper                                                                    | Fungsi                                                    |
+| :------------------------------------------------------------------------ | :-------------------------------------------------------- |
+| **`TGridPanel(id, cols?, style?)**                                        | Panel dengan CSS Grid, jumlah kolom tetap                 |
+| **`TFlowPanel(id, style?)**                                               | Flex wrap — item otomatis pindah baris                    |
+| **`TScrollBox(id, style?)**                                               | Panel dengan overflow auto (scroll)                       |
+| **`TSplitHorizontal(c1, c2, ratio?)**                                     | Dua panel bersebelahan (kiri \| kanan) — **bisa di-drag** |
+| **`TSplitVertical(c1, c2, ratio?)**                                       | Dua panel bertumpuk (atas \| bawah) — **bisa di-drag**    |
+| **`TGroupBox(id, caption, style?)**                                       | Panel dengan border + label (kayak GroupBox Delphi)       |
+| **`HStack(...children)**                                                  | Flex row horizontal                                       |
+| **`VStack(...children)**                                                  | Flex column vertical                                      |
+| **`Spacer(size?)**                                                        | Pengisi ruang fleksibel                                   |
+| **`alTop` / `alBottom` / `alLeft` / `alRight` / `alClient` / `alCenter`** | Konstanta alignment (nilai string untuk `style.position`) |
+
+> **Catatan layout:** `HStack(style?, ...children)` dan `VStack(style?, ...children)` menerima style sebagai argumen pertama opsional, lalu daftar child. `TSplit*` mendukung **nesting** (split di dalam split).
 
 Contoh splitter:
 
@@ -268,7 +566,9 @@ Contoh group box:
 
 ```typescript
 const group = TGroupBox("grup1", "⚙️ Pengaturan", { height: "150px" });
-group.add(new TButton("btn1").withCaption("Simpan"));
+const btn = new TButton("btn1");
+btn.caption = "Simpan";
+group.add(btn);
 form.add(group);
 ```
 
@@ -276,19 +576,28 @@ form.add(group);
 
 ## 🎯 Event Binding
 
-Semua komponen yang diubah dinamis (caption, text, visibility) harus di-`bind` di `onSetup`:
+`TForm.run()` **otomatis** me-_bind_ semua event (onClick, onInput, onChange, ...) dan auto-_refresh_ komponen dinamis (TListBox, data grid) untuk **semua child** — rekursif. Jadi **tidak perlu** manual memanggil `bind()`.
+
+```typescript
+// Cukup set callback sebelum form.run(); TForm yang handle binding-nya
+btnSave.onClick = () => { ... };
+edtEmail.onInput = (val) => { ... };
+form.add(btnSave);
+form.add(edtEmail);
+
+await form.run(); // auto-bind + auto-refresh semua komponen
+```
+
+`onSetup` hanya untuk inisialisasi **data/state tambahan** setelah mount (misal `grid.setData(...)` atau `chart.initChart()`):
 
 ```typescript
 form.onSetup = async (screen) => {
-  btnClick.bind(screen);
-  lblCounter.bind(screen);
-  status.bind(screen);
-  cmbMode.bind(screen);
-  // ...
+  await grid.setData(rows);
+  await chart.initChart();
 };
 ```
 
-Tanpa `bind()`, perubahan properti kayak `caption = "..."` gak akan sync ke layar.
+> **Catatan:** Perubahan properti seperti `caption = "..."` atau `text = "..."` akan otomatis sync ke layar karena komponen sudah ter-bind oleh `TForm.run()`.
 
 ---
 
@@ -302,13 +611,19 @@ import { TDialogs } from "@tsix/cashew";
 // Alert — info, 1 tombol OK
 await TDialogs.alert(screen, "Info", "Pesan");
 
-// Confirm — pilihan Yes/No
+// Confirm — default tombol ["OK", "Cancel"], bisa custom
 const ans = await TDialogs.confirm(screen, "Yakin?", "Lanjutkan?");
-// ans = "Yes" atau "No"
+// ans = label tombol yang diklik ("OK" / "Cancel")
+const yes = await TDialogs.confirm(screen, "Hapus?", "Yakin?", [
+  "✅ Ya",
+  "🚫 Tidak",
+]);
+// yes = "✅ Ya" atau "🚫 Tidak"
 
 // Input — teks dari user
 const name = await TDialogs.input(screen, "Nama", "Siapa?");
-// name = input user, atau "" kalau cancel
+// name = input user, atau null kalau cancel
+// (default value opsional: TDialogs.input(screen, t, m, defaultValue))
 
 // Open File — pilih file dari VFS
 // (butuh fs dari @tsix/Application)
@@ -385,11 +700,16 @@ form.onSetup = async (screen) => {
 };
 ```
 
+> **Catatan:** Untuk form standar, `TForm.run()` sudah otomatis memuat theme (`loadCurrent` + `watch`) dan mengirim `WINDOW_THEME` ke DOME — jadi `applyToDome()` manual umumnya **tidak wajib** kecuali kamu butuh kontrol penuh.
+
 ---
 
 ## 📝 Contoh Lengkap
 
-| Demo                   | File                                                   | Deskripsi                                        |
-| :--------------------- | :----------------------------------------------------- | :----------------------------------------------- |
-| **Cashew GUI Demo**    | [`cashew-demo1.ts`](../src/mirror/bin/cashew-demo1.ts) | Counter, input, checkbox, radio, listbox, dialog |
-| **Cashew Layout Demo** | [`cashew-demo2.ts`](../src/mirror/bin/cashew-demo2.ts) | Grid, flow, splitter, scroll, anchor, groupbox   |
+| Demo                        | File                                                              | Deskripsi                                                            |
+| :-------------------------- | :---------------------------------------------------------------- | :------------------------------------------------------------------- |
+| **Cashew GUI Demo**         | [`cashew-demo1.ts`](../src/mirror/opt/test/cashew-demo1.ts)       | Counter, input, checkbox, radio, listbox, dialog                     |
+| **Cashew Layout Demo**      | [`cashew-demo2.ts`](../src/mirror/opt/test/cashew-demo2.ts)       | Grid, flow, splitter, scroll, anchor, groupbox                       |
+| **Cashew IoT Dashboard**    | [`cashew-demo3.ts`](../src/mirror/opt/test/cashew-demo3.ts)       | Sensor card, relay, gauge, chart, 7-seg, toggle, slider, timer, lamp |
+| **Tabulator Grid (Cashew)** | [`tab-demo-csh.ts`](../src/mirror/opt/test/tab-demo-csh.ts)       | `TTabulatorGrid`: sort, resize, select, appendData, toggleSort       |
+| **DB Browser (Cashew)**     | [`gui-db-test-csh.ts`](../src/mirror/opt/test/gui-db-test-csh.ts) | `TDataGrid` + DbLib: browse tabel MySQL + sort                       |
