@@ -1788,7 +1788,7 @@ class SimpleTextEditor {
             "├────────────────────────────────────────────────────────────────────────┤",
             "│ Ctrl+S: Save          │ Ctrl+F: Find     │ Ctrl+L: Find Next           │",
             "│ Ctrl+W: Save & Exit   │ Alt+R:  Replace  │ F1:     Help                │",
-            "│ Shift+Arrow: Select   │ Ctrl+V: Paste    │ Ctrl+X: Paste & Cut         │",
+            "│ Shift+Arrow: Select   │ Ctrl+V: Paste    │ Ctrl+X: Copy & Cut          │",
             "│ Ctrl+C: Exit          │ Ctrl+Z: Undo     │ Ctrl+A/E: Begin/End of Line │",
             "│ Ctrl+K: Delete Line   │ Ctrl+Y: Redo     │ Ctrl+←/→: Word              │",
             "│ Home: Begin of Col    │ End: End of Col  │ Ctrl+Home: Begin of file    │",
