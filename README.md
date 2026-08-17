@@ -11,6 +11,8 @@
 
 Its flagship use case is a complete **IoT stack** — the MQTNL protocol (MQTT-based), OTA firmware updates, real-time dashboards, and encrypted remote terminal access — all reachable with nothing more than an internet connection and a free MQTT broker. No VPS, no static public IP, no paid cloud service required.
 
+**Where IoT fits (and where it doesn't):** the IoT stack is **not** part of the kernel. TSIX's core — kernel, VFS, drivers (rings 1–2) — is completely generic: it has no idea what MQTT, OTA, or ESP32 are. The IoT stack is simply **one application running on top of the platform**, exactly like the window manager, the file browser, or the shell. That separation *is* the design's strength: one neutral, Unix-faithful core powers IoT, a desktop environment, and a command line at the same time.
+
 TSIX keeps evolving, so expect rough edges and breaking changes between versions.
 
 <p align="center">
@@ -114,7 +116,7 @@ This project started in 2021 as a way to remotely manage home automation — lig
 - **Sandbox** — Node.js host APIs are restricted in User-Land
 - **Permission Model** — Unix rwx for files & devices
 - **Root Privileges** — UID 0 bypasses all checks
-- **Saved UID** — login manager (WM) dapat re-elevate ke root untuk switch user (restore `setuid(0)` via `pcb.suid`)
+- **Saved UID** — the login manager (WM) can re-elevate to root to switch users (restore `setuid(0)` via `pcb.suid`)
 - **PID 1 Protection** — init cannot be killed directly
 
 ---
@@ -149,9 +151,9 @@ The installer will ask you for:
 
 > [!NOTE] **Default credentials**
 >
-> - **User:** `root` — **Password:** `root` (default; hash bcrypt dibundel di `src/mirror/etc/shadow`).
-> - Ganti password dengan mengisi prompt **"Password root baru"** saat `npm run install`, atau jalankan `passwd` di dalam TSIX.
-> - Ini **default development yang didokumentasikan**, bukan rahasia. Untuk produksi/ekspos publik, selalu set password sendiri (jangan pakai default).
+> - **User:** `root` — **Password:** `root` (default; bcrypt hash bundled in `src/mirror/etc/shadow`).
+> - Change the password by answering the **root-password prompt** during `npm run install`, or run `passwd` inside TSIX.
+> - This is a **documented development default**, not a secret. For production or public exposure, always set your own password (don't use the default).
 
 After installation, `src/sysconfig.json` points to the new database and the system is ready to boot:
 
@@ -217,6 +219,11 @@ Ring 3  -> User Libraries (UserLib, FsLib, NetLib, StdLib)
 Ring 4  -> Applications (/bin — shell, file-cruiser, tools)
 ```
 
+> **IoT is not part of the kernel.** The IoT stack runs as a regular
+> application in **Ring 4**, on top of the generic rings 1–3 — the kernel has
+> no concept of MQTT, OTA, or ESP32. That neutrality is the point: one core
+> runs IoT, a desktop environment, and a shell side by side.
+
 ### Data Flow
 
 ```
@@ -269,7 +276,7 @@ tsix/
 │   │   ├── GUIRegistry.ts     — Window -> PID mapping
 │   │   └── devices/           — Hardware drivers (TTY, Keyboard, Pipe, Socket...)
 │   ├── vfs/           — Filesystem backends (BKFS, RamFS, HostVFS)
-│   ├── mirror/        — Userland (Ring 4) — FHS layout (disinkronkan ke VFS root)
+│   ├── mirror/        — Userland (Ring 4) — FHS layout (synced to VFS root)
 │   │   ├── bin/       — 80+ command-line tools (ls, cat, tsh, sudo...)
 │   │   ├── sbin/      — Daemons (tpkgd, scpd, airtermd, crond...)
 │   │   ├── usr/       — User binaries (local/bin)
@@ -297,7 +304,7 @@ tsix/
 | GUI library (Emerald)                                    | Working     | 1/1         |
 | **TOTAL**                                                | **Working** | **645/653** |
 
-> [!NOTE] **7 test failures bersifat pre-existing / environment** — 5 di `Syscalls` (mis. `SCREEN_INFO` butuh setup device), 2 di `Logger` (format timestamp). Dua file test (`SecurityAgent`, `F1-UtilityScripts`) gagal load. Tidak terkait perubahan fitur.
+> [!NOTE] **7 test failures are pre-existing / environment-related** — 5 in `Syscalls` (e.g. `SCREEN_INFO` requires device setup), 2 in `Logger` (timestamp format). Two test files (`SecurityAgent`, `F1-UtilityScripts`) fail to load. Not related to feature changes.
 
 ---
 
