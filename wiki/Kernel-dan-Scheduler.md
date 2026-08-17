@@ -40,7 +40,7 @@ stateDiagram-v2
 
 ## Process Scheduler (`Scheduler.ts`)
 
-Scheduler menerapkan model **preemptive round-robin** dengan dukungan penuh untuk signals dan process groups.
+Scheduler adalah **process manager**: setiap proses berjalan di **Worker Thread sendiri** (preemption & multitasking disediakan oleh OS host / Node.js), dengan dukungan penuh untuk signals dan process groups.
 
 ### Process Control Block (PCB)
 

@@ -597,7 +597,7 @@ export class Kernel {
     await this.processFstab();
 
     // 3. Inisialisasi Scheduler
-    this.bootLogStart("Core: Process Scheduler (Preemptive)");
+    this.bootLogStart("Core: Process Scheduler (Worker Threads)");
     this.scheduler = new Scheduler();
     this.bootLogEnd(true, "active.");
 

@@ -7,11 +7,11 @@
   <img src="https://img.shields.io/badge/Tests-645/653-brightgreen" alt="645/653 tests">
 </p>
 
-**TSIX** is an **operating system simulator** built entirely in TypeScript on top of Node.js/V8 — complete with a custom kernel, syscall dispatcher, permission model (UID/GID), POSIX-like filesystem, signal handling, and device abstraction (HAL). It is **not a VM that emulates a CPU**; it applies OS-level architecture as an educational and experimental project, and follows **Unix fidelity** as its design north star (see [Philosophy](#philosophy)).
+**TSIX** is an **operating system simulator** built entirely in TypeScript on top of Node.js/V8 — complete with a custom kernel, syscall dispatcher, logical Unix-style permission layer (UID/GID, rwx), POSIX-like filesystem, signal handling, and device abstraction (HAL). It is **not a VM that emulates a CPU**; it simulates OS concepts — tasks/processes, permissions, filesystems, signals — directly within the Node.js runtime as an educational and experimental project, and follows **Unix fidelity** as its design north star (see [Philosophy](#philosophy)).
 
 Its flagship use case is a complete **IoT stack** — the MQTNL protocol (MQTT-based), OTA firmware updates, real-time dashboards, and encrypted remote terminal access — all reachable with nothing more than an internet connection and a free MQTT broker. No VPS, no static public IP, no paid cloud service required.
 
-**Where IoT fits (and where it doesn't):** the IoT stack is **not** part of the kernel. TSIX's core — kernel, VFS, drivers (rings 1–2) — is completely generic: it has no idea what MQTT, OTA, or ESP32 are. The IoT stack is simply **one application running on top of the platform**, exactly like the window manager, the file browser, or the shell. That separation *is* the design's strength: one neutral, Unix-faithful core powers IoT, a desktop environment, and a command line at the same time.
+**Where IoT fits (and where it doesn't):** the IoT stack is **not** part of the kernel. TSIX's core — kernel, VFS, drivers (rings 1–2) — is generic within the simulator's ecosystem: it has no idea what MQTT, OTA, or ESP32 are. The IoT stack is simply **one application running on top of the platform**, exactly like the window manager, the file browser, or the shell. That separation *is* the design's strength: one neutral, Unix-faithful core powers any generic simulated task — be it IoT, a desktop environment, or a command line.
 
 TSIX keeps evolving, so expect rough edges and breaking changes between versions.
 
@@ -76,7 +76,7 @@ This project started in 2021 as a way to remotely manage home automation — lig
 | Feature                | Detail                                                                                                     |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------- |
 | **Syscall Dispatcher** | 60+ POSIX-inspired syscalls (OPEN, READ, WRITE, EXEC, WAITPID, SIGNAL, CHMOD...)                           |
-| **Scheduler**          | Preemptive round-robin, process states, wait queue, signal handling (SIGKILL, SIGTERM, SIGINT, SIGSTOP...) |
+| **Scheduler**          | Process manager: PCB states, wait queue, signals (SIGKILL, SIGTERM, SIGINT, SIGSTOP...) — each process runs in its own Worker Thread |
 | **Permission Manager** | UID/GID, rwx bits, root bypass, SetUID & Saved UID (suid) support                                          |
 | **Mount Manager**      | Multi-VFS overlay, bind mount, union mount, nested mount points                                            |
 | **Process Tree**       | Parent-child links, orphan auto-reparent to init, zombie prevention                                        |

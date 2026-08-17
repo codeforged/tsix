@@ -79,7 +79,7 @@ TSIX mengadopsi arsitektur **security rings** (protection rings) yang telah menj
 ```
 Ring 1 — Kernel Core
 ├── Syscall Dispatcher     — 60+ syscalls
-├── Preemptive Scheduler   — Round-robin + signals
+├── Process Scheduler    — Worker-Thread processes + signals
 ├── Mount Manager          — Multi-VFS overlay
 ├── Permission Manager     — UID/GID + capabilities
 ├── Port Manager           — TCP/UDP port allocation
@@ -131,7 +131,7 @@ sequenceDiagram
 | Feature                | Details                                                                                |
 | ---------------------- | -------------------------------------------------------------------------------------- |
 | **Syscall Dispatcher** | 60+ POSIX-inspired syscalls (OPEN, READ, WRITE, FORK, EXEC, WAITPID, SIGNAL, CHMOD...) |
-| **Scheduler**          | Preemptive round-robin, process states (RUNNING/WAITING/ZOMBIE/EXITED), wait queue     |
+| **Scheduler**          | Process manager: PCB states (READY/RUNNING/BLOCKED/EXITED), wait queue, signals — processes run in own Worker Threads     |
 | **Permission Manager** | UID/GID, rwx bits, root bypass, capabilities (CAP_SETUID, CAP_NET_BIND, CAP_KILL...)   |
 | **Mount Manager**      | Mount/unmount multiple VFS backends, nested mount points, longest-prefix resolution    |
 | **Port Manager**       | TCP/UDP port binding, privileged port enforcement, SO_REUSEADDR, ephemeral allocation  |
