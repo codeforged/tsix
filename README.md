@@ -100,6 +100,7 @@ This project started in 2021 as a way to remotely manage home automation — lig
 | **E2E Encryption** | RSA-2048 handshake + ChaCha20-Poly1305 session encryption                |
 | **OTA Updates**    | Over-the-air firmware update via MQTNL protocol                          |
 | **SCP**            | Secure file transfer with encryption + password authentication           |
+| **AirTerm**        | Remote terminal to a TSIX node from anywhere — internet + MQTT broker only, no public IP / VPS required. Secured with an SSH-like RSA + ChaCha20-Poly1305 handshake |
 
 ### GUI (Emerald + DOME)
 
