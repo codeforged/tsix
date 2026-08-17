@@ -63,7 +63,7 @@ TSIX keeps evolving, so expect rough edges and breaking changes between versions
 
 ### Why TSIX exists
 
-This project started as a way to remotely manage home automation — lights controlled by a Raspberry Pi, MCP23017, and relays — while living between two cities and only being home on weekends. Renting a VPS with a static public IP just to check on the lights wasn't worth it. What began as a small utility (originally called **NOS**) grew, over several years, into TSIX: a full operating-system-style platform with an IoT stack as its most complete, most battle-tested application.
+This project started in 2021 as a way to remotely manage home automation — lights controlled/monitored by a Raspberry Pi, MCP23017, and relays — while living between two cities and only being home on weekends. Renting a VPS with a static public IP just to check on the lights wasn't worth it. What began as a small utility (originally called **NOS**) grew, over several years, into TSIX: a full operating-system-style platform with an IoT stack as its most complete, most battle-tested application.
 
 ---
 
