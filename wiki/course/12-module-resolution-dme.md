@@ -97,7 +97,7 @@ DME menjawab dua masalah:
 3. **Satu sumber kebenaran.** Kernel adalah satu-satunya yang membaca `/lib` dari BKFS. Worker tidak punya akses langsung ke disk framework — memperkuat batas sandbox (lihat [Modul 11](11-worker-thread-sandbox.md)).
 
 > [!TIP]
-> DME adalah salah satu dari **tiga prinsip inti** TSIX (syscall = satu-satunya pintu, everything-is-a-file, direct memory execution). Lihat `wiki/course/00-overview.md` §1 dan §6.2.
+> DME adalah **teknik arsitektur** yang mempercepat eksekusi framework (`/lib`) — ia melengkapi, bukan menggantikan, lima prinsip inti TSIX. Untuk daftar prinsip inti, lihat `wiki/course/00-overview.md` §1 dan §6.2.
 
 ### Dua jalur eksekusi app
 

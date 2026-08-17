@@ -59,13 +59,17 @@ TSIX adalah **sistem operasi simulasi berbasis Node.js + TypeScript**. Ia bukan 
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Tiga prinsip inti:**
+**Lima prinsip inti:**
 
-1. **"Syscall = satu-satunya pintu"** — Worker thread tidak pernah menyentuh resource langsung. Bahkan `print` pun syscall. Ini menjaga batas ring benar-benar berarti.
+1. **"Everything is a File"** — file dan device sama-sama `IDevice`; `read/write` polimorfik. Buka file biasa → `FileSystemDevice`; buka `/dev/tty1` → `TTYDevice`; bahkan pipe, socket, dan display adalah device.
 
-2. **"Everything is a File"** — file dan device sama-sama `IDevice`; `read/write` polimorfik. Buka file biasa → `FileSystemDevice`; buka `/dev/tty1` → `TTYDevice`.
+2. **"Distributed by Design"** — IPC bawaan via syscall `SEND_MSG` + identity-based messaging. Proses berkomunikasi lewat identitas (UUID), bukan alamat memori.
 
-3. **"Direct Memory Execution"** — framework (`/lib`) di-pre-compile ke memori saat boot, dikirim ke worker via `workerData`, dieksekusi tanpa hit filesystem. `@tsix/*` terasa instan.
+3. **"Small, Sharp Tools"** — 80+ utilitas yang saling terhubung lewat pipe & redirection; satu alat mengerjakan satu hal dengan baik, lalu dikombinasikan.
+
+4. **"Security via Simplicity"** — model permission UID/GID, isolasi proses (Worker Thread), dan privilege root yang sederhana namun tegas.
+
+5. **"Unix Fidelity dulu, pragmatis belakangan"** — meniru perilaku & arsitektur Unix/Linux sedekat mungkin; penyimpangan hanya jika runtime Node.js/V8 tidak mampu, dan wajib didokumentasikan.
 
 **Kunci: kernel tidak pernah menjalankan app.** Semua userland (termasuk PID 1 / init) berjalan di Worker Thread. Batas Ring 1/2 vs Ring 4 adalah batas *thread + IPC*, diperkuat `PermissionManager` berbasis uid/gid/mode.
 

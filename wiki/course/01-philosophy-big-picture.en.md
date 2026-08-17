@@ -11,16 +11,16 @@ audience: all
 
 # Philosophy & Big Picture
 
-**RFC-TSIX-EDU-002** | The first module of the TSIX curriculum. Builds a mental map: what TSIX is, why it was designed this way, and the four core principles that form the foundation of the entire system.
+**RFC-TSIX-EDU-002** | The first module of the TSIX curriculum. Builds a mental map: what TSIX is, why it was designed this way, and the five core principles that form the foundation of the entire system.
 
-> Before writing code, understand the **philosophy** first. TSIX is not just an "OS emulator" — it is an **OS abstraction built on top of the existing Node.js runtime**. This module explains *why* it was designed this way, and the four principles that are consistent across all subsystems.
+> Before writing code, understand the **philosophy** first. TSIX is not just an "OS emulator" — it is an **OS abstraction built on top of the existing Node.js runtime**. This module explains *why* it was designed this way, and the five principles that are consistent across all subsystems.
 
 ---
 
 ## Learning Objectives
 
 - [ ] Explain what TSIX is and how it differs from a VM/emulator
-- [ ] Name the four core principles of the TSIX architecture
+- [ ] Name the five core principles of the TSIX architecture
 - [ ] Explain why the kernel, drivers, and FS are combined into a single thread
 - [ ] Recognize the Ring 0–4 layers and their contents in broad outline
 - [ ] Explain why the kernel never executes applications
@@ -68,17 +68,9 @@ One of the most fundamental architectural decisions: **the kernel, drivers, and 
 
 ---
 
-## Four Core Principles
+## Five Core Principles
 
-### 1. "Syscall = the only door"
-
-Worker threads **never touch resources directly**. Even `print` goes through a syscall. This keeps the ring boundary truly meaningful — there are no shortcuts.
-
-```
-App → UserLib.dispatch(code, args) → postMessage → Kernel → dispatch → kembali
-```
-
-### 2. "Everything is a File"
+### 1. "Everything is a File"
 
 Files and devices are both `IDevice`; `read/write` is polymorphic.
 
@@ -86,13 +78,21 @@ Files and devices are both `IDevice`; `read/write` is polymorphic.
 - Opening `/dev/tty1` → `TTYDevice`
 - Opening `/dev/smqtnl0` → `SimpleMQTNLDriver`
 
-Even pipes and sockets are devices. One contract, many implementations.
+Even pipes, sockets, and the display are devices. One contract, many implementations.
 
-### 3. "Direct Memory Execution" (DME)
+### 2. "Distributed by Design"
 
-The framework (`/lib`) is pre-compiled into memory at boot, sent to workers via `workerData`, and executed **without a filesystem hit**. `@tsix/*` feels instant — there is no recompilation per process.
+Built-in IPC via the `SEND_MSG` syscall + identity-based messaging. Processes communicate through identities (UUIDs), not memory addresses — fitting the platform's distributed nature.
 
-### 4. "Unix fidelity first, pragmatic later"
+### 3. "Small, Sharp Tools"
+
+80+ utilities that combine via pipes & redirection — the Unix tradition: one tool does one thing well, then tools are composed.
+
+### 4. "Security via Simplicity"
+
+A UID/GID permission model, process isolation (Worker Threads), and straightforward root privileges — security comes from a clear design, not from complexity.
+
+### 5. "Unix fidelity first, pragmatic later"
 
 TSIX mirrors Unix/Linux behavior and architecture as closely as practical — syscall semantics, UID/GID permissions, credentials (saved UID), file formats (`/etc/shadow`, `passwd`), filesystem hierarchy — as the design **north star**. Not because it "must match exactly", but because **observable** behavior must be consistent: non-root cannot read `/etc/shadow`, a non-root process cannot `setuid` arbitrarily, and so on.
 

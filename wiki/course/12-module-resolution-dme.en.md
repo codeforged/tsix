@@ -97,7 +97,7 @@ DME answers two problems:
 3. **Single source of truth.** The kernel is the only one that reads `/lib` from BKFS. Workers have no direct access to the framework disk — this reinforces the sandbox boundary (see [Module 11](11-worker-thread-sandbox.en.md)).
 
 > [!TIP]
-> DME is one of the **three core principles** of TSIX (syscall = the only door, everything-is-a-file, direct memory execution). See `wiki/course/00-overview.md` §1 and §6.2.
+> DME is an **architectural technique** that speeds up framework (`/lib`) execution — it complements, rather than replaces, TSIX's five core principles. For the list of core principles, see `wiki/course/00-overview.md` §1 and §6.2.
 
 ### Two app execution paths
 

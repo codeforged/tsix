@@ -61,7 +61,7 @@
 ## Bagian I — Fondasi
 
 ### Modul 01 — Filosofi & Gambaran Besar
-- **Insight**: TSIX bukan VM yang emulasi CPU — ia membangun abstraksi OS di atas runtime Node.js. Tiga prinsip inti: (1) syscall = satu-satunya pintu, (2) everything-is-a-file, (3) direct memory execution.
+- **Insight**: TSIX bukan VM yang emulasi CPU — ia membangun abstraksi OS di atas runtime Node.js. Lima prinsip inti: (1) everything-is-a-file, (2) distributed-by-design, (3) small-sharp-tools, (4) security-via-simplicity, (5) unix-fidelity.
 - **Status**: ✅
 - **Referensi**: `00-overview.md` §1, `wiki/Arsitektur-Sistem.md`
 - **Kode**: `src/main.ts`, `src/kernel/Kernel.ts`

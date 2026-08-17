@@ -59,13 +59,17 @@ TSIX is a **simulated operating system built on Node.js + TypeScript**. It is no
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Three core principles:**
+**Five core principles:**
 
-1. **"Syscall = the only door"** — Worker threads never touch resources directly. Even `print` is a syscall. This keeps the ring boundaries truly meaningful.
+1. **"Everything is a File"** — files and devices are both `IDevice`; `read/write` is polymorphic. Open a regular file → `FileSystemDevice`; open `/dev/tty1` → `TTYDevice`; even pipes, sockets, and the display are devices.
 
-2. **"Everything is a File"** — files and devices are both `IDevice`; `read/write` is polymorphic. Open a regular file → `FileSystemDevice`; open `/dev/tty1` → `TTYDevice`.
+2. **"Distributed by Design"** — built-in IPC via the `SEND_MSG` syscall + identity-based messaging. Processes communicate through identities (UUIDs), not memory addresses.
 
-3. **"Direct Memory Execution"** — the framework (`/lib`) is pre-compiled into memory at boot, sent to workers via `workerData`, and executed without hitting the filesystem. `@tsix/*` feels instant.
+3. **"Small, Sharp Tools"** — 80+ utilities that combine via pipes & redirection; one tool does one thing well, then tools are composed.
+
+4. **"Security via Simplicity"** — a UID/GID permission model, process isolation (Worker Threads), and straightforward root privileges.
+
+5. **"Unix fidelity first, pragmatic later"** — mirror Unix/Linux behavior and architecture as closely as practical; deviate only when the Node.js/V8 runtime truly cannot model it, and always document the deviation.
 
 **Key: the kernel never runs apps.** All of userland (including PID 1 / init) runs in Worker Threads. The Ring 1/2 vs Ring 4 boundary is a *thread + IPC* boundary, reinforced by the uid/gid/mode-based `PermissionManager`.
 

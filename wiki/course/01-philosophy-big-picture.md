@@ -11,16 +11,16 @@ audience: all
 
 # Filosofi & Gambaran Besar
 
-**RFC-TSIX-EDU-002** | Modul pertama kurikulum TSIX. Membangun peta mental: apa itu TSIX, mengapa dirancang begini, dan tiga prinsip inti yang menjadi fondasi seluruh sistem.
+**RFC-TSIX-EDU-002** | Modul pertama kurikulum TSIX. Membangun peta mental: apa itu TSIX, mengapa dirancang begini, dan lima prinsip inti yang menjadi fondasi seluruh sistem.
 
-> Sebelum menulis kode, pahami dulu **filosofinya**. TSIX bukan sekadar "emulator OS" — ia adalah **abstraksi OS yang dibangun di atas runtime Node.js yang sudah ada**. Modul ini menjelaskan *kenapa* ia dirancang demikian, dan empat prinsip yang konsisten di semua subsistem.
+> Sebelum menulis kode, pahami dulu **filosofinya**. TSIX bukan sekadar "emulator OS" — ia adalah **abstraksi OS yang dibangun di atas runtime Node.js yang sudah ada**. Modul ini menjelaskan *kenapa* ia dirancang demikian, dan lima prinsip yang konsisten di semua subsistem.
 
 ---
 
 ## Tujuan Pembelajaran
 
 - [ ] Menjelaskan apa itu TSIX dan apa bedanya dengan VM/emulator
-- [ ] Menyebutkan tiga prinsip inti arsitektur TSIX
+- [ ] Menyebutkan lima prinsip inti arsitektur TSIX
 - [ ] Menjelaskan alasan kernel, driver, dan FS disatukan dalam satu thread
 - [ ] Mengenali lapisan Ring 0–4 dan isinya secara garis besar
 - [ ] Menjelaskan mengapa kernel tidak pernah menjalankan aplikasi
@@ -68,17 +68,9 @@ Salah satu keputusan arsitektural paling fundamental: **kernel, driver, dan file
 
 ---
 
-## Empat Prinsip Inti
+## Lima Prinsip Inti
 
-### 1. "Syscall = satu-satunya pintu"
-
-Worker thread **tidak pernah menyentuh resource langsung**. Bahkan `print` pun melalui syscall. Ini menjaga batas ring benar-benar berarti — tidak ada jalan pintas.
-
-```
-App → UserLib.dispatch(code, args) → postMessage → Kernel → dispatch → kembali
-```
-
-### 2. "Everything is a File"
+### 1. "Everything is a File"
 
 File dan device sama-sama `IDevice`; `read/write` polimorfik.
 
@@ -86,13 +78,21 @@ File dan device sama-sama `IDevice`; `read/write` polimorfik.
 - Buka `/dev/tty1` → `TTYDevice`
 - Buka `/dev/smqtnl0` → `SimpleMQTNLDriver`
 
-Bahkan pipe dan socket adalah device. Satu kontrak, banyak implementasi.
+Bahkan pipe, socket, dan display adalah device. Satu kontrak, banyak implementasi.
 
-### 3. "Direct Memory Execution" (DME)
+### 2. "Distributed by Design"
 
-Framework (`/lib`) di-pre-compile ke memori saat boot, dikirim ke worker via `workerData`, dieksekusi **tanpa hit filesystem**. `@tsix/*` terasa instan — tidak ada kompilasi ulang per proses.
+IPC bawaan via syscall `SEND_MSG` + identity-based messaging. Proses berkomunikasi lewat identitas (UUID), bukan alamat memori — sesuai sifat terdistribusi platform.
 
-### 4. "Fidelity Unix dulu, pragmatis belakangan"
+### 3. "Small, Sharp Tools"
+
+80+ utilitas yang saling terhubung lewat pipe & redirection — tradisi Unix: satu alat mengerjakan satu hal dengan baik, lalu dikombinasikan.
+
+### 4. "Security via Simplicity"
+
+Model permission UID/GID, isolasi proses (Worker Thread), dan privilege root yang sederhana namun tegas — keamanan lahir dari desain yang jelas, bukan dari kerumitan.
+
+### 5. "Unix Fidelity dulu, pragmatis belakangan"
 
 TSIX meniru perilaku & arsitektur Unix/Linux sedekat mungkin — semantik syscall, permission UID/GID, kredensial (saved UID), format file (`/etc/shadow`, `passwd`), hierarchy filesystem — sebagai **north star** desain. Bukan karena "harus persis", tapi karena perilaku yang **teramati** harus konsisten: non-root tidak bisa baca `/etc/shadow`, proses non-root tidak bisa `setuid` sembarangan, dan seterusnya.
 

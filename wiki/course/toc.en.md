@@ -61,7 +61,7 @@
 ## Part I — Foundation
 
 ### Module 01 — Philosophy & Big Picture
-- **Insight**: TSIX is not a VM that emulates a CPU — it builds an OS abstraction on top of the Node.js runtime. Three core principles: (1) syscall = the only gateway, (2) everything-is-a-file, (3) direct memory execution.
+- **Insight**: TSIX is not a VM that emulates a CPU — it builds an OS abstraction on top of the Node.js runtime. Five core principles: (1) everything-is-a-file, (2) distributed-by-design, (3) small-sharp-tools, (4) security-via-simplicity, (5) unix-fidelity.
 - **Status**: ✅
 - **References**: `00-overview.md` §1, `wiki/Arsitektur-Sistem.md`
 - **Code**: `src/main.ts`, `src/kernel/Kernel.ts`

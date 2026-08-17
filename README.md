@@ -329,7 +329,7 @@ TSIX is inspired by the **UNIX philosophy**:
 2. **Distributed by Design** — Built-in IPC via SEND_MSG + identity-based messaging
 3. **Small, Sharp Tools** — 80+ utilities that combine via pipes & redirection
 4. **Security via Simplicity** — UID/GID permission model, process isolation, root privileges
-5. **Unix Fidelity** — Emulating Unix/Linux behavior as closely as possible (semantics over mechanism); deviations are permitted only when constrained by the V8 runtime, and must be explicitly documented (see [see Four Core Principles](wiki/course/01-philosophy-big-picture.md))
+5. **Unix Fidelity** — Emulating Unix/Linux behavior as closely as possible (semantics over mechanism); deviations are permitted only when constrained by the V8 runtime, and must be explicitly documented (see [Five Core Principles](wiki/course/01-philosophy-big-picture.en.md))
 
 ---
 
@@ -352,7 +352,6 @@ The loose files under [`wiki/`](wiki/) are internal working notes (author + AI) 
 | Name                                             | Role                               |
 | :----------------------------------------------- | :--------------------------------- |
 | **Andriansah** (andriansah [at] yahoo [dot] com) | Lead Architect & Platform Composer |
-| **AI coding assistants**                         | Technical Implementation Partner   |
 
 ---
 
