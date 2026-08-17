@@ -333,6 +333,46 @@ export class TForm extends TComponent {
   async update(targetId: string, props: Record<string, any>): Promise<void> {
     await this._screen.update(targetId, props);
   }
+
+  // ============================================================
+  // WINDOW CONTROL — delegasi ke Screen.win (Emerald)
+  // ============================================================
+
+  /** Perbesar window ke ukuran penuh viewport (maximize). */
+  async maximize(): Promise<void> {
+    await this._screen.maximize();
+  }
+
+  /** Kembalikan window dari state maximized ke ukuran sebelumnya. */
+  async unMaximize(): Promise<void> {
+    await this._screen.unmaximize();
+  }
+
+  /** Alias `unMaximize()` — sama dengan API Emerald (`win.unmaximize()`). */
+  async unmaximize(): Promise<void> {
+    await this.unMaximize();
+  }
+
+  /** Kembalikan window yang sedang di-minimize. */
+  async restore(): Promise<void> {
+    await this._screen.restore();
+  }
+
+  /** Sembunyikan window (iconify). Window tetap hidup, bisa di-restore. */
+  async minimize(): Promise<void> {
+    await this._screen.minimize();
+  }
+
+  /**
+   * Tutup form & hancurkan aplikasi.
+   * Set `running = false`, bersihkan semua timer, kirim DESTROY_WINDOW →
+   * loop `loopUntilClose()` berhenti → `Program()` selesai (process exit).
+   * Callback `onClose` (jika diset) ikut dipanggil.
+   */
+  async close(): Promise<void> {
+    if (this._onClose) this._onClose();
+    await this._screen.close();
+  }
 }
 
 // ================================================================

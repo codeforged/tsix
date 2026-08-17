@@ -158,6 +158,26 @@ Semua opsi juga bisa di-set lewat properti: `form.maximizable = false`, `form.fr
 | `form.onSetup`             | Callback setelah mount       |
 | `form.onClose`             | Callback saat form ditutup   |
 
+**Window control** — semua async, delegasi ke `Screen.win`:
+
+```typescript
+await form.maximize(); // perbesar ke ukuran penuh viewport
+await form.unMaximize(); // kembalikan dari maximized (alias: form.unmaximize())
+await form.minimize(); // sembunyikan window (iconify)
+await form.restore(); // kembalikan window yang di-minimize
+await form.close(); // tutup form + hancurkan aplikasi (triggers onClose)
+```
+
+| Method              | Fungsi                                                                                                                                            |
+| :------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `form.maximize()`   | Perbesar window ke ukuran penuh viewport                                                                                                          |
+| `form.unMaximize()` | Kembalikan window dari maximized ke ukuran sebelumnya (alias `unmaximize()`)                                                                      |
+| `form.restore()`    | Kembalikan window yang sedang di-minimize                                                                                                         |
+| `form.minimize()`   | Sembunyikan window (iconify) — tetap hidup, bisa di-restore                                                                                       |
+| `form.close()`      | **Tutup form & hancurkan aplikasi** — `running=false`, bersihkan timer, `DESTROY_WINDOW` → `Program()` selesai; ikut memanggil callback `onClose` |
+
+> **Catatan:** Method window control hanya valid setelah `form.run()` dipanggil (butuh `Screen` yang sudah di-mount).
+
 ### TPanel — Container
 
 ```typescript
