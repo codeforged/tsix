@@ -179,9 +179,29 @@ const restrictHostAPI = (appName: string) => {
     }
 };
 
-// restrictHostAPI(); // Dipindahkan ke dalam main()
+// restrictHostAPI(); // Dipindahkan ke dalam main() 
 
 // -------------------------------------------
+
+/**
+ * emitWorkerError(): Cetak pesan error load-path aplikasi ke TTY (STDOUT),
+ * sehingga terlihat juga di pixelterm / konsol TTY (bukan cuma host stderr).
+ * Fire-and-forget (tidak di-await) supaya tidak mengubah alur main(); fallback
+ * ke console.error (host stderr) bila print ke TTY gagal.
+ */ 
+function emitWorkerError(lib: any, pid: number, message: string) {
+    try {
+        if (lib && lib.std && typeof lib.std.print === "function") {
+            void lib.std.print(`\x1b[31m[Worker ${pid}]\x1b[0m ${message}\n`).catch(() => {
+                console.error(`[Worker ${pid}] ${message}`);
+            });
+            return;
+        }
+    } catch (_) {
+        // fallback ke console.error di bawah
+    }
+    console.error(`[Worker ${pid}] ${message}`);
+}
 
 async function main() {
     const data = workerData as WorkerInitData;
@@ -236,7 +256,7 @@ async function main() {
                     });
                     content = result.code;
                 } catch (transpileErr: any) {
-                    console.error(`[Worker ${pid}] TS Transpile Error: ${transpileErr.message}`);
+                    emitWorkerError(lib, pid, `TS Transpile Error: ${transpileErr.message}`);
                     throw transpileErr;
                 }
             }
@@ -262,7 +282,7 @@ async function main() {
                 // console.log(`[Worker ${pid}] Direct Memory Execution success for ${appName}`);
             }
         } catch (err: any) {
-            console.error(`[Worker ${pid}] Direct Execution Error: ${err.message}`);
+            emitWorkerError(lib, pid, `Direct Execution Error: ${err.message}`);
         }
     }
 
@@ -293,10 +313,10 @@ async function main() {
             if (AppClass) {
                 // console.log(`[Worker ${pid}] Identified AppClass for ${appName}`);
             } else {
-                console.error(`[Worker ${pid}] Failed to identify AppClass for ${appName}. Module exports:`, Object.keys(module));
+                emitWorkerError(lib, pid, `Failed to identify AppClass for ${appName}. Module exports: ${Object.keys(module).join(", ")}`);
             }
         } catch (err: any) {
-            console.error(`[Worker ${pid}] Runtime Error: Failed to require ${finalAppPath || appName}: ${err.message}`);
+            emitWorkerError(lib, pid, `Runtime Error: Failed to require ${finalAppPath || appName}: ${err.message}`);
         }
 
     }
