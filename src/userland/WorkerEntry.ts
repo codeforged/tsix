@@ -277,6 +277,9 @@ async function main() {
     // Reason the load failed (transpile/execution) — used for a more honest
     // final message instead of the misleading "Application not found".
     let loadFailure: string | null = null;
+    // Detail error aslinya (pesan esbuild/runtime) — dipakai untuk popup desktop
+    // biar spesifik, bukan sekadar kategori "transpile failed".
+    let loadErrorDetail: string | null = null;
 
     // --- STRATEGI BARU: Direct Memory Execution (Tanpa .vfs_cache) ---
     if (!finalAppPath && (data as any).appContent && Module) {
@@ -308,6 +311,7 @@ async function main() {
                     content = result.code;
                 } catch (transpileErr: any) {
                     loadFailure = "transpile failed";
+                    loadErrorDetail = `TS Transpile Error: ${transpileErr.message}`;
                     emitWorkerError(lib, pid, `TS Transpile Error: ${transpileErr.message}`);
                     throw transpileErr;
                 }
@@ -335,6 +339,7 @@ async function main() {
             }
         } catch (err: any) {
             if (!loadFailure) loadFailure = "direct execution failed";
+            if (!loadErrorDetail) loadErrorDetail = `Direct Execution Error: ${err.message}`;
             emitWorkerError(lib, pid, `Direct Execution Error: ${err.message}`);
         }
     }
@@ -367,10 +372,12 @@ async function main() {
                 // console.log(`[Worker ${pid}] Identified AppClass for ${appName}`);
             } else {
                 loadFailure = "no valid 'main' export found";
+                loadErrorDetail = `Failed to identify AppClass for ${appName}. Module exports: ${Object.keys(module).join(", ")}`;
                 emitWorkerError(lib, pid, `Failed to identify AppClass for ${appName}. Module exports: ${Object.keys(module).join(", ")}`);
             }
         } catch (err: any) {
             loadFailure = "failed to load module";
+            loadErrorDetail = `Runtime Error: Failed to require ${finalAppPath || appName}: ${err.message}`;
             emitWorkerError(lib, pid, `Runtime Error: Failed to require ${finalAppPath || appName}: ${err.message}`);
         }
 
@@ -390,7 +397,8 @@ async function main() {
             // Tampilkan juga di desktop (WM/Asteracea) via GUI_WINDOW_ERROR.
             // WAJIB di-await: realExit(1) di bawah langsung mematikan worker, dan
             // kalau fire-and-forget, kiriman async-nya tak sempat selesai.
-            await notifyLoadError(lib, pid, appName, errorMsg.trim());
+            // Popup pakai detail error asli (loadErrorDetail) biar spesifik.
+            await notifyLoadError(lib, pid, appName, loadErrorDetail || errorMsg.trim());
         }
         realExit(1);
     }
