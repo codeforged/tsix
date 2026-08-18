@@ -4,6 +4,10 @@
 
 ---
 
+## 2026-08-18
+
+### Penambahan paramater left, top dan desktopCentered untuk positioning TForm
+
 ## 2026-08-08
 
 ### TForm — opsi window (maximizable/resizable/fullscreen/frameless) + overload constructor object literal
