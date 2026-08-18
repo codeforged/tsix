@@ -126,6 +126,12 @@ export interface TFormOptions {
   fullscreen?: boolean;
   /** Tanpa titlebar/border (default: false) */
   frameless?: boolean;
+  /** Posisi X window di desktop (default: default cascade) */
+  left?: number;
+  /** Posisi Y window di desktop (default: default cascade) */
+  top?: number;
+  /** Tengahkan window di desktop — menimpa left/top (default: false) */
+  desktopCentered?: boolean;
   /** Style tambahan (margin, padding, background, dll) — di-merge ke style default form */
   style?: Record<string, any>;
 }
@@ -140,6 +146,9 @@ export class TForm extends TComponent {
   private _resizable: boolean;
   private _fullscreen: boolean;
   private _frameless: boolean;
+  private _left: number | undefined;
+  private _top: number | undefined;
+  private _desktopCentered: boolean;
   private _onClose: (() => void) | null = null;
 
   // Overload 1 — sequential: new TForm("Title", 500, 100, false, true, true, false)
@@ -176,6 +185,9 @@ export class TForm extends TComponent {
       this._resizable = o.resizable ?? true;
       this._fullscreen = o.fullscreen ?? false;
       this._frameless = o.frameless ?? false;
+      this._left = o.left;
+      this._top = o.top;
+      this._desktopCentered = o.desktopCentered ?? false;
       userStyle = o.style;
     } else {
       this._title = titleOrOpts;
@@ -186,6 +198,9 @@ export class TForm extends TComponent {
       this._resizable = resizable;
       this._fullscreen = fullscreen;
       this._frameless = frameless;
+      this._left = undefined;
+      this._top = undefined;
+      this._desktopCentered = false;
     }
     this.tag = "div";
     this.style = {
@@ -226,6 +241,24 @@ export class TForm extends TComponent {
   set frameless(v: boolean) {
     this._frameless = v;
   }
+  set left(v: number | undefined) {
+    this._left = v;
+  }
+  get left(): number | undefined {
+    return this._left;
+  }
+  set top(v: number | undefined) {
+    this._top = v;
+  }
+  get top(): number | undefined {
+    return this._top;
+  }
+  set desktopCentered(v: boolean) {
+    this._desktopCentered = v;
+  }
+  get desktopCentered(): boolean {
+    return this._desktopCentered;
+  }
 
   /** Event: saat form ditutup */
   set onClose(cb: (() => void) | null) {
@@ -255,6 +288,9 @@ export class TForm extends TComponent {
       resizable: this._resizable,
       fullscreen: this._fullscreen,
       frameless: this._frameless,
+      left: this._left,
+      top: this._top,
+      desktopCentered: this._desktopCentered,
     };
     this._screen = new Screen(opts);
     if (this._onClose) this._screen.win.onClose(() => this._onClose!());

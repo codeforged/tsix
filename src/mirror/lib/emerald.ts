@@ -245,6 +245,12 @@ export interface WindowOptions {
   frameless?: boolean;
   maximizable?: boolean;
   resizable?: boolean;
+  /** Posisi X window di desktop (opsional) */
+  left?: number;
+  /** Posisi Y window di desktop (opsional) */
+  top?: number;
+  /** Tengahkan window di desktop — menimpa left/top (default: false) */
+  desktopCentered?: boolean;
 }
 
 // ============================================================
@@ -2694,6 +2700,9 @@ export class Window {
     let _maximizable: boolean;
     let _resizable: boolean;
     let _icon: string | undefined;
+    let _left: number | undefined;
+    let _top: number | undefined;
+    let _desktopCentered: boolean;
 
     if (
       typeof titleOrOpts === "object" &&
@@ -2710,6 +2719,9 @@ export class Window {
       _frameless = opts.frameless ?? false;
       _maximizable = opts.maximizable ?? true;
       _resizable = opts.resizable ?? true;
+      _left = opts.left;
+      _top = opts.top;
+      _desktopCentered = opts.desktopCentered ?? false;
     } else {
       _title = titleOrOpts as string;
       _icon = undefined;
@@ -2720,6 +2732,9 @@ export class Window {
       _frameless = frameless;
       _maximizable = maximizable;
       _resizable = resizable;
+      _left = undefined;
+      _top = undefined;
+      _desktopCentered = false;
     }
 
     // Pisahkan ikon title bar: icon eksplisit → dipakai; else emoji awal judul;
@@ -2758,6 +2773,9 @@ export class Window {
         frameless: _frameless,
         maximizable: _maximizable,
         resizable: _resizable,
+        posX: _left,
+        posY: _top,
+        centered: _desktopCentered,
       },
       children: [],
     });
@@ -3614,6 +3632,12 @@ export interface ScreenOptions {
   resizable?: boolean;
   frameless?: boolean;
   maximizable?: boolean;
+  /** Posisi X window di desktop (opsional) */
+  left?: number;
+  /** Posisi Y window di desktop (opsional) */
+  top?: number;
+  /** Tengahkan window di desktop — menimpa left/top (default: false) */
+  desktopCentered?: boolean;
 }
 
 export class Screen {
@@ -3659,6 +3683,9 @@ export class Screen {
         resizable: rz = true,
         frameless: fl = false,
         maximizable: mx = true,
+        left: lx,
+        top: ty,
+        desktopCentered: dc = false,
       } = opts;
       this.win = new Window({
         title,
@@ -3670,6 +3697,9 @@ export class Screen {
         frameless: fl,
         maximizable: mx,
         resizable: rz,
+        left: lx,
+        top: ty,
+        desktopCentered: dc,
       });
     } else {
       this.win = new Window(

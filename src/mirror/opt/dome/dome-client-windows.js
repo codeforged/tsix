@@ -87,14 +87,22 @@
       winEl.style.borderRadius = "0";
       winEl.style.zIndex = "1";
     } else {
+      // Ukuran efektif window (dipakai juga untuk perhitungan centered)
+      const winW = msg.posX !== undefined && msg.posW ? msg.posW : width || 420;
+      const winH = msg.posH || height;
+      // Posisi custom (posX/posY dari left/top) atau centered di viewport
+      let posX = msg.posX;
+      let posY = msg.posY;
+      if (msg.centered) {
+        posX = Math.round((window.innerWidth - winW) / 2);
+        posY = Math.round((window.innerHeight - (winH || 420)) / 2);
+      }
       winEl.style.left =
-        (msg.posX !== undefined ? msg.posX : 80 + S.windows.size * 30) + "px";
+        (posX !== undefined ? posX : 80 + S.windows.size * 30) + "px";
       winEl.style.top =
-        (msg.posY !== undefined ? msg.posY : 60 + S.windows.size * 30) + "px";
-      winEl.style.width =
-        (msg.posX !== undefined && msg.posW ? msg.posW : width || 420) + "px";
-      if (height || msg.posH)
-        winEl.style.height = (msg.posH || height) + "px";
+        (posY !== undefined ? posY : 60 + S.windows.size * 30) + "px";
+      winEl.style.width = winW + "px";
+      if (winH) winEl.style.height = winH + "px";
       winEl.style.minHeight = "200px";
     }
 

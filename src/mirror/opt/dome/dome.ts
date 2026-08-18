@@ -807,6 +807,9 @@ export const main = Program(async (args: string[]) => {
             resizable: entry.resizable,
             frameless: node?.props?.frameless || false,
             maximizable: entry.maximizable,
+            posX: node?.props?.posX,
+            posY: node?.props?.posY,
+            centered: node?.props?.centered || false,
           });
           break;
         }
