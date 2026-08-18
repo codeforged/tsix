@@ -203,6 +203,54 @@ function emitWorkerError(lib: any, pid: number, message: string) {
     console.error(`[Worker ${pid}] ${message}`);
 }
 
+/**
+ * notifyLoadError(): Kirim GUI_WINDOW_ERROR ke parent & Window Manager (Asteracea)
+ * supaya error gagal-load aplikasi juga tampil sebagai popup di desktop — termasuk
+ * saat app dijalankan dari file-cruiser/terminal (foreign app). Polanya sama dengan
+ * notifyParentWindowEvent() di Emerald: kirim ke parent dulu, lalu ke WM via
+ * /opt/asteracea/wm-pid. Fire-and-forget; kegagalan pengiriman tidak fatal.
+ */
+async function notifyLoadError(lib: any, pid: number, appName: string, message: string) {
+    try {
+        const timestamp = new Date()
+            .toISOString()
+            .replace("T", " ")
+            .substring(0, 19);
+        const payload = {
+            type: "GUI_WINDOW_ERROR",
+            wid: "",
+            pid,
+            file: appName,
+            error: message,
+            context: "load",
+            timestamp,
+        };
+
+        // 1. Kirim ke parent process (bisa WM bila app di-launch dari launcher)
+        const parentPid = await lib.getParentPid();
+        if (parentPid) {
+            await lib.shell.send(parentPid, payload);
+        }
+
+        // 2. Kirim juga ke Asteracea WM — untuk app yang di-run via
+        //    file-cruiser/terminal (foreign app). Baca PID WM dari wm-pid file.
+        try {
+            const wmPidRaw = await lib.fs.readFile("/opt/asteracea/wm-pid");
+            if (wmPidRaw) {
+                const wmPid = parseInt(String(wmPidRaw).trim());
+                const myPid = lib.getPid();
+                if (wmPid && wmPid !== myPid && wmPid !== parentPid) {
+                    await lib.shell.send(wmPid, payload);
+                }
+            }
+        } catch (_) {
+            // Asteracea tidak berjalan — no-op
+        }
+    } catch (_) {
+        // Notifikasi gagal — non-fatal
+    }
+}
+
 async function main() {
     const data = workerData as WorkerInitData;
     const { pid, appName, args, appPath } = data;
@@ -259,7 +307,7 @@ async function main() {
                     });
                     content = result.code;
                 } catch (transpileErr: any) {
-                    loadFailure = "transpile failed (see details above)";
+                    loadFailure = "transpile failed";
                     emitWorkerError(lib, pid, `TS Transpile Error: ${transpileErr.message}`);
                     throw transpileErr;
                 }
@@ -286,7 +334,7 @@ async function main() {
                 // console.log(`[Worker ${pid}] Direct Memory Execution success for ${appName}`);
             }
         } catch (err: any) {
-            if (!loadFailure) loadFailure = "direct execution failed (see details above)";
+            if (!loadFailure) loadFailure = "direct execution failed";
             emitWorkerError(lib, pid, `Direct Execution Error: ${err.message}`);
         }
     }
@@ -322,7 +370,7 @@ async function main() {
                 emitWorkerError(lib, pid, `Failed to identify AppClass for ${appName}. Module exports: ${Object.keys(module).join(", ")}`);
             }
         } catch (err: any) {
-            loadFailure = "failed to load module (see details above)";
+            loadFailure = "failed to load module";
             emitWorkerError(lib, pid, `Runtime Error: Failed to require ${finalAppPath || appName}: ${err.message}`);
         }
 
@@ -339,6 +387,8 @@ async function main() {
                 success: false,
                 error: errorMsg.trim()
             });
+            // Tampilkan juga di desktop (WM/Asteracea) via GUI_WINDOW_ERROR
+            void notifyLoadError(lib, pid, appName, errorMsg.trim());
         }
         realExit(1);
     }
