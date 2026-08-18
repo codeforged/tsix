@@ -87,14 +87,22 @@
       winEl.style.borderRadius = "0";
       winEl.style.zIndex = "1";
     } else {
+      // Ukuran efektif window (dipakai juga untuk perhitungan centered)
+      const winW = msg.posX !== undefined && msg.posW ? msg.posW : width || 420;
+      const winH = msg.posH || height;
+      // Posisi custom (posX/posY dari left/top) atau centered di viewport
+      let posX = msg.posX;
+      let posY = msg.posY;
+      if (msg.centered) {
+        posX = Math.round((window.innerWidth - winW) / 2);
+        posY = Math.round((window.innerHeight - (winH || 420)) / 2);
+      }
       winEl.style.left =
-        (msg.posX !== undefined ? msg.posX : 80 + S.windows.size * 30) + "px";
+        (posX !== undefined ? posX : 80 + S.windows.size * 30) + "px";
       winEl.style.top =
-        (msg.posY !== undefined ? msg.posY : 60 + S.windows.size * 30) + "px";
-      winEl.style.width =
-        (msg.posX !== undefined && msg.posW ? msg.posW : width || 420) + "px";
-      if (height || msg.posH)
-        winEl.style.height = (msg.posH || height) + "px";
+        (posY !== undefined ? posY : 60 + S.windows.size * 30) + "px";
+      winEl.style.width = winW + "px";
+      if (winH) winEl.style.height = winH + "px";
       winEl.style.minHeight = "200px";
     }
 
@@ -403,8 +411,7 @@
       win.el.style.transition = "opacity " + FADE_DURATION + "ms ease-in";
       win.el.style.opacity = "0";
       if (win.el._minBtn) win.el._minBtn.style.display = "none";
-      if (win.el._restoreBtn)
-        win.el._restoreBtn.style.display = "inline-block";
+      if (win.el._restoreBtn) win.el._restoreBtn.style.display = "inline-block";
       const finish = () => {
         win.el.style.display = "none";
         win._animating = false;
@@ -434,9 +441,7 @@
     // Cari taskbar button via [data-wid] langsung — ambil posisinya sekarang
     const tbTarget = getTaskbarBtnTarget(msg.wid);
     const targetLeft = tbTarget ? tbTarget.left : rect.left + "px";
-    const targetTop = tbTarget
-      ? tbTarget.top
-      : window.innerHeight - 50 + "px";
+    const targetTop = tbTarget ? tbTarget.top : window.innerHeight - 50 + "px";
     win._savedTbRect = tbTarget;
 
     // Temporarily remove min-height
@@ -444,8 +449,7 @@
     win.el.style.minHeight = "0";
 
     if (win.el._minBtn) win.el._minBtn.style.display = "none";
-    if (win.el._restoreBtn)
-      win.el._restoreBtn.style.display = "inline-block";
+    if (win.el._restoreBtn) win.el._restoreBtn.style.display = "inline-block";
 
     // Animate to taskbar button
     win.el.style.transition =
@@ -548,9 +552,7 @@
     // Cari posisi TB fresh setiap kali restore — bisa saja berubah
     const tbTarget = getTaskbarBtnTarget(msg.wid) || win._savedTbRect;
     const startLeft = tbTarget ? tbTarget.left : saved.left + "px";
-    const startTop = tbTarget
-      ? tbTarget.top
-      : window.innerHeight - 50 + "px";
+    const startTop = tbTarget ? tbTarget.top : window.innerHeight - 50 + "px";
 
     // Temporarily remove min-height
     win.el.style.minHeight = "0";
