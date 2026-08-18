@@ -387,8 +387,10 @@ async function main() {
                 success: false,
                 error: errorMsg.trim()
             });
-            // Tampilkan juga di desktop (WM/Asteracea) via GUI_WINDOW_ERROR
-            void notifyLoadError(lib, pid, appName, errorMsg.trim());
+            // Tampilkan juga di desktop (WM/Asteracea) via GUI_WINDOW_ERROR.
+            // WAJIB di-await: realExit(1) di bawah langsung mematikan worker, dan
+            // kalau fire-and-forget, kiriman async-nya tak sempat selesai.
+            await notifyLoadError(lib, pid, appName, errorMsg.trim());
         }
         realExit(1);
     }
