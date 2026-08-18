@@ -4,6 +4,21 @@
 
 ---
 
+## 2026-08-18
+
+### Error load-path aplikasi tampil di pixelterm & popup desktop (GUI_WINDOW_ERROR)
+- **File:** `src/userland/WorkerEntry.ts`
+- **Masalah:** Saat app gagal di-transpile/dimuat (mis. `./app.ts` dengan error TS), `console.error` di worker hanya menulis ke **host stderr** — tidak terlihat di pixelterm (yang hanya membaca buffer TTY) maupun di desktop. Pesan akhir `-bash: ...: Application not found (Path: VFS-Only)` juga menyesatkan karena app sebenarnya ketemu, cuma gagal load.
+- **Perubahan:**
+  - **`emitWorkerError()`:** cetak error load-path (TS Transpile, Direct Execution, identify AppClass, require gagal) ke TTY via `lib.std.print` (merah, format `[Worker N] ...`), fallback ke `console.error` bila print TTY gagal.
+  - **Pesan akhir jujur:** `-bash: <app>: Failed to load — <penyebab>` (`transpile failed` / `direct execution failed` / `failed to load module` / `no valid 'main' export found`) menggantikan "Application not found" yang menyesatkan; `Application not found` tetap dipakai bila app benar-benar tidak ada.
+  - **`notifyLoadError()`:** kirim `GUI_WINDOW_ERROR` ke parent & Window Manager (Asteracea) via `/opt/asteracea/wm-pid` — pola sama dengan `notifyParentWindowEvent()` di Emerald — sehingga error tampil sebagai popup desktop meski app dijalankan dari file-cruiser/terminal (foreign app). **WAJIB di-await** sebelum `realExit(1)` (fire-and-forget tidak sempat terkirim karena worker langsung mati).
+  - **Popup detail:** `loadErrorDetail` membawa pesan esbuild/runtime asli agar popup WM spesifik, bukan sekadar kategori.
+- **Dampak:** Error gagal-load kini terlihat di pixelterm (TTY) dan di desktop (popup WM) dari mana pun app dijalankan. Deploy: recompile `WorkerEntry.ts` → `WorkerEntry.js` (kernel memuat file `.js`), lalu restart.
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-15
 
 ### /dev/ttyN kini world-accessible (0o666) — pixelterm non-root bisa resize TTY
