@@ -226,8 +226,8 @@ async function main() {
     const targetKey = appName.trim();
     let AppClass: any = null;
     let finalAppPath = appPath;
-    // Penyebab gagal load (transpile/eksekusi) — dipakai utk pesan akhir yang
-    // lebih jujur daripada "Application not found" yang menyesatkan.
+    // Reason the load failed (transpile/execution) — used for a more honest
+    // final message instead of the misleading "Application not found".
     let loadFailure: string | null = null;
 
     // --- STRATEGI BARU: Direct Memory Execution (Tanpa .vfs_cache) ---
@@ -259,7 +259,7 @@ async function main() {
                     });
                     content = result.code;
                 } catch (transpileErr: any) {
-                    loadFailure = "transpile error (lihat detail di atas)";
+                    loadFailure = "transpile failed (see details above)";
                     emitWorkerError(lib, pid, `TS Transpile Error: ${transpileErr.message}`);
                     throw transpileErr;
                 }
@@ -286,7 +286,7 @@ async function main() {
                 // console.log(`[Worker ${pid}] Direct Memory Execution success for ${appName}`);
             }
         } catch (err: any) {
-            if (!loadFailure) loadFailure = "direct execution error (lihat detail di atas)";
+            if (!loadFailure) loadFailure = "direct execution failed (see details above)";
             emitWorkerError(lib, pid, `Direct Execution Error: ${err.message}`);
         }
     }
@@ -318,11 +318,11 @@ async function main() {
             if (AppClass) {
                 // console.log(`[Worker ${pid}] Identified AppClass for ${appName}`);
             } else {
-                loadFailure = "tidak ada export 'main' yang valid";
+                loadFailure = "no valid 'main' export found";
                 emitWorkerError(lib, pid, `Failed to identify AppClass for ${appName}. Module exports: ${Object.keys(module).join(", ")}`);
             }
         } catch (err: any) {
-            loadFailure = "gagal memuat module (lihat detail di atas)";
+            loadFailure = "failed to load module (see details above)";
             emitWorkerError(lib, pid, `Runtime Error: Failed to require ${finalAppPath || appName}: ${err.message}`);
         }
 
@@ -332,7 +332,7 @@ async function main() {
     if (!AppClass) {
         if (parentPort) {
             const errorMsg = loadFailure
-                ? `-bash: ${appName}: Gagal dimuat — ${loadFailure}\n`
+                ? `-bash: ${appName}: Failed to load — ${loadFailure}\n`
                 : `-bash: ${appName}: Application not found (Path: ${appPath || 'VFS-Only'})\n`;
             await lib.std.print(errorMsg);
             parentPort.postMessage({
