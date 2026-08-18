@@ -50,6 +50,12 @@ export const main = Program(async (args: string[]) => {
   let editorContent = "";
   let modified = false;
   let savedContent = ""; // baseline konten bersih (isi di disk / saat terakhir disimpan)
+  // ── RUN / RE-RUN — tracking instance yang berjalan ──
+  // PID disimpan ke file di /tmp supaya bisa dijadikan referensi kill
+  // (pola sama seperti telechatd.pid). Berguna juga kalau editor ditutup
+  // lalu dibuka lagi — PID instance lama masih bisa dibunuh.
+  const RUN_PID_FILE = "/tmp/eucalyptus-run.pid";
+  let runPid: number | null = null; // PID instance yang sedang berjalan
 
   // Normalisasi line ending supaya perbandingan isi tidak terganggu
   // (CodeMirror selalu memakai "\n" di dalam editor).
@@ -113,6 +119,115 @@ export const main = Program(async (args: string[]) => {
     const label = currentFile ? currentFile : "No file open";
     const dot = modified ? " ●" : "";
     await app.update("file-path", { text: label + dot });
+    await updateRunButtons();
+  }
+
+  // ── RUN / RE-RUN — jalankan file .ts/.js dari buffer editor ──
+  // Pola PID file + kill (SIGTERM → SIGKILL) ditiru dari telechatd --restart.
+  function isRunnableFile(): boolean {
+    if (!currentFile) return false;
+    const ext = currentFile.split(".").pop()?.toLowerCase() || "";
+    return ext === "ts" || ext === "js";
+  }
+
+  async function readRunPid(): Promise<number | null> {
+    try {
+      const raw = await fs.readFile(RUN_PID_FILE);
+      if (!raw) return null;
+      const n = parseInt(String(raw).trim(), 10);
+      return isNaN(n) ? null : n;
+    } catch {
+      return null;
+    }
+  }
+  async function writeRunPid(pid: number) {
+    try {
+      await fs.writeFile(RUN_PID_FILE, String(pid));
+    } catch (_) {}
+  }
+  async function removeRunPid() {
+    try {
+      await fs.unlink(RUN_PID_FILE);
+    } catch (_) {}
+  }
+  async function isRunAlive(pid: number): Promise<boolean> {
+    try {
+      const procs = await shell.ps();
+      return (
+        Array.isArray(procs) &&
+        procs.some((p: any) => p.pid === pid && p.state !== "EXITED")
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /** Bunuh instance yang berjalan (dari memory & pidfile). */
+  async function killRunning(): Promise<void> {
+    const candidates: number[] = [];
+    if (runPid) candidates.push(runPid);
+    const fp = await readRunPid();
+    if (fp && !candidates.includes(fp)) candidates.push(fp);
+
+    for (const pid of candidates) {
+      if (!(await isRunAlive(pid))) continue;
+      try {
+        await shell.kill(pid, 15);
+      } catch (_) {} // SIGTERM
+      await std.sleep(300);
+      if (await isRunAlive(pid)) {
+        try {
+          await shell.kill(pid, 9);
+        } catch (_) {} // SIGKILL
+      }
+    }
+    runPid = null;
+    await removeRunPid();
+    await updateRunButtons();
+  }
+
+  /** Jalankan file aktif dari state editor (buffer terbaru). */
+  async function runCurrent() {
+    if (!currentFile || !isRunnableFile()) return;
+    try {
+      // Tulis buffer editor ke /tmp supaya yang dijalankan = state terbaru
+      // (file di disk bisa beda kalau belum di-save).
+      const base = currentFile.split("/").pop() || "script";
+      const tmpPath = "/tmp/eucalyptus-run-" + base;
+      await fs.writeFile(tmpPath, editorContent);
+
+      // GUI app → jalankan langsung; console app → tampilkan di pixelterm.
+      const isGUI = /appMode\s*=\s*["']gui["']/.test(editorContent);
+      const result = isGUI
+        ? await shell.exec(tmpPath, [])
+        : await shell.exec("/opt/pixelterm/pixelterm.js", [tmpPath, "-hue"]);
+
+      runPid = result?.pid ?? null;
+      if (runPid) await writeRunPid(runPid);
+      await app.update("status-bar", {
+        text:
+          (isGUI ? "▶️ Run " : "▶️ Run (console) ") +
+          base +
+          (runPid ? " · PID " + runPid : ""),
+      });
+      await updateRunButtons();
+    } catch (e: any) {
+      await app.update("status-bar", { text: "❌ " + e.message });
+    }
+  }
+
+  /** Re-run: bunuh instance yang berjalan, lalu jalankan ulang dari buffer. */
+  async function rerunCurrent() {
+    await killRunning();
+    await runCurrent();
+  }
+
+  /** Sinkronkan enable/disable tombol Run & Re-run. */
+  async function updateRunButtons() {
+    const canRun = isRunnableFile();
+    await app.update("tb-run", { disabled: canRun ? "" : "1" });
+    await app.update("tb-rerun", { disabled: runPid ? "" : "1" });
+    await (app as any).win.flush();
   }
 
   /** Prompt user if there are unsaved changes. Returns true if caller should proceed, false if cancelled. */
@@ -186,7 +301,7 @@ export const main = Program(async (args: string[]) => {
     try {
       const e = await shell.getenv("HOME");
       if (e) homeDir = e;
-    } catch (_) { }
+    } catch (_) {}
 
     if (expandedDirs.has(homeDir)) expandedDirs.delete(homeDir);
     else expandedDirs.add(homeDir);
@@ -375,6 +490,30 @@ export const main = Program(async (args: string[]) => {
           onClickId: "tb-saveas",
         }),
         button({
+          id: "tb-run",
+          text: "▶️ Run",
+          title: "Run .ts/.js (from editor buffer)",
+          style: {
+            ...tb(),
+            color: theme.colors.accent,
+            borderColor: theme.colors.accent,
+          },
+          onClickId: "tb-run",
+          disabled: "1",
+        }),
+        button({
+          id: "tb-rerun",
+          text: "🔄 Re-run",
+          title: "Kill running instance & re-run",
+          style: {
+            ...tb(),
+            color: theme.colors.accent,
+            borderColor: theme.colors.accent,
+          },
+          onClickId: "tb-rerun",
+          disabled: "1",
+        }),
+        button({
           id: "tb-close",
           text: "✕ Close",
           style: {
@@ -498,6 +637,14 @@ export const main = Program(async (args: string[]) => {
     if (file) await saveFileAs(file.path);
   });
   await app.on("tb-close", "click", closeFile);
+  await app.on("tb-run", "click", runCurrent);
+  await app.on("tb-rerun", "click", rerunCurrent);
+
+  // Pulihkan referensi PID instance yang mungkin masih berjalan dari sesi
+  // sebelumnya (baca dari pidfile) — supaya Re-run bisa langsung dipakai.
+  const savedPid = await readRunPid();
+  if (savedPid && (await isRunAlive(savedPid))) runPid = savedPid;
+  await updateRunButtons();
 
   await refreshExplorer();
 
