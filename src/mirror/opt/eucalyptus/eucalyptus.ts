@@ -195,7 +195,7 @@ export const main = Program(async (args: string[]) => {
       const base = currentFile.split("/").pop() || "script";
       const tmpPath = "/tmp/eucalyptus-run-" + base;
       await fs.writeFile(tmpPath, editorContent);
-
+      const success = await fs.chmod(tmpPath, 0o755);
       // GUI app → jalankan langsung; console app → tampilkan di pixelterm.
       const isGUI = /appMode\s*=\s*["']gui["']/.test(editorContent);
       const result = isGUI
