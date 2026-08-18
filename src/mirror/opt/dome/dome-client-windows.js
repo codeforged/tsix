@@ -411,8 +411,7 @@
       win.el.style.transition = "opacity " + FADE_DURATION + "ms ease-in";
       win.el.style.opacity = "0";
       if (win.el._minBtn) win.el._minBtn.style.display = "none";
-      if (win.el._restoreBtn)
-        win.el._restoreBtn.style.display = "inline-block";
+      if (win.el._restoreBtn) win.el._restoreBtn.style.display = "inline-block";
       const finish = () => {
         win.el.style.display = "none";
         win._animating = false;
@@ -442,9 +441,7 @@
     // Cari taskbar button via [data-wid] langsung — ambil posisinya sekarang
     const tbTarget = getTaskbarBtnTarget(msg.wid);
     const targetLeft = tbTarget ? tbTarget.left : rect.left + "px";
-    const targetTop = tbTarget
-      ? tbTarget.top
-      : window.innerHeight - 50 + "px";
+    const targetTop = tbTarget ? tbTarget.top : window.innerHeight - 50 + "px";
     win._savedTbRect = tbTarget;
 
     // Temporarily remove min-height
@@ -452,8 +449,7 @@
     win.el.style.minHeight = "0";
 
     if (win.el._minBtn) win.el._minBtn.style.display = "none";
-    if (win.el._restoreBtn)
-      win.el._restoreBtn.style.display = "inline-block";
+    if (win.el._restoreBtn) win.el._restoreBtn.style.display = "inline-block";
 
     // Animate to taskbar button
     win.el.style.transition =
@@ -556,9 +552,7 @@
     // Cari posisi TB fresh setiap kali restore — bisa saja berubah
     const tbTarget = getTaskbarBtnTarget(msg.wid) || win._savedTbRect;
     const startLeft = tbTarget ? tbTarget.left : saved.left + "px";
-    const startTop = tbTarget
-      ? tbTarget.top
-      : window.innerHeight - 50 + "px";
+    const startTop = tbTarget ? tbTarget.top : window.innerHeight - 50 + "px";
 
     // Temporarily remove min-height
     win.el.style.minHeight = "0";

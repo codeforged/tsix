@@ -287,10 +287,21 @@ export function badge(props: Record<string, any> = {}): IDOMNode {
         height: userStyle.height || size,
         background: userStyle.background || color,
         borderRadius: userStyle.borderRadius || "50%",
-        boxShadow: userStyle.boxShadow || `0 0 ${(props.size || 6) * 1.5}px ${color}`,
-        ...Object.fromEntries(Object.entries(userStyle).filter(([k]) =>
-          !['display', 'width', 'height', 'background', 'borderRadius', 'boxShadow'].includes(k)
-        )),
+        boxShadow:
+          userStyle.boxShadow || `0 0 ${(props.size || 6) * 1.5}px ${color}`,
+        ...Object.fromEntries(
+          Object.entries(userStyle).filter(
+            ([k]) =>
+              ![
+                "display",
+                "width",
+                "height",
+                "background",
+                "borderRadius",
+                "boxShadow",
+              ].includes(k),
+          ),
+        ),
       },
       id,
     },
@@ -362,7 +373,9 @@ export function taskbarButton(props: Record<string, any> = {}): IDOMNode {
         background: active ? theme.colors.accentBg : "transparent",
         color: active ? theme.colors.accent : theme.colors.textDim,
         border: "none",
-        borderBottom: active ? `2px solid ${theme.colors.accent}` : "2px solid transparent",
+        borderBottom: active
+          ? `2px solid ${theme.colors.accent}`
+          : "2px solid transparent",
         borderRadius: "3px",
         padding: "4px 10px",
         fontSize: "12px",
@@ -404,19 +417,70 @@ export function sensorCard(props: Record<string, any> = {}): IDOMNode {
   const max = props.max ?? 100;
   const val = props.value;
 
-  const pct = val !== undefined
-    ? Math.min(100, Math.max(0, ((val - min) / (max - min)) * 100))
-    : 0;
+  const pct =
+    val !== undefined
+      ? Math.min(100, Math.max(0, ((val - min) / (max - min)) * 100))
+      : 0;
 
   return div(
-    { id: `sc-${id}`, style: { flex: "1", minWidth: "180px", background: theme.colors.card, borderRadius: "10px", padding: "16px", border: `1px solid ${color}44` } },
-    div({ style: { display: "flex", justifyContent: "space-between", marginBottom: "8px" } },
-      span({ text: `${icon} ${label}`, style: { fontSize: "13px", color: theme.colors.textDim } }),
-      span({ text: unit, style: { fontSize: "11px", color: theme.colors.textMuted } }),
+    {
+      id: `sc-${id}`,
+      style: {
+        flex: "1",
+        minWidth: "180px",
+        background: theme.colors.card,
+        borderRadius: "10px",
+        padding: "16px",
+        border: `1px solid ${color}44`,
+      },
+    },
+    div(
+      {
+        style: {
+          display: "flex",
+          justifyContent: "space-between",
+          marginBottom: "8px",
+        },
+      },
+      span({
+        text: `${icon} ${label}`,
+        style: { fontSize: "13px", color: theme.colors.textDim },
+      }),
+      span({
+        text: unit,
+        style: { fontSize: "11px", color: theme.colors.textMuted },
+      }),
     ),
-    span({ id: `sv-${id}`, text: val !== undefined ? val.toFixed(1) : "—", style: { fontSize: "28px", fontWeight: "700", color, display: "block", marginBottom: "6px" } }),
-    div({ style: { background: theme.colors.bgAlt, borderRadius: "3px", height: "6px", overflow: "hidden" } },
-      div({ id: `bar-${id}`, style: { width: `${pct}%`, background: color, height: "6px", borderRadius: "3px", transition: "width 0.3s" } }),
+    span({
+      id: `sv-${id}`,
+      text: val !== undefined ? val.toFixed(1) : "—",
+      style: {
+        fontSize: "28px",
+        fontWeight: "700",
+        color,
+        display: "block",
+        marginBottom: "6px",
+      },
+    }),
+    div(
+      {
+        style: {
+          background: theme.colors.bgAlt,
+          borderRadius: "3px",
+          height: "6px",
+          overflow: "hidden",
+        },
+      },
+      div({
+        id: `bar-${id}`,
+        style: {
+          width: `${pct}%`,
+          background: color,
+          height: "6px",
+          borderRadius: "3px",
+          transition: "width 0.3s",
+        },
+      }),
     ),
   );
 }
@@ -442,9 +506,35 @@ export function relayCard(props: Record<string, any> = {}): IDOMNode {
   const on = !!props.active;
 
   return div(
-    { id: `rc-${id}`, style: { padding: "12px", borderRadius: "8px", border: `1px solid ${on ? color : theme.colors.border}`, background: on ? `${color}22` : theme.colors.card, flex: "1", textAlign: "center" as any } },
-    span({ text: `${icon} ${label}`, style: { fontSize: "13px", color: theme.colors.textDim, display: "block", marginBottom: "4px" } }),
-    span({ id: `rs-${id}`, text: on ? "🟢 ON" : "⚫ OFF", style: { color: on ? color : theme.colors.textMuted, fontWeight: "700" as any, fontSize: "14px" } }),
+    {
+      id: `rc-${id}`,
+      style: {
+        padding: "12px",
+        borderRadius: "8px",
+        border: `1px solid ${on ? color : theme.colors.border}`,
+        background: on ? `${color}22` : theme.colors.card,
+        flex: "1",
+        textAlign: "center" as any,
+      },
+    },
+    span({
+      text: `${icon} ${label}`,
+      style: {
+        fontSize: "13px",
+        color: theme.colors.textDim,
+        display: "block",
+        marginBottom: "4px",
+      },
+    }),
+    span({
+      id: `rs-${id}`,
+      text: on ? "🟢 ON" : "⚫ OFF",
+      style: {
+        color: on ? color : theme.colors.textMuted,
+        fontWeight: "700" as any,
+        fontSize: "14px",
+      },
+    }),
   );
 }
 
@@ -477,11 +567,12 @@ export function buildLineChartSvg(props: Record<string, any> = {}): string {
   }
   if (points.length === 0) points.push({ x: 0, y: 0 }, { x: 1, y: 0 });
 
-  const yMin = props.min ?? Math.min(...points.map(p => p.y));
-  const yMax = props.max ?? Math.max(...points.map(p => p.y));
+  const yMin = props.min ?? Math.min(...points.map((p) => p.y));
+  const yMax = props.max ?? Math.max(...points.map((p) => p.y));
   const yRange = yMax - yMin || 1;
 
-  const toX = (i: number) => pad.l + (points.length > 1 ? (i / (points.length - 1)) * pw : pw / 2);
+  const toX = (i: number) =>
+    pad.l + (points.length > 1 ? (i / (points.length - 1)) * pw : pw / 2);
   const toY = (v: number) => pad.t + ph - ((v - yMin) / yRange) * ph;
   const coords = points.map((p, i) => [toX(i), toY(p.y)]);
 
@@ -489,11 +580,18 @@ export function buildLineChartSvg(props: Record<string, any> = {}): string {
   if (spline) {
     pathD = splinePath(coords, 0.5);
   } else {
-    pathD = coords.map((c, i) => (i === 0 ? "M" : "L") + ` ${c[0].toFixed(1)} ${c[1].toFixed(1)}`).join(" ");
+    pathD = coords
+      .map(
+        (c, i) =>
+          (i === 0 ? "M" : "L") + ` ${c[0].toFixed(1)} ${c[1].toFixed(1)}`,
+      )
+      .join(" ");
   }
   let areaD = "";
   if (fill) {
-    areaD = pathD + ` L ${coords[coords.length - 1][0].toFixed(1)} ${pad.t + ph} L ${coords[0][0].toFixed(1)} ${pad.t + ph} Z`;
+    areaD =
+      pathD +
+      ` L ${coords[coords.length - 1][0].toFixed(1)} ${pad.t + ph} L ${coords[0][0].toFixed(1)} ${pad.t + ph} Z`;
   }
 
   const lcIsLight = isLightColor(theme.colors.card);
@@ -507,13 +605,18 @@ export function buildLineChartSvg(props: Record<string, any> = {}): string {
     const val = yMin + ((3 - i) / 3) * yRange;
     html += `<text x="${pad.l - 4}" y="${y + 4}" fill="#888" font-size="9" text-anchor="end">${val % 1 === 0 ? Math.round(val) : val.toFixed(1)}</text>`;
   }
-  for (let i = 0; i < points.length; i += Math.max(1, Math.floor(points.length / 6))) {
+  for (
+    let i = 0;
+    i < points.length;
+    i += Math.max(1, Math.floor(points.length / 6))
+  ) {
     html += `<text x="${toX(i).toFixed(1)}" y="${H - 4}" fill="#888" font-size="8" text-anchor="middle">${points[i].label || String(i + 1)}</text>`;
   }
   html += `<clipPath id="lc-clip-${id}"><rect x="${pad.l}" y="${pad.t}" width="${pw}" height="${ph}"/></clipPath>`;
   html += `<g clip-path="url(#lc-clip-${id})">`;
   html += `<g id="lc-scroll-${id}" data-tsix-id="lc-scroll-${id}" style="transition: transform 0.25s ease-out">`;
-  if (areaD) html += `<path id="lc-area-${id}" data-tsix-id="lc-area-${id}" d="${areaD}" fill="${color}22" stroke="none"/>`;
+  if (areaD)
+    html += `<path id="lc-area-${id}" data-tsix-id="lc-area-${id}" d="${areaD}" fill="${color}22" stroke="none"/>`;
   html += `<path id="lc-line-${id}" data-tsix-id="lc-line-${id}" d="${pathD}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
   html += `<g id="lc-dots-${id}" data-tsix-id="lc-dots-${id}">`;
   for (let di = 0; di < coords.length; di++) {
@@ -540,17 +643,19 @@ export function buildRadialGaugeSvg(props: Record<string, any> = {}): string {
   const size = props.size || 120;
   const unit = props.unit || "";
 
-  const cx = size / 2, cy = size / 2;
+  const cx = size / 2,
+    cy = size / 2;
   const radius = size * 0.36;
-  const strokeW = size * 0.10;
-  const startAngle = -220, endAngle = 40;
+  const strokeW = size * 0.1;
+  const startAngle = -220,
+    endAngle = 40;
   const range = endAngle - startAngle;
   const pct = Math.max(0, Math.min(1, (val - min) / (max - min || 1)));
   const angle = startAngle + range * pct;
-  const rad = (a: number) => a * Math.PI / 180;
+  const rad = (a: number) => (a * Math.PI) / 180;
   const arcX = (a: number) => cx + radius * Math.cos(rad(a));
   const arcY = (a: number) => cy + radius * Math.sin(rad(a));
-  const arcLength = radius * Math.abs(endAngle - startAngle) * Math.PI / 180;
+  const arcLength = (radius * Math.abs(endAngle - startAngle) * Math.PI) / 180;
   const dashOffset = arcLength * (1 - pct);
 
   const rgIsLight = isLightColor(theme.colors.card);
@@ -572,7 +677,7 @@ export function buildRadialGaugeSvg(props: Record<string, any> = {}): string {
   html += `</g>`;
   html += `<circle cx="${cx}" cy="${cy}" r="${size * 0.04}" fill="${rgFg}"/>`;
   html += `<text id="rg-val-${id}" x="${cx}" y="${cy + size * 0.05 + 15}" fill="${rgFg}" font-size="${size * 0.14}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${val % 1 === 0 ? Math.round(val) : val.toFixed(1)}</text>`;
-  html += `<text x="${cx}" y="${cy + size * 0.20 + 15}" fill="#888" font-size="${size * 0.09}" text-anchor="middle">${unit}</text>`;
+  html += `<text x="${cx}" y="${cy + size * 0.2 + 15}" fill="#888" font-size="${size * 0.09}" text-anchor="middle">${unit}</text>`;
   html += `</svg>`;
   return html;
 }
@@ -587,12 +692,38 @@ export function buildSevenSegmentHtml(props: Record<string, any> = {}): string {
   const color = props.color || "#4caf50";
   const scale = props.scale ?? 1;
   // sevenSegment offColor: kalo theme light, pake semi-transparan biar keliatan bedanya
-  const isLightBg = theme.colors.bg.startsWith("#") && isLightColor(theme.colors.bg);
-  const offColor = props.offColor || (isLightBg ? color + "22" : darken(color, 0.2));
+  const isLightBg =
+    theme.colors.bg.startsWith("#") && isLightColor(theme.colors.bg);
+  const offColor =
+    props.offColor || (isLightBg ? color + "22" : darken(color, 0.2));
   const formatted = Number(value).toFixed(decimals);
-  const padded = formatted.padStart(digits + (decimals > 0 ? 1 : 0), " ").slice(-(digits + (decimals > 0 ? 1 : 0)));
-  const segMap: Record<string, string> = { "0": "ABCDEF", "1": "BC", "2": "ABDEG", "3": "ABCDG", "4": "BCFG", "5": "ACDFG", "6": "ACDEFG", "7": "ABC", "8": "ABCDEFG", "9": "ABCDFG", "-": "G", " ": "", ".": "" };
-  const segDefs: Record<string, [number, number, number, number]> = { A: [4, 2, 26, 2], B: [28, 4, 28, 22], C: [28, 26, 28, 44], D: [4, 46, 26, 46], E: [2, 26, 2, 44], F: [2, 4, 2, 22], G: [4, 24, 26, 24] };
+  const padded = formatted
+    .padStart(digits + (decimals > 0 ? 1 : 0), " ")
+    .slice(-(digits + (decimals > 0 ? 1 : 0)));
+  const segMap: Record<string, string> = {
+    "0": "ABCDEF",
+    "1": "BC",
+    "2": "ABDEG",
+    "3": "ABCDG",
+    "4": "BCFG",
+    "5": "ACDFG",
+    "6": "ACDEFG",
+    "7": "ABC",
+    "8": "ABCDEFG",
+    "9": "ABCDFG",
+    "-": "G",
+    " ": "",
+    ".": "",
+  };
+  const segDefs: Record<string, [number, number, number, number]> = {
+    A: [4, 2, 26, 2],
+    B: [28, 4, 28, 22],
+    C: [28, 26, 28, 44],
+    D: [4, 46, 26, 46],
+    E: [2, 26, 2, 44],
+    F: [2, 4, 2, 22],
+    G: [4, 24, 26, 24],
+  };
   const toUri = (s: string) => "data:image/svg+xml," + encodeURIComponent(s);
   const digW = Math.round(30 * scale);
   const digH = Math.round(50 * scale);
@@ -600,10 +731,16 @@ export function buildSevenSegmentHtml(props: Record<string, any> = {}): string {
 
   let html = `<div style="display:flex;justify-content:center;align-items:center;gap:${Math.round(4 * scale)}px;padding:${Math.round(8 * scale)}px ${Math.round(4 * scale)}px;transform:skewX(-8deg);">`;
   for (const ch of padded) {
-    if (ch === ".") { html += `<img src="${toUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${dotW}" height="${digH}" viewBox="0 0 8 50"><circle cx="4" cy="46" r="4" fill="${color}"/></svg>`)}" width="${dotW}" height="${digH}" style="flex-shrink:0;"/>`; continue; }
+    if (ch === ".") {
+      html += `<img src="${toUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${dotW}" height="${digH}" viewBox="0 0 8 50"><circle cx="4" cy="46" r="4" fill="${color}"/></svg>`)}" width="${dotW}" height="${digH}" style="flex-shrink:0;"/>`;
+      continue;
+    }
     const active = segMap[ch] || "";
     let seg = `<svg xmlns="http://www.w3.org/2000/svg" width="${digW}" height="${digH}" viewBox="0 0 30 48">`;
-    for (const s of "ABCDEFG") { const [x1, y1, x2, y2] = segDefs[s]; seg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${active.includes(s) ? color : offColor}" stroke-width="${Math.round(7 * scale)}" stroke-linecap="butt"/>`; }
+    for (const s of "ABCDEFG") {
+      const [x1, y1, x2, y2] = segDefs[s];
+      seg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${active.includes(s) ? color : offColor}" stroke-width="${Math.round(7 * scale)}" stroke-linecap="butt"/>`;
+    }
     seg += `</svg>`;
     html += `<img src="${toUri(seg)}" width="${digW}" height="${digH}" style="flex-shrink:0;"/>`;
   }
@@ -615,7 +752,10 @@ export function buildSevenSegmentHtml(props: Record<string, any> = {}): string {
  * buildIndicatorLampSvg(): Generate SVG string saja (tanpa wrapper card).
  * Return { svg, glowSize } agar label bisa di-update juga.
  */
-export function buildIndicatorLampImg(props: Record<string, any> = {}): { innerHTML: string; glowSize: number } {
+export function buildIndicatorLampImg(props: Record<string, any> = {}): {
+  innerHTML: string;
+  glowSize: number;
+} {
   const color = props.color || "#4caf50";
   const on = !!props.on;
   const size = props.size || 36;
@@ -623,9 +763,9 @@ export function buildIndicatorLampImg(props: Record<string, any> = {}): { innerH
   const svgToUri = (s: string) => "data:image/svg+xml," + encodeURIComponent(s);
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${glowSize}" height="${glowSize}" viewBox="0 0 ${glowSize} ${glowSize}">`;
-  svg += `<circle cx="${glowSize / 2}" cy="${glowSize / 2}" r="${glowSize * 0.45}" fill="${on ? color + '33' : 'transparent'}"/>`;
-  svg += `<circle cx="${glowSize / 2}" cy="${glowSize / 2}" r="${size / 2 + 3}" fill="none" stroke="${on ? color : '#555'}" stroke-width="2"/>`;
-  svg += `<circle cx="${glowSize / 2}" cy="${glowSize / 2}" r="${size / 2}" fill="${on ? color : '#333'}"/>`;
+  svg += `<circle cx="${glowSize / 2}" cy="${glowSize / 2}" r="${glowSize * 0.45}" fill="${on ? color + "33" : "transparent"}"/>`;
+  svg += `<circle cx="${glowSize / 2}" cy="${glowSize / 2}" r="${size / 2 + 3}" fill="none" stroke="${on ? color : "#555"}" stroke-width="2"/>`;
+  svg += `<circle cx="${glowSize / 2}" cy="${glowSize / 2}" r="${size / 2}" fill="${on ? color : "#333"}"/>`;
   svg += `<ellipse cx="${glowSize / 2 - size * 0.15}" cy="${glowSize / 2 - size * 0.15}" rx="${size * 0.18}" ry="${size * 0.13}" fill="rgba(255,255,255,0.25)"/>`;
   svg += `</svg>`;
 
@@ -641,13 +781,15 @@ export function buildIndicatorLampImg(props: Record<string, any> = {}): { innerH
 export function buildToggleSwitchSvg(props: Record<string, any> = {}): string {
   const color = props.color || "#4caf50";
   const on = !!props.on;
-  const swW = props.size || 48; const swH = swW * 0.55; const knobR = swH * 0.4;
+  const swW = props.size || 48;
+  const swH = swW * 0.55;
+  const knobR = swH * 0.4;
   const cx = on ? swW - swH * 0.5 : swH * 0.5;
   const offTrack = props.offTrack || "#333";
   const offKnob = props.offKnob || "#666";
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${swW}" height="${swH}" viewBox="0 0 ${swW} ${swH}">`;
-  svg += `<rect x="0" y="0" width="${swW}" height="${swH}" rx="${swH / 2}" fill="${on ? color + '66' : offTrack}"/>`;
+  svg += `<rect x="0" y="0" width="${swW}" height="${swH}" rx="${swH / 2}" fill="${on ? color + "66" : offTrack}"/>`;
   svg += `<circle cx="${cx}" cy="${swH / 2}" r="${knobR}" fill="${on ? color : offKnob}"/>`;
   svg += `</svg>`;
   return svg;
@@ -659,7 +801,8 @@ export function buildToggleSwitchSvg(props: Record<string, any> = {}): string {
 export function buildToggleSwitchImg(props: Record<string, any> = {}): string {
   const svg = buildToggleSwitchSvg(props);
   const svgToUri = (s: string) => "data:image/svg+xml," + encodeURIComponent(s);
-  const swW = props.size || 48; const swH = swW * 0.55;
+  const swW = props.size || 48;
+  const swH = swW * 0.55;
   return `<img src="${svgToUri(svg)}" width="${swW}" height="${swH}" style="display:block;margin:8px auto 0;pointer-events:none;"/>`;
 }
 
@@ -675,7 +818,8 @@ function svgEl(tag: string, props: Record<string, any> = {}): IDOMNode {
 // --- Catmull-Rom → cubic Bezier untuk spline halus ---
 function splinePath(pts: number[][], tension = 0.5): string {
   if (pts.length === 0) return "";
-  if (pts.length === 1) return `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+  if (pts.length === 1)
+    return `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
   let d = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
   for (let i = 0; i < pts.length - 1; i++) {
     const p0 = pts[Math.max(0, i - 1)];
@@ -683,9 +827,10 @@ function splinePath(pts: number[][], tension = 0.5): string {
     const p2 = pts[i + 1];
     const p3 = pts[Math.min(pts.length - 1, i + 2)];
     const tx = tension / 6;
-    d += ` C ${(p1[0] + (p2[0] - p0[0]) * tx).toFixed(1)} ${(p1[1] + (p2[1] - p0[1]) * tx).toFixed(1)},`
-      + ` ${(p2[0] - (p3[0] - p1[0]) * tx).toFixed(1)} ${(p2[1] - (p3[1] - p1[1]) * tx).toFixed(1)},`
-      + ` ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+    d +=
+      ` C ${(p1[0] + (p2[0] - p0[0]) * tx).toFixed(1)} ${(p1[1] + (p2[1] - p0[1]) * tx).toFixed(1)},` +
+      ` ${(p2[0] - (p3[0] - p1[0]) * tx).toFixed(1)} ${(p2[1] - (p3[1] - p1[1]) * tx).toFixed(1)},` +
+      ` ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
   }
   return d;
 }
@@ -726,11 +871,12 @@ export function lineChart(props: Record<string, any> = {}): IDOMNode {
   }
   if (points.length === 0) points.push({ x: 0, y: 0 }, { x: 1, y: 0 });
 
-  const yMin = props.min ?? Math.min(...points.map(p => p.y));
-  const yMax = props.max ?? Math.max(...points.map(p => p.y));
+  const yMin = props.min ?? Math.min(...points.map((p) => p.y));
+  const yMax = props.max ?? Math.max(...points.map((p) => p.y));
   const yRange = yMax - yMin || 1;
 
-  const toX = (i: number) => pad.l + (points.length > 1 ? (i / (points.length - 1)) * pw : pw / 2);
+  const toX = (i: number) =>
+    pad.l + (points.length > 1 ? (i / (points.length - 1)) * pw : pw / 2);
   const toY = (v: number) => pad.t + ph - ((v - yMin) / yRange) * ph;
   const coords = points.map((p, i) => [toX(i), toY(p.y)]);
 
@@ -738,11 +884,18 @@ export function lineChart(props: Record<string, any> = {}): IDOMNode {
   if (spline) {
     pathD = splinePath(coords, 0.5);
   } else {
-    pathD = coords.map((c, i) => (i === 0 ? "M" : "L") + ` ${c[0].toFixed(1)} ${c[1].toFixed(1)}`).join(" ");
+    pathD = coords
+      .map(
+        (c, i) =>
+          (i === 0 ? "M" : "L") + ` ${c[0].toFixed(1)} ${c[1].toFixed(1)}`,
+      )
+      .join(" ");
   }
   let areaD = "";
   if (fill) {
-    areaD = pathD + ` L ${coords[coords.length - 1][0].toFixed(1)} ${pad.t + ph} L ${coords[0][0].toFixed(1)} ${pad.t + ph} Z`;
+    areaD =
+      pathD +
+      ` L ${coords[coords.length - 1][0].toFixed(1)} ${pad.t + ph} L ${coords[0][0].toFixed(1)} ${pad.t + ph} Z`;
   }
 
   const lcIsLight = isLightColor(theme.colors.card);
@@ -756,13 +909,18 @@ export function lineChart(props: Record<string, any> = {}): IDOMNode {
     const val = yMin + ((3 - i) / 3) * yRange;
     html += `<text x="${pad.l - 4}" y="${y + 4}" fill="#888" font-size="9" text-anchor="end">${val % 1 === 0 ? Math.round(val) : val.toFixed(1)}</text>`;
   }
-  for (let i = 0; i < points.length; i += Math.max(1, Math.floor(points.length / 6))) {
+  for (
+    let i = 0;
+    i < points.length;
+    i += Math.max(1, Math.floor(points.length / 6))
+  ) {
     html += `<text x="${toX(i).toFixed(1)}" y="${H - 4}" fill="#888" font-size="8" text-anchor="middle">${points[i].label || String(i + 1)}</text>`;
   }
   html += `<clipPath id="lc-clip-${id}"><rect x="${pad.l}" y="${pad.t}" width="${pw}" height="${ph}"/></clipPath>`;
   html += `<g clip-path="url(#lc-clip-${id})">`;
   html += `<g id="lc-scroll-${id}" data-tsix-id="lc-scroll-${id}" style="transition: transform 0.25s ease-out">`;
-  if (areaD) html += `<path id="lc-area-${id}" data-tsix-id="lc-area-${id}" d="${areaD}" fill="${color}22" stroke="none"/>`;
+  if (areaD)
+    html += `<path id="lc-area-${id}" data-tsix-id="lc-area-${id}" d="${areaD}" fill="${color}22" stroke="none"/>`;
   html += `<path id="lc-line-${id}" data-tsix-id="lc-line-${id}" d="${pathD}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
   html += `<g id="lc-dots-${id}" data-tsix-id="lc-dots-${id}">`;
   for (let di = 0; di < coords.length; di++) {
@@ -776,9 +934,35 @@ export function lineChart(props: Record<string, any> = {}): IDOMNode {
   html += `</svg>`;
 
   return div(
-    { id, style: { flex: "1", minWidth: "240px", background: theme.colors.card, borderRadius: "10px", padding: "14px", border: `1px solid ${color}44`, overflow: "hidden" } },
-    props.title ? span({ text: String(props.title), style: { fontSize: "12px", color: theme.colors.textDim, display: "block", marginBottom: "6px" } }) : { id: uuidv4(), tag: "__empty__", props: {}, children: [] } as any,
-    { id: `lc-html-${id}`, tag: "div", props: { innerHTML: html }, children: [] },
+    {
+      id,
+      style: {
+        flex: "1",
+        minWidth: "240px",
+        background: theme.colors.card,
+        borderRadius: "10px",
+        padding: "14px",
+        border: `1px solid ${color}44`,
+        overflow: "hidden",
+      },
+    },
+    props.title
+      ? span({
+          text: String(props.title),
+          style: {
+            fontSize: "12px",
+            color: theme.colors.textDim,
+            display: "block",
+            marginBottom: "6px",
+          },
+        })
+      : ({ id: uuidv4(), tag: "__empty__", props: {}, children: [] } as any),
+    {
+      id: `lc-html-${id}`,
+      tag: "div",
+      props: { innerHTML: html },
+      children: [],
+    },
   );
 }
 
@@ -806,19 +990,21 @@ export function radialGauge(props: Record<string, any> = {}): IDOMNode {
   const label = props.label || "";
   const unit = props.unit || "";
 
-  const cx = size / 2, cy = size / 2;
+  const cx = size / 2,
+    cy = size / 2;
   const radius = size * 0.36;
-  const strokeW = size * 0.10;
-  const startAngle = -220, endAngle = 40;
+  const strokeW = size * 0.1;
+  const startAngle = -220,
+    endAngle = 40;
   const range = endAngle - startAngle;
   const pct = Math.max(0, Math.min(1, (val - min) / (max - min || 1)));
   const angle = startAngle + range * pct;
-  const rad = (a: number) => a * Math.PI / 180;
+  const rad = (a: number) => (a * Math.PI) / 180;
   const arcX = (a: number) => cx + radius * Math.cos(rad(a));
   const arcY = (a: number) => cy + radius * Math.sin(rad(a));
   const large = pct > 0.5 ? 1 : 0;
-  const largeArcFix = (range * pct) > 180 ? 1 : 0;
-  const arcLength = radius * Math.abs(endAngle - startAngle) * Math.PI / 180;
+  const largeArcFix = range * pct > 180 ? 1 : 0;
+  const arcLength = (radius * Math.abs(endAngle - startAngle) * Math.PI) / 180;
   const dashOffset = arcLength * (1 - pct);
 
   const rgIsLight = isLightColor(theme.colors.card);
@@ -840,16 +1026,45 @@ export function radialGauge(props: Record<string, any> = {}): IDOMNode {
   html += `</g>`;
   html += `<circle cx="${cx}" cy="${cy}" r="${size * 0.04}" fill="${rgFg}"/>`;
   html += `<text id="rg-val-${id}" data-tsix-id="rg-val-${id}" x="${cx}" y="${cy + size * 0.05 + 15}" fill="${rgFg}" font-size="${size * 0.14}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${val % 1 === 0 ? Math.round(val) : val.toFixed(1)}</text>`;
-  html += `<text x="${cx}" y="${cy + size * 0.20 + 15}" fill="#888" font-size="${size * 0.09}" text-anchor="middle">${unit}</text>`;
+  html += `<text x="${cx}" y="${cy + size * 0.2 + 15}" fill="#888" font-size="${size * 0.09}" text-anchor="middle">${unit}</text>`;
   html += `</svg>`;
 
   const children: IDOMNode[] = [
-    { id: `rg-html-${id}`, tag: "div", props: { innerHTML: html }, children: [] },
+    {
+      id: `rg-html-${id}`,
+      tag: "div",
+      props: { innerHTML: html },
+      children: [],
+    },
   ];
-  if (label) children.push(span({ text: label, style: { fontSize: "11px", color: theme.colors.textDim, display: "block", textAlign: "center", marginTop: "6px" } }));
+  if (label)
+    children.push(
+      span({
+        text: label,
+        style: {
+          fontSize: "11px",
+          color: theme.colors.textDim,
+          display: "block",
+          textAlign: "center",
+          marginTop: "6px",
+        },
+      }),
+    );
 
   return div(
-    { id, style: { flex: "1", minWidth: "160px", background: theme.colors.card, borderRadius: "10px", padding: "14px", border: `1px solid ${color}44`, textAlign: "center" as any, overflow: "hidden" } },
+    {
+      id,
+      style: {
+        flex: "1",
+        minWidth: "160px",
+        background: theme.colors.card,
+        borderRadius: "10px",
+        padding: "14px",
+        border: `1px solid ${color}44`,
+        textAlign: "center" as any,
+        overflow: "hidden",
+      },
+    },
     ...children,
   );
 }
@@ -892,7 +1107,7 @@ function darken(hex: string, ratio = 0.15): string {
   const dr = Math.round(r * ratio);
   const dg = Math.round(g * ratio);
   const db = Math.round(b * ratio);
-  return `#${dr.toString(16).padStart(2, '0')}${dg.toString(16).padStart(2, '0')}${db.toString(16).padStart(2, '0')}`;
+  return `#${dr.toString(16).padStart(2, "0")}${dg.toString(16).padStart(2, "0")}${db.toString(16).padStart(2, "0")}`;
 }
 
 export function sevenSegment(props: Record<string, any> = {}): IDOMNode {
@@ -902,14 +1117,40 @@ export function sevenSegment(props: Record<string, any> = {}): IDOMNode {
   const decimals = props.decimals ?? 0;
   const color = props.color || "#4caf50";
   // sevenSegment offColor: kalo theme light, pake semi-transparan
-  const isLightBg = theme.colors.bg.startsWith("#") && isLightColor(theme.colors.bg);
-  const offColor = props.offColor || (isLightBg ? color + "22" : darken(color, 0.2));
+  const isLightBg =
+    theme.colors.bg.startsWith("#") && isLightColor(theme.colors.bg);
+  const offColor =
+    props.offColor || (isLightBg ? color + "22" : darken(color, 0.2));
   const label = props.label || "";
   const scale = props.scale ?? 1;
   const formatted = Number(value).toFixed(decimals);
-  const padded = formatted.padStart(digits + (decimals > 0 ? 1 : 0), " ").slice(-(digits + (decimals > 0 ? 1 : 0)));
-  const segMap: Record<string, string> = { "0": "ABCDEF", "1": "BC", "2": "ABDEG", "3": "ABCDG", "4": "BCFG", "5": "ACDFG", "6": "ACDEFG", "7": "ABC", "8": "ABCDEFG", "9": "ABCDFG", "-": "G", " ": "", ".": "" };
-  const segDefs: Record<string, [number, number, number, number]> = { A: [4, 2, 26, 2], B: [28, 4, 28, 22], C: [28, 26, 28, 44], D: [4, 46, 26, 46], E: [2, 26, 2, 44], F: [2, 4, 2, 22], G: [4, 24, 26, 24] };
+  const padded = formatted
+    .padStart(digits + (decimals > 0 ? 1 : 0), " ")
+    .slice(-(digits + (decimals > 0 ? 1 : 0)));
+  const segMap: Record<string, string> = {
+    "0": "ABCDEF",
+    "1": "BC",
+    "2": "ABDEG",
+    "3": "ABCDG",
+    "4": "BCFG",
+    "5": "ACDFG",
+    "6": "ACDEFG",
+    "7": "ABC",
+    "8": "ABCDEFG",
+    "9": "ABCDFG",
+    "-": "G",
+    " ": "",
+    ".": "",
+  };
+  const segDefs: Record<string, [number, number, number, number]> = {
+    A: [4, 2, 26, 2],
+    B: [28, 4, 28, 22],
+    C: [28, 26, 28, 44],
+    D: [4, 46, 26, 46],
+    E: [2, 26, 2, 44],
+    F: [2, 4, 2, 22],
+    G: [4, 24, 26, 24],
+  };
   const toUri = (s: string) => "data:image/svg+xml," + encodeURIComponent(s);
   const digW = Math.round(30 * scale);
   const digH = Math.round(50 * scale);
@@ -917,25 +1158,61 @@ export function sevenSegment(props: Record<string, any> = {}): IDOMNode {
 
   let html = `<div style="display:flex;justify-content:center;align-items:center;gap:${Math.round(4 * scale)}px;padding:${Math.round(8 * scale)}px ${Math.round(4 * scale)}px;transform:skewX(-8deg);">`;
   for (const ch of padded) {
-    if (ch === ".") { html += `<img src="${toUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${dotW}" height="${digH}" viewBox="0 0 8 50"><circle cx="4" cy="46" r="4" fill="${color}"/></svg>`)}" width="${dotW}" height="${digH}" style="flex-shrink:0;"/>`; continue; }
+    if (ch === ".") {
+      html += `<img src="${toUri(`<svg xmlns="http://www.w3.org/2000/svg" width="${dotW}" height="${digH}" viewBox="0 0 8 50"><circle cx="4" cy="46" r="4" fill="${color}"/></svg>`)}" width="${dotW}" height="${digH}" style="flex-shrink:0;"/>`;
+      continue;
+    }
     const active = segMap[ch] || "";
     let seg = `<svg xmlns="http://www.w3.org/2000/svg" width="${digW}" height="${digH}" viewBox="0 0 30 48">`;
-    for (const s of "ABCDEFG") { const [x1, y1, x2, y2] = segDefs[s]; seg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${active.includes(s) ? color : offColor}" stroke-width="${Math.round(7 * scale)}" stroke-linecap="butt"/>`; }
+    for (const s of "ABCDEFG") {
+      const [x1, y1, x2, y2] = segDefs[s];
+      seg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${active.includes(s) ? color : offColor}" stroke-width="${Math.round(7 * scale)}" stroke-linecap="butt"/>`;
+    }
     seg += `</svg>`;
     html += `<img src="${toUri(seg)}" width="${digW}" height="${digH}" style="flex-shrink:0;"/>`;
   }
   html += `</div>`;
 
   const children: IDOMNode[] = [
-    { id: `ss-html-${id}`, tag: "div", props: { innerHTML: html, style: { display: "flex", alignItems: "center", justifyContent: "center", flex: "1" } }, children: [] },
+    {
+      id: `ss-html-${id}`,
+      tag: "div",
+      props: {
+        innerHTML: html,
+        style: {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flex: "1",
+        },
+      },
+      children: [],
+    },
   ];
-  if (label) children.push(span({ text: label, style: { fontSize: "11px", color: theme.colors.textDim, display: "block", textAlign: "center", marginTop: "4px" } }));
+  if (label)
+    children.push(
+      span({
+        text: label,
+        style: {
+          fontSize: "11px",
+          color: theme.colors.textDim,
+          display: "block",
+          textAlign: "center",
+          marginTop: "4px",
+        },
+      }),
+    );
 
   const segStyle: Record<string, any> = {
-    flex: "1", minWidth: "180px", background: theme.colors.bgAlt,
-    borderRadius: "10px", padding: "12px",
-    border: `1px solid ${color}44`, overflow: "hidden",
-    display: "flex", flexDirection: "column",
+    flex: "1",
+    minWidth: "180px",
+    background: theme.colors.bgAlt,
+    borderRadius: "10px",
+    padding: "12px",
+    border: `1px solid ${color}44`,
+    overflow: "hidden",
+    display: "flex",
+    flexDirection: "column",
   };
   if (props.height != null) segStyle.height = props.height;
   return div({ id, style: segStyle }, ...children);
@@ -965,19 +1242,52 @@ export function indicatorLamp(props: Record<string, any> = {}): IDOMNode {
   const svgToUri = (s: string) => "data:image/svg+xml," + encodeURIComponent(s);
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${glowSize}" height="${glowSize}" viewBox="0 0 ${glowSize} ${glowSize}">`;
-  svg += `<circle cx="${glowSize / 2}" cy="${glowSize / 2}" r="${glowSize * 0.45}" fill="${on ? color + '33' : 'transparent'}"/>`;
-  svg += `<circle cx="${glowSize / 2}" cy="${glowSize / 2}" r="${size / 2 + 3}" fill="none" stroke="${on ? color : '#555'}" stroke-width="2"/>`;
-  svg += `<circle cx="${glowSize / 2}" cy="${glowSize / 2}" r="${size / 2}" fill="${on ? color : '#333'}"/>`;
+  svg += `<circle cx="${glowSize / 2}" cy="${glowSize / 2}" r="${glowSize * 0.45}" fill="${on ? color + "33" : "transparent"}"/>`;
+  svg += `<circle cx="${glowSize / 2}" cy="${glowSize / 2}" r="${size / 2 + 3}" fill="none" stroke="${on ? color : "#555"}" stroke-width="2"/>`;
+  svg += `<circle cx="${glowSize / 2}" cy="${glowSize / 2}" r="${size / 2}" fill="${on ? color : "#333"}"/>`;
   svg += `<ellipse cx="${glowSize / 2 - size * 0.15}" cy="${glowSize / 2 - size * 0.15}" rx="${size * 0.18}" ry="${size * 0.13}" fill="rgba(255,255,255,0.25)"/>`;
   svg += `</svg>`;
 
   const children: IDOMNode[] = [
-    { id: `il-html-${id}`, tag: "div", props: { innerHTML: `<img src="${svgToUri(svg)}" width="${glowSize}" height="${glowSize}" style="display:block;margin:0 auto;"/>` }, children: [] },
+    {
+      id: `il-html-${id}`,
+      tag: "div",
+      props: {
+        innerHTML: `<img src="${svgToUri(svg)}" width="${glowSize}" height="${glowSize}" style="display:block;margin:0 auto;"/>`,
+      },
+      children: [],
+    },
   ];
-  if (label) children.push(span({ id: `il-label-${id}`, text: label, style: { fontSize: "11px", color: on ? color : theme.colors.textMuted, display: "block", textAlign: "center", marginTop: "6px", fontWeight: "600" as any } }));
+  if (label)
+    children.push(
+      span({
+        id: `il-label-${id}`,
+        text: label,
+        style: {
+          fontSize: "11px",
+          color: on ? color : theme.colors.textMuted,
+          display: "block",
+          textAlign: "center",
+          marginTop: "6px",
+          fontWeight: "600" as any,
+        },
+      }),
+    );
 
   return div(
-    { id: `il-${id}`, style: { flex: "1", minWidth: "100px", background: theme.colors.card, borderRadius: "10px", padding: "14px", border: `1px solid ${on ? color : theme.colors.border}44`, textAlign: "center" as any, overflow: "hidden" } },
+    {
+      id: `il-${id}`,
+      style: {
+        flex: "1",
+        minWidth: "100px",
+        background: theme.colors.card,
+        borderRadius: "10px",
+        padding: "14px",
+        border: `1px solid ${on ? color : theme.colors.border}44`,
+        textAlign: "center" as any,
+        overflow: "hidden",
+      },
+    },
     ...children,
   );
 }
@@ -987,26 +1297,59 @@ export function toggleSwitch(props: Record<string, any> = {}): IDOMNode {
   const color = props.color || "#4caf50";
   const on = !!props.on;
   const label = props.label || "";
-  const swW = props.size || 48; const swH = swW * 0.55; const knobR = swH * 0.4;
+  const swW = props.size || 48;
+  const swH = swW * 0.55;
+  const knobR = swH * 0.4;
   const cx = on ? swW - swH * 0.5 : swH * 0.5;
   const tsIsLight = isLightColor(theme.colors.card);
   const svgToUri = (s: string) => "data:image/svg+xml," + encodeURIComponent(s);
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${swW}" height="${swH}" viewBox="0 0 ${swW} ${swH}">`;
-  svg += `<rect x="0" y="0" width="${swW}" height="${swH}" rx="${swH / 2}" fill="${on ? color + '66' : (tsIsLight ? '#ccc' : '#333')}"/>`;
-  svg += `<circle cx="${cx}" cy="${swH / 2}" r="${knobR}" fill="${on ? color : (tsIsLight ? '#999' : '#666')}"/>`;
+  svg += `<rect x="0" y="0" width="${swW}" height="${swH}" rx="${swH / 2}" fill="${on ? color + "66" : tsIsLight ? "#ccc" : "#333"}"/>`;
+  svg += `<circle cx="${cx}" cy="${swH / 2}" r="${knobR}" fill="${on ? color : tsIsLight ? "#999" : "#666"}"/>`;
   svg += `</svg>`;
 
   const cardProps: Record<string, any> = {
     id: `ts-${id}`,
-    style: { flex: "1", minWidth: "110px", background: theme.colors.card, borderRadius: "10px", padding: "14px", border: `1px solid ${on ? color : theme.colors.border}44`, textAlign: "center" as any, cursor: "pointer", overflow: "hidden" },
+    style: {
+      flex: "1",
+      minWidth: "110px",
+      background: theme.colors.card,
+      borderRadius: "10px",
+      padding: "14px",
+      border: `1px solid ${on ? color : theme.colors.border}44`,
+      textAlign: "center" as any,
+      cursor: "pointer",
+      overflow: "hidden",
+    },
   };
   if (props.onClickId) cardProps.onClickId = props.onClickId;
 
   const children: IDOMNode[] = [
-    { id: `ts-html-${id}`, tag: "div", props: { innerHTML: `<img src="${svgToUri(svg)}" width="${swW}" height="${swH}" style="display:block;margin:8px auto 0;pointer-events:none;"/>` }, children: [] },
+    {
+      id: `ts-html-${id}`,
+      tag: "div",
+      props: {
+        innerHTML: `<img src="${svgToUri(svg)}" width="${swW}" height="${swH}" style="display:block;margin:8px auto 0;pointer-events:none;"/>`,
+      },
+      children: [],
+    },
   ];
-  if (label) children.push(span({ id: `ts-label-${id}`, text: label, style: { fontSize: "11px", color: on ? color : theme.colors.textMuted, display: "block", textAlign: "center", marginTop: "4px", fontWeight: "600" as any } }));
+  if (label)
+    children.push(
+      span({
+        id: `ts-label-${id}`,
+        text: label,
+        style: {
+          fontSize: "11px",
+          color: on ? color : theme.colors.textMuted,
+          display: "block",
+          textAlign: "center",
+          marginTop: "4px",
+          fontWeight: "600" as any,
+        },
+      }),
+    );
 
   return div(cardProps, ...children);
 }
@@ -1078,12 +1421,42 @@ export function verticalGauge(props: Record<string, any> = {}): IDOMNode {
   svg += `</svg>`;
 
   const children: IDOMNode[] = [
-    { id: `vg-html-${id}`, tag: "div", props: { innerHTML: svg, style: { lineHeight: "0" } }, children: [] },
+    {
+      id: `vg-html-${id}`,
+      tag: "div",
+      props: { innerHTML: svg, style: { lineHeight: "0" } },
+      children: [],
+    },
   ];
-  if (label) children.push(span({ id: `vg-label-${id}`, text: label, style: { fontSize: "11px", color: theme.colors.textDim, display: "block", textAlign: "center", marginTop: "4px" } }));
+  if (label)
+    children.push(
+      span({
+        id: `vg-label-${id}`,
+        text: label,
+        style: {
+          fontSize: "11px",
+          color: theme.colors.textDim,
+          display: "block",
+          textAlign: "center",
+          marginTop: "4px",
+        },
+      }),
+    );
 
   return div(
-    { id: `vg-${id}`, style: { flex: "1", minWidth: "80px", background: theme.colors.card, borderRadius: "10px", padding: "14px", border: `1px solid ${color}44`, textAlign: "center" as any, overflow: "hidden" } },
+    {
+      id: `vg-${id}`,
+      style: {
+        flex: "1",
+        minWidth: "80px",
+        background: theme.colors.card,
+        borderRadius: "10px",
+        padding: "14px",
+        border: `1px solid ${color}44`,
+        textAlign: "center" as any,
+        overflow: "hidden",
+      },
+    },
     ...children,
   );
 }
@@ -1095,33 +1468,75 @@ export function verticalGauge(props: Record<string, any> = {}): IDOMNode {
 export class ConnectedVerticalGauge {
   public readonly wrapId: string;
   public value: number;
-  private gaugeId: string; private color: string; private label: string; private unit: string;
+  private gaugeId: string;
+  private color: string;
+  private label: string;
+  private unit: string;
   private height?: number;
   private screen: Screen | null = null;
 
-  constructor(opts: { id: string; color: string; label: string; unit?: string; value?: number; height?: number }) {
-    this.gaugeId = opts.id; this.wrapId = `cvg-${opts.id}`;
-    this.color = opts.color; this.label = opts.label; this.unit = opts.unit || "%";
+  constructor(opts: {
+    id: string;
+    color: string;
+    label: string;
+    unit?: string;
+    value?: number;
+    height?: number;
+  }) {
+    this.gaugeId = opts.id;
+    this.wrapId = `cvg-${opts.id}`;
+    this.color = opts.color;
+    this.label = opts.label;
+    this.unit = opts.unit || "%";
     this.value = opts.value ?? 0;
     this.height = opts.height;
   }
   build(): IDOMNode {
     return div(
-      { id: this.wrapId, style: this.height ? { height: this.height + "px", display: "flex", flexDirection: "column", justifyContent: "center", overflow: "hidden" } : {} },
-      verticalGauge({ id: this.gaugeId, value: this.value, color: this.color, label: this.label, unit: this.unit }),
+      {
+        id: this.wrapId,
+        style: this.height
+          ? {
+              height: this.height + "px",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              overflow: "hidden",
+            }
+          : {},
+      },
+      verticalGauge({
+        id: this.gaugeId,
+        value: this.value,
+        color: this.color,
+        label: this.label,
+        unit: this.unit,
+      }),
     );
   }
-  async mount(screen: Screen) { this.screen = screen; }
-  async setValue(val: number) { this.value = val; if (this.screen) await this.render(this.screen); }
+  async mount(screen: Screen) {
+    this.screen = screen;
+  }
+  async setValue(val: number) {
+    this.value = val;
+    if (this.screen) await this.render(this.screen);
+  }
   private async render(s: Screen) {
     const v = Math.max(0, Math.min(100, this.value));
-    const H = 160, r = 10;
+    const H = 160,
+      r = 10;
     const fillH = Math.max(0, ((H - r * 2) * v) / 100);
     const waterY = H - r - Math.min(fillH, H - r * 2);
     const id = this.gaugeId;
-    await s.update(`wg-water-${id}`, { style: { transform: `translateY(${waterY}px)` } });
-    await s.update(`wg-grad-${id}`, { style: { transform: `translateY(${waterY}px)` } });
-    await s.update(`wg-surface-${id}`, { style: { transform: `translateY(${waterY}px)` } });
+    await s.update(`wg-water-${id}`, {
+      style: { transform: `translateY(${waterY}px)` },
+    });
+    await s.update(`wg-grad-${id}`, {
+      style: { transform: `translateY(${waterY}px)` },
+    });
+    await s.update(`wg-surface-${id}`, {
+      style: { transform: `translateY(${waterY}px)` },
+    });
     await s.update(`wg-val-${id}`, { text: String(Math.round(v)) });
   }
 }
@@ -1177,7 +1592,12 @@ export class ConnectedToggle {
   private color: string;
   private onChangeCb: (() => void) | null = null;
 
-  constructor(opts: { id: string; label: string; color?: string; on?: boolean }) {
+  constructor(opts: {
+    id: string;
+    label: string;
+    color?: string;
+    on?: boolean;
+  }) {
     this.toggleId = opts.id;
     this.wrapId = `ct-${opts.id}`;
     this.label = opts.label;
@@ -1189,7 +1609,12 @@ export class ConnectedToggle {
   build(): IDOMNode {
     return div(
       { id: this.wrapId, onClickId: this.wrapId, style: { cursor: "pointer" } },
-      toggleSwitch({ id: this.toggleId, color: this.color, on: this.on, label: this.label }),
+      toggleSwitch({
+        id: this.toggleId,
+        color: this.color,
+        on: this.on,
+        label: this.label,
+      }),
     );
   }
 
@@ -1215,9 +1640,33 @@ export class ConnectedToggle {
   private async render(screen: Screen) {
     const { toggleId: id, color, on, label } = this;
     const swOn = on ? "🟢 ON" : "⚫ OFF";
-    await screen.update(`ts-html-${id}`, { innerHTML: buildToggleSwitchImg({ color, on, size: 48 }) });
-    await screen.update(`ts-label-${id}`, { text: label, style: { fontSize: "11px", color: on ? color : theme.colors.textMuted, display: "block", textAlign: "center", marginTop: "4px", fontWeight: "600" as any } });
-    await screen.update(`ts-${id}`, { style: { flex: "1", minWidth: "110px", background: theme.colors.card, borderRadius: "10px", padding: "14px", border: `1px solid ${on ? color : theme.colors.border}44`, textAlign: "center" as any, cursor: "pointer", overflow: "hidden" } });
+    await screen.update(`ts-html-${id}`, {
+      innerHTML: buildToggleSwitchImg({ color, on, size: 48 }),
+    });
+    await screen.update(`ts-label-${id}`, {
+      text: label,
+      style: {
+        fontSize: "11px",
+        color: on ? color : theme.colors.textMuted,
+        display: "block",
+        textAlign: "center",
+        marginTop: "4px",
+        fontWeight: "600" as any,
+      },
+    });
+    await screen.update(`ts-${id}`, {
+      style: {
+        flex: "1",
+        minWidth: "110px",
+        background: theme.colors.card,
+        borderRadius: "10px",
+        padding: "14px",
+        border: `1px solid ${on ? color : theme.colors.border}44`,
+        textAlign: "center" as any,
+        cursor: "pointer",
+        overflow: "hidden",
+      },
+    });
     // Re-apply onClickId setelah update
     await screen.update(this.wrapId, { onClickId: this.wrapId });
   }
@@ -1236,7 +1685,13 @@ export class ConnectedRelayCard {
   private color: string;
   private screen: Screen | null = null;
 
-  constructor(opts: { id: string; label: string; icon: string; color: string; on?: boolean }) {
+  constructor(opts: {
+    id: string;
+    label: string;
+    icon: string;
+    color: string;
+    on?: boolean;
+  }) {
     this.relayId = opts.id;
     this.wrapId = `cr-${opts.id}`;
     this.label = opts.label;
@@ -1248,7 +1703,13 @@ export class ConnectedRelayCard {
   build(): IDOMNode {
     return div(
       { id: this.wrapId },
-      relayCard({ id: this.relayId, label: this.label, icon: this.icon, color: this.color, active: this.on }),
+      relayCard({
+        id: this.relayId,
+        label: this.label,
+        icon: this.icon,
+        color: this.color,
+        active: this.on,
+      }),
     );
   }
 
@@ -1264,8 +1725,24 @@ export class ConnectedRelayCard {
   /** Render ulang relay card — targeted update, NO setContent! */
   private async render(screen: Screen) {
     const { relayId: id, label, icon, color, on } = this;
-    await screen.update(`rc-${id}`, { style: { padding: "12px", borderRadius: "8px", border: `1px solid ${on ? color : theme.colors.border}`, background: on ? `${color}22` : theme.colors.card, flex: "1", textAlign: "center" as any } });
-    await screen.update(`rs-${id}`, { text: on ? "🟢 ON" : "⚫ OFF", style: { color: on ? color : theme.colors.textMuted, fontWeight: "700" as any, fontSize: "14px" } });
+    await screen.update(`rc-${id}`, {
+      style: {
+        padding: "12px",
+        borderRadius: "8px",
+        border: `1px solid ${on ? color : theme.colors.border}`,
+        background: on ? `${color}22` : theme.colors.card,
+        flex: "1",
+        textAlign: "center" as any,
+      },
+    });
+    await screen.update(`rs-${id}`, {
+      text: on ? "🟢 ON" : "⚫ OFF",
+      style: {
+        color: on ? color : theme.colors.textMuted,
+        fontWeight: "700" as any,
+        fontSize: "14px",
+      },
+    });
   }
 }
 
@@ -1276,25 +1753,73 @@ export class ConnectedRelayCard {
 export class ConnectedSensorCard {
   public readonly wrapId: string;
   public value: number | undefined;
-  private sensorId: string; private label: string; private unit: string;
-  private icon: string; private color: string; private min: number; private max: number;
+  private sensorId: string;
+  private label: string;
+  private unit: string;
+  private icon: string;
+  private color: string;
+  private min: number;
+  private max: number;
   private screen: Screen | null = null;
 
-  constructor(opts: { id: string; label: string; unit: string; icon: string; color: string; min: number; max: number; value?: number }) {
-    this.sensorId = opts.id; this.wrapId = `cs-${opts.id}`;
-    this.label = opts.label; this.unit = opts.unit; this.icon = opts.icon;
-    this.color = opts.color; this.min = opts.min; this.max = opts.max;
+  constructor(opts: {
+    id: string;
+    label: string;
+    unit: string;
+    icon: string;
+    color: string;
+    min: number;
+    max: number;
+    value?: number;
+  }) {
+    this.sensorId = opts.id;
+    this.wrapId = `cs-${opts.id}`;
+    this.label = opts.label;
+    this.unit = opts.unit;
+    this.icon = opts.icon;
+    this.color = opts.color;
+    this.min = opts.min;
+    this.max = opts.max;
     this.value = opts.value;
   }
-  build(): IDOMNode { return div({ id: this.wrapId }, sensorCard({ id: this.sensorId, label: this.label, unit: this.unit, icon: this.icon, color: this.color, value: this.value as any })); }
-  async mount(screen: Screen) { this.screen = screen; }
-  async setValue(val: number) { this.value = val; if (this.screen) await this.render(this.screen); }
+  build(): IDOMNode {
+    return div(
+      { id: this.wrapId },
+      sensorCard({
+        id: this.sensorId,
+        label: this.label,
+        unit: this.unit,
+        icon: this.icon,
+        color: this.color,
+        value: this.value as any,
+      }),
+    );
+  }
+  async mount(screen: Screen) {
+    this.screen = screen;
+  }
+  async setValue(val: number) {
+    this.value = val;
+    if (this.screen) await this.render(this.screen);
+  }
   /** Render ulang sensor card — targeted update, NO setContent! */
   private async render(s: Screen) {
-    const v = this.value; const { sensorId: id, label, unit, icon, color, min, max } = this;
-    const pct = v !== undefined ? Math.min(100, Math.max(0, ((v - min) / (max - min)) * 100)) : 0;
+    const v = this.value;
+    const { sensorId: id, label, unit, icon, color, min, max } = this;
+    const pct =
+      v !== undefined
+        ? Math.min(100, Math.max(0, ((v - min) / (max - min)) * 100))
+        : 0;
     await s.update(`sv-${id}`, { text: v !== undefined ? v.toFixed(1) : "—" });
-    await s.update(`bar-${id}`, { style: { width: `${pct}%`, background: color, height: "6px", borderRadius: "3px", transition: "width 0.3s" } });
+    await s.update(`bar-${id}`, {
+      style: {
+        width: `${pct}%`,
+        background: color,
+        height: "6px",
+        borderRadius: "3px",
+        transition: "width 0.3s",
+      },
+    });
   }
 }
 
@@ -1305,23 +1830,72 @@ export class ConnectedSensorCard {
 export class ConnectedLineChart {
   public readonly wrapId: string;
   public data: number[];
-  private chartId: string; private title: string; private color: string;
-  private min: number; private max: number; private width: number; private height: number;
+  private chartId: string;
+  private title: string;
+  private color: string;
+  private min: number;
+  private max: number;
+  private width: number;
+  private height: number;
   private screen: Screen | null = null;
 
-  constructor(opts: { id: string; title: string; color: string; min?: number; max?: number; width?: number; height?: number; data?: number[] }) {
-    this.chartId = opts.id; this.wrapId = `cl-${opts.id}`;
-    this.title = opts.title; this.color = opts.color;
-    this.min = opts.min ?? 0; this.max = opts.max ?? 100;
-    this.width = opts.width ?? 240; this.height = opts.height ?? 150;
+  constructor(opts: {
+    id: string;
+    title: string;
+    color: string;
+    min?: number;
+    max?: number;
+    width?: number;
+    height?: number;
+    data?: number[];
+  }) {
+    this.chartId = opts.id;
+    this.wrapId = `cl-${opts.id}`;
+    this.title = opts.title;
+    this.color = opts.color;
+    this.min = opts.min ?? 0;
+    this.max = opts.max ?? 100;
+    this.width = opts.width ?? 240;
+    this.height = opts.height ?? 150;
     this.data = opts.data ?? [];
   }
-  build(): IDOMNode { return div({ id: this.wrapId }, lineChart({ id: this.chartId, title: this.title, data: this.data, color: this.color, spline: true, fill: true, width: this.width, height: this.height, min: this.min, max: this.max })); }
-  async mount(screen: Screen) { this.screen = screen; }
-  async setData(val: number[]) { this.data = val; if (this.screen) await this.render(this.screen); }
+  build(): IDOMNode {
+    return div(
+      { id: this.wrapId },
+      lineChart({
+        id: this.chartId,
+        title: this.title,
+        data: this.data,
+        color: this.color,
+        spline: true,
+        fill: true,
+        width: this.width,
+        height: this.height,
+        min: this.min,
+        max: this.max,
+      }),
+    );
+  }
+  async mount(screen: Screen) {
+    this.screen = screen;
+  }
+  async setData(val: number[]) {
+    this.data = val;
+    if (this.screen) await this.render(this.screen);
+  }
   /** Render ulang line chart — targeted update innerHTML only, NO setContent! */
   private async render(s: Screen) {
-    const svgStr = buildLineChartSvg({ id: this.chartId, data: this.data, color: this.color, spline: true, fill: true, width: this.width, height: this.height, min: this.min, max: this.max });
+    const svgStr = buildLineChartSvg({
+      id: this.chartId,
+      data: this.data,
+      color: this.color,
+      spline: true,
+      fill: true,
+      width: this.width,
+      height: this.height,
+      min: this.min,
+      max: this.max,
+    });
     await s.update(`lc-html-${this.chartId}`, { innerHTML: svgStr });
   }
 }
@@ -1333,35 +1907,92 @@ export class ConnectedLineChart {
 export class ConnectedRadialGauge {
   public readonly wrapId: string;
   public value: number;
-  private gaugeId: string; private min: number; private max: number;
-  private color: string; private label: string; private unit: string; private size: number;
+  private gaugeId: string;
+  private min: number;
+  private max: number;
+  private color: string;
+  private label: string;
+  private unit: string;
+  private size: number;
   private height?: number;
   private screen: Screen | null = null;
 
-  constructor(opts: { id: string; min: number; max: number; color: string; label: string; unit: string; size?: number; value?: number; height?: number }) {
-    this.gaugeId = opts.id; this.wrapId = `cg-${opts.id}`;
-    this.min = opts.min; this.max = opts.max; this.color = opts.color;
-    this.label = opts.label; this.unit = opts.unit; this.size = opts.size ?? 110;
+  constructor(opts: {
+    id: string;
+    min: number;
+    max: number;
+    color: string;
+    label: string;
+    unit: string;
+    size?: number;
+    value?: number;
+    height?: number;
+  }) {
+    this.gaugeId = opts.id;
+    this.wrapId = `cg-${opts.id}`;
+    this.min = opts.min;
+    this.max = opts.max;
+    this.color = opts.color;
+    this.label = opts.label;
+    this.unit = opts.unit;
+    this.size = opts.size ?? 110;
     this.value = opts.value ?? 0;
     this.height = opts.height;
   }
-  build(): IDOMNode { return div({ id: this.wrapId, style: this.height ? { height: this.height + "px", display: "flex", flexDirection: "column", justifyContent: "center", overflow: "hidden" } : {} }, radialGauge({ id: this.gaugeId, value: this.value, min: this.min, max: this.max, color: this.color, label: this.label, unit: this.unit, size: this.size })); }
-  async mount(screen: Screen) { this.screen = screen; }
-  async setValue(val: number) { this.value = val; if (this.screen) await this.render(this.screen); }
+  build(): IDOMNode {
+    return div(
+      {
+        id: this.wrapId,
+        style: this.height
+          ? {
+              height: this.height + "px",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              overflow: "hidden",
+            }
+          : {},
+      },
+      radialGauge({
+        id: this.gaugeId,
+        value: this.value,
+        min: this.min,
+        max: this.max,
+        color: this.color,
+        label: this.label,
+        unit: this.unit,
+        size: this.size,
+      }),
+    );
+  }
+  async mount(screen: Screen) {
+    this.screen = screen;
+  }
+  async setValue(val: number) {
+    this.value = val;
+    if (this.screen) await this.render(this.screen);
+  }
   /** Render ulang radial gauge — targeted update via data-tsix-id, CSS transition jalan */
   private async render(s: Screen) {
     const { gaugeId: id, value: val, min, max, size } = this;
-    const cx = size / 2, cy = size / 2;
+    const cx = size / 2,
+      cy = size / 2;
     const radius = size * 0.36;
-    const startAngle = -220, endAngle = 40;
+    const startAngle = -220,
+      endAngle = 40;
     const range = endAngle - startAngle;
     const pct = Math.max(0, Math.min(1, (val - min) / (max - min || 1)));
     const angle = startAngle + range * pct;
-    const arcLength = radius * Math.abs(endAngle - startAngle) * Math.PI / 180;
+    const arcLength =
+      (radius * Math.abs(endAngle - startAngle) * Math.PI) / 180;
     const dashOffset = arcLength * (1 - pct);
     const formatted = val % 1 === 0 ? String(Math.round(val)) : val.toFixed(1);
-    await s.update(`rg-arc-${id}`, { style: { strokeDashoffset: String(dashOffset) } });
-    await s.update(`rg-needle-group-${id}`, { style: { transform: `rotate(${angle}deg)` } });
+    await s.update(`rg-arc-${id}`, {
+      style: { strokeDashoffset: String(dashOffset) },
+    });
+    await s.update(`rg-needle-group-${id}`, {
+      style: { transform: `rotate(${angle}deg)` },
+    });
     await s.update(`rg-val-${id}`, { text: formatted });
   }
 }
@@ -1373,23 +2004,71 @@ export class ConnectedRadialGauge {
 export class ConnectedSevenSegment {
   public readonly wrapId: string;
   public value: number;
-  private segId: string; private digits: number; private decimals: number; private color: string; private label: string;
+  private segId: string;
+  private digits: number;
+  private decimals: number;
+  private color: string;
+  private label: string;
   private height?: number;
   private screen: Screen | null = null;
 
-  constructor(opts: { id: string; digits?: number; decimals?: number; color: string; value?: number; height?: number; label?: string }) {
-    this.segId = opts.id; this.wrapId = `cs7-${opts.id}`;
-    this.digits = opts.digits ?? 4; this.decimals = opts.decimals ?? 0; this.color = opts.color;
+  constructor(opts: {
+    id: string;
+    digits?: number;
+    decimals?: number;
+    color: string;
+    value?: number;
+    height?: number;
+    label?: string;
+  }) {
+    this.segId = opts.id;
+    this.wrapId = `cs7-${opts.id}`;
+    this.digits = opts.digits ?? 4;
+    this.decimals = opts.decimals ?? 0;
+    this.color = opts.color;
     this.value = opts.value ?? 0;
     this.height = opts.height;
     this.label = opts.label || "";
   }
-  build(): IDOMNode { return div({ id: this.wrapId, style: this.height ? { height: this.height + "px", display: "flex", flexDirection: "column", justifyContent: "center", overflow: "hidden" } : {} }, sevenSegment({ id: this.segId, value: this.value, digits: this.digits, decimals: this.decimals, color: this.color, label: this.label })); }
-  async mount(screen: Screen) { this.screen = screen; }
-  async setValue(val: number) { this.value = val; if (this.screen) await this.render(this.screen); }
+  build(): IDOMNode {
+    return div(
+      {
+        id: this.wrapId,
+        style: this.height
+          ? {
+              height: this.height + "px",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              overflow: "hidden",
+            }
+          : {},
+      },
+      sevenSegment({
+        id: this.segId,
+        value: this.value,
+        digits: this.digits,
+        decimals: this.decimals,
+        color: this.color,
+        label: this.label,
+      }),
+    );
+  }
+  async mount(screen: Screen) {
+    this.screen = screen;
+  }
+  async setValue(val: number) {
+    this.value = val;
+    if (this.screen) await this.render(this.screen);
+  }
   /** Render ulang 7-segment — targeted update innerHTML only, NO setContent! */
   private async render(s: Screen) {
-    const htmlStr = buildSevenSegmentHtml({ value: this.value, digits: this.digits, decimals: this.decimals, color: this.color });
+    const htmlStr = buildSevenSegmentHtml({
+      value: this.value,
+      digits: this.digits,
+      decimals: this.decimals,
+      color: this.color,
+    });
     await s.update(`ss-html-${this.segId}`, { innerHTML: htmlStr });
   }
 }
@@ -1401,26 +2080,87 @@ export class ConnectedSevenSegment {
 export class ConnectedIndicatorLamp {
   public readonly wrapId: string;
   public on: boolean;
-  private lampId: string; private color: string; private label: string; private size: number;
+  private lampId: string;
+  private color: string;
+  private label: string;
+  private size: number;
   private height?: number;
   private screen: Screen | null = null;
 
-  constructor(opts: { id: string; color: string; label: string; size?: number; on?: boolean; height?: number }) {
-    this.lampId = opts.id; this.wrapId = `cil-${opts.id}`;
-    this.color = opts.color; this.label = opts.label; this.size = opts.size ?? 36;
+  constructor(opts: {
+    id: string;
+    color: string;
+    label: string;
+    size?: number;
+    on?: boolean;
+    height?: number;
+  }) {
+    this.lampId = opts.id;
+    this.wrapId = `cil-${opts.id}`;
+    this.color = opts.color;
+    this.label = opts.label;
+    this.size = opts.size ?? 36;
     this.on = opts.on ?? false;
     this.height = opts.height;
   }
-  build(): IDOMNode { return div({ id: this.wrapId, style: this.height ? { height: this.height + "px", display: "flex", flexDirection: "column", justifyContent: "center", overflow: "hidden" } : {} }, indicatorLamp({ id: this.lampId, color: this.color, on: this.on, label: this.label, size: this.size })); }
-  async mount(screen: Screen) { this.screen = screen; }
-  async setOn(val: boolean) { this.on = val; if (this.screen) await this.render(this.screen); }
+  build(): IDOMNode {
+    return div(
+      {
+        id: this.wrapId,
+        style: this.height
+          ? {
+              height: this.height + "px",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              overflow: "hidden",
+            }
+          : {},
+      },
+      indicatorLamp({
+        id: this.lampId,
+        color: this.color,
+        on: this.on,
+        label: this.label,
+        size: this.size,
+      }),
+    );
+  }
+  async mount(screen: Screen) {
+    this.screen = screen;
+  }
+  async setOn(val: boolean) {
+    this.on = val;
+    if (this.screen) await this.render(this.screen);
+  }
   /** Render ulang indicator lamp — targeted update, NO setContent! */
   private async render(s: Screen) {
     const { lampId: id, color, on, label, size } = this;
     const { innerHTML } = buildIndicatorLampImg({ color, on, size });
     await s.update(`il-html-${id}`, { innerHTML });
-    await s.update(`il-label-${id}`, { text: label, style: { fontSize: "11px", color: on ? color : "#666", display: "block", textAlign: "center", marginTop: "6px", fontWeight: "600" as any } });
-    await s.update(`il-${id}`, { style: { flex: "1", minWidth: "100px", background: theme.colors.card, borderRadius: "10px", padding: "14px", border: `1px solid ${on ? color : theme.colors.border}44`, textAlign: "center" as any, overflow: "hidden" } });
+    await s.update(`il-label-${id}`, {
+      text: label,
+      style: {
+        fontSize: "11px",
+        color: on ? color : "#666",
+        display: "block",
+        textAlign: "center",
+        marginTop: "6px",
+        fontWeight: "600" as any,
+      },
+    });
+    await s.update(`il-${id}`, {
+      style: {
+        flex: "1",
+        minWidth: "100px",
+        background: theme.colors.card,
+        borderRadius: "10px",
+        padding: "14px",
+        border: `1px solid ${on ? color : theme.colors.border}44`,
+        textAlign: "center" as any,
+        overflow: "hidden",
+      },
+    });
   }
 }
 
@@ -1456,7 +2196,11 @@ export function dataGrid(props: Record<string, any> = {}): IDOMNode {
     id: `${id}-col-${c.key}`,
     tag: "col",
     props: c.width
-      ? { style: { width: typeof c.width === "number" ? c.width + "px" : c.width } }
+      ? {
+          style: {
+            width: typeof c.width === "number" ? c.width + "px" : c.width,
+          },
+        }
       : {},
     children: [],
   }));
@@ -1467,10 +2211,14 @@ export function dataGrid(props: Record<string, any> = {}): IDOMNode {
     props: {
       text: c.label,
       style: {
-        ...(c.width ? { width: typeof c.width === "number" ? c.width + "px" : c.width } : {}),
+        ...(c.width
+          ? { width: typeof c.width === "number" ? c.width + "px" : c.width }
+          : {}),
         ...(c.align ? { textAlign: c.align } : {}),
         // Separator kolom — garis vertikal antar kolom (kecuali kolom terakhir)
-        ...(ci < columns.length - 1 ? { borderRight: `1px solid ${theme.colors.border}` } : {}),
+        ...(ci < columns.length - 1
+          ? { borderRight: `1px solid ${theme.colors.border}` }
+          : {}),
         padding: "8px 12px",
         background: theme.colors.surface,
         borderBottom: `1px solid ${theme.colors.border}`,
@@ -1491,19 +2239,26 @@ export function dataGrid(props: Record<string, any> = {}): IDOMNode {
     id: `${id}-row-${rIdx}`,
     tag: "tr",
     props: {
-      style: { background: rIdx % 2 === 0 ? theme.colors.surface : theme.colors.card },
+      style: {
+        background: rIdx % 2 === 0 ? theme.colors.surface : theme.colors.card,
+      },
     },
     children: columns.map((c, ci) => ({
       id: `${id}-cell-${c.key}-${rIdx}`,
       tag: "td",
       props: {
-        text: row[c.key] !== undefined && row[c.key] !== null ? String(row[c.key]) : "",
+        text:
+          row[c.key] !== undefined && row[c.key] !== null
+            ? String(row[c.key])
+            : "",
         style: {
           padding: "6px 12px",
           borderBottom: `1px solid ${theme.colors.borderLight}`,
           ...(c.align ? { textAlign: c.align } : {}),
           // Separator kolom — garis vertikal antar kolom (kecuali kolom terakhir)
-          ...(ci < columns.length - 1 ? { borderRight: `1px solid ${theme.colors.border}` } : {}),
+          ...(ci < columns.length - 1
+            ? { borderRight: `1px solid ${theme.colors.border}` }
+            : {}),
         },
       },
       children: [],
@@ -1511,13 +2266,42 @@ export function dataGrid(props: Record<string, any> = {}): IDOMNode {
   }));
 
   return div(
-    { id, style: { width: "100%", overflow: "auto", borderRadius: "8px", border: `1px solid ${theme.colors.border}` } },
     {
-      id: `${id}-table`, tag: "table",
-      props: { style: { width: "100%", borderCollapse: "separate", borderSpacing: "0", tableLayout: "fixed", fontSize: "13px" } },
+      id,
+      style: {
+        width: "100%",
+        overflow: "auto",
+        borderRadius: "8px",
+        border: `1px solid ${theme.colors.border}`,
+      },
+    },
+    {
+      id: `${id}-table`,
+      tag: "table",
+      props: {
+        style: {
+          width: "100%",
+          borderCollapse: "separate",
+          borderSpacing: "0",
+          tableLayout: "fixed",
+          fontSize: "13px",
+        },
+      },
       children: [
-        { id: `${id}-colgroup`, tag: "colgroup", props: {}, children: colNodes },
-        { id: `${id}-thead`, tag: "thead", props: {}, children: [{ id: `${id}-tr-head`, tag: "tr", props: {}, children: thNodes }] },
+        {
+          id: `${id}-colgroup`,
+          tag: "colgroup",
+          props: {},
+          children: colNodes,
+        },
+        {
+          id: `${id}-thead`,
+          tag: "thead",
+          props: {},
+          children: [
+            { id: `${id}-tr-head`, tag: "tr", props: {}, children: thNodes },
+          ],
+        },
         { id: `${id}-tbody`, tag: "tbody", props: {}, children: trNodes },
       ],
     },
@@ -1566,8 +2350,17 @@ export class ConnectedDataGrid {
   private sortDir: "asc" | "desc" | null = null;
   private bodyId: string;
   private onSortCb: ((key: string, dir: "asc" | "desc") => void) | null = null;
-  private onRowClickCb: ((index: number, record: Record<string, any>) => void) | null = null;
-  private onRowCtxCb: ((index: number, record: Record<string, any>, x: number, y: number) => void) | null = null;
+  private onRowClickCb:
+    | ((index: number, record: Record<string, any>) => void)
+    | null = null;
+  private onRowCtxCb:
+    | ((
+        index: number,
+        record: Record<string, any>,
+        x: number,
+        y: number,
+      ) => void)
+    | null = null;
   // SELECTION — index = kunci stabil per datarow (INDEX ≠ ROW NUMBER).
   // Di-generate saat row masuk, di-cache via WeakMap (tanpa mencemari data user).
   // Record yang sama (referensi sama) → kunci sama → tahan sort & refresh.
@@ -1666,7 +2459,11 @@ export class ConnectedDataGrid {
           // onClickId di set saat MOUNT — hindari bug cloneNode (app.on() setelah mount)
           ...(sortable ? { onClickId: thId } : {}),
           style: {
-            ...(c.width ? { width: typeof c.width === "number" ? c.width + "px" : c.width } : {}),
+            ...(c.width
+              ? {
+                  width: typeof c.width === "number" ? c.width + "px" : c.width,
+                }
+              : {}),
             ...(c.align ? { textAlign: c.align } : {}),
             cursor: sortable ? "pointer" : "default",
             userSelect: "none" as any,
@@ -1725,21 +2522,54 @@ export class ConnectedDataGrid {
       props: {
         style: {
           width: "100%",
-          borderCollapse: "separate", borderSpacing: "0", tableLayout: "fixed", fontSize: "13px",
+          borderCollapse: "separate",
+          borderSpacing: "0",
+          tableLayout: "fixed",
+          fontSize: "13px",
         },
       },
       children: [
-        { id: `${this.wrapId}-thead-colgroup`, tag: "colgroup", props: {}, children: theadCols },
-        { id: `${this.wrapId}-thead`, tag: "thead", props: {}, children: [{ id: `${this.wrapId}-tr-head`, tag: "tr", props: {}, children: thNodes }] },
+        {
+          id: `${this.wrapId}-thead-colgroup`,
+          tag: "colgroup",
+          props: {},
+          children: theadCols,
+        },
+        {
+          id: `${this.wrapId}-thead`,
+          tag: "thead",
+          props: {},
+          children: [
+            {
+              id: `${this.wrapId}-tr-head`,
+              tag: "tr",
+              props: {},
+              children: thNodes,
+            },
+          ],
+        },
       ],
     };
 
     const tbodyTable: IDOMNode = {
       id: `${this.wrapId}-tbody-table`,
       tag: "table",
-      props: { style: { width: "100%", borderCollapse: "separate", borderSpacing: "0", tableLayout: "fixed", fontSize: "13px" } },
+      props: {
+        style: {
+          width: "100%",
+          borderCollapse: "separate",
+          borderSpacing: "0",
+          tableLayout: "fixed",
+          fontSize: "13px",
+        },
+      },
       children: [
-        { id: `${this.wrapId}-tbody-colgroup`, tag: "colgroup", props: {}, children: tbodyCols },
+        {
+          id: `${this.wrapId}-tbody-colgroup`,
+          tag: "colgroup",
+          props: {},
+          children: tbodyCols,
+        },
         bodyNode,
       ],
     };
@@ -1749,11 +2579,19 @@ export class ConnectedDataGrid {
         id: this.wrapId,
         className: "tsix-dgrid",
         style: {
-          width: "100%", borderRadius: "8px",
+          width: "100%",
+          borderRadius: "8px",
           border: `1px solid ${theme.colors.border}`,
-          display: "flex", flexDirection: "column", overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
           ...(this.height
-            ? { height: typeof this.height === "number" ? this.height + "px" : this.height }
+            ? {
+                height:
+                  typeof this.height === "number"
+                    ? this.height + "px"
+                    : this.height,
+              }
             : {}),
         },
       },
@@ -1778,7 +2616,12 @@ export class ConnectedDataGrid {
     screen: Screen,
     onSort?: (key: string, dir: "asc" | "desc") => void,
     onRowClick?: (index: number, record: Record<string, any>) => void,
-    onRowContextMenu?: (index: number, record: Record<string, any>, x: number, y: number) => void,
+    onRowContextMenu?: (
+      index: number,
+      record: Record<string, any>,
+      x: number,
+      y: number,
+    ) => void,
   ): Promise<void> {
     this.screen = screen;
     this.onSortCb = onSort || null;
@@ -1795,7 +2638,8 @@ export class ConnectedDataGrid {
     // targetId = wrapId grid ini; eventType "col_resized".
     screen.win.bindHandler(this.wrapId, "col_resized", (ev: any) => {
       try {
-        const v = typeof ev?.value === "string" ? JSON.parse(ev.value) : ev?.value;
+        const v =
+          typeof ev?.value === "string" ? JSON.parse(ev.value) : ev?.value;
         if (v && v.key && v.width != null) {
           this.colWidths.set(v.key, Number(v.width));
           void this.applyColWidths();
@@ -1862,7 +2706,9 @@ export class ConnectedDataGrid {
       });
     }
     let mutex_resolved = false;
-    this.renderMutex = () => { mutex_resolved = true; };
+    this.renderMutex = () => {
+      mutex_resolved = true;
+    };
 
     try {
       // 1. Pangkas baris tertua jika melebihi cap — catat key untuk unmount DOM
@@ -1894,12 +2740,15 @@ export class ConnectedDataGrid {
           void this.selectRowByKey(key);
         });
         s.win.bindHandler(rowId, "contextmenu", (ev: any) => {
-          let x = 0, y = 0;
+          let x = 0,
+            y = 0;
           try {
             const p = JSON.parse(ev?.value || "{}");
             x = p.x || 0;
             y = p.y || 0;
-          } catch (_) { /* parse gagal */ }
+          } catch (_) {
+            /* parse gagal */
+          }
           if (this.onRowCtxCb) this.onRowCtxCb(key, { ...rec }, x, y);
         });
         newIdx++;
@@ -1909,7 +2758,9 @@ export class ConnectedDataGrid {
       for (const rk of droppedKeys) {
         try {
           await s.win.unmount(`${this.wrapId}-row-${rk}`);
-        } catch (_) { /* sudah tidak ada */ }
+        } catch (_) {
+          /* sudah tidak ada */
+        }
       }
     } finally {
       this.renderMutex = null;
@@ -1927,8 +2778,7 @@ export class ConnectedDataGrid {
       id: rowId,
       tag: "tr",
       props: {
-        className:
-          "dg-row" + (this.selectedRowKey === key ? " selected" : ""),
+        className: "dg-row" + (this.selectedRowKey === key ? " selected" : ""),
         onClickId: rowId,
         onContextMenuId: rowId,
         // Background & separator kini di level td (tiap sel mandiri) — lihat td style.
@@ -1945,7 +2795,8 @@ export class ConnectedDataGrid {
             padding: "6px 12px",
             // Zebra + separator dicat BERSAMA sel (bg + box-shadow inset) — bukan border
             // tabel, jadi andal repaint saat sel muncul dari luar viewport (scroll).
-            background: rIdx % 2 === 0 ? theme.colors.surface : theme.colors.card,
+            background:
+              rIdx % 2 === 0 ? theme.colors.surface : theme.colors.card,
             boxShadow: `inset -1px 0 0 ${theme.colors.border}, inset 0 -1px 0 0 ${theme.colors.borderLight}`,
             ...(c.align ? { textAlign: c.align } : {}),
           },
@@ -1975,7 +2826,9 @@ export class ConnectedDataGrid {
 
   /** State sort saat ini */
   get sort(): { key: string; dir: "asc" | "desc" } | null {
-    return this.sortKey && this.sortDir ? { key: this.sortKey, dir: this.sortDir } : null;
+    return this.sortKey && this.sortDir
+      ? { key: this.sortKey, dir: this.sortDir }
+      : null;
   }
 
   // ============================================================
@@ -2095,7 +2948,8 @@ export class ConnectedDataGrid {
       if (av === bv) return 0;
       if (av === null || av === undefined) return 1;
       if (bv === null || bv === undefined) return -1;
-      if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
+      if (typeof av === "number" && typeof bv === "number")
+        return (av - bv) * dir;
       return String(av).localeCompare(String(bv)) * dir;
     });
   }
@@ -2114,7 +2968,9 @@ export class ConnectedDataGrid {
 
     // Set mutex
     let mutex_resolved = false;
-    this.renderMutex = () => { mutex_resolved = true; };
+    this.renderMutex = () => {
+      mutex_resolved = true;
+    };
 
     try {
       if (!this.screen) return;
@@ -2144,12 +3000,15 @@ export class ConnectedDataGrid {
         const key = this.getRowKey(row);
         const rowId = `${this.wrapId}-row-${key}`;
         s.win.bindHandler(rowId, "contextmenu", (ev: any) => {
-          let x = 0, y = 0;
+          let x = 0,
+            y = 0;
           try {
             const p = JSON.parse(ev?.value || "{}");
             x = p.x || 0;
             y = p.y || 0;
-          } catch (_) { /* parse gagal */ }
+          } catch (_) {
+            /* parse gagal */
+          }
           if (this.onRowCtxCb) this.onRowCtxCb(key, { ...row }, x, y);
         });
       }
@@ -2157,7 +3016,8 @@ export class ConnectedDataGrid {
       // 3. Update indikator header
       for (const c of this.columns) {
         const lblId = `${this.wrapId}-thlbl-${c.key}`;
-        const indicator = this.sortKey === c.key ? (this.sortDir === "asc" ? " ▲" : " ▼") : "";
+        const indicator =
+          this.sortKey === c.key ? (this.sortDir === "asc" ? " ▲" : " ▼") : "";
         await s.setText(lblId, c.label + indicator);
       }
 
@@ -2229,7 +3089,12 @@ export class ConnectedTabulator {
     | ((index: number, record: Record<string, any>) => void)
     | null = null;
   private onRowCtxCb:
-    | ((index: number, record: Record<string, any>, x: number, y: number) => void)
+    | ((
+        index: number,
+        record: Record<string, any>,
+        x: number,
+        y: number,
+      ) => void)
     | null = null;
   private onSelChangeCb:
     | ((index: number, record: Record<string, any> | null) => void)
@@ -2572,29 +3437,76 @@ export class ConnectedTabulator {
 
 export function slider(props: Record<string, any> = {}): IDOMNode {
   const id = props.id || uuidv4();
-  const value = props.value ?? 50; const min = props.min ?? 0; const max = props.max ?? 100;
-  const color = props.color || "#2196f3"; const label = props.label || ""; const unit = props.unit || "";
+  const value = props.value ?? 50;
+  const min = props.min ?? 0;
+  const max = props.max ?? 100;
+  const color = props.color || "#2196f3";
+  const label = props.label || "";
+  const unit = props.unit || "";
   const inputId = `sl-input-${id}`;
 
   const children: IDOMNode[] = [];
-  if (label) children.push(span({ text: label, style: { fontSize: "11px", color: theme.colors.textDim, display: "block", textAlign: "center", marginBottom: "6px" } }));
+  if (label)
+    children.push(
+      span({
+        text: label,
+        style: {
+          fontSize: "11px",
+          color: theme.colors.textDim,
+          display: "block",
+          textAlign: "center",
+          marginBottom: "6px",
+        },
+      }),
+    );
 
   children.push({
-    id: inputId, tag: "input",
+    id: inputId,
+    tag: "input",
     props: {
-      id: inputId, type: "range", value: String(value), min: String(min), max: String(max),
+      id: inputId,
+      type: "range",
+      value: String(value),
+      min: String(min),
+      max: String(max),
       onInputId: inputId,
-      style: { width: "100%", height: "24px", accentColor: color, cursor: "pointer" },
+      style: {
+        width: "100%",
+        height: "24px",
+        accentColor: color,
+        cursor: "pointer",
+      },
     },
     children: [],
   });
-  children.push(span({
-    id: `sl-val-${id}`, text: (value % 1 === 0 ? String(Math.round(value)) : value.toFixed(1)) + unit,
-    style: { fontSize: "12px", color: theme.colors.textDim, display: "block", textAlign: "center", marginTop: "4px", fontWeight: "700" as any },
-  }));
+  children.push(
+    span({
+      id: `sl-val-${id}`,
+      text:
+        (value % 1 === 0 ? String(Math.round(value)) : value.toFixed(1)) + unit,
+      style: {
+        fontSize: "12px",
+        color: theme.colors.textDim,
+        display: "block",
+        textAlign: "center",
+        marginTop: "4px",
+        fontWeight: "700" as any,
+      },
+    }),
+  );
 
   return div(
-    { id: `sl-${id}`, style: { flex: "1", minWidth: "180px", background: theme.colors.card, borderRadius: "10px", padding: "14px", border: `1px solid ${color}44` } },
+    {
+      id: `sl-${id}`,
+      style: {
+        flex: "1",
+        minWidth: "180px",
+        background: theme.colors.card,
+        borderRadius: "10px",
+        padding: "14px",
+        border: `1px solid ${color}44`,
+      },
+    },
     ...children,
   );
 }
@@ -3143,27 +4055,27 @@ export class Window {
         event.eventType === "close_window" &&
         event.targetId === "__window__"
       ) {
-        this.close().catch(() => { });
+        this.close().catch(() => {});
       } else if (
         event.eventType === "minimize_window" &&
         event.targetId === "__window__"
       ) {
-        this.minimize(this.wid).catch(() => { });
+        this.minimize(this.wid).catch(() => {});
       } else if (
         event.eventType === "restore_window" &&
         event.targetId === "__window__"
       ) {
-        this.restore(this.wid).catch(() => { });
+        this.restore(this.wid).catch(() => {});
       } else if (
         event.eventType === "maximize_window" &&
         event.targetId === "__window__"
       ) {
-        this.maximize(this.wid).catch(() => { });
+        this.maximize(this.wid).catch(() => {});
       } else if (
         event.eventType === "unmaximize_window" &&
         event.targetId === "__window__"
       ) {
-        this.unmaximize(this.wid).catch(() => { });
+        this.unmaximize(this.wid).catch(() => {});
       }
     });
   }
@@ -3413,12 +4325,22 @@ export class Window {
           h2({
             id: `${overlayId}_title`,
             text: title || "Info",
-            style: { color: "var(--text, #e0e0e0)", fontSize: "18px", marginBottom: "6px" },
+            style: {
+              color: "var(--text, #e0e0e0)",
+              fontSize: "18px",
+              marginBottom: "6px",
+            },
           }),
           paragraph({
             id: `${overlayId}_msg`,
             text: message || "",
-            style: { color: "var(--text-dim, #ccc)", fontSize: "13px", marginBottom: "20px", textAlign: "left", whiteSpace: "pre-wrap" },
+            style: {
+              color: "var(--text-dim, #ccc)",
+              fontSize: "13px",
+              marginBottom: "20px",
+              textAlign: "left",
+              whiteSpace: "pre-wrap",
+            },
           }),
           button({
             id: btnId,
@@ -3510,17 +4432,30 @@ export class Window {
           span({
             id: `${overlayId}_icon`,
             text: "✏️",
-            style: { fontSize: "40px", display: "block", marginBottom: "10px", textAlign: "center" },
+            style: {
+              fontSize: "40px",
+              display: "block",
+              marginBottom: "10px",
+              textAlign: "center",
+            },
           }),
           h2({
             id: `${overlayId}_title`,
             text: title,
-            style: { color: "var(--text, #e0e0e0)", fontSize: "18px", marginBottom: "6px" },
+            style: {
+              color: "var(--text, #e0e0e0)",
+              fontSize: "18px",
+              marginBottom: "6px",
+            },
           }),
           paragraph({
             id: `${overlayId}_msg`,
             text: message || "",
-            style: { color: "var(--text-dim, #ccc)", fontSize: "13px", marginBottom: "16px" },
+            style: {
+              color: "var(--text-dim, #ccc)",
+              fontSize: "13px",
+              marginBottom: "16px",
+            },
           }),
           input({
             id: inputId,
@@ -3543,7 +4478,11 @@ export class Window {
           div(
             {
               id: `${overlayId}_btns`,
-              style: { display: "flex", justifyContent: "flex-end", gap: "8px" },
+              style: {
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "8px",
+              },
             },
             button({
               id: btnCancelId,
@@ -3586,16 +4525,20 @@ export class Window {
       });
       this.bindHandler(inputId, "keydown", (ev: any) => {
         if (ev.value === "Enter") {
-          this.unmount(overlayId).catch(() => { });
+          this.unmount(overlayId).catch(() => {});
           resolve(resultValue);
         }
       });
       this.onClick(btnOkId, async () => {
-        try { await this.unmount(overlayId); } catch (_) { }
+        try {
+          await this.unmount(overlayId);
+        } catch (_) {}
         resolve(resultValue);
       });
       this.onClick(btnCancelId, async () => {
-        try { await this.unmount(overlayId); } catch (_) { }
+        try {
+          await this.unmount(overlayId);
+        } catch (_) {}
         resolve(null);
       });
       void this.flush();
@@ -3734,12 +4677,16 @@ export class Screen {
   // MANAGED TIMERS — auto-clear on close, no leak
   // ============================================================
   setInterval(cb: () => void, ms: number): ReturnType<typeof setInterval> {
-    const id = setInterval(() => { if (this.running) cb(); }, ms);
+    const id = setInterval(() => {
+      if (this.running) cb();
+    }, ms);
     this._timers.push(id);
     return id;
   }
   setTimeout(cb: () => void, ms: number): ReturnType<typeof setTimeout> {
-    const id = setTimeout(() => { if (this.running) cb(); }, ms);
+    const id = setTimeout(() => {
+      if (this.running) cb();
+    }, ms);
     this._timers.push(id);
     return id;
   }
@@ -3785,7 +4732,9 @@ export class Screen {
   // ============================================================
   /** Singkatnya: app.setVisible("btn-disconnect", true/false) */
   async setVisible(targetId: string, visible: boolean) {
-    return this.win.updateProps(targetId, { style: { display: visible ? "" : "none" } });
+    return this.win.updateProps(targetId, {
+      style: { display: visible ? "" : "none" },
+    });
   }
 
   /** Singkatnya: app.setEnabled("btn-send", true/false) */
@@ -3823,27 +4772,39 @@ export class Screen {
   // ============================================================
 
   /** Sembunyikan elemen */
-  async hide(targetId: string) { return this.update(targetId, { style: { display: "none" } }); }
+  async hide(targetId: string) {
+    return this.update(targetId, { style: { display: "none" } });
+  }
 
   /** Tampilkan elemen */
-  async show(targetId: string, display: string = "block") { return this.update(targetId, { style: { display } }); }
+  async show(targetId: string, display: string = "block") {
+    return this.update(targetId, { style: { display } });
+  }
 
   /** Disable elemen */
-  async disable(targetId: string) { return this.update(targetId, { disabled: "" }); }
+  async disable(targetId: string) {
+    return this.update(targetId, { disabled: "" });
+  }
 
   /** Enable elemen */
-  async enable(targetId: string) { return this.update(targetId, { disabled: undefined }); }
+  async enable(targetId: string) {
+    return this.update(targetId, { disabled: undefined });
+  }
 
   /** Update text shortcut */
-  async setText(targetId: string, text: string) { return this.update(targetId, { text }); }
+  async setText(targetId: string, text: string) {
+    return this.update(targetId, { text });
+  }
 
   /** Update style shortcut (merge, gak replace!) */
-  async setStyle(targetId: string, style: Record<string, any>) { return this.update(targetId, { style }); }
+  async setStyle(targetId: string, style: Record<string, any>) {
+    return this.update(targetId, { style });
+  }
 
-  /** 
+  /**
    * Kirim desktop notification ke Asteracea WM.
    * Gak perlu kirim UUID manual — cukup panggil ini dari app manapun.
-   * 
+   *
    * Usage:
    *   await app.notifyDesktop("🔥 Alert", "Temperature above threshold!");
    *   await app.notifyDesktop("✅ Done", "File berhasil disalin.");
@@ -3859,7 +4820,9 @@ export class Screen {
         message,
         timestamp: Date.now(),
       });
-    } catch (_) { /* Asteracea might not be running */ }
+    } catch (_) {
+      /* Asteracea might not be running */
+    }
   }
 
   /** Minimize window */
@@ -3883,11 +4846,11 @@ export class Screen {
   // IMAGE — update image src dari file path
   // ============================================================
   /**
-   * 
-   * @param fsLib 
-   * @param elementId 
-   * @param filePath 
-   * 
+   *
+   * @param fsLib
+   * @param elementId
+   * @param filePath
+   *
    * Usage: await app.updateImageFromFile(fs, "img1", "/path/to/image.jpg");
    */
 
@@ -3898,7 +4861,9 @@ export class Screen {
     } else {
       // Convert ke base64 via Node.js Buffer
       const b64Content = Buffer.from(raw, "latin1").toString("base64");
-      await this.update(elementId, { src: `data:image/jpeg;base64,${b64Content}` });
+      await this.update(elementId, {
+        src: `data:image/jpeg;base64,${b64Content}`,
+      });
     }
   }
 
@@ -3995,20 +4960,26 @@ export class Screen {
   ): Promise<{ path: string; filename: string; directory: string } | null> {
     const title =
       opts?.title || (mode === "open" ? "📂 Open File" : "💾 Save File");
-    const startDir = opts?.startDir || await (async () => {
-      try {
-        const lib = (global as any)._tsixLib;
-        return (await lib?.shell?.getenv("HOME")) || "/";
-      } catch {
-        return "/";
-      }
-    })();
+    const startDir =
+      opts?.startDir ||
+      (await (async () => {
+        try {
+          const lib = (global as any)._tsixLib;
+          return (await lib?.shell?.getenv("HOME")) || "/";
+        } catch {
+          return "/";
+        }
+      })());
     const filter = opts?.filter || [];
     const defaultName = opts?.defaultName || "";
 
     const pf = mode === "open" ? "__ofd_" : "__sfd_";
     const overlayId = pf + "overlay";
-    const isWebkit = typeof CSS !== "undefined" && CSS.supports?.("backdrop-filter", "blur(1px)") ? false : true;
+    const isWebkit =
+      typeof CSS !== "undefined" &&
+      CSS.supports?.("backdrop-filter", "blur(1px)")
+        ? false
+        : true;
     const treeBoxId = pf + "tree";
     const fileListId = pf + "list";
     const pathBarId = pf + "path";
@@ -4128,7 +5099,9 @@ export class Screen {
           display: "flex",
           alignItems: "center",
           padding: "3px 8px",
-          background: args[0] ? "var(--accent-bg, rgba(76,175,80,0.15))" : "transparent",
+          background: args[0]
+            ? "var(--accent-bg, rgba(76,175,80,0.15))"
+            : "transparent",
           borderRadius: "4px",
           marginBottom: "1px",
           cursor: "pointer",
@@ -4160,7 +5133,11 @@ export class Screen {
             { style: getStyle("header") },
             h3({
               text: title,
-              style: { margin: "0", fontSize: "15px", color: theme.colors.accent },
+              style: {
+                margin: "0",
+                fontSize: "15px",
+                color: theme.colors.accent,
+              },
             }),
           ),
           div(
@@ -4179,32 +5156,32 @@ export class Screen {
             { style: getStyle("footer") },
             mode === "save"
               ? input({
-                id: fnameInputId,
-                type: "text",
-                value: defaultName,
-                placeholder: "Nama file...",
-                style: {
-                  flex: "1",
-                  padding: "5px 8px",
-                  fontSize: "12px",
-                  background: theme.colors.inputBg,
-                  color: theme.colors.text,
-                  border: `1px solid ${theme.colors.inputBorder}`,
-                  borderRadius: "4px",
-                },
-              })
+                  id: fnameInputId,
+                  type: "text",
+                  value: defaultName,
+                  placeholder: "Nama file...",
+                  style: {
+                    flex: "1",
+                    padding: "5px 8px",
+                    fontSize: "12px",
+                    background: theme.colors.inputBg,
+                    color: theme.colors.text,
+                    border: `1px solid ${theme.colors.inputBorder}`,
+                    borderRadius: "4px",
+                  },
+                })
               : span({
-                id: statusId,
-                text: "",
-                style: {
-                  flex: "1",
-                  fontSize: "11px",
-                  color: "#888",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                },
-              }),
+                  id: statusId,
+                  text: "",
+                  style: {
+                    flex: "1",
+                    fontSize: "11px",
+                    color: "#888",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  },
+                }),
             span({ style: { flex: "1" } }),
             button({
               id: btnOkId,
@@ -4265,7 +5242,11 @@ export class Screen {
             span({ text: icon(e) + " " + e.name, style: { flex: "1" } }),
             span({
               text: sz(e),
-              style: { color: theme.colors.textMuted, fontSize: "10px", marginLeft: "8px" },
+              style: {
+                color: theme.colors.textMuted,
+                fontSize: "10px",
+                marginLeft: "8px",
+              },
             }),
           ),
         );

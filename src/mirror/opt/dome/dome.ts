@@ -55,32 +55,32 @@ interface GuedWindowEntry {
 
 interface BrowserMessage {
   type:
-  | "CREATE_WINDOW"
-  | "DESTROY_WINDOW"
-  | "MOUNT_NODE"
-  | "UNMOUNT_NODE"
-  | "UPDATE_PROPS"
-  | "FOCUS"
-  | "MINIMIZE_WINDOW"
-  | "RESTORE_WINDOW"
-  | "MAXIMIZE_WINDOW"
-  | "UNMAXIMIZE_WINDOW"
-  | "TERM_OUTPUT"
-  | "CM_SET_VALUE"
-  | "CHART_INIT"
-  | "CHART_DATA"
-  | "CHART_DESTROY"
-  | "DDC_MSG"
-  | "DDC_RESIZE"
-  | "DDC_STOP"
-  | "TB_DATA"
-  | "TB_APPEND"
-  | "TB_COLS"
-  | "TB_SORT"
-  | "TB_SELECT"
-  | "TB_CLEAR_SELECT"
-  | "TB_DESTROY"
-  | "TB_THEME";
+    | "CREATE_WINDOW"
+    | "DESTROY_WINDOW"
+    | "MOUNT_NODE"
+    | "UNMOUNT_NODE"
+    | "UPDATE_PROPS"
+    | "FOCUS"
+    | "MINIMIZE_WINDOW"
+    | "RESTORE_WINDOW"
+    | "MAXIMIZE_WINDOW"
+    | "UNMAXIMIZE_WINDOW"
+    | "TERM_OUTPUT"
+    | "CM_SET_VALUE"
+    | "CHART_INIT"
+    | "CHART_DATA"
+    | "CHART_DESTROY"
+    | "DDC_MSG"
+    | "DDC_RESIZE"
+    | "DDC_STOP"
+    | "TB_DATA"
+    | "TB_APPEND"
+    | "TB_COLS"
+    | "TB_SORT"
+    | "TB_SELECT"
+    | "TB_CLEAR_SELECT"
+    | "TB_DESTROY"
+    | "TB_THEME";
   wid?: string;
   pid?: number;
   title?: string;
@@ -478,9 +478,9 @@ export const main = Program(async (args: string[]) => {
             value:
               event.eventType === "term_resize"
                 ? JSON.stringify({
-                  cols: (event as any).cols,
-                  rows: (event as any).rows,
-                })
+                    cols: (event as any).cols,
+                    rows: (event as any).rows,
+                  })
                 : event.value,
           };
           await shell.send(entry.pid, guiEvent);
@@ -528,7 +528,10 @@ export const main = Program(async (args: string[]) => {
       }
       // CHART_INIT relay: cashew â†' DOME â†' browser (create uPlot)
       if (payload?.type === "CHART_INIT") {
-        void std.log(`[dome] CHART_INIT: wid=${payload.wid} targetId=${payload.targetId}`, "dome");
+        void std.log(
+          `[dome] CHART_INIT: wid=${payload.wid} targetId=${payload.targetId}`,
+          "dome",
+        );
         broadcastToAll({
           type: "CHART_INIT",
           wid: payload.wid,
@@ -538,7 +541,10 @@ export const main = Program(async (args: string[]) => {
       }
       // CHART_DATA relay: cashew â†' DOME â†' browser (update uPlot data)
       if (payload?.type === "CHART_DATA") {
-        void std.log(`[dome] CHART_DATA: wid=${payload.wid} targetId=${payload.targetId} dataLen=${payload.data?.[0]?.length || 0}`, "dome");
+        void std.log(
+          `[dome] CHART_DATA: wid=${payload.wid} targetId=${payload.targetId} dataLen=${payload.data?.[0]?.length || 0}`,
+          "dome",
+        );
         broadcastToAll({
           type: "CHART_DATA",
           wid: payload.wid,
@@ -548,7 +554,10 @@ export const main = Program(async (args: string[]) => {
       }
       // CHART_DESTROY relay: cashew â†' DOME â†' browser (destroy uPlot)
       if (payload?.type === "CHART_DESTROY") {
-        void std.log(`[dome] CHART_DESTROY: wid=${payload.wid} targetId=${payload.targetId}`, "dome");
+        void std.log(
+          `[dome] CHART_DESTROY: wid=${payload.wid} targetId=${payload.targetId}`,
+          "dome",
+        );
         broadcastToAll({
           type: "CHART_DESTROY",
           wid: payload.wid,
@@ -668,7 +677,7 @@ export const main = Program(async (args: string[]) => {
           wid: payload.wid,
           title: payload.title,
         });
-      }      // WINDOW_THEME relay: theme.applyToDome() → DOME → browser (update CSS vars)
+      } // WINDOW_THEME relay: theme.applyToDome() → DOME → browser (update CSS vars)
       if (payload?.type === "WINDOW_THEME") {
         lastThemeColors = payload.colors || null;
         broadcastToAll({
@@ -696,7 +705,9 @@ export const main = Program(async (args: string[]) => {
                 theme: payload.theme,
                 dir: payload.dir,
               });
-            } catch (_) { /* app might be gone */ }
+            } catch (_) {
+              /* app might be gone */
+            }
           }
         }
         return;
@@ -760,7 +771,9 @@ export const main = Program(async (args: string[]) => {
         wsTraffic = { rxBytes: 0, rxPkts: 0, txBytes: 0, txPkts: 0 };
         browserTraffic = { txBytes: 0, txPkts: 0 };
         appTraffic.clear(); // reset per-app accounting tiap interval
-        try { await shell.send(payload.pid, { type: "TRAFFIC_STATS", stats }); } catch (_) { }
+        try {
+          await shell.send(payload.pid, { type: "TRAFFIC_STATS", stats });
+        } catch (_) {}
       }
     });
 
@@ -883,7 +896,10 @@ export const main = Program(async (args: string[]) => {
     // ============================================================
     // HELPERS
     // ============================================================
-    const broadcastToAll = (message: any, fromBrowser: boolean = false): void => {
+    const broadcastToAll = (
+      message: any,
+      fromBrowser: boolean = false,
+    ): void => {
       const json = JSON.stringify(message);
       const bytes = Buffer.byteLength(json, "utf8");
       const totalBytes = bytes * wsClients.size;
