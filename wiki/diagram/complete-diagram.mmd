@@ -21,7 +21,7 @@ flowchart TB
     V8["V8 / Node.js (Ring 0)"]
     K["Kernel.ts<br/>bootstrap & init (Dinawari)"]
     SC["Syscalls.ts<br/>60+ POSIX syscalls"]
-    SCH["Scheduler.ts<br/>round-robin, signals, saved UID"]
+    SCH["Scheduler.ts<br/>worker threads, signals, saved UID"]
     PM["PermissionManager<br/>UID/GID rwx"]
     MM["MountManager<br/>multi-VFS overlay"]
     PO["PortManager"]
