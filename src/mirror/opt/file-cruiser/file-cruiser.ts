@@ -30,6 +30,7 @@ export const main = Program(async (args: string[]) => {
   } catch (_) { }
   let currentPath = args[0] || homeDir;
 
+  const askBeforeExecute = false; // true = tanya dulu sebelum eksekusi file, false = langsung eksekusi
   let entries = [];
   let clipboard = null;
   let selected = null;
@@ -310,8 +311,11 @@ export const main = Program(async (args: string[]) => {
     const name = p.split("/").pop() || "";
     const isDir = isSelDir();
     if (isDir) return;
-    const ans = await app.confirm("▶️ Execute", "Run '" + name + "'?", ["Yes", "No"]);
-    if (ans !== "Yes") return;
+
+    if (askBeforeExecute) {
+      const ans = await app.confirm("▶️ Execute", "Run '" + name + "'?", ["Yes", "No"]);
+      if (ans !== "Yes") return;
+    }
     try {
       const raw = await fs.readFile(p);
       const content = String(raw || "");
