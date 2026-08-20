@@ -463,7 +463,7 @@ const S = {
 // ================================================================
 
 async function showLoginScreen(win: Window): Promise<string> {
-  let loginUser = "root";
+  let loginUser = "";
   // JANGAN prefill password — field bertipe password ter-mask, user tidak bisa
   // melihat karakter awal. Prefill "1" (password default lama) akan "menempel"
   // di depan password baru → login selalu gagal setelah passwd diganti.
