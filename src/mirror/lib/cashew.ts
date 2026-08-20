@@ -1011,13 +1011,22 @@ export class TComboBox extends TComponent {
 // TStatusBar — Status bar (seperti TStatusBar Delphi)
 // ================================================================
 
+// ================================================================
+// TStatusBar — Status bar (seperti TStatusBar Delphi)
+// ================================================================
+
 export class TStatusBar extends TComponent {
   private _screen: Screen | null = null;
+  private _leftSpan: TComponent;
+  private _rightSpan: TComponent;
 
   constructor(id: string, extraStyle?: Record<string, any>) {
     super(id);
     this.tag = "div";
     this.style = {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
       marginTop: "auto",
       padding: "6px 12px",
       borderTop: "1px solid var(--border, #333)",
@@ -1026,20 +1035,61 @@ export class TStatusBar extends TComponent {
       fontFamily: "monospace",
       ...extraStyle,
     };
+
+    // 1. Buat sub-komponen menggunakan base class TComponent asli
+    this._leftSpan = new TComponent(`${id}_left`);
+    this._leftSpan.tag = "span";
+    this._leftSpan.props.text = "";
+
+    this._rightSpan = new TComponent(`${id}_right`);
+    this._rightSpan.tag = "span";
+    this._rightSpan.props.text = "";
+
+    // 2. Masukkan ke lifecycle children via method add() bawaan parent
+    // Ini mengunci agar TComponent.build() otomatis merender keduanya!
+    this.add(this._leftSpan);
+    this.add(this._rightSpan);
   }
 
-  set text(v: string) {
-    this.props.text = v;
-    if (this._screen) this._screen.update(this.id, { text: v });
+  set leftText(v: string) {
+    this._leftSpan.props.text = v;
+    // Tembakkan update langsung ke ID sub-komponen kiri
+    if (this._screen) {
+      this._screen.update(this._leftSpan.id, { text: v });
+    }
   }
+
+  get leftText(): string {
+    return this._leftSpan.props.text || "";
+  }
+
+  set rightText(v: string) {
+    this._rightSpan.props.text = v;
+    // Tembakkan update langsung ke ID sub-komponen kanan
+    if (this._screen) {
+      this._screen.update(this._rightSpan.id, { text: v });
+    }
+  }
+
+  get rightText(): string {
+    return this._rightSpan.props.text || "";
+  }
+
+  // Backward compatibility untuk .text (otomatis lari ke kiri)
+  set text(v: string) {
+    this.leftText = v;
+  }
+
   get text(): string {
-    return this.props.text || "";
+    return this.leftText;
   }
 
   bindEventHandler(screen: Screen): void {
     this._screen = screen;
   }
 }
+
+
 
 // ================================================================
 // HSTACK / VSTACK — Layout helpers
