@@ -2667,3 +2667,121 @@ export class TTabulatorGrid extends TComponent {
     await this.grid.setData(this._data);
   }
 }
+
+
+// ================================================================
+// TProgressBar — Progress Bar dengan Efek XOR Klona Ganda (Perfect Clip)
+// ================================================================
+
+export class TProgressBar extends TComponent {
+  private _screen: Screen | null = null;
+  private _bar: TComponent;
+  private _fgText: TComponent;
+  private _unit: string = "%";
+
+  constructor(id: string, extraStyle?: Record<string, any>) {
+    super(id);
+    this.tag = "div";
+    
+    this.props.min = 0;
+    this.props.max = 100;
+    this.props.value = 0;
+    
+    this.style = {
+      width: "100%",
+      height: "18px", // Dipertebal sedikit agar teks lebih proporsional
+      background: "var(--input-bg, rgba(255,255,255,0.06))",
+      border: "1px solid var(--border, rgba(255,255,255,0.12))",
+      borderRadius: "6px",
+      overflow: "hidden",
+      position: "relative",
+      boxSizing: "border-box",
+      ...extraStyle,
+    };
+    // LAYER 2: Progress Bar Pengisi (Bertindak sebagai jendela kliping)
+    this._bar = new TComponent(`${id}_bar`);
+    this._bar.tag = "div";
+    this._bar.style = {
+      width: "0%", 
+      height: "100%",
+      background: "var(--accent, #4caf50)", // Warna bar utama om
+      transition: "width 0.2s ease",
+      position: "absolute",
+      left: "0",
+      top: "0",
+      overflow: "hidden", // ⚠️ KUNCI UTAMA: Potong teks putih di dalamnya
+      zIndex: "2",
+    };
+
+    // LAYER 3: Teks klona di dalam bar pengisi (Hanya terlihat saat tertutup bar)
+    this._fgText = new TComponent(`${id}_fgtext`);
+    this._fgText.tag = "span";
+    this._fgText.style = {
+      position: "absolute",
+      // Karena parent-nya (_bar) lebarnya dinamis bergerak, posisi teks ini harus dikunci 
+      // terhadap komponen utama (menggunakan kalkulasi posisi baris tengah)
+      left: "50%",
+      top: "50%",
+      transform: "translate(-50%, -50%)",
+      fontSize: "11px",
+      fontWeight: "700",
+      fontFamily: "monospace",
+      color: "#ffffff", // Warna teks kontras saat tertimpa bar (misal: putih murni)
+      pointerEvents: "none",
+      // Amankan lebar teks agar tidak ciut/wrap saat progress bar masih sangat sempit di kiri
+      width: "max-content", 
+    };
+    this._fgText.props.text = `0${this._unit}`;
+
+    // Susun hirarki komponen sesuai lifecycle Cashew
+    this._bar.add(this._fgText); // fgText dimasukkan ke dalam bar
+    this.add(this._bar);         // bar dimasukkan ke base container
+  }
+
+  set value(v: number) {
+    const min = this.props.min ?? 0;
+    const max = this.props.max ?? 100;
+    const pct = Math.min(100, Math.max(0, ((v - min) / (max - min || 1)) * 100));
+    
+    this.props.value = v;
+    
+    // Update blueprint memori internal
+    this._bar.style.width = `${pct}%`;
+    
+    const formattedVal = v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+    const textToShow = `${formattedVal}${this._unit}`;
+    
+    this._fgText.props.text = textToShow;
+
+    // Tembak live update ke browser jika form sudah jalan
+    if (this._screen) {
+      this._screen.update(this._bar.id, { style: { ...this._bar.style } });
+      this._screen.update(this._fgText.id, { text: textToShow });
+    }
+  }
+
+  get value(): number { return this.props.value ?? 0; }
+
+  set unit(u: string) {
+    this._unit = u;
+    this.value = this.value;
+  }
+  get unit(): string { return this._unit; }
+
+  set min(v: number) {
+    this.props.min = v;
+    this.value = this.value;
+  }
+  get min(): number { return this.props.min ?? 0; }
+
+  set max(v: number) {
+    this.props.max = v;
+    this.value = this.value;
+  }
+  get max(): number { return this.props.max ?? 100; }
+
+  bindEventHandler(screen: Screen): void {
+    this._screen = screen;
+  }
+}
+
