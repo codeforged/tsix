@@ -2022,7 +2022,7 @@ export class TRelayCard extends TComponent {
  *
  * Usage:
  *   const sl = new TSlider("brightness", {
- *     value: 70, min: 0, max: 100, color: "#2196f3",
+ *     value: 70, min: 0, max: 100, step: 1, color: "#2196f3",
  *     label: "Brightness", unit: "%"
  *   });
  *   form.add(sl);
@@ -2034,28 +2034,58 @@ export class TSlider extends TComponent {
 
   constructor(id: string, props?: Record<string, any>) {
     super(id);
-    this._sliderProps = { ...props, id };
+    this._sliderProps = {
+      min: 0,
+      max: 100,
+      step: 1,
+      value: 50,
+      ...props,
+      id,
+    };
+  }
+
+  get min(): number {
+    return this._sliderProps.min ?? 0;
+  }
+  set min(v: number) {
+    this._sliderProps.min = v;
+  }
+
+  get max(): number {
+    return this._sliderProps.max ?? 100;
+  }
+  set max(v: number) { 
+    this._sliderProps.max = v;
   }
 
   get value(): number {
-    return this._sliderProps.value ?? 50;
+    return this._sliderProps.value ?? this.min;
   }
   set value(v: number) {
-    this._sliderProps.value = v;
+    // Clamping nilai value agar selalu berada dalam rentang [min, max]
+    const clamped = Math.min(Math.max(v, this.min), this.max);
+    this._sliderProps.value = clamped;
   }
 
   bindEventHandler(screen: Screen): void {
     this._screen = screen;
     const inputId = `sl-input-${this.id}`;
     const valId = `sl-val-${this.id}`;
+    
     screen.on(inputId, "input", async (ev: any) => {
       if (ev.value !== undefined) {
-        const numVal = parseFloat(ev.value);
+        let numVal = parseFloat(ev.value);
+        if (isNaN(numVal)) return;
+
+        // Pastikan nilai hasil input tidak melenceng dari rentang min/max
+        numVal = Math.min(Math.max(numVal, this.min), this.max);
         this._sliderProps.value = numVal;
+
         // Update displayed value
         const unit = this._sliderProps.unit || "";
         const displayVal =
           numVal % 1 === 0 ? String(Math.round(numVal)) : numVal.toFixed(1);
+          
         await screen.update(valId, { text: displayVal + unit });
         if (this.onInput) this.onInput(numVal);
       }
@@ -2063,7 +2093,14 @@ export class TSlider extends TComponent {
   }
 
   build(): IDOMNode {
-    return slider({ ...this._sliderProps, id: this.id });
+    return slider({
+      min: this.min,
+      max: this.max,
+      step: this._sliderProps.step ?? 1,
+      ...this._sliderProps,
+      id: this.id,
+      value: this.value,
+    });
   }
 }
 

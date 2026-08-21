@@ -3437,16 +3437,22 @@ export class ConnectedTabulator {
 
 export function slider(props: Record<string, any> = {}): IDOMNode {
   const id = props.id || uuidv4();
-  const value = props.value ?? 50;
   const min = props.min ?? 0;
-  const max = props.max ?? 100;
+  const max = props.max ?? 2000;
+  const step = props.step ?? 1;
+  
+  // Pastikan value awal tidak melenceng dari rentang min & max
+  const rawValue = props.value ?? min;
+  const value = Math.min(Math.max(rawValue, min), max);
+
   const color = props.color || "#2196f3";
   const label = props.label || "";
   const unit = props.unit || "";
   const inputId = `sl-input-${id}`;
 
   const children: IDOMNode[] = [];
-  if (label)
+  
+  if (label) {
     children.push(
       span({
         text: label,
@@ -3459,6 +3465,7 @@ export function slider(props: Record<string, any> = {}): IDOMNode {
         },
       }),
     );
+  }
 
   children.push({
     id: inputId,
@@ -3469,6 +3476,7 @@ export function slider(props: Record<string, any> = {}): IDOMNode {
       value: String(value),
       min: String(min),
       max: String(max),
+      step: String(step),
       onInputId: inputId,
       style: {
         width: "100%",
@@ -3479,6 +3487,7 @@ export function slider(props: Record<string, any> = {}): IDOMNode {
     },
     children: [],
   });
+
   children.push(
     span({
       id: `sl-val-${id}`,
