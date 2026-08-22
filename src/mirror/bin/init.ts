@@ -134,7 +134,7 @@ export default class Init {
         };
         // Start login on all TTYs
         await lib.std.print(`${ok} Init: Starting multi-terminal login services (TTY2-6)...\n`);
-        for (let i = 2; i <= 6; i++) {
+        for (let i = 2; i <= 2; i++) {
             await spawnLogin(i);
         }
         await lib.std.print(`${ok} Init: All terminal services are now online and monitored.\n`);

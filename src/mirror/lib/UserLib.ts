@@ -209,7 +209,7 @@ export class StdLib {
         if (data === "") return null; // EOF
         this.inputBuffer += data;
       } else {
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 20));
       }
     }
   }
