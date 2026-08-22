@@ -193,9 +193,9 @@ export class Kernel {
     await this.initializeSubsystems();
 
     // Initialize TTY Manager
-    this.ttyManager = new TTYManager(32);
+    this.ttyManager = new TTYManager(16);
     const ttysDevs: Record<string, TTYDevice> = {};
-    for (let i = 1; i <= 32; i++) {
+    for (let i = 1; i <= 16; i++) {
       const tty = this.ttyManager.getTTY(i)!;
       const dev = new TTYDevice(
         i,
@@ -219,7 +219,7 @@ export class Kernel {
     // this.bootLog(`HAL: Registered 'stdin' as KeyboardDevice.`);
     // this.bootLog(`HAL: Registered 'null' as NullDevice.`);
     // this.bootLog(`HAL: Registered 'fb0' (framebuffer) mapped to TTY1.`);
-    // this.bootLog(`HAL: Registered ${Object.keys(ttysDevs).length} Virtual Console devices (tty1-32).`);
+    // this.bootLog(`HAL: Registered ${Object.keys(ttysDevs).length} Virtual Console devices (tty1-16).`);
     // this.bootLog("Populating /dev with hardware device nodes... done.");
 
     // Initialize Network Interfaces
