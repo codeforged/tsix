@@ -68,7 +68,7 @@ export const main = Program(async (_args: string[]) => {
 
   // Slider 3: Particles count
   const particleCountSlider = new TSlider("particle-count-slider", {
-    value: 100, min: 10, max: 100, color: "#58ff16",
+    value: 100, min: 10, max: 2000, color: "#58ff16",
     label: "Particle Count", unit: "%"
   });
 

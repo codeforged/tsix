@@ -1,7 +1,7 @@
-if (typeof module === 'undefined') {
-  var module = { exports: {} };
-  var exports = module.exports;
-} 
+// if (typeof module === 'undefined') {
+//   var module = { exports: {} };
+//   var exports = module.exports;
+// } 
 
 DDC.onInit(function (ctx) {
   var W = ctx.width;
