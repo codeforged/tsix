@@ -49,24 +49,24 @@ export default class RcLocal {
     }
 
     // Start TPKG Repository Daemon
-    try {
-      const result = await lib.shell.exec(
-        "/sbin/tpkgd.js",
-        [],
-        undefined,
-        undefined,
-        undefined,
-      );
-      if (result) {
-        await lib.std.print(
-          `${ok} [rc.local] TPKG Repository Daemon started (PID ${result.pid}).\n`,
-        );
-      }
-    } catch (e: any) {
-      await lib.std.print(
-        `[rc.local] Warning: Failed to start tpkgd: ${e.message}\n`,
-      );
-    }
+    // try {
+    //   const result = await lib.shell.exec(
+    //     "/sbin/tpkgd.js",
+    //     [],
+    //     undefined,
+    //     undefined,
+    //     undefined,
+    //   );
+    //   if (result) {
+    //     await lib.std.print(
+    //       `${ok} [rc.local] TPKG Repository Daemon started (PID ${result.pid}).\n`,
+    //     );
+    //   }
+    // } catch (e: any) {
+    //   await lib.std.print(
+    //     `[rc.local] Warning: Failed to start tpkgd: ${e.message}\n`,
+    //   );
+    // }
 
     // Start SCP File Transfer Daemon
     try {
@@ -89,64 +89,64 @@ export default class RcLocal {
     }
 
     // Start OTA Server for ESP update firmware Daemon
-    try {
-      const result = await lib.shell.exec(
-        "/sbin/otad.js",
-        [],
-        undefined,
-        undefined,
-        undefined,
-      );
-      if (result) {
-        await lib.std.print(
-          `${ok} [rc.local] OTA Server started (PID ${result.pid}).\n`,
-        );
-      }
-    } catch (e: any) {
-      await lib.std.print(
-        `[rc.local] Warning: Failed to start ota-server: ${e.message}\n`,
-      );
-    }
+    // try {
+    //   const result = await lib.shell.exec(
+    //     "/sbin/otad.js",
+    //     [],
+    //     undefined,
+    //     undefined,
+    //     undefined,
+    //   );
+    //   if (result) {
+    //     await lib.std.print(
+    //       `${ok} [rc.local] OTA Server started (PID ${result.pid}).\n`,
+    //     );
+    //   }
+    // } catch (e: any) {
+    //   await lib.std.print(
+    //     `[rc.local] Warning: Failed to start ota-server: ${e.message}\n`,
+    //   );
+    // }
 
     // Start IoT-Listener Daemon (MQTNL)
-    try {
-      const result = await lib.shell.exec(
-        "/sbin/iot-listener.js",
-        [],
-        undefined,
-        undefined,
-        undefined,
-      );
-      if (result) {
-        await lib.std.print(
-          `${ok} [rc.local] IoT Listener started (PID ${result.pid}).\n`,
-        );
-      }
-    } catch (e: any) {
-      await lib.std.print(
-        `[rc.local] Warning: Failed to start iot-listener: ${e.message}\n`,
-      );
-    }
+    // try {
+    //   const result = await lib.shell.exec(
+    //     "/sbin/iot-listener.js",
+    //     [],
+    //     undefined,
+    //     undefined,
+    //     undefined,
+    //   );
+    //   if (result) {
+    //     await lib.std.print(
+    //       `${ok} [rc.local] IoT Listener started (PID ${result.pid}).\n`,
+    //     );
+    //   }
+    // } catch (e: any) {
+    //   await lib.std.print(
+    //     `[rc.local] Warning: Failed to start iot-listener: ${e.message}\n`,
+    //   );
+    // }
 
     // Start TeleChat Server Daemon (chat E2E headless — pengganti air-type-server)
-    try {
-      const result = await lib.shell.exec(
-        "/opt/telechatd/telechatd.js",
-        [],
-        undefined,
-        undefined,
-        undefined,
-      );
-      if (result) {
-        await lib.std.print(
-          `${ok} [rc.local] TeleChat Server started (PID ${result.pid}).\n`,
-        );
-      }
-    } catch (e: any) {
-      await lib.std.print(
-        `[rc.local] Warning: Failed to start telechatd: ${e.message}\n`,
-      );
-    }
+    // try {
+    //   const result = await lib.shell.exec(
+    //     "/opt/telechatd/telechatd.js",
+    //     [],
+    //     undefined,
+    //     undefined,
+    //     undefined,
+    //   );
+    //   if (result) {
+    //     await lib.std.print(
+    //       `${ok} [rc.local] TeleChat Server started (PID ${result.pid}).\n`,
+    //     );
+    //   }
+    // } catch (e: any) {
+    //   await lib.std.print(
+    //     `[rc.local] Warning: Failed to start telechatd: ${e.message}\n`,
+    //   );
+    // }
 
     // Marker kesiapan DOME — dibersihkan dulu supaya yang ditunggu
     // benar-benar fresh dari DOME yang baru start (VFS persisten lintas boot).
