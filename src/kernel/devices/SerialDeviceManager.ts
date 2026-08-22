@@ -19,7 +19,7 @@ export class SerialDeviceManager {
         this.logger = new Logger("SerialManager");
     }
 
-    public startAutoDetection(intervalMs: number = 3000) {
+    public startAutoDetection(intervalMs: number = 10000) {
         this.logger.info("Serial auto-detection enabled.");
         this.scan(); // Initial scan
         this.scanInterval = setInterval(() => this.scan(), intervalMs);
