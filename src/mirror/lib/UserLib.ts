@@ -152,7 +152,7 @@ export class StdLib {
 
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) { }
+  ) {}
 
   public setStdin(fd: number) {
     this.stdinFd = fd;
@@ -209,7 +209,8 @@ export class StdLib {
         if (data === "") return null; // EOF
         this.inputBuffer += data;
       } else {
-        await new Promise((r) => setTimeout(r, 20));
+        // Idle poll: 150ms (~7x/detik) — nilai tervalidasi (CPU ~0.4%).
+        await new Promise((r) => setTimeout(r, 150));
       }
     }
   }
@@ -255,7 +256,7 @@ export class StdLib {
 
     try {
       await (this as any)._lib.fs.mkdir(logDir);
-    } catch (e) { }
+    } catch (e) {}
 
     try {
       const fd = await (this as any)._lib.fs.open(logFile, "a");
@@ -263,7 +264,7 @@ export class StdLib {
         await (this as any)._lib.fs.write(fd, logLine);
         await (this as any)._lib.fs.close(fd);
       }
-    } catch (e) { }
+    } catch (e) {}
   }
 
   /**
@@ -383,7 +384,8 @@ export class StdLib {
         if (data === "") return null; // EOF
         this.inputBuffer += data;
       } else {
-        await new Promise((r) => setTimeout(r, 10)); // Fast poll
+        // Idle poll: 50ms (20x/detik) — nilai tervalidasi (CPU ~0.4%).
+        await new Promise((r) => setTimeout(r, 50));
       }
     }
 
@@ -437,7 +439,7 @@ export class StdLib {
 export class FsLib {
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) { }
+  ) {}
 
   public async open(path: string, flags: string = "r") {
     return await this.dispatch(SyscallCode.OPEN, { path, flags });
@@ -698,7 +700,7 @@ export class ShellLib {
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
     private pid: number,
-  ) { }
+  ) {}
 
   public getPid(): number {
     return this.pid;
@@ -781,8 +783,14 @@ export class ShellLib {
    * decrypt: true = MINTA hasil dekripsi (plaintext) — hanya dikabulkan jika ROOT.
    * Paket diterima via lib.onEvent("ipc_message") → msg.data.type === "NET_SNIFF".
    */
-  public async netSnifferRegister(iface: string = "*", decrypt: boolean = false): Promise<boolean> {
-    return await this.dispatch(SyscallCode.NET_SNIFFER_REGISTER, { iface, decrypt });
+  public async netSnifferRegister(
+    iface: string = "*",
+    decrypt: boolean = false,
+  ): Promise<boolean> {
+    return await this.dispatch(SyscallCode.NET_SNIFFER_REGISTER, {
+      iface,
+      decrypt,
+    });
   }
 
   /** netSnifferUnregister(): Hentikan sniffing interface. */
@@ -867,7 +875,7 @@ export class ShellLib {
     return ok;
   }
 
-  public async exit(code: number = 0) {    
+  public async exit(code: number = 0) {
     //await this.setenv("EXIT_CODE", code.toString());
     return await this.dispatch(SyscallCode.EXIT, code);
   }
@@ -889,7 +897,10 @@ export class ShellLib {
    * dbServiceReply(): Daemon DB mengirim hasil request kembali ke kernel.
    * Dipanggil setelah memproses event "db_request" (requestId → result).
    */
-  public async dbServiceReply(requestId: string, result: any): Promise<boolean> {
+  public async dbServiceReply(
+    requestId: string,
+    result: any,
+  ): Promise<boolean> {
     return await this.dispatch(SyscallCode.DB_SERVICE_REPLY, {
       requestId,
       result,
@@ -925,7 +936,7 @@ export class ShellLib {
 export class NetworkLib {
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) { }
+  ) {}
 
   public async socket(): Promise<number> {
     return await this.dispatch(SyscallCode.SOCKET, null);
@@ -989,8 +1000,16 @@ export class NetworkLib {
     return await this.dispatch(SyscallCode.CLOSE, fd);
   }
 
-  public async cha20P1305Agent(fd: number, port: number, key: any): Promise<any> {
-    return await this.dispatch(SyscallCode.IOCTL, { fd, cmd:0x1001, arg: {port, sessionKey: key}});
+  public async cha20P1305Agent(
+    fd: number,
+    port: number,
+    key: any,
+  ): Promise<any> {
+    return await this.dispatch(SyscallCode.IOCTL, {
+      fd,
+      cmd: 0x1001,
+      arg: { port, sessionKey: key },
+    });
   }
 
   public async ioctl(fd: number, cmd: number, arg: any): Promise<any> {
