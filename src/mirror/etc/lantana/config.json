@@ -1,0 +1,69 @@
+{
+    "ports": {
+        "1000": {
+            "tenant": "default",
+            "keyHex": "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619",
+            "enabled": true,
+            "mode": "auto"
+        }
+    },
+    "deviceCategories": {
+        "esp32": {
+            "label": "ESP32",
+            "icon": "🔧",
+            "description": "ESP32 fisik via MQTNL"
+        },
+        "simulator": {
+            "label": "Simulator",
+            "icon": "💻",
+            "description": "Node simulasi (esp32-demo)"
+        },
+        "generic": {
+            "label": "Generic Device",
+            "icon": "📡",
+            "description": "Device tanpa kategori khusus"
+        }
+    },
+    "sensorCategories": {
+        "temp": {
+            "label": "Temperature",
+            "unit": "°C",
+            "icon": "🌡️",
+            "min": -40,
+            "max": 125
+        },
+        "hum": {
+            "label": "Humidity",
+            "unit": "%",
+            "icon": "💧",
+            "min": 0,
+            "max": 100
+        },
+        "pres": {
+            "label": "Pressure",
+            "unit": "hPa",
+            "icon": "🌀",
+            "min": 800,
+            "max": 1100
+        },
+        "light": {
+            "label": "Light",
+            "unit": "lx",
+            "icon": "☀️",
+            "min": 0,
+            "max": 100
+        },
+        "generic": {
+            "label": "Sensor",
+            "unit": "",
+            "icon": "📊",
+            "description": "Sensor tanpa kategori khusus"
+        }
+    },
+    "sensorIdMap": {
+        "01": "temp",
+        "02": "hum",
+        "03": "pres",
+        "04": "light"
+    }
+}

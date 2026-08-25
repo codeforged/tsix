@@ -268,6 +268,27 @@ export default class RcLocal {
       );
     }
 
+    // Start Lantana IoT Stack daemon (listener + device-bank + distributor)
+    // Satu proses menjalankan 3 layer (separation of concern per file).
+    try {
+      const result = await lib.shell.exec(
+        "/opt/lantana/lantana.js",
+        [],
+        undefined,
+        undefined,
+        undefined,
+      );
+      if (result) {
+        await lib.std.print(
+          `${ok} [rc.local] 🌺 Lantana IoT Stack started (PID ${result.pid}).\n`,
+        );
+      }
+    } catch (e: any) {
+      await lib.std.print(
+        `[rc.local] Warning: Failed to start lantana: ${e.message}\n`,
+      );
+    }
+
     await lib.std.print(`${ok} [rc.local] All startup services initialized.\n`);
 
     // Exit with success code
