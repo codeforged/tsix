@@ -20,6 +20,7 @@ export const EVT_RAW_DATA = "LANTANA_RAW_DATA";          // listener → device-
 export const EVT_SENSOR_DATA = "LANTANA_SENSOR_DATA";    // distributor → consumer
 export const EVT_DEVICE_STATUS = "LANTANA_DEVICE_STATUS";// distributor → consumer (heartbeat update)
 export const EVT_SNAPSHOT = "LANTANA_SNAPSHOT";          // consumer → distributor (request data)
+export const EVT_COMMAND = "LANTANA_COMMAND";            // consumer → distributor (kirim command ke device)
 
 // Status heartbeat device
 export type DeviceStatus = "ONLINE" | "STALE" | "OFFLINE";
@@ -73,10 +74,25 @@ export interface RawSensorData {
     nodeId: string;
     /** Port tujuan paket → menentukan tenant */
     port: number;
+    /** Alamat sumber device (untuk kirim command balik / dua arah) */
+    srcAddress: string;
+    /** Port sumber device (untuk kirim command balik / dua arah) */
+    srcPort: number;
     tenant: string;
     format: "binary" | "plain";
     receivedAt: number;
     sensors: { id: string; value: number }[];
+}
+
+/** Perintah dua arah dari consumer ke device tertentu (mis. "RELAY_1:ON"). */
+export interface LantanaCommand {
+    type: typeof EVT_COMMAND;
+    /** nodeId tujuan (device di Device Bank) */
+    nodeId: string;
+    /** Isi perintah yang dikirim ke device, mis. "RELAY_1:ON" */
+    command: string;
+    /** Opsional: siapa yang meminta (untuk log) */
+    from?: string;
 }
 
 /** Data sensor ternormalisasi yang dikirim ke consumer */

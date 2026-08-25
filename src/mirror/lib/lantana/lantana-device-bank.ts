@@ -30,6 +30,10 @@ export interface DeviceEntry {
     lastDataAt: number;
     lastFormat: "binary" | "plain";
     lastPort: number;
+    /** Alamat sumber device (untuk kirim command balik / dua arah) */
+    srcAddress: string;
+    /** Port sumber device (untuk kirim command balik / dua arah) */
+    srcPort: number;
     sensors: Map<string, SensorEntry>;
 }
 
@@ -59,6 +63,8 @@ export class DeviceBank {
         format: "binary" | "plain",
         sensors: { id: string; value: number }[],
         ts: number,
+        srcAddress?: string,
+        srcPort?: number,
     ): DeviceEntry {
         if (!this.config) this.config = { ports: {}, deviceCategories: {}, sensorCategories: {} };
 
@@ -75,6 +81,8 @@ export class DeviceBank {
                 lastDataAt: 0,
                 lastFormat: format,
                 lastPort: port,
+                srcAddress: srcAddress || nodeId,
+                srcPort: srcPort || 0,
                 sensors: new Map(),
             };
             this.devices.set(nodeId, dev);
@@ -85,6 +93,8 @@ export class DeviceBank {
         dev.lastDataAt = ts;
         dev.lastFormat = format;
         dev.lastPort = port;
+        if (srcAddress) dev.srcAddress = srcAddress;
+        if (srcPort !== undefined) dev.srcPort = srcPort;
 
         // Update sensors
         for (const s of sensors) {
@@ -149,6 +159,13 @@ export class DeviceBank {
     /** Ambil snapshot sensor untuk satu device. */
     getDevice(nodeId: string): DeviceEntry | undefined {
         return this.devices.get(nodeId);
+    }
+
+    /** Ambil alamat sumber device (untuk kirim command balik / dua arah). */
+    getDeviceAddress(nodeId: string): { srcAddress: string; srcPort: number } | null {
+        const dev = this.devices.get(nodeId);
+        if (!dev) return null;
+        return { srcAddress: dev.srcAddress, srcPort: dev.srcPort };
     }
 
     /** Ambil snapshot sensor ternormalisasi untuk satu device. */

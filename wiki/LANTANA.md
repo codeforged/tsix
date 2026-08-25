@@ -101,12 +101,41 @@ Contoh plaintext: `LANTANA|esp32-01|01:25;02:60;03:1013;04:100`
   minta `LANTANA_SNAPSHOT` untuk data terkini.
 - **Tenant**: tiap data ditandai tenant (asal port) — consumer bisa memilah per user.
 
+## Komunikasi dua arah (command ke device)
+
+Lantana bisa mengirim perintah ke device tertentu (misal menyalakan relay), tidak
+hanya menerima data sensor.
+
+**Alur:**
+```
+Consumer (lantana-cmd / app apa pun)
+  → shell.send(daemon, { type: "LANTANA_COMMAND", nodeId, command })
+  → Distributor.handleCommand → resolve alamat device (Device Bank: srcAddress/srcPort)
+  → Listener.sendCommand → net.sendto(deviceAddr, devicePort, "RELAY_1:ON")
+  → firmware ESP32 (nos.onMessage) menerima & set relay
+```
+
+**Cara pakai (CLI):**
+```sh
+# Kirim relay ON ke device esp32-dev-01
+lantana-cmd esp32-dev-01 "RELAY_1:ON"
+
+# Device lain / target eksplisit
+lantana-cmd gudang-a "RELAY_2:OFF" <lantanaPid|uuid>
+```
+
+Device Bank menyimpan `srcAddress` & `srcPort` dari paket terakhir tiap device,
+sehingga command otomatis terkirim ke alamat asal device tersebut (tanpa perlu
+tahu alamat di sisi consumer). Firmware ESP32 (`main.cpp`) sudah memproses
+`RELAY_1:ON/OFF` & `RELAY_2:ON/OFF` di `onMessageReceived`.
+
 ## Status / fase berikutnya
 
 - [x] 3 layer daemon (listener, device-bank, distributor) + config `/etc/lantana/`
 - [x] Format biner + plaintext (auto-detect)
 - [x] Multi-device + kategori statis + heartbeat/umur data + tenant
 - [x] Consumer: dashboard (GUI), db-injector (MySQL), file-logger (VFS history)
+- [x] **Dua arah (command ke device)**: kirim perintah (mis. relay) dari consumer → device
 - [x] Auto-start daemon di `rc.local`
 - [ ] Telegram (tunda)
 - [ ] Firmware ESP32 asli (tunda — simulator sudah sinkron nodeId & biner)

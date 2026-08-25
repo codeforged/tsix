@@ -113,6 +113,8 @@ export class LantanaListener {
                 const raw: RawSensorData = {
                     nodeId,
                     port,
+                    srcAddress: pkt.src || defaultNodeId,
+                    srcPort: pkt.port || 0,
                     tenant: portCfg?.tenant || "default",
                     format,
                     receivedAt: Date.now(),
@@ -126,5 +128,39 @@ export class LantanaListener {
             // Multitasking gap
             await new Promise((r) => setTimeout(r, 10));
         }
+    }
+
+    /**
+     * Kirim perintah (command) ke device tertentu — jalur dua arah.
+     * Menggunakan alamat & port sumber terakhir device (dari Device Bank).
+     *
+     * @param nodeId   ID device tujuan
+     * @param srcAddress Alamat device (hasil simpan dari paket masuk)
+     * @param srcPort  Port sumber device
+     * @param command  Isi perintah, mis. "RELAY_1:ON"
+     */
+    async sendCommand(
+        nodeId: string,
+        srcAddress: string,
+        srcPort: number,
+        command: string,
+    ): Promise<boolean> {
+        // Cari socket untuk port tujuan (port listener Lantana tempat paket device masuk)
+        const config = await loadConfig();
+        for (const [port, fd] of this.socketFds.entries()) {
+            const portCfg = getPortConfig(config, port);
+            if (!portCfg) continue;
+            try {
+                const ok = await net.sendto(fd, srcAddress, srcPort, command, 0, port);
+                if (ok) {
+                    await std.log(`[${TAG}] Command "${command}" → ${nodeId} (${srcAddress}:${srcPort})`, TAG);
+                    return true;
+                }
+            } catch (e: any) {
+                await std.log(`[${TAG}] Gagal kirim command ke ${nodeId}: ${e?.message}`, TAG);
+            }
+        }
+        await std.log(`[${TAG}] Tidak ada socket tersedia untuk kirim command ke ${nodeId}`, TAG);
+        return false;
     }
 }

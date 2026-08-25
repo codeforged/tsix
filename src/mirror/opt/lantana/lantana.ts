@@ -24,7 +24,7 @@ import { Program, std, shell, fs } from "@tsix/Application";
 import { LantanaListener } from "@tsix/lantana/lantana-listener";
 import { DeviceBank } from "@tsix/lantana/lantana-device-bank";
 import { LantanaDistributor } from "@tsix/lantana/lantana-distributor";
-import { LANTANA_UUID, EVT_SNAPSHOT, loadConfig } from "@tsix/lantana/lantana-core";
+import { LANTANA_UUID, EVT_SNAPSHOT, EVT_COMMAND, loadConfig } from "@tsix/lantana/lantana-core";
 
 const PID_FILE = "/tmp/lantana.pid";
 const TAG = "lantana";
@@ -63,6 +63,11 @@ export const main = Program(async (args: string[]) => {
         await distributor.onRawData(raw);
     });
 
+    // Wire command dua arah: distributor → listener.sendCommand → device
+    distributor.setCommandSender(async (nodeId, srcAddress, srcPort, command) => {
+        return await listener.sendCommand(nodeId, srcAddress, srcPort, command);
+    });
+
     const ok = await listener.start();
     if (!ok) {
         await std.log("Lantana gagal start listener — periksa config/port.", TAG);
@@ -78,7 +83,8 @@ export const main = Program(async (args: string[]) => {
     (global as any)._tsixLib.onEvent("ipc_message", async (msg: any) => {
         const payload = msg?.data || msg;
         if (payload && typeof payload === "object") {
-            if (payload.type === "LANTANA_REGISTER" || payload.type === "LANTANA_UNREGISTER" || payload.type === EVT_SNAPSHOT) {
+            if (payload.type === "LANTANA_REGISTER" || payload.type === "LANTANA_UNREGISTER" ||
+                payload.type === EVT_SNAPSHOT || payload.type === EVT_COMMAND) {
                 await distributor.onIpcMessage(msg);
             }
         }

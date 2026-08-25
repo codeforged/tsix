@@ -17,9 +17,11 @@ import {
     EVT_SENSOR_DATA,
     EVT_DEVICE_STATUS,
     EVT_SNAPSHOT,
+    EVT_COMMAND,
     RawSensorData,
     NormalizedSensorData,
     DeviceStatusInfo,
+    LantanaCommand,
 } from "@tsix/lantana/lantana-core";
 const TAG = "lantana-distributor";
 
@@ -27,16 +29,25 @@ export class LantanaDistributor {
     /** consumer terdaftar: pid → { name, tenant filter (optional) } */
     private consumers: Map<number, { name: string; tenant?: string }> = new Map();
     private bank: DeviceBank;
+    /** callback kirim command ke device (di-set daemon, memanggil listener.sendCommand) */
+    private commandSender: ((nodeId: string, srcAddress: string, srcPort: number, command: string) => Promise<boolean>) | null = null;
 
     constructor(bank: DeviceBank) {
         this.bank = bank;
+    }
+
+    /** Set callback untuk mengirim command ke device (dua arah). */
+    setCommandSender(
+        fn: (nodeId: string, srcAddress: string, srcPort: number, command: string) => Promise<boolean>,
+    ): void {
+        this.commandSender = fn;
     }
 
     /** Terima raw data (dipanggil listener via in-process emit). */
     async onRawData(raw: RawSensorData): Promise<void> {
         const ts = raw.receivedAt || Date.now();
 
-        // 1. Upsert ke device bank
+        // 1. Upsert ke device bank (simpan juga alamat sumber utk dua arah)
         const dev = this.bank.upsert(
             raw.nodeId,
             raw.tenant,
@@ -44,6 +55,8 @@ export class LantanaDistributor {
             raw.format,
             raw.sensors,
             ts,
+            raw.srcAddress,
+            raw.srcPort,
         );
 
         // 2. Bangun payload normalisasi
@@ -145,9 +158,39 @@ export class LantanaDistributor {
                 if (fromPid) await this.sendSnapshot(fromPid);
                 break;
             }
+            case EVT_COMMAND: {
+                await this.handleCommand(payload as LantanaCommand);
+                break;
+            }
             default:
                 break;
         }
+    }
+
+    /**
+     * Proses perintah dua arah dari consumer → device.
+     * Resolusi alamat device via Device Bank, lalu kirim via commandSender.
+     */
+    async handleCommand(cmd: LantanaCommand): Promise<{ ok: boolean; error?: string }> {
+        const nodeId = cmd?.nodeId;
+        const command = cmd?.command;
+        if (!nodeId || !command) {
+            return { ok: false, error: "LANTANA_COMMAND butuh nodeId & command" };
+        }
+
+        const addr = this.bank.getDeviceAddress(nodeId);
+        if (!addr) {
+            std.log(`[${TAG}] Command ke ${nodeId} gagal: device tidak dikenal`, TAG);
+            return { ok: false, error: `device ${nodeId} tidak dikenal` };
+        }
+
+        if (!this.commandSender) {
+            return { ok: false, error: "commandSender belum di-set (daemon tidak siap)" };
+        }
+
+        std.log(`[${TAG}] Command "${command}" → ${nodeId} (${addr.srcAddress}:${addr.srcPort})`, TAG);
+        const ok = await this.commandSender(nodeId, addr.srcAddress, addr.srcPort, command);
+        return ok ? { ok: true } : { ok: false, error: "gagal kirim ke device" };
     }
 
     get consumerCount(): number {
