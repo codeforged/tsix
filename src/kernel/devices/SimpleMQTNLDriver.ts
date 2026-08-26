@@ -47,6 +47,12 @@ export class SimpleMQTNLDriver implements IDevice {
     private activeProtocol: IMQTNLProtocol;
     private protocolRegistry: Map<string, IMQTNLProtocol> = new Map();
 
+    // [PER-PORT BINARY MODE] Port yang di-opt-in utk selalu memakai protocol
+    // Binary (MQTNL v1.1) saat TX. Dipakai oleh tsshd/tssh agar TIDAK mengubah
+    // activeProtocol GLOBAL (yang membuat aplikasi lain seperti ping/nmap ikut
+    // binary). Default: kosong → semua port memakai activeProtocol (JSON).
+    private binaryPorts: Set<number> = new Set();
+
     // Sniffer (bitshark): callback menangkap paket
     // TX = payload SEBELUM dienkripsi, RX = payload SETELAH dekripsi (plaintext terbaca)
     private sniffers: Array<(sniff: any) => void> = [];
@@ -399,8 +405,14 @@ export class SimpleMQTNLDriver implements IDevice {
         }
 
         // --- PROTOCOL SELECTION ---
-        // Look up registered protocol for this destination or fallback to global default
-        const protocol = this.protocolRegistry.get(address) || this.activeProtocol;
+        // Look up registered protocol for this destination; fallback ke per-port
+        // binary (binaryPorts) lalu global default (activeProtocol).
+        let protocol = this.protocolRegistry.get(address);
+        if (!protocol) {
+            protocol = this.binaryPorts.has(srcPort)
+                ? this.protocols.find(p => p.getName() === "Binary")!
+                : this.activeProtocol;
+        }
         const useRaw = protocol.getName() === "Binary";
         const prefix = protocol.getTopicPrefix();
 
@@ -523,6 +535,21 @@ export class SimpleMQTNLDriver implements IDevice {
             }
         }
         if (cmd === 0x1002) { // SMQTNL_IOCTL_SET_BINARY_MODE
+            // Bentuk per-port: { port } → daftarkan port tsb sebagai binary
+            // (TIDAK mengubah activeProtocol GLOBAL, jadi app lain tetap JSON).
+            if (arg && typeof arg === "object" && typeof (arg as any).port === "number") {
+                const { port } = arg as { port: number };
+                if ((arg as any).enabled === false) {
+                    this.binaryPorts.delete(port);
+                    this.logger.info(`Interface ${this.name} port ${port} -> protocol JSON (per-port binary off)`);
+                } else {
+                    this.binaryPorts.add(port);
+                    this.logger.info(`Interface ${this.name} port ${port} -> protocol Binary (per-port)`);
+                }
+                return true;
+            }
+
+            // Bentuk global (boolean) — backward compat (send-bin/recv-bin/demo).
             const mode = !!arg;
             this.activeProtocol = mode ?
                 this.protocols.find(p => p.getName() === "Binary")! :

@@ -50,7 +50,9 @@ export default class TSSHDaemon {
         // --- 2. BIND SOCKET AFTER DAEMONIZE ---
         const socket = await lib.net.socket();
         await lib.net.bind(socket, port);
-        await lib.net.ioctl(socket, 0x1002, true); // Aktifkan MQTNL v1.1 Binary Mode
+        // Aktifkan MQTNL v1.1 Binary Mode PER-PORT (bukan global) supaya
+        // aplikasi lain (ping, nmap, dsb) tetap memakai JSON v1.0 di port mereka.
+        await lib.net.ioctl(socket, 0x1002, { port });
 
         // Signal Handler
         (lib as any).onEvent("signal", async (sig: any) => {

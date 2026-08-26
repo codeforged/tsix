@@ -18,7 +18,9 @@ export default class TSSHClient {
 
         const fd = await lib.net.socket();
         await lib.net.bind(fd, localPort);
-        await lib.net.ioctl(fd, 0x1002, true);
+        // Binary mode PER-PORT (port lokal klien), bukan global — supaya aplikasi
+        // lain (ping/nmap) tetap memakai JSON v1.0 di port mereka.
+        await lib.net.ioctl(fd, 0x1002, { port: localPort });
 
         try {
             // --- PHASE 1: HANDSHAKE ---
