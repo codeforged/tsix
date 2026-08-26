@@ -28,10 +28,10 @@ export default class RcLocal {
       );
     }
 
-    // Start Airterm Remote Access Daemon
+    // Start TSSHD Daemon
     try {
       const result = await lib.shell.exec(
-        "/sbin/airtermd.js",
+        "/opt/tssh/tsshd.js",
         [],
         undefined,
         undefined,
@@ -39,12 +39,12 @@ export default class RcLocal {
       );
       if (result) {
         await lib.std.print(
-          `${ok} [rc.local] Airterm daemon started (PID ${result.pid}).\n`,
+          `${ok} [rc.local] TSSH daemon started (PID ${result.pid}).\n`,
         );
       }
     } catch (e: any) {
       await lib.std.print(
-        `[rc.local] Warning: Failed to start airtermd: ${e.message}\n`,
+        `[rc.local] Warning: Failed to start tsshd: ${e.message}\n`,
       );
     }
 
@@ -264,7 +264,7 @@ export default class RcLocal {
       }
     } catch (e: any) {
       await lib.std.print(
-        `[rc.local] Warning: Failed to start crond: ${e.message}\n`,
+        `[rc.local] Warning: Failed to start mysqld: ${e.message}\n`,
       );
     }
 

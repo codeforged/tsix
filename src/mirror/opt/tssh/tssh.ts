@@ -10,15 +10,15 @@ export default class TSSHClient {
             return;
         }
 
-        const remoteAddr = args[0]; 
-        const remotePort = parseInt(args[1]) || 22;
+        const remoteAddr = args[0];
+        const remotePort = parseInt(args[1]) || 24;
         const localPort = 4000 + Math.floor(Math.random() * 1000);
 
         lib.std.print(`[tssh] Connecting to ${remoteAddr}:${remotePort}...\n`);
 
         const fd = await lib.net.socket();
         await lib.net.bind(fd, localPort);
-        await lib.net.ioctl(fd, 0x1002, true); 
+        await lib.net.ioctl(fd, 0x1002, true);
 
         try {
             // --- PHASE 1: HANDSHAKE ---
@@ -54,8 +54,8 @@ export default class TSSHClient {
                 return;
             }
 
-            // Upgrade local socket security
-            await lib.net.ioctl(fd, 0x1001, { port: localPort, sessionKey });
+            // Enkripsi/deskripsi ditangani manual oleh agent di app level.
+            // (Binary protocol driver bypass security — jangan upgrade ioctl 0x1001.)
             const agent = new SecurityAgent();
             agent.setSessionKey(sessionKey);
 
@@ -90,6 +90,8 @@ export default class TSSHClient {
             lib.std.print("\x1b[2J\x1b[H"); // Clear screen
 
             // Bridge Input (Keyboard -> Net)
+            // getChar() sudah menunggu input secara internal (blocking, polling 50ms),
+            // jadi tidak perlu sleep ekstra di sini — event-driven.
             const bridgeIn = async () => {
                 while (active) {
                     const char = await lib.std.getChar();
@@ -107,11 +109,12 @@ export default class TSSHClient {
                         const pkt = TSSHProtocol.pack(TSSHOpcode.DATA, TSSHChannel.SHELL, encryptedSeq);
                         await lib.net.sendto(fd, remoteAddr, remotePort, pkt, PacketFlags.FLAG_DATA, localPort);
                     }
-                    await new Promise(r => setTimeout(r, 10));
                 }
             };
 
             // Bridge Output (Net -> Terminal)
+            // net.recv() sudah event-driven (waitForData membangunkan saat data datang),
+            // jadi polling 15ms redundan — dihapus.
             const bridgeOut = async () => {
                 while (active) {
                     const rawPkt = await lib.net.recv(fd);
@@ -127,13 +130,27 @@ export default class TSSHClient {
                                 active = false;
                                 return;
                             }
+                            // PING/PONG (keep-alive) diabaikan di client
                         }
                     }
-                    await new Promise(r => setTimeout(r, 15));
+                }
+            };
+
+            // Keep-alive: kirim PING tiap 30 detik supaya koneksi idle tidak
+            // dianggap putus oleh server (server balas PONG otomatis).
+            const keepAlive = async () => {
+                while (active) {
+                    await new Promise(r => setTimeout(r, 30000));
+                    if (!active) break;
+                    const pingPkt = TSSHProtocol.pack(TSSHOpcode.PING, TSSHChannel.CONTROL);
+                    try {
+                        await lib.net.sendto(fd, remoteAddr, remotePort, pingPkt, PacketFlags.FLAG_DATA, localPort);
+                    } catch (_) { /* koneksi mati — bridgeOut akan menangani */ }
                 }
             };
 
             bridgeIn();
+            keepAlive();
             await bridgeOut();
 
             await lib.std.setRawMode(false);
@@ -173,7 +190,7 @@ export default class TSSHClient {
         const home = (await lib.shell.getenv("HOME")) || "/root";
         const knownHostsPath = `${home}/.ssh/known_hosts`;
         let content = "";
-        try { content = (await lib.fs.readFile(knownHostsPath)) || ""; } catch (_) {}
+        try { content = (await lib.fs.readFile(knownHostsPath)) || ""; } catch (_) { }
 
         const lines = content.split("\n").filter(l => l.trim());
         const entry = lines.find(l => l.startsWith(`${host} `));
@@ -197,7 +214,7 @@ export default class TSSHClient {
         const answer = await lib.std.readLine();
         if (answer?.trim().toLowerCase() !== "yes") return false;
 
-        try { await lib.fs.mkdir(`${home}/.ssh`); } catch (_) {}
+        try { await lib.fs.mkdir(`${home}/.ssh`); } catch (_) { }
         await lib.fs.writeFile(knownHostsPath, content + (content ? "\n" : "") + `${host} ${fingerprint}\n`);
         return true;
     }

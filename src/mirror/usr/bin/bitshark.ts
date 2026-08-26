@@ -18,7 +18,7 @@
  * (c) 2026 TSIX Project
  */
 
-import { Program, shell } from "@tsix/Application";
+import { Program, fs, shell } from "@tsix/Application";
 import {
   TForm,
   TComboBox,
@@ -61,7 +61,7 @@ export const main = Program(async (args: string[]) => {
   selIface.items = ["🌐 Semua (All)", "📡 smqtnl0", "📡 smqtnl1"];
   selIface.selectedIndex = 0;
 
-  const btnToggle = new TButton("btn-toggle", {width: "140px", height: "35px"});
+  const btnToggle = new TButton("btn-toggle", { width: "140px", height: "35px" });
   btnToggle.caption = "▶️ Start Sniffing";
 
   const btnClear = new TButton("btn-clear", {
@@ -85,7 +85,7 @@ export const main = Program(async (args: string[]) => {
     ? "⏸ idle · 🔓 decrypt ON (dihormati hanya jika ROOT)"
     : "⏸ idle — pilih interface lalu Start · 🔒 encrypted";
 
-  form.add(HStack({padding: "5px"}, lblIface, selIface, btnToggle, btnClear, btnFilter, status));
+  form.add(HStack({ padding: "5px" }, lblIface, selIface, btnToggle, btnClear, btnFilter, status));
 
   const grid = new TTabulatorGrid(
     "packets",
@@ -125,11 +125,11 @@ export const main = Program(async (args: string[]) => {
   /** Map nilai numerik PacketHeaderFlag ke nama yang human-readable. */
   function flagName(f: number): string {
     const MAP: Record<number, string> = {
-      0:  "DATA",
-      1:  "PING_REQ",
-      2:  "PING_REPLY",
-      3:  "BCAST_PING",
-      4:  "BCAST_REPLY",
+      0: "DATA",
+      1: "PING_REQ",
+      2: "PING_REPLY",
+      3: "BCAST_PING",
+      4: "BCAST_REPLY",
       10: "FILE_HEADER",
       11: "FILE_GETFILE",
       12: "FILE_PAYLOAD",
@@ -284,6 +284,7 @@ export const main = Program(async (args: string[]) => {
   /** Apply filter ke rows buffer, tampilkan filtered result */
   function applyFilter() {
     filteredRows = rows.filter(rowMatchesFilter);
+    logEvent("filter_apply", `matched=${filteredRows.length}/${rows.length}`);
     void grid.setData([...filteredRows]);
   }
 
@@ -303,10 +304,123 @@ export const main = Program(async (args: string[]) => {
       flag: { value: "", operator: "=" },
     };
     filteredRows = [...rows];
+    logEvent("filter_clear", `showing=${filteredRows.length}`);
     void grid.setData([...filteredRows]);
   }
 
   const lib = (global as any)._tsixLib;
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // LOGGING — simpan hasil sniffing ke /var/log/bitshark/ agar bisa di-diagnosa
+  // (oleh AI maupun manusia). 1 paket = 1 baris TSV; event/metadata berprefix '#'. 
+  // Penulisan di-batch (flush 500ms / 64 baris) supaya tidak membebani VFS.
+  // ────────────────────────────────────────────────────────────────────────────
+  const LOG_DIR = "/var/log/bitshark";
+  const LOG_FLUSH_MS = 500;      // interval flush
+  const LOG_MAX_BUFFER = 64;     // baris sebelum flush paksa
+  const LOG_DATA_MAX = 500;      // panjang maks kolom data per baris
+  let logFd: number = -1;
+  let logPath: string = "";
+  let logBuffer: string[] = [];
+  let logTimer: any = null;
+  let logFlushing = false;
+
+  /** Escape karakter kontrol supaya 1 paket selalu 1 baris (aman di-grep/parse). */
+  function escLog(s: string): string {
+    return (s || "")
+      .replace(/\t/g, "\\t")
+      .replace(/\r/g, "\\r")
+      .replace(/\n/g, "\\n")
+      .replace(/[\x00-\x1f\x7f]/g, (c) => "\\x" + c.charCodeAt(0).toString(16).padStart(2, "0"));
+  }
+
+  /** Representasi payload utk log: teks (plaintext) + preview hex kalau biner. */
+  function logPayload(sniff: any): string {
+    let text = "";
+    let hex = "";
+    const d = sniff?.data;
+    if (typeof d === "string") {
+      text = d;
+    } else if (d != null && d.type === "Buffer" && Array.isArray(d.data)) {
+      const buf = Buffer.from(d.data);
+      hex = buf.subarray(0, 32).toString("hex");
+      text = buf.toString("utf8");
+    } else if (d != null) {
+      try { text = JSON.stringify(d); } catch (_) { text = String(d); }
+    }
+    let out = escLog(text);
+    if (out.length > LOG_DATA_MAX) out = out.slice(0, LOG_DATA_MAX) + "...[truncated]";
+    if (hex) out += ` [hex:${hex}${(d.data as any[]).length > 32 ? "..." : ""}]`;
+    return out;
+  }
+
+  /** Antri baris ke buffer (flush otomatis saat penuh). */
+  function enqueueLog(line: string) {
+    if (logFd < 0) return;
+    logBuffer.push(line);
+    if (logBuffer.length >= LOG_MAX_BUFFER) void flushLog();
+  }
+
+  /** Tulis baris event/metadata (prefix #). */
+  function logEvent(event: string, detail: string = "") {
+    enqueueLog(`# ${new Date().toISOString()} EVENT ${event}${detail ? " " + detail : ""}`);
+  }
+
+  /** Flush buffer ke file (append). Guard mencegah tumpang-tindih write. */
+  async function flushLog() {
+    if (logFlushing || logFd < 0 || logBuffer.length === 0) return;
+    logFlushing = true;
+    const batch = logBuffer;
+    logBuffer = [];
+    try {
+      await fs.write(logFd, batch.join("\n") + "\n");
+    } catch (_) {
+      // Jangan sampai logging merusak GUI; kembalikan batch agar tak hilang.
+      logBuffer = batch.concat(logBuffer).slice(-LOG_MAX_BUFFER * 2);
+    } finally {
+      logFlushing = false;
+    }
+  }
+
+  /** Self-scheduling flush (mirip pola setTimeout coalesce yang sudah dipakai). */
+  async function logFlusher() {
+    await flushLog();
+    if (logFd >= 0) logTimer = setTimeout(logFlusher, LOG_FLUSH_MS);
+  }
+
+  /** Inisialisasi: buat dir, buka file sesi, tulis header, mulai timer flush. */
+  async function initLogger() {
+    try { await fs.mkdir(LOG_DIR); } catch (_) { /* sudah ada */ }
+    const d = new Date();
+    const p2 = (n: number) => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+    logPath = `${LOG_DIR}/bitshark-${stamp}.log`;
+    try {
+      logFd = await fs.open(logPath, "a");
+    } catch (_) { logFd = -1; }
+    if (logFd < 0) {
+      status.caption = `⚠️ Gagal buka log ${logPath}`;
+      return;
+    }
+    enqueueLog(`# bitshark session start ${new Date().toISOString()}`);
+    enqueueLog(`# mode=${decryptMode ? "decrypt(plaintext)" : "encrypted(wire)"} default_iface=${currentIface}`);
+    enqueueLog(`# columns: time<TAB>dir<TAB>iface<TAB>src<TAB>dst<TAB>port<TAB>proto<TAB>flag<TAB>size<TAB>dec<TAB>data`);
+    logEvent("session_start", `path=${logPath} mode=${decryptMode ? "decrypt" : "encrypted"}`);
+    logTimer = setTimeout(logFlusher, LOG_FLUSH_MS);
+  }
+
+  /** Tutup logger: flush sisa, bersihkan timer/fd, tulis pointer latest.log. */
+  async function shutdownLogger() {
+    if (logTimer) { clearTimeout(logTimer); logTimer = null; }
+    await flushLog();
+    if (logFd >= 0) {
+      try { await fs.close(logFd); } catch (_) { }
+      logFd = -1;
+    }
+    try { await fs.writeFile(`${LOG_DIR}/latest.log`, `# last session: ${logPath}\n`); } catch (_) { }
+  }
+
+  void initLogger();
 
   /** Handler paket dari kernel (event "ipc_message" → data.type === "NET_SNIFF"). */
   function onSniff(msg: any) {
@@ -344,6 +458,23 @@ export const main = Program(async (args: string[]) => {
 
     // Store full packet info
     packetHistory.set(counter, sniff);
+
+    // ── Logging: 1 paket = 1 baris TSV (lengkap utk diagnosa) ──
+    enqueueLog(
+      [
+        `${hh}:${mm}:${ss}.${ms}`,
+        sniff.dir === "TX" ? "TX" : "RX",
+        sniff.iface,
+        `${sniff.srcAddress}:${sniff.srcPort}`,
+        `${sniff.dstAddress}:${sniff.dstPort}`,
+        String(sniff.dstPort ?? ""),
+        String(sniff.protocol ?? ""),
+        String(sniff.flag ?? 0),
+        String(sniff.size ?? ""),
+        sniff.decrypted ? "1" : "0",
+        logPayload(sniff),
+      ].join("\t"),
+    );
 
     rows.push(rowData);
     if (rows.length > 500) {
@@ -403,6 +534,7 @@ export const main = Program(async (args: string[]) => {
 
   // ── Clear ──
   btnClear.onClick = async () => {
+    logEvent("clear", `cleared_rows=${rows.length}`);
     rows = [];
     filteredRows = [];
     counter = 0;
@@ -669,7 +801,7 @@ export const main = Program(async (args: string[]) => {
       status.caption = `🔍 Filter applied (${filteredRows.length}/${rows.length} paket)`;
       try {
         await form.screen.win.unmount(overlayId);
-      } catch (_) {}
+      } catch (_) { }
     };
 
     btnNoFilter.onClick = async () => {
@@ -677,13 +809,13 @@ export const main = Program(async (args: string[]) => {
       status.caption = "🔍 Filter cleared";
       try {
         await form.screen.win.unmount(overlayId);
-      } catch (_) {}
+      } catch (_) { }
     };
 
     btnCancel.onClick = async () => {
       try {
         await form.screen.win.unmount(overlayId);
-      } catch (_) {}
+      } catch (_) { }
     };
 
     // ── Mount & bind event handlers ──
@@ -704,13 +836,15 @@ export const main = Program(async (args: string[]) => {
       currentIface = iface;
       await shell.netSnifferRegister(iface, decryptMode);
       btnToggle.caption = "⏹ Stop";
-      status.caption = `${decryptMode ? "🔓" : "🔒"} ${
-        iface === "*" ? "Menangkap SEMUA interface..." : `Menangkap ${iface}...`
-      } (${decryptMode ? "decrypt:ON" : "encrypted"})`;
+      status.caption = `${decryptMode ? "🔓" : "🔒"} ${iface === "*" ? "Menangkap SEMUA interface..." : `Menangkap ${iface}...`
+        } (${decryptMode ? "decrypt:ON" : "encrypted"})`;
+      logEvent("sniff_start", `iface=${iface} decrypt=${decryptMode ? "on" : "off"}`);
     } else {
       await shell.netSnifferUnregister(iface);
       btnToggle.caption = "▶️ Start Sniffing";
       status.caption = "⏸ berhenti";
+      logEvent("sniff_stop", `iface=${iface} packets=${counter}`);
+      void flushLog();
     }
   };
 
@@ -719,10 +853,12 @@ export const main = Program(async (args: string[]) => {
     if (!sniffing) return;
     const next = IFACES[selIface.selectedIndex] || "*";
     if (next === currentIface) return;
+    const prev = currentIface;
     await shell.netSnifferUnregister(currentIface);
     currentIface = next;
     await shell.netSnifferRegister(next, decryptMode);
     status.caption = `🟢 Ganti → ${next === "*" ? "SEMUA" : next} · ${decryptMode ? "🔓 decrypt:ON" : "🔒 encrypted"}`;
+    logEvent("iface_switch", `${prev} -> ${next}`);
   };
 
   // ── Cleanup saat window ditutup ──
@@ -734,6 +870,8 @@ export const main = Program(async (args: string[]) => {
         /* ignore */
       }
     }
+    logEvent("session_end", `packets=${counter}`);
+    await shutdownLogger();
   };
 
   await form.run();

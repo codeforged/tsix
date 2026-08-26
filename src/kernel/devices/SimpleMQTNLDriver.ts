@@ -88,7 +88,8 @@ export class SimpleMQTNLDriver implements IDevice {
      * init(ctx): Unified initialization called by Kernel.
      * Use injected boot logging functions for TSIX standard output.
      */
-    public init(ctx: KContext): void {        ctx.syslog(`Mengaktifkan Interface '${this.name}' pada ${this.localAddress} via Broker: ${this.brokerUrl}`);
+    public init(ctx: KContext): void {
+        ctx.syslog(`Mengaktifkan Interface '${this.name}' pada ${this.localAddress} via Broker: ${this.brokerUrl}`);
 
         try {
             this.client = mqtt.connect(this.brokerUrl);
@@ -194,9 +195,31 @@ export class SimpleMQTNLDriver implements IDevice {
             // di app), `data` hanyalah passthrough ciphertext.
             let actuallyDecrypted = false;
             if (isBinary) {
-                // [PROTOCOL 1.1] Always use Raw path for Binary Protocol
-                decryptedPayload = portSec.securePacketInRaw(assembledPayload as Buffer);
-                if (decryptedPayload) actuallyDecrypted = true;
+                if (portSec.hasSessionKey()) {
+                    // Ada session key utk port ini → coba decrypt otomatis.
+                    decryptedPayload = portSec.securePacketInRaw(assembledPayload as Buffer);
+                    if (decryptedPayload) actuallyDecrypted = true;
+                } else if (Buffer.isBuffer(assembledPayload)) {
+                    // TANPA session key (plain/passthrough). JANGAN panggil
+                    // securePacketInRaw() — tanpa key ia melakukan
+                    // buffer.toString("utf8") yang MERUSAK byte >= 0x80 (frame
+                    // biner seperti TSSH, OTA, dsb) menjadi U+FFFD.
+                    //
+                    // Deteksi pintar: round-trip UTF-8.
+                    //  - Payload teks valid (ASCII/UTF-8) → kirim string
+                    //    (backward-compat utk airterm/scp/telechat/JSON dll).
+                    //  - Payload binary asli (byte tidak valid UTF-8) → kirim
+                    //    Buffer utuh supaya byte >= 0x80 tidak rusak.
+                    const utf8 = assembledPayload.toString("utf8");
+                    if (Buffer.from(utf8, "utf8").equals(assembledPayload)) {
+                        decryptedPayload = utf8;
+                    } else {
+                        decryptedPayload = assembledPayload;
+                    }
+                } else {
+                    // Payload sudah string sejak reassembly (kasus legacy).
+                    decryptedPayload = assembledPayload;
+                }
 
                 // [FALLBACK] If decryption failed, but we are using binary protocol, 
                 // permit the raw payload (Plain Mode) to support optimized OTA.

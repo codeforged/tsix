@@ -1,4 +1,4 @@
-import { UserLib } from "../lib/UserLib";
+import { UserLib } from "@tsix/UserLib";
 import { PacketFlags } from "@common/PacketFlags";
 import { SecurityAgent } from "@common/SecurityAgent";
 import { TSSHProtocol, TSSHOpcode, TSSHChannel } from "@common/protocols/TSSHProtocol";
@@ -81,10 +81,18 @@ export default class TSSHDaemon {
                 }
             }
 
-            // Cleanup idle sessions
+            // Cleanup sessions
             const now = Date.now();
             for (const [sid, sess] of this.sessions.entries()) {
                 if (now - sess.lastSeen > 60000 && !sess.active) {
+                    // Session belum aktif (handshake belum selesai) → buang
+                    this.sessions.delete(sid);
+                } else if (now - sess.lastSeen > 90000 && sess.active) {
+                    // Client mati / tidak respons (keep-alive PING berhenti) → putus
+                    sess.active = false;
+                    try { await lib.shell.kill(sess.shellPid, 9); } catch (_) { }
+                    const byePkt = TSSHProtocol.pack(TSSHOpcode.EXIT, TSSHChannel.CONTROL, "Connection timed out");
+                    await lib.net.sendto(socket, sess.src, sess.port, byePkt, PacketFlags.FLAG_DATA, sess.localPort);
                     this.sessions.delete(sid);
                 }
             }
@@ -125,7 +133,10 @@ export default class TSSHDaemon {
                 const sessionKey = SecurityAgent.decryptWithPrivateKey(this.privateKey, encryptedHex);
                 sess.agent.setSessionKey(sessionKey);
 
-                await lib.net.ioctl(fd, 0x1001, { port: sess.localPort, sessionKey });
+                // JANGAN upgrade ioctl 0x1001 di sini: binary protocol driver sudah
+                // bypass security saat TX & auto-decrypt saat RX, sedangkan payload
+                // TSSH sudah dienkripsi manual oleh agent. Lapisan driver ganda hanya
+                // merusak frame / mengandalkan fallback authTag-fail. (Pola sama dgn airtermd.)
 
                 const ack = TSSHProtocol.pack(TSSHOpcode.CONNECT_ACK, TSSHChannel.CONTROL, "OK");
                 await lib.net.sendto(fd, raw.src, raw.port, ack, PacketFlags.FLAG_DATA, sess.localPort);
@@ -201,14 +212,21 @@ export default class TSSHDaemon {
     private startBridges(lib: UserLib, sess: Session) {
         (async () => {
             try {
+                // Adaptive sleep: 10ms saat ada output (responsif), 50ms saat idle
+                // (hemat CPU — shell.read TTY bersifat non-blocking).
+                let idle = false;
                 while (sess.active) {
                     const output = await lib.shell.read(sess.shellPid);
                     if (output && sess.active) {
+                        idle = false;
                         const encrypted = sess.agent.securePacketOut(output);
                         const pkt = TSSHProtocol.pack(TSSHOpcode.DATA, TSSHChannel.SHELL, encrypted);
                         await lib.net.sendto(sess.fd, sess.src, sess.port, pkt, PacketFlags.FLAG_DATA, sess.localPort);
+                        await new Promise(r => setTimeout(r, 10));
+                    } else {
+                        await new Promise(r => setTimeout(r, idle ? 50 : 10));
+                        idle = true;
                     }
-                    await new Promise(r => setTimeout(r, 10));
                 }
             } catch (_) { }
         })();
@@ -228,7 +246,11 @@ export default class TSSHDaemon {
         const activeTtys = Array.from(this.sessions.values()).map(s => s.ttyId);
         try {
             const allProcs = await lib.shell.ps();
-            const usedTtys = new Set(allProcs.filter((p: any) => p.ttyId >= 7 && p.ttyId <= 12 && p.state !== "EXITED").map((p: any) => p.ttyId));
+            const usedTtys = new Set<number>(
+                allProcs
+                    .filter((p: any) => p.ttyId >= 7 && p.ttyId <= 12 && p.state !== "EXITED")
+                    .map((p: any) => Number(p.ttyId))
+            );
             for (const t of usedTtys) { if (!activeTtys.includes(t)) activeTtys.push(t); }
         } catch (_) { }
 
