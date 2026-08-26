@@ -48,7 +48,7 @@ TSIX keeps evolving, so expect rough edges and breaking changes between versions
 <p align="center">
   <img src="./wiki/diagram/complete-diagram-net.png" alt="Networking &amp; IoT Stack" width="640">
   <br>
-  <em>Networking &amp; IoT Stack (MQTNL → E2E → MQTT → OTA/SCP/AirTerm/ESP32).</em>
+  <em>Networking &amp; IoT Stack (MQTNL → E2E → MQTT → OTA/SCP/TSSH/ESP32).</em>
 </p>
 
 <p align="center">
@@ -100,7 +100,73 @@ This project started in 2021 as a way to remotely manage home automation — lig
 | **E2E Encryption** | RSA-2048 handshake + ChaCha20-Poly1305 session encryption                |
 | **OTA Updates**    | Over-the-air firmware update via MQTNL protocol                          |
 | **SCP**            | Secure file transfer with encryption + password authentication           |
-| **AirTerm**        | Remote terminal to a TSIX node from anywhere — internet + MQTT broker only, no public IP / VPS required. Secured with an SSH-like RSA + ChaCha20-Poly1305 handshake |
+| **TSSH**           | Encrypted remote terminal to a TSIX node from anywhere — internet + MQTT broker only, **no public IP / VPS required**. SSH-like RSA-2048 handshake → ChaCha20-Poly1305 session (successor of AirTerm) |
+
+### Remote Terminal — TSSH (no VPS, no public IP)
+
+**TSSH** is TSIX's encrypted remote terminal (secure shell). Unlike classic SSH, it
+**does not need a VPS, a static public IP, or port-forwarding** — it rides on top of
+the MQTT broker, which TSIX already speaks natively. The broker can be **local
+(LAN)** or **public (internet)** — as long as both sides can reach it, they can
+connect.
+
+```
+┌─────────────┐        MQTT broker         ┌─────────────┐
+│  tssh (client) │  ───── local / internet ───▶  │  tsshd (daemon)  │
+│  any TSIX node │                            │  target TSIX node │
+└─────────────┘                            └─────────────┘
+      │                                          │
+      └──  no public IP · no VPS · no NAT hole ◀──┘
+```
+
+**Handshake** (SSH-like): the client asks the server's public key, then wraps a
+fresh **ChaCha20-Poly1305** session key in **RSA-2048** and sends it back — after
+which all terminal I/O is end-to-end encrypted over the MQTT broker.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as tssh (client)
+    participant B as MQTT broker (local/internet)
+    participant S as tsshd (daemon)
+
+    C->>B: HANDSHAKE_REQ
+    B->>S: HANDSHAKE_REQ
+    S-->>B: HANDSHAKE_RESP (RSA-2048 pubkey + fingerprint)
+    B-->>C: HANDSHAKE_RESP
+
+    Note over C,S: Verify host fingerprint (known_hosts)
+
+    C->>B: KEY_EXCHANGE (session key, RSA-encrypted)
+    B->>S: KEY_EXCHANGE
+    S-->>B: CONNECT_ACK
+    B-->>C: CONNECT_ACK
+
+    Note over C,S: Session now ChaCha20-Poly1305 encrypted
+
+    C->>B: CONNECT_REQ (encrypted: TTY / -c command)
+    B->>S: CONNECT_REQ
+    S-->>B: DATA / RESIZE / PING / EXIT (encrypted)
+    B-->>C: DATA / RESIZE / PING / EXIT (encrypted)
+    C->>B: DATA (keystrokes, encrypted)
+    B->>S: DATA
+```
+
+**Try it** (two TSIX nodes on the same broker):
+
+```bash
+# on the target node
+tsshd                # default: listens on MQTNL port 24
+
+# from any other node (or the same one, via localhost)
+tssh <hostname>      # e.g. tssh wintsix
+
+tssh <hostname> -c "cat /etc/hostname"   # run a one-off remote command
+```
+
+> **Why this matters:** you can administer a TSIX node — or an ESP32 IoT device
+> behind NAT — from anywhere, using only a free public MQTT broker. No VPS to
+> rent, no firewall hole to open.
 
 ### GUI (Emerald + DOME)
 
@@ -279,7 +345,7 @@ tsix/
 │   ├── vfs/           — Filesystem backends (BKFS, RamFS, HostVFS)
 │   ├── mirror/        — Userland (Ring 4) — FHS layout (synced to VFS root)
 │   │   ├── bin/       — 80+ command-line tools (ls, cat, tsh, sudo...)
-│   │   ├── sbin/      — Daemons (tpkgd, scpd, airtermd, crond...)
+│   │   ├── sbin/      — Daemons (tpkgd, scpd, tsshd, crond...)
 │   │   ├── usr/       — User binaries (local/bin)
 │   │   ├── opt/       — GUI apps (asteracea WM, dome, eucalyptus, file-cruiser...)
 │   │   ├── lib/       — Libraries (Emerald, UserLib, Application)
@@ -316,7 +382,7 @@ tsix/
 | **IoT Gateway**   | MQTNL protocol, OTA updates, ESP32 integration, Serial devices     |
 | **Cloud Desktop** | DOME display server, Asteracea WM, PixelTerm, File Cruiser         |
 | **Edge Platform** | TPKG package manager, crond scheduler, process isolation           |
-| **Secure Tunnel** | AirTerm (remote terminal), SCP (file transfer) with E2E encryption |
+| **Secure Tunnel** | TSSH (remote terminal), SCP (file transfer) with E2E encryption |
 | **Dashboard**     | IoT dashboard with real-time charts via DOME                       |
 | **Sandbox**       | Isolated script execution in Worker Threads                        |
 
