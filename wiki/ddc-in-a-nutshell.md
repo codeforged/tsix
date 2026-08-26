@@ -1,6 +1,6 @@
 # 🖌️ DDC — Direct Draw and Control (Native JS di Window TSIX)
 
-**DDC** adalah framework untuk aplikasi animasi/visual yang berjalan **100% di browser** di dalam window TSIX, tapi tetap terhubung ke aplikasi TSIX (TGA) lewat **mekanisme PixelSpace**. Ini jawaban untuk app yang butuh reaksi cepat (game, particle, dashboard real-time) tanpa banjiri WebSocket per-frame.
+**DDC** adalah framework untuk aplikasi animasi/visual yang berjalan **100% di browser** di dalam window TSIX, tapi tetap terhubung ke aplikasi TSIX (TGA: TSIX GUI Application) lewat **mekanisme PixelSpace**. Ini jawaban untuk app yang butuh reaksi cepat (game, particle, dashboard real-time) tanpa banjiri WebSocket per-frame.
 
 Setara dengan pola `xterm.js` / `CodeMirror` di TSIX, tapi digeneralisasi jadi **"Native JavaScript widget"** yang bisa gambar bebas (canvas + Fabric.js) dan dianimasikan dengan RAF di browser.
 
