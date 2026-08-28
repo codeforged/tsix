@@ -17,7 +17,7 @@ while true; do
     echo "========================================"
     echo ""
     
-    node -r esbuild-register -r tsconfig-paths/register --max-old-space-size=8192 src/main.ts $SAFE_MODE
+    node -r esbuild-register -r tsconfig-paths/register --max-old-space-size=512 src/main.ts $SAFE_MODE
     EXIT_CODE=$?
     
     if [ $EXIT_CODE -eq 0 ]; then

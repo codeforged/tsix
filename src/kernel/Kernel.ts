@@ -24,6 +24,7 @@ import { RamFS } from "../vfs/RamFS";
 import { GUIRegistry } from "./GUIRegistry";
 
 import path from "path";
+import { std } from "@tsix/Application";
 
 /**
  * KERNEL.TS
@@ -166,7 +167,7 @@ export class Kernel {
         this.bkfs.mkdir("/var", 0, 0, 0o755);
         this.bkfs.mkdir("/var/log", 0, 0, 0o755);
         this.bkfs.touch(logFile, logLine);
-      } catch (err) { }
+      } catch (err) {}
     }
   }
 
@@ -464,7 +465,7 @@ export class Kernel {
     // Alt+F1..F6 sequences vary by terminal, but common ones are:
     // Alt+F1: \x1b\x1bOP or \x1b[1;3P
     // For simplicity and compatibility, we'll check for several common patterns.
-
+    // console.log(`key: ${seq}`);
     const hotkeys: Record<string, number> = {
       // Standard Alt+F1..F6 (Xterm, iTerm2, Terminal.app)
       "\x1b\x1bOP": 1,
@@ -487,12 +488,12 @@ export class Kernel {
       "\x1b[1;3;17~": 6,
 
       // Alt+1..6 (Common macOS alternative when Option acts as Meta)
-      "\x1b1": 1,
-      "\x1b2": 2,
-      "\x1b3": 3,
-      "\x1b4": 4,
-      "\x1b5": 5,
-      "\x1b6": 6,
+      "¡": 1,
+      "™": 2,
+      "£": 3,
+      "¢": 4,
+      "∞": 5,
+      "§": 6,
     };
 
     if (hotkeys[seq]) {
