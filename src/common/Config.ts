@@ -30,6 +30,10 @@ export interface SysConfig {
         defaultRows: number;
         defaultColumns: number;
         historyPath: string;
+        /** Jumlah total Virtual Console (TTY) yang dialokasikan kernel. */
+        ttyCount: number;
+        /** Jumlah proses login yang di-spawn init di TTY2..(1+loginCount). */
+        loginCount: number;
     };
     network: {
         interfaces: {

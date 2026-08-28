@@ -239,6 +239,8 @@ function createDefaultConfig(): SysConfig {
       defaultRows: 24,
       defaultColumns: 80,
       historyPath: "/.sh_history",
+      ttyCount: 6,
+      loginCount: 2,
     },
     network: {
       interfaces: [
@@ -478,6 +480,37 @@ async function main() {
         cfg.kernel.verbose ?? true,
       );
 
+      // --- Alokasi TTY (hemat RAM: semakin sedikit konsol, semakin sedikit buffer) ---
+      // Daemon remote (tsshd/airtermd/pixelterm) TIDAK memakai slot konsol ini —
+      // mereka pakai PTY on-demand. Jadi ttyCount bisa dikecilkan bebas.
+      const defaultTtyCount = cfg.shell.ttyCount ?? 6;
+      const defaultLoginCount = cfg.shell.loginCount ?? 2;
+      console.log(
+        "\n[INSTALL] Alokasi TTY: total konsol virtual vs jumlah login lokal.\n" +
+        `          TTY1 = console utama; login di TTY2..(1+loginCount).`,
+      );
+      let ttyCount = parseInt(
+        await prompt(rl, "Total TTY (virtual consoles)", String(defaultTtyCount)),
+        10,
+      );
+      if (isNaN(ttyCount) || ttyCount < 2) ttyCount = defaultTtyCount;
+      let loginCount = parseInt(
+        await prompt(
+          rl,
+          "Login services (TTY2..login+1)",
+          String(Math.min(defaultLoginCount, ttyCount - 1)),
+        ),
+        10,
+      );
+      if (isNaN(loginCount) || loginCount < 1) loginCount = 1;
+      // Selalu sisakan minimal 1 konsol (TTY1 = console utama)
+      if (loginCount >= ttyCount) loginCount = ttyCount - 1;
+      cfg.shell.ttyCount = ttyCount;
+      cfg.shell.loginCount = loginCount;
+      console.log(
+        `[INSTALL] TTY alokasi: 1 console utama + ${loginCount} login (TTY2-${1 + loginCount}).`,
+      );
+
       dbRel = await prompt(rl, "New database filename (e.g. system.db)", dbRel);
       rootPassword = await promptPassword(
         rl,
@@ -577,7 +610,7 @@ async function main() {
     bkfs.touch(
       "/etc/crontab",
       "# /etc/crontab — kosong untuk instalasi baru.\n" +
-        "# Isi jadwal dengan: crontab -e\n",
+      "# Isi jadwal dengan: crontab -e\n",
       0,
       0,
       0o644,
@@ -618,8 +651,7 @@ async function main() {
         `[INSTALL] /etc/passwd: ${passwd ? passwd.split("\n").length : 0} akun`,
       );
       console.log(
-        `[INSTALL] Group tersedia: ${
-          groups ? groups.split("\n").map((l) => l.split(":")[0]).join(", ") : "(tidak ada)"
+        `[INSTALL] Group tersedia: ${groups ? groups.split("\n").map((l) => l.split(":")[0]).join(", ") : "(tidak ada)"
         }`,
       );
       console.log(

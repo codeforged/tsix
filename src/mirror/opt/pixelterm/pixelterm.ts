@@ -154,34 +154,34 @@ export const main = Program(async (args: string[]) => {
           targetId: termId,
           colors,
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   }
 
-  // Terapkan ukuran ke TTY via TIOCSWINSZ (ioctl 3). Kernel yang resize device
-  // TTY, update env LINES/COLUMNS semua proses di TTY itu, & kirim SIGWINCH.
-  // Jalur ini PER-TTY — aman untuk banyak instance pixelterm & tidak bergantung
+  // Terapkan ukuran ke slave PTY via TIOCSWINSZ (ioctl 3). Kernel yang resize,
+  // update env LINES/COLUMNS semua proses di PTY itu, & kirim SIGWINCH.
+  // Jalur ini PER-PTY — aman untuk banyak instance pixelterm & tidak bergantung
   // pada forwarding IPC RESIZE ke child (biar atto selalu dapat ukuran benar).
-  let warnedTtyPerm = false; // log sekali saja kalau /dev/ttyN ditolak (mis. non-root)
+  let warnedTtyPerm = false; // log sekali saja kalau /dev/pts/N ditolak (mis. non-root)
   async function applyTtySize(rows: number, cols: number) {
     try {
-      const ttyFd = await fs.open(`/dev/tty${ttyId}`, "w+");
-      if (ttyFd >= 0) {
-        await fs.ioctl(ttyFd, 3, { lines: rows, columns: cols }); // TIOCSWINSZ
-        await fs.close(ttyFd);
+      const ptyFd = await fs.open(`/dev/pts/${ptyId}`, "w+");
+      if (ptyFd >= 0) {
+        await fs.ioctl(ptyFd, 3, { lines: rows, columns: cols }); // TIOCSWINSZ
+        await fs.close(ptyFd);
       }
     } catch (e) {
-      // Jangan gagal diam-diam: kalau open /dev/ttyN ditolak, TIOCSWINSZ tidak jalan
+      // Jangan gagal diam-diam: kalau open /dev/pts/N ditolak, TIOCSWINSZ tidak jalan
       // → getScreenInfo() app (mis. atto) stale & tanpa SIGWINCH (hanya IPC fallback).
       if (!warnedTtyPerm) {
         warnedTtyPerm = true;
         try {
           await std.log(
-            `[pixelterm] WARN: cannot open /dev/tty${ttyId} for TIOCSWINSZ — ${(e as any)?.message || e}. ` +
-              `Resize falls back to IPC only; getScreenInfo() in apps (e.g. atto) may stay stale.`,
+            `[pixelterm] WARN: cannot open /dev/pts/${ptyId} for TIOCSWINSZ — ${(e as any)?.message || e}. ` +
+            `Resize falls back to IPC only; getScreenInfo() in apps (e.g. atto) may stay stale.`,
             "pixelterm",
           );
-        } catch (_) {}
+        } catch (_) { }
       }
     }
   }
@@ -191,41 +191,12 @@ export const main = Program(async (args: string[]) => {
   await shell.setenv("COLUMNS", "80");
   await shell.setenv("TERM", "xterm-256color");
 
-  // --- ALLOCATE ISOLATED TTY (7-32) ---
-  // Gunakan range 7-32 (isolated TTYs) agar tidak mengganggu TTY1-6 milik host.
-  const existingSessions = (await shell.ps()).filter(
-    (p: any) =>
-      p.ttyId && p.ttyId >= 7 && p.ttyId <= 32 && p.state !== "EXITED",
-  );
-  const usedTtys = new Set(existingSessions.map((p: any) => p.ttyId));
-  let ttyId = 7;
-  for (let i = 7; i <= 32; i++) {
-    if (!usedTtys.has(i)) {
-      ttyId = i;
-      break;
-    }
-  }
-  await std.log(`[pixelterm] Allocated isolated TTY${ttyId}`, "pixelterm");
-
-  // Kill any leftover processes on this TTY (stale login, etc.)
-  const staleProcs = existingSessions.filter(
-    (p: any) => p.ttyId === ttyId && p.pid,
-  );
-  for (const sp of staleProcs) {
-    try {
-      await shell.kill(sp.pid, 9);
-    } catch (_) {}
-  }
-  await new Promise((r) => setTimeout(r, 50));
-
-  // Clear TTY buffer
-  try {
-    const ttyFd = await fs.open(`/dev/tty${ttyId}`, "w+");
-    if (ttyFd >= 0) {
-      await fs.ioctl(ttyFd, 1, null); // Clear Scrollback/Buffer
-      await fs.close(ttyFd);
-    }
-  } catch (e) {}
+  // --- ALLOCATE PTY ON-DEMAND ---
+  // Tidak lagi memakai slot TTY konsol (terbatas & pre-alokasi). Setiap instance
+  // pixelterm membuat PTY dinamis — hemat RAM & tanpa tabrakan antar instance.
+  const pty = await lib.pty.alloc(24, 80);
+  const ptyId = pty.id;
+  await std.log(`[pixelterm] Allocated PTY${ptyId} (pts/${ptyId})`, "pixelterm");
 
   // Tunggu resize dari xterm.js di browser (ukuran real dari container).
   // 400ms: beri waktu cukup buat xterm mengirim term_resize AWAL (sekarang
@@ -256,13 +227,14 @@ export const main = Program(async (args: string[]) => {
   // Apply initial xterm theme
   await applyTermTheme();
 
-  // Spawn tsh.ts on isolated TTY — no pipe I/O, uses TTY buffer directly
+  // Spawn tsh.ts on PTY slave — no pipe I/O, uses PTY buffer directly
   const shResult = await shell.exec(
     "/bin/tsh.ts",
     [],
     undefined,
     undefined,
-    ttyId,
+    undefined,
+    ptyId,
   );
   if (!shResult) {
     await termWrite("Failed to spawn shell\r\n");
@@ -270,14 +242,14 @@ export const main = Program(async (args: string[]) => {
     return;
   }
   await std.log(
-    `[pixelterm] Shell spawned (PID ${shResult.pid}) on TTY${ttyId}`,
+    `[pixelterm] Shell spawned (PID ${shResult.pid}) on PTY${ptyId}`,
     "pixelterm",
   );
 
   // Fokuskan terminal — user langsung bisa mengetik tanpa klik area terminal.
   // Delay kecil biar xterm sudah dirender & window sudah aktif.
   setTimeout(() => {
-    termFocus().catch(() => {});
+    termFocus().catch(() => { });
   }, 250);
 
   // Jika ada argumen command, kirim ke shell setelah terminal siap
@@ -318,6 +290,7 @@ export const main = Program(async (args: string[]) => {
       await shell.waitpid(shResult.pid);
       await termWrite("\r\n[Shell exited]\r\n");
       await new Promise((r) => setTimeout(r, 300));
+      try { await lib.pty.free(ptyId); } catch (_) { }
       await app.close();
     }
   })();
@@ -363,13 +336,13 @@ export const main = Program(async (args: string[]) => {
       if (data === "\x03" || data.includes("\x03")) {
         try {
           await shell.write(shResult.pid, "\x03");
-        } catch (e) {}
+        } catch (e) { }
         await termWrite("^C\r\n");
       } else {
         // Inject input ke TTY shell (via TTY buffer, bukan pipe)
         try {
           await shell.write(shResult.pid, data);
-        } catch (e) {}
+        } catch (e) { }
       }
     } else if (ev?.eventType === "term_resize") {
       const size = JSON.parse(ev.value || "{}");
@@ -433,7 +406,7 @@ export const main = Program(async (args: string[]) => {
       if (shResult?.pid) {
         try {
           await shell.kill(shResult.pid, 1);
-        } catch (_) {}
+        } catch (_) { }
         await new Promise((r) => setTimeout(r, 200));
       }
       while (killQueue.length > 0) {
@@ -447,13 +420,13 @@ export const main = Program(async (args: string[]) => {
           if (!visited.has(c.pid)) killQueue.push(c.pid);
           try {
             await shell.kill(c.pid, 9);
-          } catch (_) {}
+          } catch (_) { }
         }
       }
       try {
         await shell.kill(shResult.pid, 9);
-      } catch (_) {}
-    } catch (_) {}
+      } catch (_) { }
+    } catch (_) { }
     await std.log(
       "[pixelterm] huponexit=true — child processes terminated",
       "pixelterm",
@@ -479,7 +452,7 @@ export const main = Program(async (args: string[]) => {
                 `[pixelterm] Reparent PID ${child.pid} → init (PPID 1)`,
                 "pixelterm",
               );
-            } catch (_) {}
+            } catch (_) { }
           }
           try {
             await shell.reparent(shellPid, 1);
@@ -487,9 +460,9 @@ export const main = Program(async (args: string[]) => {
               `[pixelterm] Reparent shell PID ${shellPid} → init (PPID 1)`,
               "pixelterm",
             );
-          } catch (_) {}
+          } catch (_) { }
         }
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 });

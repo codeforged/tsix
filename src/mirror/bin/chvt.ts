@@ -7,10 +7,11 @@ import { IProgram, OSContext } from "../lib/IProgram";
  */
 export class main implements IProgram {
     async execute(os: OSContext, args: string[]): Promise<void> {
-        const { std, fs } = os;
+        const { std, fs, shell } = os;
 
+        const ttyCount = parseInt((await shell.getenv("TSIX_TTY_COUNT")) || "6");
         if (args.includes("--help") || args.includes("-h")) {
-            await std.print("Usage: chvt <number>\nChange to virtual terminal <number> (1-6).\n");
+            await std.print(`Usage: chvt <number>\nChange to virtual terminal <number> (1-${ttyCount}).\n`);
             return;
         }
 
@@ -21,8 +22,8 @@ export class main implements IProgram {
         }
 
         const ttyId = parseInt(args[0]);
-        if (isNaN(ttyId) || ttyId < 1 || ttyId > 6) {
-            await std.print("Invalid TTY number. Must be 1-6.\n");
+        if (isNaN(ttyId) || ttyId < 1 || ttyId > ttyCount) {
+            await std.print(`Invalid TTY number. Must be 1-${ttyCount}.\n`);
             return;
         }
 

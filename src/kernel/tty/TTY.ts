@@ -410,6 +410,19 @@ export class TTY {
         }
     }
 
+    /**
+     * flushInput(): Buang SEMUA input yang tertunda di buffer TTY ini.
+     * Dipakai oleh utilitas seperti openvt sebelum men-spawn proses baru di
+     * TTY yang sedang idle — mencegah "stale input" (enter/karakter basi yang
+     * diketik user saat TTY tidak aktif) ikut terbaca proses baru.
+     */
+    public flushInput() {
+        this.inputBuffer = [];
+        this.inputLines = [];
+        this.lineBuffer = "";
+        this.cookedEchoState = "NORMAL";
+    }
+
     public getOutput(): string {
         const out = this.outputBuffer;
         this.outputBuffer = "";

@@ -13,6 +13,7 @@ vi.mock("./MountManager");
 vi.mock("./GUIRegistry");
 vi.mock("../common/Config");
 vi.mock("./tty/TTYManager");
+vi.mock("./PTYManager");
 vi.mock("./devices/SimpleMQTNLDriver");
 vi.mock("./devices/SerialDeviceManager");
 

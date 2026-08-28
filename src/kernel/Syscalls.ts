@@ -17,6 +17,8 @@ import { PipeDevice } from "./devices/PipeDevice";
 import * as fs from "fs";
 import * as path from "path";
 import { TTYDevice } from "./devices/TTYDevice";
+import { PTYSlaveDevice } from "./devices/PTYSlaveDevice";
+import { PTYDevice } from "./devices/PTYDevice";
 import { MountManager } from "./MountManager";
 import { HostVFS } from "../vfs/HostVFS";
 import { RamFS } from "../vfs/RamFS";
@@ -306,6 +308,8 @@ export class SyscallDispatcher {
       SyscallCode.READ_CHUNK,
       SyscallCode.WRITE_CHUNK,
       SyscallCode.GET_SIZE,
+      SyscallCode.PTY_ALLOC,
+      SyscallCode.PTY_FREE,
     ];
 
     if (needsArgs.includes(code) && (args === undefined || args === null)) {
@@ -337,6 +341,7 @@ export class SyscallDispatcher {
       case SyscallCode.CLOSE:
       case SyscallCode.WAITPID:
       case SyscallCode.KILL:
+      case SyscallCode.PTY_FREE:
         if (typeof args !== "number")
           throw new Error(
             `Syscall ${SyscallCode[code]} expects a numeric argument`,
@@ -434,7 +439,7 @@ export class SyscallDispatcher {
 
         if (absoluteLsPath === "/dev") {
           const devNames = Object.keys((this.kernel as any).devices || {});
-          return devNames
+          const base = devNames
             .filter((d) => {
               const device = (this.kernel as any).devices[d];
               // Device yang tidak mengimplementasikan present() dianggap selalu ada.
@@ -456,6 +461,22 @@ export class SyscallDispatcher {
                 mode: device.mode ?? 0o600,
               };
             });
+
+          // Tambahkan node PTY slave aktif (/dev/pts/N) on-demand
+          const ptyManager = this.kernel.getPTYManager?.();
+          if (ptyManager) {
+            for (const pair of ptyManager.list()) {
+              base.push({
+                name: `pts/${pair.id}`,
+                type: "DEVICE",
+                size: 0,
+                uid: pair.slave.uid ?? 0,
+                gid: pair.slave.gid ?? 0,
+                mode: pair.slave.mode ?? 0o600,
+              });
+            }
+          }
+          return base;
         }
 
         const { vfs, relativePath } = this.mountManager.resolve(absoluteLsPath);
@@ -569,6 +590,14 @@ export class SyscallDispatcher {
               // Resolve to current process tty
               const ttyName = `tty${pcb.ttyId || 1}`;
               device = this.kernel.devices[ttyName] || null;
+            } else if (devName.startsWith("pts/")) {
+              // Pseudo-terminal slave: /dev/pts/N → PTY slave
+              const ptyId = parseInt(devName.substring(4), 10);
+              if (!isNaN(ptyId)) {
+                device =
+                  (this.kernel.getPTYManager?.()?.getSlave(ptyId) as unknown as IDevice) ||
+                  null;
+              }
             } else if (stdoutAliases.includes(devName)) {
               device =
                 (pcb.ttyId ? this.kernel.devices[`tty${pcb.ttyId}`] : null) ||
@@ -748,10 +777,12 @@ export class SyscallDispatcher {
           const entry = targetPcb.fdTable[0];
           if (!entry) return false;
 
-          // Robust TTY detection
+          // Robust TTY detection (VT console + PTY slave)
           const isTty =
             entry.device instanceof TTYDevice ||
-            entry.device.name?.startsWith("tty");
+            entry.device instanceof PTYSlaveDevice ||
+            entry.device.name?.startsWith("tty") ||
+            entry.device.name?.startsWith("pts/");
 
           if (isTty) {
             // If it's a TTY, we want to INJECT into the keyboard buffer (Master -> Slave Input)
@@ -796,7 +827,9 @@ export class SyscallDispatcher {
 
           const isTty =
             entry.device instanceof TTYDevice ||
-            (entry.device as any).name?.startsWith("tty");
+            entry.device instanceof PTYSlaveDevice ||
+            (entry.device as any).name?.startsWith("tty") ||
+            (entry.device as any).name?.startsWith("pts/");
 
           if (isTty) {
             // If it's a TTY, we want to READ what was printed to the screen (Slave Output -> Master)
@@ -952,7 +985,8 @@ export class SyscallDispatcher {
             targetTtyId = parseInt(entry.device.name.replace("tty", ""));
           }
 
-          if (!isNaN(targetTtyId) && targetTtyId >= 1 && targetTtyId <= 12) {
+          const ttyCount = Config.get().shell.ttyCount ?? 6;
+          if (!isNaN(targetTtyId) && targetTtyId >= 1 && targetTtyId <= ttyCount) {
             await this.kernel.ttyManager?.switch(targetTtyId);
             return 0;
           }
@@ -985,6 +1019,26 @@ export class SyscallDispatcher {
           }
         }
 
+        // Special handling for TIOCSWINSZ (3) on PTY slave — resize + SIGWINCH
+        // (proses di PTY memakai ttyId negatif = -(ptyId+1))
+        if (cmd === 3 && entry.device instanceof PTYSlaveDevice) {
+          const { lines, columns } = arg as { lines: number; columns: number };
+          const ptyId = entry.device.getPtyId();
+          const ptyTtyId = -(ptyId + 1);
+
+          entry.device.ioctl(3, { lines, columns });
+
+          // Update environment for all processes on this PTY
+          this.scheduler.listProcesses().forEach((p) => {
+            if (p.ttyId === ptyTtyId && p.state !== "EXITED") {
+              p.env["LINES"] = (lines ?? 24).toString();
+              p.env["COLUMNS"] = (columns ?? 80).toString();
+              this.scheduler.sendEvent(p.pid, "signal", "SIGWINCH");
+            }
+          });
+          return 0;
+        }
+
         return entry.device.ioctl(cmd, arg);
       }
 
@@ -995,12 +1049,14 @@ export class SyscallDispatcher {
           stdoutFd,
           stdinFd,
           ttyId,
+          ptyId,
         } = args as {
           path: string;
           args: string[];
           stdoutFd?: number;
           stdinFd?: number;
           ttyId?: number;
+          ptyId?: number;
         };
         let absoluteExecPath = PathResolver.resolve(pcb.cwd, execPath);
 
@@ -1061,15 +1117,25 @@ export class SyscallDispatcher {
         let stderrDevice =
           pcb.fdTable[2]?.device || this.kernel.devices!.stderr;
 
-        // --- TTY REDIRECTION SUPPORT ---
-        // If a specific TTY is requested, we override the default I/O to that TTY
-        if (ttyId !== undefined && ttyId >= 1 && ttyId <= 12) {
-          const targetTtyDevice = this.kernel.devices[`tty${ttyId}`];
-          if (targetTtyDevice) {
-            stdinDevice = targetTtyDevice;
-            stdoutDevice = targetTtyDevice;
-            stderrDevice = targetTtyDevice;
+        // --- TTY / PTY REDIRECTION SUPPORT ---
+        // If a specific TTY is requested, we override the default I/O to that TTY.
+        // If a specific PTY (pseudo-terminal) is requested, route I/O to its slave
+        // (pts/N) — daemon (tsshd/airtermd/pixelterm) menjalankan shell di sini.
+        let targetTtyDevice: IDevice | null = null;
+        if (ptyId !== undefined && ptyId >= 0) {
+          const ptySlave = this.kernel.getPTYManager?.()?.getSlave(ptyId) || null;
+          if (ptySlave) targetTtyDevice = ptySlave as unknown as IDevice;
+        } else {
+          const ttyCount = Config.get().shell.ttyCount ?? 6;
+          if (ttyId !== undefined && ttyId >= 1 && ttyId <= ttyCount) {
+            targetTtyDevice = this.kernel.devices[`tty${ttyId}`] || null;
           }
+        }
+
+        if (targetTtyDevice) {
+          stdinDevice = targetTtyDevice;
+          stdoutDevice = targetTtyDevice;
+          stderrDevice = targetTtyDevice;
         } else {
           // Normal inheritance logic if no specific TTY requested
           if (stdoutFd !== undefined && pcb.fdTable[stdoutFd]) {
@@ -1111,7 +1177,14 @@ export class SyscallDispatcher {
           ruid: pcb.ruid, // Preserve Real UID
           owner: targetOwner,
           groups: [...pcb.groups], // Inherit supplementary groups
-          ttyId: ttyId !== undefined ? ttyId : pcb.ttyId, // Use target TTY or inherit from parent
+          // Proses di PTY memakai ttyId negatif (-(ptyId+1)) supaya tidak bentrok
+          // dengan konsol virtual (tty1..N). Routing interrupt via ttyId ini.
+          ttyId:
+            ptyId !== undefined && ptyId >= 0
+              ? -(ptyId + 1)
+              : ttyId !== undefined
+                ? ttyId
+                : pcb.ttyId,
           ppid: pid, // Track parent → child relationship
         });
 
@@ -2074,6 +2147,36 @@ export class SyscallDispatcher {
         }
         this.logger.info(`[SNIFF] PID ${pid} stopped sniffing "${iface}"`);
         return true;
+      }
+
+      // --- Pseudo Terminal (PTY, on-demand) ---
+      case SyscallCode.PTY_ALLOC: {
+        const ptyManager = this.kernel.getPTYManager?.() || null;
+        if (!ptyManager) throw new Error("PTY subsystem not available");
+        const opts = (args ?? {}) as { rows?: number; cols?: number };
+        const pair = ptyManager.alloc();
+        // Set ukuran awal jika diberikan
+        if (opts.rows && opts.cols) {
+          pair.slave.width = opts.cols;
+          pair.slave.height = opts.rows;
+        }
+        this.logger.info(
+          `[PTY] PID ${pid} allocated PTY${pair.id} (/dev/pts/${pair.id})`,
+        );
+        return {
+          id: pair.id,
+          slavePath: `/dev/pts/${pair.id}`,
+          masterPath: "/dev/ptmx",
+        };
+      }
+
+      case SyscallCode.PTY_FREE: {
+        const ptyManager = this.kernel.getPTYManager?.() || null;
+        if (!ptyManager) throw new Error("PTY subsystem not available");
+        const id = args as number;
+        const ok = ptyManager.free(id);
+        if (ok) this.logger.info(`[PTY] PID ${pid} freed PTY${id}`);
+        return ok;
       }
 
       default:

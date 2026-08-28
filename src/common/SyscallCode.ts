@@ -76,6 +76,10 @@ export enum SyscallCode {
     // --- NETWORK SNIFFER (bitshark, ala Wireshark) ---
     NET_SNIFFER_REGISTER = 72,   // Daftarkan proses sebagai sniffer interface (args: interfaceName | "*")
     NET_SNIFFER_UNREGISTER = 73, // Hentikan sniffing (args: interfaceName | "*")
+
+    // --- PSEUDO TERMINAL (PTY, on-demand) ---
+    PTY_ALLOC = 74,   // Alokasi PTY baru (args: optional {rows,cols}) → { id, slavePath }
+    PTY_FREE = 75,    // Bebaskan PTY (args: id)
 }
 
 

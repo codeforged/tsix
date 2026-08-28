@@ -15,6 +15,7 @@ import { PortManager } from "./PortManager";
 import { SimpleMQTNLDriver } from "./devices/SimpleMQTNLDriver";
 import { TTYManager } from "./tty/TTYManager";
 import { TTYDevice } from "./devices/TTYDevice";
+import { PTYManager } from "./PTYManager";
 import { SerialDeviceManager } from "./devices/SerialDeviceManager";
 import { MountManager } from "./MountManager";
 import { IVFS } from "../vfs/IVFS";
@@ -33,7 +34,7 @@ import path from "path";
 export class Kernel {
   // Versi kernel saat ini
   private codename: string = "Dinawari";
-  private version: string = "0.2.22.20260811.1";
+  private version: string = "0.2.3.20260828.1";
 
   public getCodename(): string {
     return this.codename;
@@ -57,6 +58,7 @@ export class Kernel {
   public devices: Record<string, IDevice> = {};
   private portManager: PortManager | null = null;
   private ttyManager: TTYManager | null = null;
+  private ptyManager: PTYManager | null = null;
   private serialManager: SerialDeviceManager | null = null;
   private bootTime: number = Date.now();
   public wantedExitCode: number = 0;
@@ -164,7 +166,7 @@ export class Kernel {
         this.bkfs.mkdir("/var", 0, 0, 0o755);
         this.bkfs.mkdir("/var/log", 0, 0, 0o755);
         this.bkfs.touch(logFile, logLine);
-      } catch (err) {}
+      } catch (err) { }
     }
   }
 
@@ -192,10 +194,12 @@ export class Kernel {
     // Memanggil fungsi pembantu untuk menyalakan sub-sistem (VFS, Memory, dll).
     await this.initializeSubsystems();
 
-    // Initialize TTY Manager
-    this.ttyManager = new TTYManager(16);
+    // Initialize TTY Manager — jumlah konsol diambil dari sysconfig (shell.ttyCount)
+    // supaya mudah dikurangi saat butuh hemat RAM (semakin sedikit TTY = makin sedikit buffer).
+    const ttyCount = cfg.shell.ttyCount ?? 6;
+    this.ttyManager = new TTYManager(ttyCount);
     const ttysDevs: Record<string, TTYDevice> = {};
-    for (let i = 1; i <= 16; i++) {
+    for (let i = 1; i <= ttyCount; i++) {
       const tty = this.ttyManager.getTTY(i)!;
       const dev = new TTYDevice(
         i,
@@ -432,6 +436,10 @@ export class Kernel {
         HOME: "/root",
         HOSTNAME: cfg.shell.defaultHostname,
         PROMPT_FORMAT: cfg.shell.promptFormat,
+        // Konfigurasi TTY — diturunkan ke semua proses userland (login, tsshd,
+        // airtermd, pixelterm) supaya alokasi konsol bisa diset dari sysconfig.
+        TSIX_TTY_COUNT: (cfg.shell.ttyCount ?? 6).toString(),
+        TSIX_LOGIN_COUNT: (cfg.shell.loginCount ?? 2).toString(),
         LINES: (process.stdout.rows || cfg.shell.defaultRows).toString(),
         COLUMNS: (
           process.stdout.columns || cfg.shell.defaultColumns
@@ -611,6 +619,11 @@ export class Kernel {
     this.portManager = new PortManager();
     this.bootLogEnd(true, "online.");
 
+    // 6a. Inisialisasi PTY Manager (Pseudo Terminal, on-demand)
+    this.bootLogStart("PTY: Pseudo-terminal allocator");
+    this.ptyManager = new PTYManager();
+    this.bootLogEnd(true, "on-demand.");
+
     // 7. Inisialisasi Syscall Dispatcher
     if (this.bkfs && this.scheduler && this.satpam) {
       this.bootLogStart("Bridge: Establishing Syscall interface");
@@ -728,6 +741,9 @@ export class Kernel {
   }
   public getPortManager() {
     return this.portManager;
+  }
+  public getPTYManager() {
+    return this.ptyManager;
   }
 
   private async ensureDefaultGroups() {

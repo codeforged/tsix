@@ -20,6 +20,7 @@ interface Session {
     agent: SecurityAgent;
     active: boolean;
     shellPid: number;
+    ptyId: number;   // PTY on-demand
     inputQueue: string[];
     lastSeen: number;
 }
@@ -116,7 +117,7 @@ export default class Airtermd {
         // A. NEW HANDSHAKE (Step 1)
         if (pkt.data === "__request::key-exchange") { // Step 1: Client hello
             await lib.std.log(`[${sid}] Handshake started (Step 1).`, "airtermd");
-            sess = {
+            const newSess: Session = {
                 id: sid,
                 step: 1,
                 fd: fd,
@@ -126,10 +127,12 @@ export default class Airtermd {
                 agent: new SecurityAgent(),
                 active: false,
                 shellPid: -1,
+                ptyId: -1,
                 inputQueue: [],
                 lastSeen: Date.now()
             };
-            this.sessions.set(sid, sess);
+            this.sessions.set(sid, newSess);
+            sess = newSess;
 
             // Step 2: Send PubKey (Plain)
             const pubKeyPayload = `__pubkey::${this.publicKey}::${this.fingerprint}`;
@@ -194,36 +197,12 @@ export default class Airtermd {
             const acceptMsg = sess.agent.securePacketOut("!connectAccept!");
             await lib.net.sendto(sess.fd, sess.src, sess.port, acceptMsg, PacketFlags.FLAG_DATA, sess.localPort);
 
-            // --- ALLOCATE & CLEAR ISOLATED TTY (7-12) ---
-            // Scavenge for an available TTY — cek juga proses lain via ps biar gak tabrakan
-            let ttyId = 7;
-            const activeTtys = Array.from(this.sessions.values()).map(s => (s as any).ttyId).filter(id => id !== undefined);
-            // Tambahin TTY yang dipake proses lain (misal pixelterm)
-            try {
-                const allProcs = await lib.shell.ps();
-                const usedTtys = new Set(allProcs
-                    .filter((p: any) => p.ttyId && p.ttyId >= 7 && p.ttyId <= 12 && p.state !== "EXITED")
-                    .map((p: any) => p.ttyId)
-                );
-                for (const t of usedTtys) { if (!activeTtys.includes(t)) activeTtys.push(t); }
-            } catch (_) {}
-            for (let i = 7; i <= 12; i++) {
-                if (!activeTtys.includes(i)) {
-                    ttyId = i;
-                    break;
-                }
-            }
-            (sess as any).ttyId = ttyId;
-
-            try {
-                const ttyFd = await lib.fs.open(`/dev/tty${ttyId}`, "w+");
-                if (ttyFd >= 0) {
-                    await lib.fs.ioctl(ttyFd, 1, null); // Clear Scrollback/Buffer
-                    await lib.fs.close(ttyFd);
-                }
-            } catch (e) { }
-
-            await lib.std.log(`[${sess.id}] Secure session established on TTY${ttyId}.`, "airtermd");
+            // --- ALLOCATE PTY ON-DEMAND ---
+            // Tidak lagi memakai slot TTY konsol (terbatas & pre-alokasi).
+            // PTY dialokasikan dinamis per-sesi — hemat RAM & tanpa batas jumlah.
+            const pty = await lib.pty.alloc(24, 80);
+            sess.ptyId = pty.id;
+            await lib.std.log(`[${sess.id}] Secure session established on PTY${pty.id} (pts/${pty.id}).`, "airtermd");
 
             // --- SPAWN PROCESS (LOGIN OR CUSTOM COMMAND) ---
             let procInfo;
@@ -231,11 +210,11 @@ export default class Airtermd {
                 const parts = customCmd.split(" ");
                 const bin = parts[0];
                 const args = parts.slice(1);
-                procInfo = await lib.shell.exec(bin, args, undefined, undefined, ttyId);
+                procInfo = await lib.shell.exec(bin, args, undefined, undefined, undefined, pty.id);
                 await lib.std.log(`[${sess.id}] Executing remote command: ${customCmd} (PID ${procInfo?.pid})`, "airtermd");
             } else {
-                procInfo = await lib.shell.exec("/bin/login.ts", [], undefined, undefined, ttyId);
-                await lib.std.log(`[${sess.id}] Remote login shell spawned (PID ${procInfo?.pid}, TTY${ttyId})`, "airtermd");
+                procInfo = await lib.shell.exec("/bin/login.ts", [], undefined, undefined, undefined, pty.id);
+                await lib.std.log(`[${sess.id}] Remote login shell spawned (PID ${procInfo?.pid}, PTY${pty.id})`, "airtermd");
             }
 
             if (!procInfo) {
@@ -279,10 +258,10 @@ export default class Airtermd {
                                     } else if (msg.payload === "resize") {
                                         const { rows, cols } = msg;
                                         try {
-                                            const ttyFd = await lib.fs.open(`/dev/tty${ttyId}`, "w+");
-                                            if (ttyFd >= 0) {
-                                                await lib.fs.ioctl(ttyFd, 3, { lines: rows, columns: cols });
-                                                await lib.fs.close(ttyFd);
+                                            const ptyFd = await lib.fs.open(`/dev/pts/${sess.ptyId}`, "w+");
+                                            if (ptyFd >= 0) {
+                                                await lib.fs.ioctl(ptyFd, 3, { lines: rows, columns: cols });
+                                                await lib.fs.close(ptyFd);
                                             }
                                         } catch (e) { }
                                     }
@@ -317,6 +296,8 @@ export default class Airtermd {
             await lib.std.log(`[${sess.id}] Runtime Crash: ${e.message}`, "airtermd");
         } finally {
             sess.active = false;
+            // Bebaskan PTY saat sesi berakhir
+            try { if (sess.ptyId !== undefined && sess.ptyId >= 0) await lib.pty.free(sess.ptyId); } catch (_) { }
             this.sessions.delete(sess.id);
         }
     }

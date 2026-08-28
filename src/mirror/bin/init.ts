@@ -132,9 +132,15 @@ export default class Init {
                 await lib.std.print(`Init: Error spawning login on TTY${ttyId}: ${e.message}\n`);
             }
         };
-        // Start login on all TTYs
-        await lib.std.print(`${ok} Init: Starting multi-terminal login services (TTY2-6)...\n`);
-        for (let i = 2; i <= 2; i++) {
+        // Start login on all TTYs — jumlah login dikonfigurasi di sysconfig
+        // (shell.loginCount, diteruskan via env TSIX_LOGIN_COUNT). Login menempati
+        // TTY2..(1+loginCount). Daemon remote (tsshd/airtermd/pixelterm) TIDAK lagi
+        // memakai slot konsol ini — mereka pakai PTY on-demand (tidak terbatas).
+        const ttyCount = parseInt((await lib.shell.getenv("TSIX_TTY_COUNT")) || "6");
+        const loginCount = parseInt((await lib.shell.getenv("TSIX_LOGIN_COUNT")) || "2");
+        const loginEnd = Math.min(1 + loginCount, ttyCount);
+        await lib.std.print(`${ok} Init: Starting multi-terminal login services (TTY2-${loginEnd})...\n`);
+        for (let i = 2; i <= loginEnd; i++) {
             await spawnLogin(i);
         }
         await lib.std.print(`${ok} Init: All terminal services are now online and monitored.\n`);

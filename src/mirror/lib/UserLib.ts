@@ -23,6 +23,7 @@ export class UserLib {
   public shell: ShellLib;
   public net: NetworkLib;
   public db: DbLib;
+  public pty: PtyLib;
 
   constructor(pid: number) {
     this.pid = pid;
@@ -76,6 +77,7 @@ export class UserLib {
     this.shell = new ShellLib(this.dispatch.bind(this), this.pid);
     this.net = new NetworkLib(this.dispatch.bind(this));
     this.db = new DbLib(this.dispatch.bind(this));
+    this.pty = new PtyLib(this.dispatch.bind(this));
 
     // Inject parent reference
     (this.std as any)._lib = this;
@@ -83,6 +85,7 @@ export class UserLib {
     (this.shell as any)._lib = this;
     (this.net as any)._lib = this;
     (this.db as any)._lib = this;
+    (this.pty as any)._lib = this;
   }
 
   /**
@@ -152,7 +155,7 @@ export class StdLib {
 
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) {}
+  ) { }
 
   public setStdin(fd: number) {
     this.stdinFd = fd;
@@ -256,7 +259,7 @@ export class StdLib {
 
     try {
       await (this as any)._lib.fs.mkdir(logDir);
-    } catch (e) {}
+    } catch (e) { }
 
     try {
       const fd = await (this as any)._lib.fs.open(logFile, "a");
@@ -264,7 +267,7 @@ export class StdLib {
         await (this as any)._lib.fs.write(fd, logLine);
         await (this as any)._lib.fs.close(fd);
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   /**
@@ -439,7 +442,7 @@ export class StdLib {
 export class FsLib {
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) {}
+  ) { }
 
   public async open(path: string, flags: string = "r") {
     return await this.dispatch(SyscallCode.OPEN, { path, flags });
@@ -700,7 +703,7 @@ export class ShellLib {
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
     private pid: number,
-  ) {}
+  ) { }
 
   public getPid(): number {
     return this.pid;
@@ -732,6 +735,7 @@ export class ShellLib {
     stdoutFd?: number,
     stdinFd?: number,
     ttyId?: number,
+    ptyId?: number,
   ): Promise<{ pid: number; stdout: number; stdin: number }> {
     return await this.dispatch(SyscallCode.EXEC, {
       path,
@@ -739,6 +743,7 @@ export class ShellLib {
       stdoutFd,
       stdinFd,
       ttyId,
+      ptyId,
     });
   }
 
@@ -936,7 +941,7 @@ export class ShellLib {
 export class NetworkLib {
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) {}
+  ) { }
 
   public async socket(): Promise<number> {
     return await this.dispatch(SyscallCode.SOCKET, null);
@@ -1014,5 +1019,45 @@ export class NetworkLib {
 
   public async ioctl(fd: number, cmd: number, arg: any): Promise<any> {
     return await this.dispatch(SyscallCode.IOCTL, { fd, cmd, arg });
+  }
+}
+
+/**
+ * PTY LIB (Pseudo Terminal, on-demand)
+ *
+ * Alokasi pseudo-terminal dinamis untuk daemon terminal remote
+ * (tsshd, airtermd, pixelterm). Setiap PTY = pasangan master (dipegang daemon)
+ * + slave (dipakai proses login/shell).
+ */
+export class PtyLib {
+  constructor(
+    private dispatch: (code: SyscallCode, args: any) => Promise<any>,
+  ) { }
+
+  /** alloc(): Buat PTY baru. Returns { id, slavePath, masterPath }. */
+  public async alloc(rows?: number, cols?: number): Promise<{
+    id: number;
+    slavePath: string;
+    masterPath: string;
+  }> {
+    return await this.dispatch(SyscallCode.PTY_ALLOC, { rows, cols });
+  }
+
+  /** free(): Bebaskan PTY. */
+  public async free(id: number): Promise<boolean> {
+    return await this.dispatch(SyscallCode.PTY_FREE, id);
+  }
+
+  /** execOnPty(): Jalankan proses di slave PTY tertentu. */
+  public async execOnPty(
+    path: string,
+    args: string[] = [],
+    ptyId: number,
+  ): Promise<{ pid: number; stdout: number; stdin: number }> {
+    return await this.dispatch(SyscallCode.EXEC, {
+      path,
+      args,
+      ptyId,
+    });
   }
 }

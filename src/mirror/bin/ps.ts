@@ -36,7 +36,13 @@ export class main implements IProgram {
             : processes.filter((proc: any) => proc.uid === userInfo.uid);
 
         filtered.forEach((p_proc: any) => {
-            const ttyStr = p_proc.ttyId ? `tty${p_proc.ttyId}` : "?";
+            // ttyId negatif = proses di PTY on-demand (pts/N, N = -(ttyId+1))
+            let ttyStr = "?";
+            if (p_proc.ttyId && p_proc.ttyId > 0) {
+                ttyStr = `tty${p_proc.ttyId}`;
+            } else if (p_proc.ttyId && p_proc.ttyId < 0) {
+                ttyStr = `pts/${-(p_proc.ttyId) - 1}`;
+            }
             output += `${p(p_proc.pid, 8)}${p(p_proc.ppid ?? "-", 8)}${p(ttyStr, 8)}${p(p_proc.uid, 8)}${p(p_proc.name, 20)}${p(p_proc.state, 12)}${p(p_proc.user, 10)}\n`;
         });
 

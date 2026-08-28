@@ -13,7 +13,7 @@ interface Session {
     agent: SecurityAgent;
     active: boolean;
     shellPid: number;
-    ttyId: number;
+    ptyId: number;   // PTY on-demand (bukan slot TTY konsol)
     lastSeen: number;
 }
 
@@ -93,6 +93,7 @@ export default class TSSHDaemon {
                     // Client mati / tidak respons (keep-alive PING berhenti) → putus
                     sess.active = false;
                     try { await lib.shell.kill(sess.shellPid, 9); } catch (_) { }
+                    try { if (sess.ptyId !== undefined && sess.ptyId >= 0) await lib.pty.free(sess.ptyId); } catch (_) { }
                     const byePkt = TSSHProtocol.pack(TSSHOpcode.EXIT, TSSHChannel.CONTROL, "Connection timed out");
                     await lib.net.sendto(socket, sess.src, sess.port, byePkt, PacketFlags.FLAG_DATA, sess.localPort);
                     this.sessions.delete(sid);
@@ -106,7 +107,7 @@ export default class TSSHDaemon {
         let sess = this.sessions.get(sid);
 
         if (pkt.opcode === TSSHOpcode.HANDSHAKE_REQ) {
-            sess = {
+            const newSess: Session = {
                 id: sid,
                 fd,
                 src: raw.src,
@@ -115,10 +116,11 @@ export default class TSSHDaemon {
                 agent: new SecurityAgent(),
                 active: false,
                 shellPid: -1,
-                ttyId: -1,
+                ptyId: -1,
                 lastSeen: Date.now()
             };
-            this.sessions.set(sid, sess);
+            this.sessions.set(sid, newSess);
+            sess = newSess;
 
             const payload = Buffer.from(`${this.publicKey}::${this.fingerprint}`, "utf8");
             const resp = TSSHProtocol.pack(TSSHOpcode.HANDSHAKE_RESP, TSSHChannel.CONTROL, payload);
@@ -152,15 +154,17 @@ export default class TSSHDaemon {
             try {
                 const encryptedCmd = pkt.payload.toString("utf8").trim();
                 const customCmd = sess.agent.securePacketIn(encryptedCmd);
-                const ttyId = await this.allocateTTY(lib);
-                sess.ttyId = ttyId;
+
+                // Alokasi PTY on-demand (bukan slot TTY konsol yang terbatas)
+                const pty = await lib.pty.alloc(24, 80);
+                sess.ptyId = pty.id;
 
                 let procInfo;
                 if (customCmd) {
                     const parts = customCmd.split(" ");
-                    procInfo = await lib.shell.exec(parts[0], parts.slice(1), undefined, undefined, ttyId);
+                    procInfo = await lib.shell.exec(parts[0], parts.slice(1), undefined, undefined, undefined, pty.id);
                 } else {
-                    procInfo = await lib.shell.exec("/bin/login.ts", [], undefined, undefined, ttyId);
+                    procInfo = await lib.shell.exec("/bin/login.ts", [], undefined, undefined, undefined, pty.id);
                 }
 
                 if (!procInfo) throw new Error("Spawn Failed");
@@ -170,6 +174,10 @@ export default class TSSHDaemon {
 
                 this.startBridges(lib, sess);
             } catch (e: any) {
+                // Pastikan PTY ikut dibebaskan kalau spawn gagal
+                if (sess.ptyId !== undefined && sess.ptyId >= 0) {
+                    try { await lib.pty.free(sess.ptyId); } catch (_) { }
+                }
                 this.sessions.delete(sid);
             }
             return;
@@ -187,10 +195,11 @@ export default class TSSHDaemon {
                         const rows = pkt.payload.readUInt16BE(0);
                         const cols = pkt.payload.readUInt16BE(2);
                         try {
-                            const ttyFd = await lib.fs.open(`/dev/tty${sess.ttyId}`, "w+");
-                            if (ttyFd >= 0) {
-                                await lib.fs.ioctl(ttyFd, 3, { lines: rows, columns: cols });
-                                await lib.fs.close(ttyFd);
+                            // Resize slave PTY via /dev/pts/N (TIOCSWINSZ ioctl 3)
+                            const ptyFd = await lib.fs.open(`/dev/pts/${sess.ptyId}`, "w+");
+                            if (ptyFd >= 0) {
+                                await lib.fs.ioctl(ptyFd, 3, { lines: rows, columns: cols });
+                                await lib.fs.close(ptyFd);
                             }
                         } catch (_) { }
                     }
@@ -204,6 +213,7 @@ export default class TSSHDaemon {
                 case TSSHOpcode.EXIT: {
                     sess.active = false;
                     await lib.shell.kill(sess.shellPid, 9);
+                    try { await lib.pty.free(sess.ptyId); } catch (_) { }
                     this.sessions.delete(sid);
                     break;
                 }
@@ -239,26 +249,10 @@ export default class TSSHDaemon {
                 sess.active = false;
                 const exitPkt = TSSHProtocol.pack(TSSHOpcode.EXIT, TSSHChannel.CONTROL);
                 await lib.net.sendto(sess.fd, sess.src, sess.port, exitPkt, PacketFlags.FLAG_DATA, sess.localPort);
+                // Bebaskan PTY setelah shell keluar
+                try { await lib.pty.free(sess.ptyId); } catch (_) { }
                 this.sessions.delete(sess.id);
             }
         })();
-    }
-
-    private async allocateTTY(lib: UserLib): Promise<number> {
-        const activeTtys = Array.from(this.sessions.values()).map(s => s.ttyId);
-        try {
-            const allProcs = await lib.shell.ps();
-            const usedTtys = new Set<number>(
-                allProcs
-                    .filter((p: any) => p.ttyId >= 7 && p.ttyId <= 12 && p.state !== "EXITED")
-                    .map((p: any) => Number(p.ttyId))
-            );
-            for (const t of usedTtys) { if (!activeTtys.includes(t)) activeTtys.push(t); }
-        } catch (_) { }
-
-        for (let i = 7; i <= 12; i++) {
-            if (!activeTtys.includes(i)) return i;
-        }
-        return 7;
     }
 } 

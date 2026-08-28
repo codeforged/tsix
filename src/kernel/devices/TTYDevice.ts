@@ -63,6 +63,10 @@ export class TTYDevice implements IDevice {
         if (cmd === 2) { // 2 = SWITCH_TTY
             return -1; // Handled in Syscalls.ts via Kernel.ttyManager
         }
+        if (cmd === 5) { // 5 = FLUSH_INPUT (buang stale input — dipakai openvt)
+            this.tty.flushInput();
+            return 0;
+        }
         if (cmd === 10) { // 10 = SET_RAW_MODE
             this.tty.setRawMode(!!arg);
             return 0;
