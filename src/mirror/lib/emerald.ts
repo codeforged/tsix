@@ -3440,7 +3440,7 @@ export function slider(props: Record<string, any> = {}): IDOMNode {
   const min = props.min ?? 0;
   const max = props.max ?? 2000;
   const step = props.step ?? 1;
-  
+
   // Pastikan value awal tidak melenceng dari rentang min & max
   const rawValue = props.value ?? min;
   const value = Math.min(Math.max(rawValue, min), max);
@@ -3451,7 +3451,7 @@ export function slider(props: Record<string, any> = {}): IDOMNode {
   const inputId = `sl-input-${id}`;
 
   const children: IDOMNode[] = [];
-  
+
   if (label) {
     children.push(
       span({
@@ -5426,5 +5426,177 @@ export class Screen {
         resolve(null);
       });
     });
+  }
+}
+
+// ============================================================
+// KEYBOARD — event handler keyboard global (saat window AKTIF)
+// ------------------------------------------------------------
+// Komponen reusable utk baca keyboard di aplikasi GUI. Fokus
+// dikelola otomatis oleh DOME di browser (pola DDC):
+//   - Saat attach() → elemen penangkap tersembunyi di-fokus,
+//     jadi panah/spasi langsung kedengaran tanpa klik dulu.
+//   - Saat user klik di mana pun DALAM window → fokus kembali ke
+//     penangkap (kecuali klik di input teks), jadi keyboard tetap
+//     jalan selama window aktif.
+//   - Klik di luar window → fokus pindah → keyboard mati otomatis.
+//
+// Pemakaian:
+//   import { Keyboard } from "@tsix/emerald";
+//   const kb = new Keyboard(app.win);
+//   kb.on((e) => {
+//     if (!e.down || e.repeat) return;      // sekali per tekan
+//     if (e.key === "ArrowDown") ...
+//   });
+//   await kb.attach();
+//   await app.loopUntilClose();
+//   await kb.detach();
+// ============================================================
+export interface IGUIKeyEvent {
+  /** Nama tombol (e.key): "ArrowDown", "a", "Enter", dst. */
+  key: string;
+  /** Kode fisik (e.code): "ArrowDown", "KeyA", "Enter", dst. */
+  code: string;
+  /** true = keydown, false = keyup. */
+  down: boolean;
+  /** true jika tombol ditahan (auto-repeat). */
+  repeat: boolean;
+  ctrl: boolean;
+  shift: boolean;
+  alt: boolean;
+}
+
+export interface KeyboardOptions {
+  /** ID elemen penangkap (default: "__kb_capture__"). */
+  targetId?: string;
+}
+
+export class Keyboard {
+  public readonly targetId: string;
+  private win: Window;
+  private attached = false;
+  private listeners = new Set<(ev: IGUIKeyEvent) => void>();
+
+  constructor(win: Window, opts: KeyboardOptions = {}) {
+    this.win = win;
+    this.targetId = opts.targetId || "__kb_capture__";
+  }
+
+  /** Daftarkan listener. Kembalikan fungsi untuk menghapus. */
+  on(cb: (ev: IGUIKeyEvent) => void): () => void {
+    this.listeners.add(cb);
+    return () => this.listeners.delete(cb);
+  }
+
+  /** Hapus semua listener. */
+  clear(): void {
+    this.listeners.clear();
+  }
+
+  get isAttached(): boolean {
+    return this.attached;
+  }
+
+  /**
+   * Pasang komponen: mount elemen penangkap tersembunyi, bind handler,
+   * lalu minta DOME fokus + kelola fokus. Aman dipanggil berulang.
+   */
+  async attach(): Promise<void> {
+    if (this.attached) return;
+    this.attached = true;
+
+    // Elemen penangkap — tak terlihat, focusable via JS, tak intercept klik.
+    await this.win.mount(
+      div({
+        id: this.targetId,
+        tabIndex: "-1",
+        onKbId: this.targetId,
+        style: {
+          position: "absolute",
+          width: "1px",
+          height: "1px",
+          opacity: "0",
+          pointerEvents: "none",
+          outline: "none",
+          overflow: "hidden",
+        },
+      }),
+    );
+
+    // Event "kb_key" dari browser: { key, code, down, repeat, ctrl, shift, alt }
+    this.win.bindHandler(this.targetId, "kb_key", (ev: any) =>
+      this.dispatch(ev),
+    );
+    await this.win.flush();
+
+    // Minta DOME: fokus penangkap + refokus saat mousedown di window.
+    await this.sendCapture("KEYBOARD_ATTACH");
+  }
+
+  /** Lepas komponen: berhenti kelola fokus + unmount elemen penangkap. */
+  async detach(): Promise<void> {
+    if (!this.attached) return;
+    this.attached = false;
+    await this.sendCapture("KEYBOARD_DETACH");
+    try {
+      await this.win.unmount(this.targetId);
+    } catch (_) {
+      /* elemen sudah hilang */
+    }
+  }
+
+  /** Fokuskan penangkap lagi (mis. setelah dialog ditutup). */
+  async focus(): Promise<void> {
+    if (!this.attached) return;
+    await this.sendCapture("KEYBOARD_ATTACH");
+  }
+
+  /** Kirim instruksi ke DOME (KEYBOARD_ATTACH / KEYBOARD_DETACH). */
+  private async sendCapture(type: string): Promise<void> {
+    const lib = (global as any)._tsixLib;
+    if (!lib?.shell?.send) return;
+    try {
+      const ps = await lib.shell.ps();
+      const domePid =
+        (ps.find((p: any) => p.name?.includes("dome")) || {}).pid || 0;
+      if (!domePid) return;
+      await lib.shell.send(domePid, {
+        type,
+        wid: this.win.wid,
+        targetId: this.targetId,
+      });
+    } catch (_) {
+      /* dome belum siap — skip */
+    }
+  }
+
+  private dispatch(ev: any): void {
+    if (this.listeners.size === 0) return;
+    let data: Record<string, any> = {};
+    if (typeof ev?.value === "string") {
+      try {
+        data = JSON.parse(ev.value);
+      } catch (_) {
+        data = { key: ev.value };
+      }
+    } else if (ev?.value && typeof ev.value === "object") {
+      data = ev.value;
+    }
+    const k: IGUIKeyEvent = {
+      key: data.key ?? "",
+      code: data.code ?? "",
+      down: data.down !== false,
+      repeat: !!data.repeat,
+      ctrl: !!data.ctrl,
+      shift: !!data.shift,
+      alt: !!data.alt,
+    };
+    for (const cb of this.listeners) {
+      try {
+        cb(k);
+      } catch (e) {
+        console.error("[Keyboard] listener error:", e);
+      }
+    }
   }
 }

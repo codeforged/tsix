@@ -11,7 +11,7 @@
  * (c) 2026 TSIX Project — Cashew GUI Framework
  */
 
-import { Screen } from "@tsix/emerald";
+import { Screen, Keyboard, IGUIKeyEvent } from "@tsix/emerald";
 import {
   lineChart,
   radialGauge,
@@ -1089,7 +1089,56 @@ export class TStatusBar extends TComponent {
   }
 }
 
+// ================================================================
+// TKeyboard — komponen keyboard global (event saat window AKTIF)
+// ----------------------------------------------------------------
+// Non-visual component. Tambahkan ke form, set onKey, lalu form.run()
+// otomatis attach (via auto-refresh). Fokus dikelola oleh DOME di
+// browser (pola DDC) — panah/spasi langsung kedengaran saat window
+// aktif, tanpa perlu klik elemen tertentu.
+//
+// Contoh:
+//   const kb = new TKeyboard();
+//   kb.onKey = (e) => {
+//     if (e.down && !e.repeat && e.key === "ArrowDown") ...
+//   };
+//   form.add(kb);
+// ================================================================
+export class TKeyboard extends TComponent {
+  /** Listener keyboard (dipanggil utk keydown DAN keyup). */
+  public onKey: ((ev: IGUIKeyEvent) => void) | null = null;
+  private _keyboard: Keyboard | null = null;
 
+  constructor(id: string = "__tkeyboard__") {
+    super(id);
+    this.tag = "div";
+    this.style = { display: "none" };
+  }
+
+  /**
+   * Pasang keyboard handler — dipanggil otomatis oleh TForm.run()
+   * (auto-refresh), setelah form di-mount. Idempoten.
+   */
+  async refresh(screen: Screen): Promise<void> {
+    if (!this._keyboard) {
+      this._keyboard = new Keyboard(screen.win, {
+        targetId: this.id + "_cap",
+      });
+      if (this.onKey) this._keyboard.on(this.onKey);
+    }
+    await this._keyboard.attach();
+  }
+
+  /** Fokuskan penangkap keyboard lagi (mis. setelah dialog ditutup). */
+  async focus(): Promise<void> {
+    await this._keyboard?.focus();
+  }
+
+  /** Lepas keyboard capture. */
+  async detach(): Promise<void> {
+    await this._keyboard?.detach();
+  }
+}
 
 // ================================================================
 // HSTACK / VSTACK — Layout helpers
@@ -2430,7 +2479,7 @@ export class TDataGrid extends TComponent {
   set columns(v: DataGridColumn[]) {
     this._columns = v;
     this.grid.columns = v;
-    if (this._screen) void this.grid.setColumns(v).catch(() => { });
+    if (this._screen) void this.grid.setColumns(v).catch(() => {});
   }
   get columns(): DataGridColumn[] {
     return this._columns;
@@ -2440,7 +2489,7 @@ export class TDataGrid extends TComponent {
   set data(v: Record<string, any>[]) {
     this._data = v;
     this.grid.data = v;
-    if (this._screen) void this.grid.setData(v).catch(() => { });
+    if (this._screen) void this.grid.setData(v).catch(() => {});
   }
   get data(): Record<string, any>[] {
     return this._data;
@@ -2525,7 +2574,7 @@ export class TDataGrid extends TComponent {
           if (this.onRowClick) this.onRowClick(index, record);
         },
       )
-      .catch(() => { });
+      .catch(() => {});
   }
 
   /** Auto-refresh oleh TForm.run() — render data awal */
@@ -2598,7 +2647,7 @@ export class TTabulatorGrid extends TComponent {
   set columns(v: DataGridColumn[]) {
     this._columns = v;
     this.grid.columns = v;
-    if (this._screen) void this.grid.setColumns(v).catch(() => { });
+    if (this._screen) void this.grid.setColumns(v).catch(() => {});
   }
   get columns(): DataGridColumn[] {
     return this._columns;
@@ -2608,7 +2657,7 @@ export class TTabulatorGrid extends TComponent {
   set data(v: Record<string, any>[]) {
     this._data = v;
     this.grid.data = v;
-    if (this._screen) void this.grid.setData(v).catch(() => { });
+    if (this._screen) void this.grid.setData(v).catch(() => {});
   }
   get data(): Record<string, any>[] {
     return this._data;
@@ -2696,7 +2745,7 @@ export class TTabulatorGrid extends TComponent {
           if (this.onRowClick) this.onRowClick(index, record);
         },
       )
-      .catch(() => { });
+      .catch(() => {});
   }
 
   /** Auto-refresh oleh TForm.run() — render data awal */
@@ -2704,7 +2753,6 @@ export class TTabulatorGrid extends TComponent {
     await this.grid.setData(this._data);
   }
 }
-
 
 // ================================================================
 // TProgressBar — Progress Bar dengan Efek XOR Klona Ganda (Perfect Clip)
@@ -2755,7 +2803,7 @@ export class TProgressBar extends TComponent {
     this._fgText.tag = "span";
     this._fgText.style = {
       position: "absolute",
-      // Karena parent-nya (_bar) lebarnya dinamis bergerak, posisi teks ini harus dikunci 
+      // Karena parent-nya (_bar) lebarnya dinamis bergerak, posisi teks ini harus dikunci
       // terhadap komponen utama (menggunakan kalkulasi posisi baris tengah)
       left: "50%",
       top: "50%",
@@ -2772,13 +2820,16 @@ export class TProgressBar extends TComponent {
 
     // Susun hirarki komponen sesuai lifecycle Cashew
     this._bar.add(this._fgText); // fgText dimasukkan ke dalam bar
-    this.add(this._bar);         // bar dimasukkan ke base container
+    this.add(this._bar); // bar dimasukkan ke base container
   }
 
   set value(v: number) {
     const min = this.props.min ?? 0;
     const max = this.props.max ?? 100;
-    const pct = Math.min(100, Math.max(0, ((v - min) / (max - min || 1)) * 100));
+    const pct = Math.min(
+      100,
+      Math.max(0, ((v - min) / (max - min || 1)) * 100),
+    );
 
     this.props.value = v;
 
@@ -2797,25 +2848,33 @@ export class TProgressBar extends TComponent {
     }
   }
 
-  get value(): number { return this.props.value ?? 0; }
+  get value(): number {
+    return this.props.value ?? 0;
+  }
 
   set unit(u: string) {
     this._unit = u;
     this.value = this.value;
   }
-  get unit(): string { return this._unit; }
+  get unit(): string {
+    return this._unit;
+  }
 
   set min(v: number) {
     this.props.min = v;
     this.value = this.value;
   }
-  get min(): number { return this.props.min ?? 0; }
+  get min(): number {
+    return this.props.min ?? 0;
+  }
 
   set max(v: number) {
     this.props.max = v;
     this.value = this.value;
   }
-  get max(): number { return this.props.max ?? 100; }
+  get max(): number {
+    return this.props.max ?? 100;
+  }
 
   bindEventHandler(screen: Screen): void {
     this._screen = screen;
@@ -2909,10 +2968,18 @@ export class TImage extends TComponent {
       objectFit: this._fit,
       borderRadius: "0px",
       ...(opts.width != null
-        ? { width: typeof opts.width === "number" ? opts.width + "px" : opts.width }
+        ? {
+            width:
+              typeof opts.width === "number" ? opts.width + "px" : opts.width,
+          }
         : {}),
       ...(opts.height != null
-        ? { height: typeof opts.height === "number" ? opts.height + "px" : opts.height }
+        ? {
+            height:
+              typeof opts.height === "number"
+                ? opts.height + "px"
+                : opts.height,
+          }
         : {}),
       ...(opts.style || {}),
     };
@@ -3007,7 +3074,7 @@ export class TImage extends TComponent {
     this._screen = screen;
     if (this._file && !this._fileLoaded) {
       this._fileLoaded = true;
-      void this.loadFile(this._file).catch(() => { });
+      void this.loadFile(this._file).catch(() => {});
     }
   }
 
@@ -3025,4 +3092,3 @@ export class TImage extends TComponent {
     };
   }
 }
-

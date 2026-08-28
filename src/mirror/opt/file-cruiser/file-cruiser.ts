@@ -21,13 +21,18 @@ export const main = Program(async (args: string[]) => {
   theme.watch();
   const ps = await shell.ps();
   const domePid = (ps.find((p: any) => p.name.includes("dome")) || {}).pid || 0;
-  const app = new Screen({ title: "File Cruiser", icon: "📁", width: 860, height: 540 });
+  const app = new Screen({
+    title: "File Cruiser",
+    icon: "📁",
+    width: 860,
+    height: 540,
+  });
   //let currentPath = args[0] || "/";
   let homeDir = "/";
   try {
     const e = await shell.getenv("HOME");
     if (e) homeDir = e;
-  } catch (_) { }
+  } catch (_) {}
   let currentPath = args[0] || homeDir;
 
   const askBeforeExecute = false; // true = tanya dulu sebelum eksekusi file, false = langsung eksekusi
@@ -46,8 +51,20 @@ export const main = Program(async (args: string[]) => {
     id: "filelist",
     columns: [
       { key: "name", label: "Name", sortable: true },
-      { key: "size", label: "Size", width: 100, align: "right", sortable: true },
-      { key: "modified", label: "Modified", width: 130, align: "right", sortable: true },
+      {
+        key: "size",
+        label: "Size",
+        width: 100,
+        align: "right",
+        sortable: true,
+      },
+      {
+        key: "modified",
+        label: "Modified",
+        width: 130,
+        align: "right",
+        sortable: true,
+      },
     ],
     height: "100%",
   });
@@ -56,6 +73,20 @@ export const main = Program(async (args: string[]) => {
   const isExe = (m) => !!(m & 1);
   const mStr = (m) =>
     (m & 4 ? "r" : "-") + (m & 2 ? "w" : "-") + (m & 1 ? "x" : "-");
+
+  // Ekstensi gambar — double-click akan membuka Image Viewer
+  const IMAGE_EXTS = [
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".bmp",
+    ".webp",
+    ".svg",
+    ".ico",
+  ];
+  const isImageFile = (name: string) =>
+    IMAGE_EXTS.some((e) => name.toLowerCase().endsWith(e));
 
   /** Format timestamp jadi "today HH:mm", "yesterday HH:mm", atau "DD MMM" */
   function fmtDate(ts) {
@@ -69,7 +100,20 @@ export const main = Program(async (args: string[]) => {
     const time = pad(d.getHours()) + ":" + pad(d.getMinutes());
     if (d2.getTime() === today.getTime()) return "Today " + time;
     if (d2.getTime() === yesterday.getTime()) return "Yesterday " + time;
-    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     return pad(d.getDate()) + " " + months[d.getMonth()];
   }
 
@@ -148,39 +192,61 @@ export const main = Program(async (args: string[]) => {
       const closeId = "__viewer_close__";
 
       await app.mount(
-        div({
-          id: viewerId,
-          style: {
-            position: "fixed", inset: "0", zIndex: "9999999",
-            background: "rgba(0,0,0,0.8)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          },
-        },
-          div({
+        div(
+          {
+            id: viewerId,
             style: {
-              width: "70%", height: "70%",
-              background: theme.colors.surface,
-              border: `1px solid ${theme.colors.accent}`, borderRadius: "12px",
-              display: "flex", flexDirection: "column",
-              overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+              position: "fixed",
+              inset: "0",
+              zIndex: "9999999",
+              background: "rgba(0,0,0,0.8)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
             },
           },
-            div({
+          div(
+            {
               style: {
-                display: "flex", justifyContent: "space-between",
-                alignItems: "center", marginBottom: "8px",
+                width: "70%",
+                height: "70%",
+                background: theme.colors.surface,
+                border: `1px solid ${theme.colors.accent}`,
+                borderRadius: "12px",
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+                boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
               },
             },
+            div(
+              {
+                style: {
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "8px",
+                },
+              },
               span({
                 text: "📄 " + name + " (" + c.length + " chars)",
-                style: { color: theme.colors.accent, fontSize: "14px", fontWeight: "600" },
+                style: {
+                  color: theme.colors.accent,
+                  fontSize: "14px",
+                  fontWeight: "600",
+                },
               }),
               button({
-                id: closeId, text: "✕ Close",
+                id: closeId,
+                text: "✕ Close",
                 style: {
-                  background: theme.colors.danger, color: "white",
-                  border: "none", borderRadius: "4px",
-                  padding: "4px 12px", cursor: "pointer", fontSize: "12px",
+                  background: theme.colors.danger,
+                  color: "white",
+                  border: "none",
+                  borderRadius: "4px",
+                  padding: "4px 12px",
+                  cursor: "pointer",
+                  fontSize: "12px",
                 },
               }),
             ),
@@ -190,12 +256,17 @@ export const main = Program(async (args: string[]) => {
               props: {
                 value: c,
                 style: {
-                  width: "100%", flex: "1",
-                  background: theme.colors.bgAlt, color: theme.colors.text,
-                  border: `1px solid ${theme.colors.border}`, borderRadius: "6px",
-                  padding: "12px", fontSize: "13px",
+                  width: "100%",
+                  flex: "1",
+                  background: theme.colors.bgAlt,
+                  color: theme.colors.text,
+                  border: `1px solid ${theme.colors.border}`,
+                  borderRadius: "6px",
+                  padding: "12px",
+                  fontSize: "13px",
                   fontFamily: "'Courier New', monospace",
-                  outline: "none", resize: "none",
+                  outline: "none",
+                  resize: "none",
                   tabSize: "2",
                 },
                 readonly: "",
@@ -203,9 +274,12 @@ export const main = Program(async (args: string[]) => {
               children: [],
             },
           ),
-        ));
+        ),
+      );
       app.win.onClick(closeId, async () => {
-        try { await app.win.unmount(viewerId); } catch (_) { }
+        try {
+          await app.win.unmount(viewerId);
+        } catch (_) {}
       });
       await app.win.flush();
     } catch (e) {
@@ -218,68 +292,135 @@ export const main = Program(async (args: string[]) => {
     try {
       const s = await fs.stat(p);
       if (!s) return;
-      const sizeStr = s.type === "DIRECTORY" ? await (async () => {
-        try {
-          const items = await fs.ls(p);
-          if (items && Array.isArray(items)) {
-            const dirs = items.filter(i => i.type === "DIRECTORY").length;
-            const files = items.filter(i => i.type === "FILE").length;
-            return dirs + "d/" + files + "f";
-          }
-        } catch (_) {}
-        return "-";
-      })() : sz(s);
+      const sizeStr =
+        s.type === "DIRECTORY"
+          ? await (async () => {
+              try {
+                const items = await fs.ls(p);
+                if (items && Array.isArray(items)) {
+                  const dirs = items.filter(
+                    (i) => i.type === "DIRECTORY",
+                  ).length;
+                  const files = items.filter((i) => i.type === "FILE").length;
+                  return dirs + "d/" + files + "f";
+                }
+              } catch (_) {}
+              return "-";
+            })()
+          : sz(s);
       const ts = s.modified_at || s.created_at;
       let dateStr = "-";
       if (ts) {
         const d = new Date(ts);
         const pad = (n) => String(n).padStart(2, "0");
-        dateStr = pad(d.getDate()) + " " + ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()] + " " + d.getFullYear() + " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+        dateStr =
+          pad(d.getDate()) +
+          " " +
+          [
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr",
+            "May",
+            "Jun",
+            "Jul",
+            "Aug",
+            "Sep",
+            "Oct",
+            "Nov",
+            "Dec",
+          ][d.getMonth()] +
+          " " +
+          d.getFullYear() +
+          " " +
+          pad(d.getHours()) +
+          ":" +
+          pad(d.getMinutes());
       }
       const fname = p.split("/").pop() || "";
       const overlayId = "__info_overlay__";
 
-      const row = (label, value) => div(
-        { style: { display: "flex", padding: "3px 0", gap: "8px" } },
-        span({ text: label, style: { width: "90px", color: theme.colors.textMuted, fontSize: "13px", fontWeight: "600" } }),
-        span({ text: value || "-", style: { flex: "1", color: theme.colors.text, fontSize: "13px", fontFamily: "monospace" } }),
-      );
+      const row = (label, value) =>
+        div(
+          { style: { display: "flex", padding: "3px 0", gap: "8px" } },
+          span({
+            text: label,
+            style: {
+              width: "90px",
+              color: theme.colors.textMuted,
+              fontSize: "13px",
+              fontWeight: "600",
+            },
+          }),
+          span({
+            text: value || "-",
+            style: {
+              flex: "1",
+              color: theme.colors.text,
+              fontSize: "13px",
+              fontFamily: "monospace",
+            },
+          }),
+        );
 
       await app.mount(
-        div({
-          id: overlayId,
-          style: {
-            position: "fixed", inset: "0", zIndex: "9999999",
-            background: "rgba(0,0,0,0.7)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          },
-        },
-          div({
+        div(
+          {
+            id: overlayId,
             style: {
-              background: theme.colors.surface,
-              border: `1px solid ${theme.colors.accent}`, borderRadius: "12px",
-              padding: "24px 28px", minWidth: "360px",
-              boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+              position: "fixed",
+              inset: "0",
+              zIndex: "9999999",
+              background: "rgba(0,0,0,0.7)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
             },
           },
+          div(
+            {
+              style: {
+                background: theme.colors.surface,
+                border: `1px solid ${theme.colors.accent}`,
+                borderRadius: "12px",
+                padding: "24px 28px",
+                minWidth: "360px",
+                boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+              },
+            },
             span({
               text: "📄 " + fname,
-              style: { color: theme.colors.accent, fontSize: "16px", fontWeight: "600", display: "block", marginBottom: "14px" },
+              style: {
+                color: theme.colors.accent,
+                fontSize: "16px",
+                fontWeight: "600",
+                display: "block",
+                marginBottom: "14px",
+              },
             }),
             row("Path", p),
             row("Size", sizeStr),
             row("Modified", dateStr),
             row("Owner", (s.owner || "-") + " (UID " + (s.uid ?? "?") + ")"),
             row("Group", "GID " + (s.gid ?? "?")),
-            row("Mode", mStr(s.mode || 0) + " (" + ((s.mode || 0).toString(8)) + ")"),
+            row(
+              "Mode",
+              mStr(s.mode || 0) + " (" + (s.mode || 0).toString(8) + ")",
+            ),
             row("Type", s.type || "-"),
-            div({ style: { textAlign: "center", marginTop: "16px" } },
+            div(
+              { style: { textAlign: "center", marginTop: "16px" } },
               button({
-                id: "__info_close__", text: "OK",
+                id: "__info_close__",
+                text: "OK",
                 style: {
-                  background: theme.colors.accent, color: "white",
-                  border: "none", padding: "8px 36px", borderRadius: "8px",
-                  cursor: "pointer", fontSize: "14px",
+                  background: theme.colors.accent,
+                  color: "white",
+                  border: "none",
+                  padding: "8px 36px",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontSize: "14px",
                 },
               }),
             ),
@@ -288,7 +429,9 @@ export const main = Program(async (args: string[]) => {
       );
       await app.win.flush();
       app.win.onClick("__info_close__", async () => {
-        try { await app.win.unmount(overlayId); } catch (_) {}
+        try {
+          await app.win.unmount(overlayId);
+        } catch (_) {}
       });
     } catch (e) {
       await app.alert("Error", e.message);
@@ -313,7 +456,10 @@ export const main = Program(async (args: string[]) => {
     if (isDir) return;
 
     if (askBeforeExecute) {
-      const ans = await app.confirm("▶️ Execute", "Run '" + name + "'?", ["Yes", "No"]);
+      const ans = await app.confirm("▶️ Execute", "Run '" + name + "'?", [
+        "Yes",
+        "No",
+      ]);
       if (ans !== "Yes") return;
     }
     try {
@@ -326,6 +472,17 @@ export const main = Program(async (args: string[]) => {
       } else {
         await shell.exec("/opt/pixelterm/pixelterm.js", [p, "-hue"]);
       }
+    } catch (e) {
+      await app.alert("Error", e.message);
+    }
+  }
+  async function openImageViewer() {
+    const p = selPath();
+    if (!p) return;
+    try {
+      // Launch Image Viewer — kirim path file gambar sebagai parameter.
+      // Image Viewer akan langsung menampilkan gambar tsb.
+      await shell.exec("/opt/image-viewer/image-viewer.js", [p]);
     } catch (e) {
       await app.alert("Error", e.message);
     }
@@ -360,43 +517,94 @@ export const main = Program(async (args: string[]) => {
     const barFillId = "__copy_progress_fill__";
     const barTextId = "__copy_progress_text__";
     const barPctId = "__copy_progress_pct__";
-    const barStyle = { height: "100%", borderRadius: "8px", transition: "width 0.2s ease-out" };
+    const barStyle = {
+      height: "100%",
+      borderRadius: "8px",
+      transition: "width 0.2s ease-out",
+    };
 
     // --- Progress overlay ---
     await app.mount(
-      div({
-        id: overlayId,
-        style: {
-          position: "fixed", inset: "0", zIndex: "9999999",
-          background: "rgba(0,0,0,0.7)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-        },
-      },
-        div({
+      div(
+        {
+          id: overlayId,
           style: {
-            width: "440px", background: theme.colors.surface,
-            border: `1px solid ${theme.colors.accent}`, borderRadius: "12px",
-            padding: "24px", textAlign: "center",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            position: "fixed",
+            inset: "0",
+            zIndex: "9999999",
+            background: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
           },
         },
+        div(
+          {
+            style: {
+              width: "440px",
+              background: theme.colors.surface,
+              border: `1px solid ${theme.colors.accent}`,
+              borderRadius: "12px",
+              padding: "24px",
+              textAlign: "center",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            },
+          },
           span({
-            id: barTextId, text: "📋 Copying: " + name,
-            style: { color: theme.colors.textDim, fontSize: "14px", display: "block", marginBottom: "14px" }
+            id: barTextId,
+            text: "📋 Copying: " + name,
+            style: {
+              color: theme.colors.textDim,
+              fontSize: "14px",
+              display: "block",
+              marginBottom: "14px",
+            },
           }),
-          div({ style: { background: theme.colors.bgAlt, borderRadius: "8px", height: "18px", overflow: "hidden", marginBottom: "8px" } },
-            div({ id: barFillId, style: { width: "0%", ...barStyle, background: "linear-gradient(90deg, #4caf50, #8bc34a)" } }),
+          div(
+            {
+              style: {
+                background: theme.colors.bgAlt,
+                borderRadius: "8px",
+                height: "18px",
+                overflow: "hidden",
+                marginBottom: "8px",
+              },
+            },
+            div({
+              id: barFillId,
+              style: {
+                width: "0%",
+                ...barStyle,
+                background: "linear-gradient(90deg, #4caf50, #8bc34a)",
+              },
+            }),
           ),
           span({
-            id: barPctId, text: "0%",
-            style: { color: theme.colors.accent, fontSize: "14px", fontWeight: "700", fontFamily: "monospace" }
+            id: barPctId,
+            text: "0%",
+            style: {
+              color: theme.colors.accent,
+              fontSize: "14px",
+              fontWeight: "700",
+              fontFamily: "monospace",
+            },
           }),
         ),
-      ));
+      ),
+    );
     await app.win.flush();
 
     const setBar = async (pct: number) => {
-      await app.update(barFillId, { style: { width: pct + "%", ...barStyle, background: pct >= 100 ? theme.colors.accent : `linear-gradient(90deg, ${theme.colors.accent}, #8bc34a)` } });
+      await app.update(barFillId, {
+        style: {
+          width: pct + "%",
+          ...barStyle,
+          background:
+            pct >= 100
+              ? theme.colors.accent
+              : `linear-gradient(90deg, ${theme.colors.accent}, #8bc34a)`,
+        },
+      });
       await app.update(barPctId, { text: pct + "%" });
       await app.win.flush();
     };
@@ -404,8 +612,13 @@ export const main = Program(async (args: string[]) => {
     try {
       // --- Tentukan totalSize untuk info progress ---
       let totalSize = 0;
-      try { totalSize = await (fs as any).getSize(src); } catch (_) {
-        try { const st = await fs.stat(src); totalSize = (st && st.size) ? st.size : 0; } catch (_) { }
+      try {
+        totalSize = await (fs as any).getSize(src);
+      } catch (_) {
+        try {
+          const st = await fs.stat(src);
+          totalSize = st && st.size ? st.size : 0;
+        } catch (_) {}
       }
 
       // --- LEGACY PATH (read-all + write-all) — selalu reliable ---
@@ -419,7 +632,10 @@ export const main = Program(async (args: string[]) => {
       const interval = isLarge ? 250 : 120;
 
       const timer = setInterval(() => {
-        if (anim < simSteps.length) { setBar(simSteps[anim]); anim++; }
+        if (anim < simSteps.length) {
+          setBar(simSteps[anim]);
+          anim++;
+        }
       }, interval);
 
       const fd = await fs.open(src);
@@ -431,18 +647,25 @@ export const main = Program(async (args: string[]) => {
       await setBar(100);
 
       if (clipboard.action === "move") {
-        await new Promise(r => setTimeout(r, 120));
-        try { await fs.unlink(src); } catch (_) { }
+        await new Promise((r) => setTimeout(r, 120));
+        try {
+          await fs.unlink(src);
+        } catch (_) {}
       }
 
-      await new Promise(r => setTimeout(r, 450));
-      try { await app.win.unmount(overlayId); } catch (_) { }
+      await new Promise((r) => setTimeout(r, 450));
+      try {
+        await app.win.unmount(overlayId);
+      } catch (_) {}
 
       await app.update("status-bar", { text: "✅ Done: " + name });
-      clipboard = null; selected = null;
+      clipboard = null;
+      selected = null;
       await refreshList();
     } catch (e: any) {
-      try { await app.win.unmount(overlayId); } catch (_) { }
+      try {
+        await app.win.unmount(overlayId);
+      } catch (_) {}
       await app.update("status-bar", { text: "❌ " + e.message });
       await refreshSelection();
     }
@@ -452,7 +675,11 @@ export const main = Program(async (args: string[]) => {
     if (!p) return;
     const oldName = p.split("/").pop() || "";
     console.log("Start rename: " + oldName);
-    const newName = await app.question("Rename", "Rename '" + oldName + "' to:", oldName);
+    const newName = await app.question(
+      "Rename",
+      "Rename '" + oldName + "' to:",
+      oldName,
+    );
     console.log(oldName + " -> " + newName);
     if (!newName || newName === oldName) return;
     try {
@@ -549,7 +776,9 @@ export const main = Program(async (args: string[]) => {
       }
     } catch (e) {
       await app.update("status-bar", { text: "⚠️ Path not found: " + path });
-      await app.update("error-msg", { text: "⚠️ " + (e.message || "Path not found") });
+      await app.update("error-msg", {
+        text: "⚠️ " + (e.message || "Path not found"),
+      });
     }
   }
 
@@ -568,7 +797,9 @@ export const main = Program(async (args: string[]) => {
     await app.update("tb-exec", { disabled: hasExe ? "" : "1" });
     await app.update("tb-paste", { disabled: hasClip ? "" : "1" });
     await app.update("tb-back", { disabled: historyBack.length ? "" : "1" });
-    await app.update("tb-forward", { disabled: historyForward.length ? "" : "1" });
+    await app.update("tb-forward", {
+      disabled: historyForward.length ? "" : "1",
+    });
     // Highlight baris terpilih ditangani Tabulator (native) — tidak perlu
     // update background manual per-baris lagi.
     const dc = entries.filter((e) => e.type === "DIRECTORY").length;
@@ -604,13 +835,21 @@ export const main = Program(async (args: string[]) => {
     const rows: Record<string, any>[] = [];
     // Virtual ".." — selalu di baris pertama
     if (currentPath !== "/") {
-      rows.push({ name: "📂 ..", _name: "..", size: "", _isDir: true, modified: "" });
+      rows.push({
+        name: "📂 ..",
+        _name: "..",
+        size: "",
+        _isDir: true,
+        modified: "",
+      });
     }
     for (const e of entries) {
       let sizeText = "";
       if (e.type === "DIRECTORY") {
         try {
-          const sub = await fs.ls(currentPath.replace(/\/$/, "") + "/" + e.name);
+          const sub = await fs.ls(
+            currentPath.replace(/\/$/, "") + "/" + e.name,
+          );
           if (sub && Array.isArray(sub)) {
             const dirs = sub.filter((i) => i.type === "DIRECTORY").length;
             const files = sub.filter((i) => i.type === "FILE").length;
@@ -663,7 +902,7 @@ export const main = Program(async (args: string[]) => {
             ),
           );
         }
-      } catch (e) { }
+      } catch (e) {}
     }
     await walk("/", 0);
     await app.setContent("tree-container", div({ id: "tree-list" }, ...items));
@@ -679,7 +918,7 @@ export const main = Program(async (args: string[]) => {
             void navigateTo(fp);
           });
         }
-      } catch (e) { }
+      } catch (e) {}
     }
     await rebind("/");
     await w.flush();
@@ -727,7 +966,12 @@ export const main = Program(async (args: string[]) => {
           value: currentPath,
           onInputId: "path-input",
           onKeydownId: "path-input",
-          style: { flex: "1", padding: "4px 8px", fontSize: "12px", background: theme.colors.bg },
+          style: {
+            flex: "1",
+            padding: "4px 8px",
+            fontSize: "12px",
+            background: theme.colors.bg,
+          },
           placeholder: "Enter path...",
         }),
         button({ id: "btn-go", text: "Go", style: tb(), onClickId: "btn-go" }),
@@ -832,7 +1076,13 @@ export const main = Program(async (args: string[]) => {
         style: tb(),
         onClickId: "tb-copy",
       }),
-      button({ id: "tb-cut", text: "✂️", title: "Cut", style: tb(), onClickId: "tb-cut" }),
+      button({
+        id: "tb-cut",
+        text: "✂️",
+        title: "Cut",
+        style: tb(),
+        onClickId: "tb-cut",
+      }),
       button({
         id: "tb-paste",
         text: "📋",
@@ -852,7 +1102,11 @@ export const main = Program(async (args: string[]) => {
         id: "tb-delete",
         text: "🗑",
         title: "Delete",
-        style: { ...tb(), color: theme.colors.danger, borderColor: theme.colors.dangerBorder },
+        style: {
+          ...tb(),
+          color: theme.colors.danger,
+          borderColor: theme.colors.dangerBorder,
+        },
         onClickId: "tb-delete",
       }),
     ),
@@ -880,7 +1134,7 @@ export const main = Program(async (args: string[]) => {
           style: { margin: "0 0 6px 0", fontSize: "12px", cursor: "pointer" },
           onClickId: "tree-root",
         }),
-        div({ id: "tree-container"}),
+        div({ id: "tree-container" }),
       ),
       // Draggable splitter
       div({
@@ -907,7 +1161,12 @@ export const main = Program(async (args: string[]) => {
         div(
           {
             id: "list-container",
-            style: { flex: "1", minHeight: "0", display: "flex", flexDirection: "column" },
+            style: {
+              flex: "1",
+              minHeight: "0",
+              display: "flex",
+              flexDirection: "column",
+            },
           },
           grid.build(),
         ),
@@ -978,9 +1237,22 @@ export const main = Program(async (args: string[]) => {
       if (lastClick.id === name && now - lastClick.time < 400) {
         lastClick = { id: "", time: 0 };
         selected = name;
-        if (name === "..") { void goUp(); return; }
-        if (rec._isDir) { void enterDir(name); return; }
-        if (rec._mode !== undefined && isExe(rec._mode)) { void execSel(); return; }
+        if (name === "..") {
+          void goUp();
+          return;
+        }
+        if (rec._isDir) {
+          void enterDir(name);
+          return;
+        }
+        if (isImageFile(name)) {
+          void openImageViewer();
+          return;
+        }
+        if (rec._mode !== undefined && isExe(rec._mode)) {
+          void execSel();
+          return;
+        }
         // File biasa — cukup ter-select
         void refreshSelection();
       } else {

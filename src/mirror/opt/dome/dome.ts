@@ -55,32 +55,32 @@ interface GuedWindowEntry {
 
 interface BrowserMessage {
   type:
-  | "CREATE_WINDOW"
-  | "DESTROY_WINDOW"
-  | "MOUNT_NODE"
-  | "UNMOUNT_NODE"
-  | "UPDATE_PROPS"
-  | "FOCUS"
-  | "MINIMIZE_WINDOW"
-  | "RESTORE_WINDOW"
-  | "MAXIMIZE_WINDOW"
-  | "UNMAXIMIZE_WINDOW"
-  | "TERM_OUTPUT"
-  | "CM_SET_VALUE"
-  | "CHART_INIT"
-  | "CHART_DATA"
-  | "CHART_DESTROY"
-  | "DDC_MSG"
-  | "DDC_RESIZE"
-  | "DDC_STOP"
-  | "TB_DATA"
-  | "TB_APPEND"
-  | "TB_COLS"
-  | "TB_SORT"
-  | "TB_SELECT"
-  | "TB_CLEAR_SELECT"
-  | "TB_DESTROY"
-  | "TB_THEME";
+    | "CREATE_WINDOW"
+    | "DESTROY_WINDOW"
+    | "MOUNT_NODE"
+    | "UNMOUNT_NODE"
+    | "UPDATE_PROPS"
+    | "FOCUS"
+    | "MINIMIZE_WINDOW"
+    | "RESTORE_WINDOW"
+    | "MAXIMIZE_WINDOW"
+    | "UNMAXIMIZE_WINDOW"
+    | "TERM_OUTPUT"
+    | "CM_SET_VALUE"
+    | "CHART_INIT"
+    | "CHART_DATA"
+    | "CHART_DESTROY"
+    | "DDC_MSG"
+    | "DDC_RESIZE"
+    | "DDC_STOP"
+    | "TB_DATA"
+    | "TB_APPEND"
+    | "TB_COLS"
+    | "TB_SORT"
+    | "TB_SELECT"
+    | "TB_CLEAR_SELECT"
+    | "TB_DESTROY"
+    | "TB_THEME";
   wid?: string;
   pid?: number;
   title?: string;
@@ -522,9 +522,9 @@ export const main = Program(async (args: string[]) => {
             value:
               event.eventType === "term_resize"
                 ? JSON.stringify({
-                  cols: (event as any).cols,
-                  rows: (event as any).rows,
-                })
+                    cols: (event as any).cols,
+                    rows: (event as any).rows,
+                  })
                 : event.value,
           };
           await shell.send(entry.pid, guiEvent);
@@ -793,6 +793,18 @@ export const main = Program(async (args: string[]) => {
           targetId: payload.targetId,
         });
       }
+      // KEYBOARD_ATTACH/DETACH relay: app → DOME → browser
+      // (fokus + kelola fokus elemen penangkap keyboard global)
+      if (
+        payload?.type === "KEYBOARD_ATTACH" ||
+        payload?.type === "KEYBOARD_DETACH"
+      ) {
+        broadcastToAll({
+          type: payload.type,
+          wid: payload.wid,
+          targetId: payload.targetId,
+        });
+      }
       // TRAFFIC_QUERY: respond with current WS traffic stats, then reset counters.
       // Observer effect fix: traffic milik app yang bertanya (self) di-exclude,
       // jadi monitor tidak menghitung visualisasi-nya sendiri.
@@ -817,7 +829,7 @@ export const main = Program(async (args: string[]) => {
         appTraffic.clear(); // reset per-app accounting tiap interval
         try {
           await shell.send(payload.pid, { type: "TRAFFIC_STATS", stats });
-        } catch (_) { }
+        } catch (_) {}
       }
     });
 

@@ -211,6 +211,17 @@
               value: e.key,
             });
           });
+        } else if (key === "onKbId") {
+          // Keyboard capture (komponen Keyboard): elemen penangkap = penanda
+          // + pengelola fokus saja. Event keyboard ditangkap di LEVEL DOCUMENT
+          // (listener keydown/keyup global di bawah) — lebih andal, tak
+          // bergantung fokus elemen ini secara ketat.
+          el.setAttribute("tabindex", "-1");
+          keyboardCaptureByWid[wid] = node.id;
+          keyboardCaptureFocus(wid);
+          setTimeout(function () {
+            keyboardCaptureFocus(wid);
+          }, 300);
         } else if (
           key === "placeholder" ||
           key === "type" ||
@@ -351,9 +362,7 @@
             const wrap = table.closest(".tsix-dgrid") || table.parentElement;
             if (wrap) {
               wrap
-                .querySelectorAll(
-                  'col[data-col-key="' + CSS.escape(key) + '"]',
-                )
+                .querySelectorAll('col[data-col-key="' + CSS.escape(key) + '"]')
                 .forEach((c) => {
                   c.style.width = newW + "px";
                 });
@@ -522,6 +531,11 @@
             value: e.key,
           });
         });
+      } else if (key === "onKbId") {
+        // Keyboard capture: penanda + pengelola fokus (lihat komentar mount).
+        el.setAttribute("tabindex", "-1");
+        keyboardCaptureByWid[wid] = targetId;
+        keyboardCaptureFocus(wid);
       } else if (key === "value") {
         // Set .value property (not attribute) so input fields update live
         el.value = value;
@@ -538,4 +552,90 @@
   TSIX.register("MOUNT_NODE", handleMountNode);
   TSIX.register("UNMOUNT_NODE", handleUnmountNode);
   TSIX.register("UPDATE_PROPS", handleUpdateProps);
+
+  // ── Keyboard capture global (pola DDC) ──
+  // App (komponen Keyboard) daftarkan elemen penangkap per-window. DOME
+  // lalu mengelola fokus otomatis: fokus saat attach, dan refokus saat
+  // user klik di mana pun DALAM window tsb (kecuali di input teks) —
+  // jadi panah/spasi langsung kedengaran selama window aktif.
+  const keyboardCaptureByWid = {};
+
+  function keyboardCaptureFocus(wid) {
+    const targetId = keyboardCaptureByWid[wid];
+    if (!targetId) return;
+    const el = TSIX.findElementById(wid, targetId);
+    if (el && typeof el.focus === "function" && document.activeElement !== el) {
+      el.focus();
+    }
+  }
+
+  TSIX.register("KEYBOARD_ATTACH", function (msg) {
+    keyboardCaptureByWid[msg.wid] = msg.targetId;
+    keyboardCaptureFocus(msg.wid);
+  });
+  TSIX.register("KEYBOARD_DETACH", function (msg) {
+    delete keyboardCaptureByWid[msg.wid];
+  });
+
+  document.addEventListener("mousedown", function (e) {
+    const t = e.target;
+    if (!t || typeof t.closest !== "function") return;
+    // Jangan mencuri fokus dari elemen yang butuh keyboard sendiri
+    if (t.closest("input, textarea, select, [contenteditable='true']")) return;
+    const winEl = t.closest(".tsix-window");
+    if (!winEl) return;
+    const id = winEl.id || "";
+    if (id.indexOf("win-") !== 0) return;
+    keyboardCaptureFocus(id.slice(4));
+  });
+
+  // ── Keyboard global di LEVEL DOCUMENT ──
+  // Selama event target ada DI DALAM window yang punya keyboard capture
+  // (dan bukan input teks), tombol diteruskan ke app. Ini jauh lebih andal
+  // daripada mengandalkan fokus elemen penangkap — cukup klik di dalam
+  // window (refokus) atau auto-fokus saat mount sudah cukup.
+  function kbDocSend(e, down) {
+    const t = e.target;
+    if (!t || typeof t.closest !== "function") return;
+    if (t.closest("input, textarea, select, [contenteditable='true']")) return;
+    const winEl = t.closest(".tsix-window");
+    if (!winEl) return;
+    const id = winEl.id || "";
+    if (id.indexOf("win-") !== 0) return;
+    const wid = id.slice(4);
+    const targetId = keyboardCaptureByWid[wid];
+    if (!targetId) return;
+    if (
+      down &&
+      ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].indexOf(e.key) >=
+        0
+    ) {
+      e.preventDefault();
+    }
+    TSIX.send({
+      wid: wid,
+      targetId: targetId,
+      eventType: "kb_key",
+      value: JSON.stringify({
+        key: e.key,
+        code: e.code,
+        down: down,
+        repeat: !!e.repeat,
+        ctrl: e.ctrlKey,
+        shift: e.shiftKey,
+        alt: e.altKey,
+      }),
+    });
+  }
+  document.addEventListener("keydown", function (e) {
+    kbDocSend(e, true);
+  });
+  document.addEventListener("keyup", function (e) {
+    kbDocSend(e, false);
+  });
+  // Penanda versi — cek di devtools untuk memastikan browser pakai client
+  // JS terbaru (kalau tidak muncul, hard-reload halaman TDE: Cmd+Shift+R).
+  console.log(
+    "[TSIX] dome-client-dom v2: keyboard capture (document-level) ready",
+  );
 })();
