@@ -2,3 +2,4 @@ name=Cashew Demo IoT
 icon=📋
 command=/opt/test/cashew-demo3.js
 pinned_launcher=false 
+group=GUI Demo

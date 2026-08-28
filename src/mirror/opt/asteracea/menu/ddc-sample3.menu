@@ -1,3 +1,4 @@
 name=DDC Sample 3 (Three.js Cube)
 icon=🧊
 command=/opt/ddc-sample/ddc-sample3.js
+group=DDC Sample

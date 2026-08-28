@@ -31,6 +31,7 @@ interface AppEntry {
   pinnedLauncher: boolean; // pinned_launcher dari .menu
   dcmLauncher: boolean; // dcm_launcher dari .menu → muncul di Desktop Context Menu
   maximizeOnStart: boolean; // maximize_on_start dari .menu
+  group: string; // group dari .menu → pengelompokan di launcher box
 }
 
 /** State machine untuk aplikasi yang sedang berjalan */
@@ -197,6 +198,7 @@ async function loadMenuFromFiles(): Promise<AppEntry[]> {
           pinnedLauncher: item.pinned_launcher === "true",
           dcmLauncher: item.dcm_launcher === "true",
           maximizeOnStart: item.maximize_on_start === "true",
+          group: item.group || "",
         });
       }
     }
@@ -2843,36 +2845,85 @@ async function buildLauncherGrid(
   const filtered = apps.filter(
     (a) => !q || fuzzyMatch(q, a.label) || fuzzyMatch(q, a.id),
   );
-  await win.setContent(
-    "launcher-grid",
-    ...filtered.map((app) =>
-      div(
-        {
-          id: `lg-${app.id}`,
-          style: {
-            display: "flex",
-            flexDirection: "column" as any,
-            alignItems: "center",
-            padding: "14px 10px",
-            borderRadius: "14px",
-            cursor: "pointer",
-            width: "96px",
-            border: "none",
-            background: "transparent",
-            transition: "background 0.15s",
-          },
-        },
-        span({
-          text: app.icon,
-          style: { fontSize: "28px", marginBottom: "4px" },
-        }),
-        span({
-          text: app.label,
-          style: { color: "#ccc", fontSize: "10px", textAlign: "center" },
-        }),
-      ),
-    ),
+
+  // ── KELOMPOKKAN berdasarkan group ──
+  // - App TANPA group (group kosong) → tampil PALING ATAS.
+  // - App ber-group → dikelompokkan per group (urut abjad).
+  const groups = new Map<string, AppEntry[]>();
+  const noGroup: AppEntry[] = [];
+  for (const app of filtered) {
+    if (app.group && app.group.trim()) {
+      const g = app.group.trim();
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g)!.push(app);
+    } else {
+      noGroup.push(app);
+    }
+  }
+  const groupNames = Array.from(groups.keys()).sort((a, b) =>
+    a.localeCompare(b),
   );
+
+  const makeAppCard = (app: AppEntry): any =>
+    div(
+      {
+        id: `lg-${app.id}`,
+        style: {
+          display: "flex",
+          flexDirection: "column" as any,
+          alignItems: "center",
+          padding: "14px 10px",
+          borderRadius: "14px",
+          cursor: "pointer",
+          width: "96px",
+          border: "none",
+          background: "transparent",
+          transition: "background 0.15s",
+        },
+      },
+      span({
+        text: app.icon,
+        style: { fontSize: "28px", marginBottom: "4px" },
+      }),
+      span({
+        text: app.label,
+        style: { color: "#ccc", fontSize: "10px", textAlign: "center" },
+      }),
+    );
+
+  const makeGroupHeader = (label: string): any =>
+    div({
+      style: {
+        width: "100%",
+        color: "#8fa1c7",
+        fontSize: "11px",
+        fontWeight: "700",
+        textTransform: "uppercase" as any,
+        letterSpacing: "1px",
+        margin: "10px 0 2px",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
+        paddingBottom: "4px",
+      },
+      text: label,
+    });
+
+  const children: any[] = [];
+
+  // 1) Tanpa group — paling atas
+  if (noGroup.length > 0) {
+    children.push(makeGroupHeader("Aplikasi"));
+    children.push(...noGroup.map(makeAppCard));
+  }
+
+  // 2) Group-group (urut abjad)
+  for (const g of groupNames) {
+    children.push(makeGroupHeader(g));
+    children.push(...groups.get(g)!.map(makeAppCard));
+  }
+
+  await win.setContent("launcher-grid", ...children);
+
+  // Click handlers — tetap per app (sama seperti sebelumnya)
   for (const app of filtered) {
     win.onClick(`lg-${app.id}`, async () => {
       try {

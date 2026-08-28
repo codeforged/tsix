@@ -1,4 +1,5 @@
 name=Bitshark
 icon=🦈
 command=/usr/bin/bitshark.js
-pinned_launcher=true 
+pinned_launcher=false 
+group=Network

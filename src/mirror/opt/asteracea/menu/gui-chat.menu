@@ -2,3 +2,4 @@ name=GUI Chat
 icon=💬
 command=/opt/test/gui-chat.js
 pinned_launcher=false 
+group=GUI Demo

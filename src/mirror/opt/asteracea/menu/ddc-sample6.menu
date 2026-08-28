@@ -1,3 +1,4 @@
 name=DDC Sample 6 (Pixel Operation)
 icon=▀▄
 command=/opt/ddc-sample/ddc-sample6.js
+group=DDC Sample

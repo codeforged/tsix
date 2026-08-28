@@ -1,3 +1,4 @@
 name=DDC Sample 1 (Particle)
 icon=🦋
 command=/opt/ddc-sample/ddc-sample1.js
+group=DDC Sample

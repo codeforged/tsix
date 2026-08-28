@@ -2,3 +2,4 @@ name=TeleChat
 icon=💬
 command=/opt/telechat/telechat.js
 pinned_launcher=false
+group=Communication

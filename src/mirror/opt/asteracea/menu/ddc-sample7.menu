@@ -1,0 +1,4 @@
+name=DDC Sample 7 (Gravity Well)
+icon=🕳️
+command=/opt/ddc-sample/ddc-sample7.js
+group=DDC Sample

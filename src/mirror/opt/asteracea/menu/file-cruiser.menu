@@ -2,3 +2,4 @@ name=File Cruiser
 icon=📁
 command=/opt/file-cruiser/file-cruiser.js
 pinned_launcher=true
+group=System

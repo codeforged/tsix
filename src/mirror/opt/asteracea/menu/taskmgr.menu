@@ -3,3 +3,4 @@ icon=📊
 command=/opt/taskmgr/taskmgr.ts
 pinned_launcher=false
 dcm_launcher=true
+group=System

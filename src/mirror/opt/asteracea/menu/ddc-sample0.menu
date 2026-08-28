@@ -1,3 +1,4 @@
 name=DDC Sample 0 (Hello)
 icon=👋
 command=/opt/ddc-sample/ddc-sample0.js
+group=DDC Sample

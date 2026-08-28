@@ -1,0 +1,4 @@
+name=DDC Sample 8 (3D Space)
+icon=🚀
+command=/opt/ddc-sample/ddc-sample8.js
+group=DDC Sample

@@ -1,3 +1,4 @@
 name=DDC Sample 2 (Balloon Pop)
 icon=🎈
 command=/opt/ddc-sample/ddc-sample2.js
+group=DDC Sample

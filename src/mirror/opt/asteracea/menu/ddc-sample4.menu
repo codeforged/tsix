@@ -1,3 +1,4 @@
 name=DDC Sample 4 (Fire)
 icon=🔥
 command=/opt/ddc-sample/ddc-sample4.js
+group=DDC Sample

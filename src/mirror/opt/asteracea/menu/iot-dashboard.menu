@@ -3,3 +3,4 @@ icon=🌐
 command=/opt/iot-dashboard/iot-dashboard.js
 params=7 
 pinned_launcher=true
+group=Network

@@ -1,0 +1,4 @@
+name=DDC Sample 9 (Framebuffer)
+icon=🖼️
+command=/opt/ddc-sample/ddc-sample9.js
+group=DDC Sample
