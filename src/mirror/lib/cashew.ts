@@ -2907,7 +2907,7 @@ export class TImage extends TComponent {
       display: "block",
       maxWidth: "100%",
       objectFit: this._fit,
-      borderRadius: "6px",
+      borderRadius: "0px",
       ...(opts.width != null
         ? { width: typeof opts.width === "number" ? opts.width + "px" : opts.width }
         : {}),

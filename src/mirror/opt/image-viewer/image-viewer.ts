@@ -35,7 +35,7 @@ export const main = Program(async (args: string[]) => {
     theme.watch();
 
     const app = new Screen({
-        title: "🖼️ Image Viewer",
+        title: "Image Viewer",
         icon: "🖼️",
         width: 920,
         height: 620,
@@ -53,7 +53,7 @@ export const main = Program(async (args: string[]) => {
 
     // TImage — komponen preview. Auto-load dari file saat di-bind.
     const preview = new TImage("img-preview", {
-        alt: "Preview",
+        alt: "",
         fit: "contain",
         width: "100%",
         style: { flex: "1", minHeight: "0", objectFit: "contain" as any },
@@ -65,11 +65,6 @@ export const main = Program(async (args: string[]) => {
     await app.mount(
         div(
             { id: "root", style: { padding: "8px", height: "100%", display: "flex", flexDirection: "column", background: theme.colors.bg, color: theme.colors.text } },
-            // ── Header ──
-            div({ style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" } },
-                h2({ text: "🖼️ Image Viewer", style: { margin: "0", fontSize: "16px" } }),
-                span({ id: "file-path", text: "No image selected", style: { fontSize: "12px", color: theme.colors.textMuted, fontFamily: "monospace" } }),
-            ),
             // ── Split: explorer kiri | preview kanan ──
             div(
                 { id: "split-panel", style: { display: "flex", gap: "0", flex: "1", overflow: "hidden" } },
@@ -195,7 +190,6 @@ export const main = Program(async (args: string[]) => {
         if (!isImage(name)) {
             // Bukan gambar — tampilkan info ukuran/tipe
             await app.update("status-bar", { text: `📄 ${name} — bukan file gambar` });
-            await app.update("file-path", { text: name + " (non-image)" });
             preview.src = "";
             return;
         }
@@ -204,7 +198,6 @@ export const main = Program(async (args: string[]) => {
             // TImage menangani baca file → base64 → update <img> (MIME dari ekstensi)
             await preview.loadFromFile(fs, fp);
             await app.update("status-bar", { text: `✅ ${name} — dimuat via TImage (data URI)` });
-            await app.update("file-path", { text: name });
         } catch (e: any) {
             await app.update("status-bar", { text: `❌ ${name}: ${e?.message || e}` });
         }
