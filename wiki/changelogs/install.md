@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-08-28
+
+### Prompt alokasi TTY — `ttyCount` & `loginCount` di sysconfig
+- **File:** `scripts/install.ts`, `src/sysconfig.json`, `src/common/Config.ts`
+- **Perubahan:** Setelah prompt "Verbose kernel", installer menanyakan **Total TTY** & **Login services** dengan validasi (`ttyCount >= 2`, `loginCount >= 1`, `loginCount < ttyCount` → selalu sisakan TTY1 console utama). Nilai ditulis ke `cfg.shell.ttyCount`/`cfg.shell.loginCount`. Default config `createDefaultConfig()` ikut menyertakan field (6/2).
+- **Dampak:** Fresh install bisa langsung set alokasi konsol untuk hemat RAM; daemon remote tak terpengaruh (PTY).
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-13
 
 ### Password prompt kini di-masking ('*') — tidak bocor saat diketik

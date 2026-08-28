@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-08-28
+
+### Jumlah TTY konsol kini configurable — `sysconfig shell.ttyCount/loginCount`
+- **File:** `src/kernel/Kernel.ts`, `src/common/Config.ts`, `src/sysconfig.json`, `src/mirror/bin/init.ts`, `scripts/install.ts`
+- **Masalah:** Jumlah konsol virtual & login hardcode (`new TTYManager(16)`, loop `i<=6`, login TTY2-6) → tidak bisa dikecilkan untuk hemat RAM.
+- **Perubahan:**
+  - `Config.ts` tambah `shell.ttyCount` & `shell.loginCount` (interface).
+  - `Kernel.ts`: `new TTYManager(cfg.shell.ttyCount ?? 6)`; loop device `tty1..ttyCount`; inject env `TSIX_TTY_COUNT`/`TSIX_LOGIN_COUNT` ke proses init (diturunkan ke semua userland).
+  - `init.ts`: spawn login `TTY2..(1+loginCount)` dari env.
+  - `install.ts`: prompt interaktif alokasi TTY + validasi (`loginCount < ttyCount`).
+- **Dampak:** `"ttyCount": 2, "loginCount": 1` = hemat RAM ekstrem; daemon remote (tsshd/airtermd/pixelterm) tidak lagi terikat slot ini karena sudah pakai PTY.
+- **Oleh:** Copilot · **Laporan/konsep:** kakang
+
+### `openvt` + FLUSH_INPUT (ioctl cmd 5) — isi TTY kosong tanpa input basi
+- **File:** `src/mirror/bin/openvt.ts` (baru), `src/kernel/tty/TTY.ts`, `src/kernel/devices/TTYDevice.ts`, `src/kernel/devices/PTYSlaveDevice.ts`
+- **Masalah:** TTY kosong (di luar loginCount) tidak bisa diisi tanpa edit kode; dan saat di-spawn, TTY idle menyimpan **input basi** (enter/karakter yang ditekan saat TTY tidak aktif) → proses baru (mis. login) langsung "memakan" enter basi → loop "Invalid username/password".
+- **Perubahan:**
+  - `TTY.flushInput()` — kosongkan `inputBuffer`/`lineBuffer`/`inputLines`/`cookedEchoState`.
+  - ioctl **cmd 5 = FLUSH_INPUT** di `TTYDevice` & `PTYSlaveDevice` (tidak bentrok: 1=clear, 2=switch, 4=winsz, 10=raw, 0x2001/0x2002).
+  - `openvt <ttyN> [cmd...]` — cek TTY ada, `ioctl(fd, 5, null)` buang input basi, lalu spawn program (default `/bin/login.js`, ala `getty`).
+- **Dampak:** `openvt 4` → TTY4 jadi punya login prompt bersih; `openvt 5 /bin/tsh` → shell langsung. Konsol kosong = "aula siap atraksi" tanpa stale input.
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-18
 
 ### Error load-path aplikasi tampil di pixelterm & popup desktop (GUI_WINDOW_ERROR)

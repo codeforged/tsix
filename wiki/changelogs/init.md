@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-08-28
+
+### Jumlah login spawn kini dari `shell.loginCount` (bukan hardcode TTY2-6)
+- **File:** `src/mirror/bin/init.ts`, `src/kernel/Kernel.ts`, `src/sysconfig.json`
+- **Masalah:** Login di-spawn untuk range TTY yang tetap (`for i=2..2` / komentar TTY2-6) tidak bisa dikonfigurasi untuk hemat RAM.
+- **Perubahan:** Baca env `TSIX_TTY_COUNT` & `TSIX_LOGIN_COUNT` (di-set kernel dari sysconfig) → spawn login `TTY2..(1+loginCount)`, di-clamp `Math.min(1+loginCount, ttyCount)`. Komentar diperbarui: daemon remote sudah pakai PTY, bukan slot konsol.
+- **Dampak:** `loginCount` mengontrol berapa sesi login aktif saat boot; TTY sisanya kosong (bisa diisi via `openvt`).
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-10
 
 ### SetUID enforcement di sidecar `.js`

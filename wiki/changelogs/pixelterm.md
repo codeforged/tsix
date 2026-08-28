@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-08-28
+
+### Migrasi ke PTY on-demand — tidak lagi scavenge slot TTY konsol
+- **File:** `src/mirror/opt/pixelterm/pixelterm.ts`, `src/kernel/PTYManager.ts`, `src/mirror/lib/UserLib.ts`
+- **Masalah:** Pixelterm memakai slot TTY konsol (scan `ttyId` di range daemon) yang terbatas & pre-alokasi; tabrakan antar instance mungkin.
+- **Perubahan:** Setiap instance `lib.pty.alloc(24,80)` → shell di-spawn di slave `pts/N` via `shell.exec(..., ptyId)`. Resize via `/dev/pts/N` (TIOCSWINSZ ioctl 3). PTY di-`free` saat shell exit.
+- **Dampak:** Instance pixelterm unlimited, tanpa tabrakan, hemat RAM. (Lihat `wiki/changelogs/pty.md` untuk detail + fix double-echo.)
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-15
 
 ### Fix resize atto saat pixelterm dijalankan non-root — /dev/ttyN kini world-accessible
