@@ -60,7 +60,7 @@
 
     console.log(
       "[DDC] initDDC", nodeId, "size=" +
-        (props.width || el.clientWidth || 300) + "x" + (props.height || el.clientHeight || 200)
+      (props.width || el.clientWidth || 300) + "x" + (props.height || el.clientHeight || 200)
     );
 
     // Shadow DOM: isolasi style & id dari window/app lain
@@ -196,12 +196,23 @@
     const source = props.source || props.src || "";
     if (source) {
       try {
-        const factory = new Function("DDC", source);
-        factory({
+        // Bangun object DDC yang dilempar ke NJ. DDC.FrameBuffer tersedia
+        // OTOMATIS bila library @tsix/framebuffer sudah di-inject sebagai
+        // global window.FrameBuffer (mis. TGA prepend /lib/framebuffer.js
+        // ke source NJ — lihat ddc-sample9). Jadi NJ bisa:
+        //   var fb = new DDC.FrameBuffer(c2, W, H, { scale: 2 });
+        // tanpa import. NJ lama yang tidak memakai framebuffer TIDAK
+        // terpengaruh (FrameBuffer hanya ditambahkan jika window punya).
+        const ddcApi = {
           onInit: function (fn) {
             njInit = fn;
           },
-        });
+        };
+        if (typeof window !== "undefined" && typeof window.FrameBuffer === "function") {
+          ddcApi.FrameBuffer = window.FrameBuffer;
+        }
+        const factory = new Function("DDC", source);
+        factory(ddcApi);
       } catch (e) {
         console.error("[DDC] NJ parse error:", e);
       }
@@ -428,7 +439,7 @@
         if (r) {
           try {
             r.stop();
-          } catch (_) {}
+          } catch (_) { }
         }
         delete _ddc[key];
       }

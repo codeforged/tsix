@@ -55,32 +55,32 @@ interface GuedWindowEntry {
 
 interface BrowserMessage {
   type:
-    | "CREATE_WINDOW"
-    | "DESTROY_WINDOW"
-    | "MOUNT_NODE"
-    | "UNMOUNT_NODE"
-    | "UPDATE_PROPS"
-    | "FOCUS"
-    | "MINIMIZE_WINDOW"
-    | "RESTORE_WINDOW"
-    | "MAXIMIZE_WINDOW"
-    | "UNMAXIMIZE_WINDOW"
-    | "TERM_OUTPUT"
-    | "CM_SET_VALUE"
-    | "CHART_INIT"
-    | "CHART_DATA"
-    | "CHART_DESTROY"
-    | "DDC_MSG"
-    | "DDC_RESIZE"
-    | "DDC_STOP"
-    | "TB_DATA"
-    | "TB_APPEND"
-    | "TB_COLS"
-    | "TB_SORT"
-    | "TB_SELECT"
-    | "TB_CLEAR_SELECT"
-    | "TB_DESTROY"
-    | "TB_THEME";
+  | "CREATE_WINDOW"
+  | "DESTROY_WINDOW"
+  | "MOUNT_NODE"
+  | "UNMOUNT_NODE"
+  | "UPDATE_PROPS"
+  | "FOCUS"
+  | "MINIMIZE_WINDOW"
+  | "RESTORE_WINDOW"
+  | "MAXIMIZE_WINDOW"
+  | "UNMAXIMIZE_WINDOW"
+  | "TERM_OUTPUT"
+  | "CM_SET_VALUE"
+  | "CHART_INIT"
+  | "CHART_DATA"
+  | "CHART_DESTROY"
+  | "DDC_MSG"
+  | "DDC_RESIZE"
+  | "DDC_STOP"
+  | "TB_DATA"
+  | "TB_APPEND"
+  | "TB_COLS"
+  | "TB_SORT"
+  | "TB_SELECT"
+  | "TB_CLEAR_SELECT"
+  | "TB_DESTROY"
+  | "TB_THEME";
   wid?: string;
   pid?: number;
   title?: string;
@@ -237,6 +237,50 @@ export const main = Program(async (args: string[]) => {
       } else {
         await std.log(
           `[dome] Warning: missing static asset /opt/dome/${file}`,
+          "dome",
+        );
+      }
+    }
+
+    // ============================================================
+    // LIBRARY @tsix/framebuffer → asset statis browser (IIFE)
+    // ============================================================
+    // Framebuffer 2D primitives (mirror Adafruit-GFX) untuk DDC NJ.
+    // Disediakan sebagai /dome/framebuffer.js (transpile IIFE dari
+    // /lib/framebuffer.ts — BUKAN CJS yang punya module.exports, karena
+    // browser tidak punya `module`). Browser memuatnya via <script> di
+    // dome-client.html → window.FrameBuffer → dome-client-ddc.js menempelkan
+    // ke DDC.FrameBuffer. NJ tinggal: new DDC.FrameBuffer(c2, W, H, {scale}).
+    {
+      const fbTsFd = await fs.open("/lib/framebuffer.ts");
+      if (fbTsFd !== null) {
+        const fbTs = (await fs.read(fbTsFd)) ?? "";
+        await fs.close(fbTsFd);
+        try {
+          const esbuild = _hostRequire("esbuild");
+          const result = esbuild.transformSync(String(fbTs), {
+            loader: "ts",
+            format: "iife",
+            target: "es2019",
+            // tanpa globalName — ekspos lewat footer window.FrameBuffer
+          });
+          staticAssets.set("/dome/framebuffer.js", {
+            content: result.code,
+            type: "application/javascript",
+          });
+          await std.log(
+            "[dome] Loaded static asset /dome/framebuffer.js (IIFE)",
+            "dome",
+          );
+        } catch (e: any) {
+          await std.log(
+            `[dome] Warning: framebuffer IIFE compile failed: ${e?.message || e}`,
+            "dome",
+          );
+        }
+      } else {
+        await std.log(
+          "[dome] Warning: missing /lib/framebuffer.ts (jalankan vfs:bootstrap)",
           "dome",
         );
       }
@@ -478,9 +522,9 @@ export const main = Program(async (args: string[]) => {
             value:
               event.eventType === "term_resize"
                 ? JSON.stringify({
-                    cols: (event as any).cols,
-                    rows: (event as any).rows,
-                  })
+                  cols: (event as any).cols,
+                  rows: (event as any).rows,
+                })
                 : event.value,
           };
           await shell.send(entry.pid, guiEvent);
@@ -773,7 +817,7 @@ export const main = Program(async (args: string[]) => {
         appTraffic.clear(); // reset per-app accounting tiap interval
         try {
           await shell.send(payload.pid, { type: "TRAFFIC_STATS", stats });
-        } catch (_) {}
+        } catch (_) { }
       }
     });
 
