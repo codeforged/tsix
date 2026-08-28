@@ -32,7 +32,7 @@ import {
 } from "@tsix/emerald";
 import { IDOMNode } from "../../common/GUITypes";
 import { theme } from "@tsix/theme";
-import { shell } from "@tsix/Application";
+import { shell, fs } from "@tsix/Application";
 
 // ================================================================
 // LAZY IMPORT — theme & shell (di-load runtime, bukan compile-time)
@@ -2054,7 +2054,7 @@ export class TSlider extends TComponent {
   get max(): number {
     return this._sliderProps.max ?? 100;
   }
-  set max(v: number) { 
+  set max(v: number) {
     this._sliderProps.max = v;
   }
 
@@ -2071,7 +2071,7 @@ export class TSlider extends TComponent {
     this._screen = screen;
     const inputId = `sl-input-${this.id}`;
     const valId = `sl-val-${this.id}`;
-    
+
     screen.on(inputId, "input", async (ev: any) => {
       if (ev.value !== undefined) {
         let numVal = parseFloat(ev.value);
@@ -2085,7 +2085,7 @@ export class TSlider extends TComponent {
         const unit = this._sliderProps.unit || "";
         const displayVal =
           numVal % 1 === 0 ? String(Math.round(numVal)) : numVal.toFixed(1);
-          
+
         await screen.update(valId, { text: displayVal + unit });
         if (this.onInput) this.onInput(numVal);
       }
@@ -2430,7 +2430,7 @@ export class TDataGrid extends TComponent {
   set columns(v: DataGridColumn[]) {
     this._columns = v;
     this.grid.columns = v;
-    if (this._screen) void this.grid.setColumns(v).catch(() => {});
+    if (this._screen) void this.grid.setColumns(v).catch(() => { });
   }
   get columns(): DataGridColumn[] {
     return this._columns;
@@ -2440,7 +2440,7 @@ export class TDataGrid extends TComponent {
   set data(v: Record<string, any>[]) {
     this._data = v;
     this.grid.data = v;
-    if (this._screen) void this.grid.setData(v).catch(() => {});
+    if (this._screen) void this.grid.setData(v).catch(() => { });
   }
   get data(): Record<string, any>[] {
     return this._data;
@@ -2525,7 +2525,7 @@ export class TDataGrid extends TComponent {
           if (this.onRowClick) this.onRowClick(index, record);
         },
       )
-      .catch(() => {});
+      .catch(() => { });
   }
 
   /** Auto-refresh oleh TForm.run() — render data awal */
@@ -2598,7 +2598,7 @@ export class TTabulatorGrid extends TComponent {
   set columns(v: DataGridColumn[]) {
     this._columns = v;
     this.grid.columns = v;
-    if (this._screen) void this.grid.setColumns(v).catch(() => {});
+    if (this._screen) void this.grid.setColumns(v).catch(() => { });
   }
   get columns(): DataGridColumn[] {
     return this._columns;
@@ -2608,7 +2608,7 @@ export class TTabulatorGrid extends TComponent {
   set data(v: Record<string, any>[]) {
     this._data = v;
     this.grid.data = v;
-    if (this._screen) void this.grid.setData(v).catch(() => {});
+    if (this._screen) void this.grid.setData(v).catch(() => { });
   }
   get data(): Record<string, any>[] {
     return this._data;
@@ -2696,7 +2696,7 @@ export class TTabulatorGrid extends TComponent {
           if (this.onRowClick) this.onRowClick(index, record);
         },
       )
-      .catch(() => {});
+      .catch(() => { });
   }
 
   /** Auto-refresh oleh TForm.run() — render data awal */
@@ -2719,11 +2719,11 @@ export class TProgressBar extends TComponent {
   constructor(id: string, extraStyle?: Record<string, any>) {
     super(id);
     this.tag = "div";
-    
+
     this.props.min = 0;
     this.props.max = 100;
     this.props.value = 0;
-    
+
     this.style = {
       width: "100%",
       height: "18px", // Dipertebal sedikit agar teks lebih proporsional
@@ -2739,7 +2739,7 @@ export class TProgressBar extends TComponent {
     this._bar = new TComponent(`${id}_bar`);
     this._bar.tag = "div";
     this._bar.style = {
-      width: "0%", 
+      width: "0%",
       height: "100%",
       background: "var(--accent, #4caf50)", // Warna bar utama om
       transition: "width 0.2s ease",
@@ -2766,7 +2766,7 @@ export class TProgressBar extends TComponent {
       color: "#ffffff", // Warna teks kontras saat tertimpa bar (misal: putih murni)
       pointerEvents: "none",
       // Amankan lebar teks agar tidak ciut/wrap saat progress bar masih sangat sempit di kiri
-      width: "max-content", 
+      width: "max-content",
     };
     this._fgText.props.text = `0${this._unit}`;
 
@@ -2779,15 +2779,15 @@ export class TProgressBar extends TComponent {
     const min = this.props.min ?? 0;
     const max = this.props.max ?? 100;
     const pct = Math.min(100, Math.max(0, ((v - min) / (max - min || 1)) * 100));
-    
+
     this.props.value = v;
-    
+
     // Update blueprint memori internal
     this._bar.style.width = `${pct}%`;
-    
+
     const formattedVal = v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
     const textToShow = `${formattedVal}${this._unit}`;
-    
+
     this._fgText.props.text = textToShow;
 
     // Tembak live update ke browser jika form sudah jalan
@@ -2819,6 +2819,210 @@ export class TProgressBar extends TComponent {
 
   bindEventHandler(screen: Screen): void {
     this._screen = screen;
+  }
+}
+
+// ================================================================
+// TImage — Komponen gambar (mirip TImage Delphi)
+// ================================================================
+// Input = PATH FILE LANGSUNG (mis. "/opt/game/tex/player.png") —
+// bukan base64. Komponen membaca file via `fs` global, mengubahnya jadi
+// data URI, lalu menampilkan di browser. MIME di-detect dari ekstensi.
+//
+// Usage:
+//   const img = new TImage("img-logo", { file: "/opt/app/logo.png", width: 200, height: 120 });
+//   form.add(img);   // auto-load saat form di-mount
+//
+//   img.loadFile("/opt/app/logo.png");          // load kapan saja
+//   await img.loadFromFile(fsLib, path);        // pakai fsLib eksplisit
+//   img.setBase64("iVBORw0KGgo...", "image/png"); // low-level
+
+/** Mime type dari ekstensi file path. Fallback ke mime yang diberikan. */
+export function mimeFromPath(path: string, fallback = "image/png"): string {
+  const ext = (path || "").toLowerCase().split(".").pop() || "";
+  switch (ext) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "gif":
+      return "image/gif";
+    case "bmp":
+      return "image/bmp";
+    case "webp":
+      return "image/webp";
+    case "svg":
+      return "image/svg+xml";
+    case "ico":
+      return "image/x-icon";
+    default:
+      return fallback;
+  }
+}
+
+/** Konversi konten biner (latin1 string dari VFS) ke base64 data URI. */
+function toDataUri(raw: string, mime: string): string {
+  const b64 = Buffer.from(String(raw), "latin1").toString("base64");
+  return `data:${mime};base64,${b64}`;
+}
+
+export interface TImageOptions {
+  /** Path file gambar VFS — auto-load saat komponen di-mount ke screen. */
+  file?: string;
+  /** URL/path langsung (browser load sendiri). Untuk URL eksternal. */
+  src?: string;
+  /** Teks alternatif (aksesibilitas). */
+  alt?: string;
+  /** Lebar (px atau string CSS). */
+  width?: number | string;
+  /** Tinggi (px atau string CSS). */
+  height?: number | string;
+  /** object-fit: contain (default) | cover | fill | none. */
+  fit?: "contain" | "cover" | "fill" | "none";
+  /** Override MIME type (default di-detect dari ekstensi). */
+  mime?: string;
+  /** Style tambahan. */
+  style?: Record<string, any>;
+}
+
+export class TImage extends TComponent {
+  private _screen: Screen | null = null;
+  private _src: string = "";
+  private _alt: string = "";
+  private _mime: string = "image/png";
+  private _fit: "contain" | "cover" | "fill" | "none" = "contain";
+  /** Path file yang sedang dimuat (untuk auto-load saat bind). */
+  private _file: string = "";
+  /** Mencegah double-load saat bind dipanggil berkali-kali. */
+  private _fileLoaded = false;
+
+  constructor(id: string, opts: TImageOptions = {}) {
+    super(id);
+    this.tag = "img";
+    this._alt = opts.alt || "";
+    if (opts.mime) this._mime = opts.mime;
+    if (opts.fit) this._fit = opts.fit;
+    this.style = {
+      display: "block",
+      maxWidth: "100%",
+      objectFit: this._fit,
+      borderRadius: "6px",
+      ...(opts.width != null
+        ? { width: typeof opts.width === "number" ? opts.width + "px" : opts.width }
+        : {}),
+      ...(opts.height != null
+        ? { height: typeof opts.height === "number" ? opts.height + "px" : opts.height }
+        : {}),
+      ...(opts.style || {}),
+    };
+    if (opts.file) {
+      this._file = opts.file;
+      this._src = opts.file; // sementara — akan diganti data URI saat load
+    } else if (opts.src) {
+      this._src = opts.src;
+    }
+  }
+
+  /** URL/data-URI gambar yang sedang ditampilkan. */
+  get src(): string {
+    return this._src;
+  }
+  set src(v: string) {
+    this._src = v || "";
+    this.props.src = this._src;
+    if (this._screen) this._screen.update(this.id, { src: this._src });
+  }
+
+  /** Path file gambar VFS yang sedang dimuat (kalau ada). */
+  get file(): string {
+    return this._file;
+  }
+  set file(v: string) {
+    this._file = v || "";
+    this._fileLoaded = false;
+    void this.loadFile(this._file);
+  }
+
+  get alt(): string {
+    return this._alt;
+  }
+  set alt(v: string) {
+    this._alt = v || "";
+    this.props.alt = this._alt;
+    if (this._screen) this._screen.update(this.id, { alt: this._alt });
+  }
+
+  /** MIME override (untuk loadFromFile / setBase64). */
+  get mime(): string {
+    return this._mime;
+  }
+  set mime(v: string) {
+    this._mime = v || "image/png";
+  }
+
+  /** Set gambar dari data base64 langsung (data URI). */
+  setBase64(b64: string, mime?: string): void {
+    if (mime) this._mime = mime;
+    this._src = `data:${this._mime};base64,${b64}`;
+    this.props.src = this._src;
+    if (this._screen) this._screen.update(this.id, { src: this._src });
+  }
+
+  /** Muat gambar dari file VFS — pakai `fs` global (@tsix/Application). */
+  async loadFile(path: string): Promise<void> {
+    if (!path) return;
+    this._file = path;
+    const raw = await fs.readFile(path);
+    if (!raw) {
+      throw new Error(`[TImage] ❌ Cannot read: ${path}`);
+    }
+    this._mime = mimeFromPath(path, this._mime);
+    this._src = toDataUri(String(raw), this._mime);
+    this.props.src = this._src;
+    if (this._screen) this._screen.update(this.id, { src: this._src });
+  }
+
+  /** Muat dari file dengan fsLib eksplisit (untuk app yang punya referensi sendiri). */
+  async loadFromFile(fsLib: any, path: string): Promise<void> {
+    if (!fsLib || !path) return;
+    this._file = path;
+    const raw = await fsLib.readFile(path);
+    if (!raw) {
+      throw new Error(`[TImage] ❌ Cannot read: ${path}`);
+    }
+    this._mime = mimeFromPath(path, this._mime);
+    this._src = toDataUri(String(raw), this._mime);
+    this.props.src = this._src;
+    if (this._screen) this._screen.update(this.id, { src: this._src });
+  }
+
+  /** Alias loadFile — nama familiar dari Emerald/Screen. */
+  async updateImageFromFile(fsLib: any, path: string): Promise<void> {
+    return this.loadFromFile(fsLib, path);
+  }
+
+  /** Saat di-bind ke screen (dipanggil TForm.run saat mount) — auto-load file. */
+  bindEventHandler(screen: Screen): void {
+    this._screen = screen;
+    if (this._file && !this._fileLoaded) {
+      this._fileLoaded = true;
+      void this.loadFile(this._file).catch(() => { });
+    }
+  }
+
+  build(): IDOMNode {
+    return {
+      id: this.id,
+      tag: "img",
+      props: {
+        ...this.props,
+        src: this._src || undefined,
+        alt: this._alt,
+        style: { ...this.style },
+      },
+      children: [],
+    };
   }
 }
 

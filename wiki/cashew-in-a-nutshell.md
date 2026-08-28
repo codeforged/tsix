@@ -64,6 +64,11 @@ import {
   // Data Grid
   TDataGrid,
   TTabulatorGrid,
+
+  // Progress Bar & Gambar
+  TProgressBar,
+  TImage,
+  mimeFromPath,
 } from "@tsix/cashew";
 ```
 
@@ -534,7 +539,77 @@ const s = grid.sort;                // { key, dir } atau null
 
 ---
 
-## 📐 Layout
+## � TProgressBar — Progress Bar
+
+Progress bar dengan **efek XOR klona ganda** — teks persentase selalu terbaca baik di area yang belum terisi (teks redup) maupun yang sudah terisi (teks putih kontras), karena ada teks klona di dalam bar pengisi.
+
+```typescript
+const bar = new TProgressBar("progress", {
+  height: "22px",           // opsional — tinggi bar
+  background: "#1a1a2e",    // opsional — track
+});
+form.add(bar);
+
+bar.min = 0;
+bar.max = 100;
+bar.unit = "%";        // satuan (default "%")
+
+bar.value = 45;        // update otomatis: lebar bar + teks klona
+bar.value = 78.5;      // angka desimal diformat (78.5%)
+```
+
+| Properti      | Fungsi                                     |
+| :------------ | :----------------------------------------- |
+| `value`       | Nilai saat ini (auto-hitung % dari min/max) |
+| `min` / `max` | Rentang (default 0/100)                     |
+| `unit`        | Satuan ditampilkan setelah angka (default "%") |
+
+---
+
+## 🖼️ TImage — Komponen Gambar
+
+Komponen gambar ala `TImage`/`TPicture` Delphi. **Input = path file langsung** (mis. `/opt/app/logo.png`) — komponen membaca file via `fs` global, mengubahnya jadi base64 data URI, lalu menampilkan di browser. MIME type di-detect otomatis dari ekstensi file.
+
+```typescript
+import { TImage } from "@tsix/cashew";
+
+// 1) Auto-load dari file di constructor:
+const img = new TImage("img-logo", {
+  file: "/opt/app/logo.png",  // path file gambar VFS
+  width: 200, height: 120,    // ukuran (px)
+  alt: "Logo",                // teks alternatif
+  fit: "contain",             // object-fit: contain | cover | fill | none
+});
+form.add(img);   // auto-load saat form di-mount
+
+// 2) Load dari file kapan saja:
+img.loadFile("/opt/app/logo.png");
+
+// 3) Pakai fsLib sendiri (kalau app punya referensi fs eksplisit):
+await img.loadFromFile(fs, "/opt/app/logo.png");
+
+// 4) Set dari base64 langsung (low-level, jarang):
+img.setBase64("iVBORw0KGgo...", "image/png");
+```
+
+| Properti / Metode          | Fungsi                                                          |
+| :------------------------- | :-------------------------------------------------------------- |
+| `file`                     | Path file VFS (set → auto-load)                                 |
+| `src`                      | URL/data-URI gambar saat ini                                    |
+| `alt`                      | Teks alternatif (aksesibilitas)                                 |
+| `mime`                     | MIME override (default di-detect dari ekstensi)                 |
+| `loadFile(path)`           | Load dari file VFS (pakai `fs` global `@tsix/Application`)      |
+| `loadFromFile(fsLib,path)` | Load dari file dengan fsLib eksplisit                           |
+| `updateImageFromFile(...)` | Alias `loadFromFile` (nama familiar dari Emerald/Screen)        |
+| `setBase64(b64, mime?)`    | Set gambar dari data base64 langsung                            |
+
+> **Cara kerja:** browser **tidak bisa** load path VFS (`/opt/...`) langsung — itu path kernel, bukan URL HTTP. Jadi worker baca file (`fs.readFile`) → **base64 data URI** (`data:image/png;base64,...`) → update `<img src>`. `TImage` menangani ini otomatis.
+>
+> **MIME:** `mimeFromPath(path)` mendeteksi MIME dari ekstensi: `.png` → `image/png`, `.jpg/.jpeg` → `image/jpeg`, `.gif` → `image/gif`, `.bmp` → `image/bmp`, `.webp` → `image/webp`, `.svg` → `image/svg+xml`, `.ico` → `image/x-icon`.
+
+---
+
+## �📐 Layout
 
 ### Grid Layout
 
@@ -733,3 +808,4 @@ form.onSetup = async (screen) => {
 | **Cashew IoT Dashboard**    | [`cashew-demo3.ts`](../src/mirror/opt/test/cashew-demo3.ts)       | Sensor card, relay, gauge, chart, 7-seg, toggle, slider, timer, lamp |
 | **Tabulator Grid (Cashew)** | [`tab-demo-csh.ts`](../src/mirror/opt/test/tab-demo-csh.ts)       | `TTabulatorGrid`: sort, resize, select, appendData, toggleSort       |
 | **DB Browser (Cashew)**     | [`gui-db-test-csh.ts`](../src/mirror/opt/test/gui-db-test-csh.ts) | `TDataGrid` + DbLib: browse tabel MySQL + sort                       |
+| **Image Viewer**            | [`image-viewer.ts`](../src/mirror/opt/image-viewer/image-viewer.ts) | `TImage` + explorer tree: preview gambar dari file VFS              |

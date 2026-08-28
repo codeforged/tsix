@@ -1473,6 +1473,7 @@ buildToggleSwitchImg(props): string
 
 // Utility
 darken(hex: string, ratio?: number): string
+isLightColor(hex: string): boolean   // true jika warna terang (untuk theme-aware widget)
 ```
 
 ### Connected Widget Classes
@@ -1694,6 +1695,7 @@ interface IGUIEventIPC {
 | `src/mirror/bin/layout-demo.ts`     | Grid, sidebar, cards            | ~100  |
 | `src/mirror/bin/pixelterm.ts`       | Terminal Emulator via xterm.js  | ~160  |
 | `src/mirror/bin/asteracea.ts`       | Window Manager (Asteracea)      | ~900  |
+| `src/mirror/opt/image-viewer/image-viewer.ts` | Image Viewer (explorer + `TImage` preview) | ~130 |
 | `src/mirror/lib/emerald.ts`         | Emerald Toolkit source          | ~1220 |
 
 ---
