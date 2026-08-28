@@ -6,11 +6,11 @@
 
 ## 2026-08-28
 
-### Prompt alokasi TTY — `ttyCount` & `loginCount` di sysconfig
-- **File:** `scripts/install.ts`, `src/sysconfig.json`, `src/common/Config.ts`
-- **Perubahan:** Setelah prompt "Verbose kernel", installer menanyakan **Total TTY** & **Login services** dengan validasi (`ttyCount >= 2`, `loginCount >= 1`, `loginCount < ttyCount` → selalu sisakan TTY1 console utama). Nilai ditulis ke `cfg.shell.ttyCount`/`cfg.shell.loginCount`. Default config `createDefaultConfig()` ikut menyertakan field (6/2).
-- **Dampak:** Fresh install bisa langsung set alokasi konsol untuk hemat RAM; daemon remote tak terpengaruh (PTY).
-- **Oleh:** Copilot
+### Alokasi TTY pakai default (3/2) — prompt interaktif dihapus
+- **File:** `scripts/install.ts`, `src/sysconfig.json`
+- **Perubahan:** Prompt interaktif "Total TTY" & "Login services" **dihapus** — terlalu teknis untuk user saat instalasi awal. Nilai langsung diset default `ttyCount: 3`, `loginCount: 2` di `createDefaultConfig()` (dan `src/sysconfig.json`). Daemon remote (tsshd/airtermd/pixelterm) tidak terpengaruh karena pakai PTY.
+- **Dampak:** Instalasi lebih ringkas; 3 konsol virtual (TTY1 console + TTY2-3 login) cukup hemat RAM.
+- **Oleh:** Copilot · **Laporan:** kakang
 
 ---
 
