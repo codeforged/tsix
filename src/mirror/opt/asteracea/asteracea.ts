@@ -2066,7 +2066,11 @@ export const main = Program(async (args: string[]) => {
   // ================================================================
   // LOGIN SCREEN
   // ================================================================
+  // Taskbar hidup di overlay layer (selalu di atas semua window) —
+  // sembunyikan selama login, tampilkan lagi setelah login sukses.
+  await win.updateProps("taskbar-wrapper", { style: { display: "none" } });
   const loggedInUser = await showLoginScreen(win);
+  await win.updateProps("taskbar-wrapper", { style: { display: "flex" } });
   await win.updateProps("launcher-user", { text: loggedInUser });
 
   // ================================================================
@@ -2243,9 +2247,11 @@ export const main = Program(async (args: string[]) => {
       launcherOpen = false;
       await closeAllRunningApps(win, appState);
       await win.updateProps("wm-root", { style: { display: "none" } });
+      await win.updateProps("taskbar-wrapper", { style: { display: "none" } });
       const newUser = await showLoginScreen(win);
       await win.updateProps("launcher-user", { text: newUser });
       await win.updateProps("wm-root", { style: { display: "block" } });
+      await win.updateProps("taskbar-wrapper", { style: { display: "flex" } });
     } catch (e: any) {
       const errMsg = e?.message || String(e);
       await std.log(`[asteracea] Logout error: ${errMsg}`, "asteracea");
@@ -2253,6 +2259,7 @@ export const main = Program(async (args: string[]) => {
       // Pastikan desktop tampil lagi walau logout gagal di tengah jalan
       try {
         await win.updateProps("wm-root", { style: { display: "block" } });
+        await win.updateProps("taskbar-wrapper", { style: { display: "flex" } });
       } catch (_) { }
     }
   });

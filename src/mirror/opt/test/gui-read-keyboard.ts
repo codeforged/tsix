@@ -34,7 +34,7 @@ export const main = Program(async () => {
   await std.log("=== gui-read-keyboard (TKeyboard demo) ===");
 
   const form = new TForm({
-    title: "⌨️ GUI Read Keyboard",
+    title: "GUI Read Keyboard",
     icon: "⌨️",
     width: 560,
     height: 540,

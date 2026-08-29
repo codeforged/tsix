@@ -262,15 +262,22 @@
         // Overlay roots: specific elements that must render above ALL windows.
         // Only extract by ID — children inside an overlay root must stay with their parent.
         // (z-index check is in handleMountNode for dynamically-mounted overlays, not here.)
-        if (child.id === "launcher-overlay") {
+        // - launcher-overlay: modal launcher
+        // - taskbar-wrapper:  taskbar Asteracea — ALWAYS ON TOP, tanpa ini kalah sama window app
+        if (
+          child.id === "launcher-overlay" ||
+          child.id === "taskbar-wrapper"
+        ) {
           const overlay = document.getElementById("__tsix_overlay_layer__");
           if (overlay) {
-            // Fill the entire viewport so flex centering works
-            childEl.style.position = "fixed";
-            childEl.style.top = "0";
-            childEl.style.right = "0";
-            childEl.style.bottom = "0";
-            childEl.style.left = "0";
+            if (child.id === "launcher-overlay") {
+              // Fill the entire viewport so flex centering works
+              childEl.style.position = "fixed";
+              childEl.style.top = "0";
+              childEl.style.right = "0";
+              childEl.style.bottom = "0";
+              childEl.style.left = "0";
+            }
             overlay.appendChild(childEl);
           }
           continue; // Don't append to parent window
@@ -429,16 +436,18 @@
       return;
     }
 
-    // Special: overlay elements (launcher, modals, etc.)
+    // Special: overlay elements (launcher, taskbar, modals, etc.)
     // Must render above ALL windows — fullscreen windows are locked at z-index 1,
     // so overlay children would be buried under regular app windows otherwise.
-    const isOverlayRoot = node.id === "launcher-overlay";
-    const isOverlayChild = targetId === "launcher-overlay";
+    const isOverlayRoot =
+      node.id === "launcher-overlay" || node.id === "taskbar-wrapper";
+    const isOverlayChild =
+      targetId === "launcher-overlay" || targetId === "taskbar-wrapper";
 
     if (isOverlayRoot || isOverlayChild) {
       const container = document.getElementById("__tsix_overlay_layer__");
       if (container) {
-        if (isOverlayRoot) {
+        if (isOverlayRoot && node.id === "launcher-overlay") {
           // The overlay root fills the entire viewport
           domEl.style.position = "fixed";
           domEl.style.inset = "0";

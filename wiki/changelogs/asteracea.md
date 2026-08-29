@@ -4,7 +4,17 @@
 
 ---
 
-## 2026-08-12
+## 2026-08-29
+
+### Taskbar always-on-top (tidak lagi kalah sama window aplikasi)
+
+- **File:** `src/mirror/opt/asteracea/asteracea.ts` + `src/mirror/opt/dome/dome-client-dom.js`
+- **Masalah:** Taskbar ada di dalam DOM window WM → saat window aplikasi di-focus (z-index lebih tinggi), taskbar tertutup.
+- **Perubahan:**
+  - DOME kini mengekstrak `taskbar-wrapper` ke `__tsix_overlay_layer__` (layer di atas semua window, sama seperti `launcher-overlay`) — lihat changelog DOME.
+  - `asteracea.ts`: taskbar disembunyikan saat login (`display:none`) lalu ditampilkan lagi (`display:flex`) setelah login sukses, di flow login awal maupun logout — karena taskbar kini hidup di overlay layer yang menutupi login screen.
+- **Dampak:** Taskbar selalu terlihat & klikable di atas semua window aplikasi; layar login tetap bersih tanpa taskbar. Deploy: re-sync `asteracea.ts` + `dome-client-dom.js` ke VFS → restart DOME + Asteracea → hard-refresh browser.
+- **Oleh:** Copilot
 
 ### Crash WM saat eksekusi file tanpa izin eksekusi (EXEC Permission Denied)
 

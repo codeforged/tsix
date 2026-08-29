@@ -6,6 +6,14 @@
 
 ## 2026-08-29
 
+### Taskbar Asteracea selalu di atas semua window (always-on-top)
+
+- **File:** `src/mirror/opt/dome/dome-client-dom.js`
+- **Masalah:** Taskbar Asteracea di-mount di dalam DOM window WM. Saat window aplikasi di-focus, z-index-nya naik (via `S.zCounter`) dan menutupi taskbar — taskbar "kalah" sama window aplikasi.
+- **Perubahan:** `taskbar-wrapper` (dan target mount-nya) kini diperlakukan seperti `launcher-overlay` — diekstrak ke layer overlay global `__tsix_overlay_layer__` (z-index `9999999999`, di atas SEMUA window) baik di `buildDOM` (mount awal / replay) maupun `handleMountNode` (mount dinamis). Pointer-event taskbar sudah diatur wrapper `pointer-events:none` + inner `pointer-events:auto`, jadi klik tetap jalan tanpa memblokir window di bawahnya.
+- **Dampak:** Taskbar selalu terlihat & bisa diklik meskipun ada window aplikasi (termasuk fullscreen). Deploy: sync `dome-client-dom.js` + `asteracea.ts` ke VFS → restart DOME + Asteracea → hard-refresh browser.
+- **Oleh:** Copilot
+
 ### Keyboard capture mati setelah klik body window — refokus pola DDC + fallback ke window fokus
 - **File:** `src/mirror/opt/dome/dome-client-dom.js`
 - **Masalah:** Komponen `Keyboard`/`TKeyboard` berhenti merespons ("cuek") begitu user mengklik area kosong window. Saat mousedown pada area non-interaktif, browser memindahkan fokus ke `<body>` (yang berada di luar `.tsix-window`), sehingga `kbDocSend()` menolak event berikutnya karena `e.target.closest(".tsix-window")` gagal → keyboard mati sampai fokus dikembalikan manual.
