@@ -577,38 +577,72 @@
     delete keyboardCaptureByWid[msg.wid];
   });
 
+  // ── Refokus saat klik di dalam window (pola DDC) ──
+  // Klik di area NON-interaktif window → preventDefault agar browser TIDAK
+  // memindahkan fokus ke <body> (yang ada di luar .tsix-window), lalu
+  // fokuskan elemen penangkap. Tanpa preventDefault, browser selalu menarik
+  // fokus ke body pada mousedown → keyboard langsung "cuek" setelah body
+  // diklik. Klik di input/textarea/select/tombol dibiarkan (fokus natural),
+  // tapi untuk tombol fokus dikembalikan ke penangkap setelah click-nya
+  // sempat jalan (agar spasi/Enter tidak "menekan ulang" tombol).
   document.addEventListener("mousedown", function (e) {
     const t = e.target;
     if (!t || typeof t.closest !== "function") return;
-    // Jangan mencuri fokus dari elemen yang butuh keyboard sendiri
-    if (t.closest("input, textarea, select, [contenteditable='true']")) return;
-    const winEl = t.closest(".tsix-window");
-    if (!winEl) return;
-    const id = winEl.id || "";
-    if (id.indexOf("win-") !== 0) return;
-    keyboardCaptureFocus(id.slice(4));
-  });
-
-  // ── Keyboard global di LEVEL DOCUMENT ──
-  // Selama event target ada DI DALAM window yang punya keyboard capture
-  // (dan bukan input teks), tombol diteruskan ke app. Ini jauh lebih andal
-  // daripada mengandalkan fokus elemen penangkap — cukup klik di dalam
-  // window (refokus) atau auto-fokus saat mount sudah cukup.
-  function kbDocSend(e, down) {
-    const t = e.target;
-    if (!t || typeof t.closest !== "function") return;
+    // Elemen yang butuh fokus sendiri: jangan diganggu.
     if (t.closest("input, textarea, select, [contenteditable='true']")) return;
     const winEl = t.closest(".tsix-window");
     if (!winEl) return;
     const id = winEl.id || "";
     if (id.indexOf("win-") !== 0) return;
     const wid = id.slice(4);
+    if (!keyboardCaptureByWid[wid]) return;
+
+    // Tombol & elemen klik lain: biarkan click-nya jalan, LALU refokus.
+    // (Pola yang sama dipakai DDC canvas.)
+    const isClickable = !!t.closest("button, [data-tsix-onclick], select");
+    if (isClickable) {
+      setTimeout(function () {
+        keyboardCaptureFocus(wid);
+      }, 0);
+      return;
+    }
+
+    // Area non-interaktif (label, ruang kosong window): cegah default
+    // mousedown yang MENGAMBIL fokus ke body, lalu fokus penangkap.
+    e.preventDefault();
+    keyboardCaptureFocus(wid);
+  });
+
+  // ── Keyboard global di LEVEL DOCUMENT ──
+  // Event diteruskan ke app selama fokus berada DI DALAM window yang punya
+  // keyboard capture (dan bukan di input teks). Ini jauh lebih andal daripada
+  // bergantung fokus elemen penangkap — cukup klik di dalam window (refokus)
+  // atau auto-fokus saat mount sudah cukup.
+  function kbDocSend(e, down) {
+    const t = e.target;
+    if (!t || typeof t.closest !== "function") return;
+    // Jangan mencuri ketikan yang memang milik input teks (password, memo, dll).
+    if (t.closest("input, textarea, select, [contenteditable='true']")) return;
+    // Fallback: kalau target di luar window (mis. <body> karena klik body
+    // sebelum sempat refokus), tetap arahkan ke window yang sedang FOCUS
+    // (teratas) yang punya keyboard capture. Ini bikin keyboard tetap jalan
+    // walau fokus sempat "nyasar" ke body.
+    let winEl = t.closest(".tsix-window");
+    let wid = null;
+    if (winEl) {
+      const id = winEl.id || "";
+      if (id.indexOf("win-") === 0) wid = id.slice(4);
+    }
+    if (!wid && S.focusedWid && keyboardCaptureByWid[S.focusedWid]) {
+      wid = S.focusedWid;
+    }
+    if (!wid) return;
     const targetId = keyboardCaptureByWid[wid];
     if (!targetId) return;
     if (
       down &&
       ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].indexOf(e.key) >=
-        0
+      0
     ) {
       e.preventDefault();
     }

@@ -75,16 +75,16 @@ export const main = Program(async (args: string[]) => {
   const expandedDirs: Set<string> = new Set([startDir]);
   let currentFile: string | null = null;
 
-  // ── Navigasi keyboard (pola DDC: scope = entry level-1 startDir saja) ──
-  let selected: string | null = null; // nama entry yang sedang ter-select
-  let navList: any[] = []; // daftar entry level-1 startDir
-  let lastSelFp: string | null = null; // path entry yang di-highlight sebelumnya
+  // ── Navigasi keyboard — mengikuti tree terlihat (flattened), termasuk
+  //    file di subdirektori yang di-expand. Bukan cuma level-1 startDir.
+  let selected: string | null = null; // fp entry yang sedang ter-select
+  let navList: { name: string; fp: string; type: string }[] = [];
+  let lastSelFp: string | null = null; // fp entry yang di-highlight sebelumnya
   const SEL_BG = "rgba(98, 145, 220, 0.35)";
 
   const isImage = (name: string) =>
     IMAGE_EXTS.some((e) => name.toLowerCase().endsWith(e));
 
-  const navPath = (name: string) => startDir.replace(/\/$/, "") + "/" + name;
   const expId = (fp: string) => "exp-" + fp.replace(/\//g, "_");
 
   // TImage — komponen preview. Auto-load dari file saat di-bind.
@@ -131,7 +131,7 @@ export const main = Program(async (args: string[]) => {
             },
           },
           h3({
-            text: "📂 Files",
+            text: "📂 " + startDir,
             style: { margin: "0 0 6px 0", fontSize: "12px" },
           }),
           div({ id: "explorer-container" }),
@@ -217,7 +217,7 @@ export const main = Program(async (args: string[]) => {
           const isDir = e.type === "DIRECTORY";
           const expanded = expandedDirs.has(fp);
           const indent = depth * 14 + 6;
-          const isSel = selected !== null && fp === navPath(selected);
+          const isSel = selected !== null && fp === selected;
 
           rows.push(
             div(
@@ -250,7 +250,7 @@ export const main = Program(async (args: string[]) => {
                 (isDir
                   ? expanded
                     ? "📂 "
-                    : "� "
+                    : "📁 "
                   : isImage(e.name)
                     ? "🖼️ "
                     : "📄 ") + e.name,
@@ -264,16 +264,18 @@ export const main = Program(async (args: string[]) => {
               const now = Date.now();
               const isDbl = lastClick.id === eid && now - lastClick.time < 400;
               lastClick = { id: eid, time: now };
-              // Klik entry level-1 → sinkronkan selected (navigasi keyboard)
-              if (depth === 0) {
-                selected = e.name;
-                void refreshSelectionHighlight(navPath(e.name));
-              }
+              // Klik entry → sinkronkan selected (navigasi keyboard)
+              selected = fp;
+              void refreshSelectionHighlight(fp);
               if (isDir) {
-                // Single click dir → toggle expand
+                // Single click dir → toggle expand, lalu jaga highlight tetap
                 if (expandedDirs.has(fp)) expandedDirs.delete(fp);
                 else expandedDirs.add(fp);
-                void refreshExplorer();
+                void (async () => {
+                  await refreshExplorer();
+                  await buildNavList();
+                  await refreshSelectionHighlight(selected || fp);
+                })();
               } else {
                 // Klik file → open
                 void openFile(fp);
@@ -333,21 +335,31 @@ export const main = Program(async (args: string[]) => {
   }
 
   // ================================================================
-  // NAVIGASI KEYBOARD — scope: hanya entry level-1 di startDir
+  // NAVIGASI KEYBOARD — mengikuti tree terlihat (flattened)
   // (baca keyboard ala DDC: fokus elemen di browser → keydown → app)
   // ================================================================
   async function buildNavList() {
     navList = [];
-    try {
-      const l = (await fs.ls(startDir)) || [];
-      l.sort((a: any, b: any) => {
-        if (a.type !== b.type) return a.type === "DIRECTORY" ? -1 : 1;
-        return (a.name || "").localeCompare(b.name || "");
-      });
-      navList = l;
-    } catch (_) {
-      /* skip */
+    async function walk(dir: string, depth: number) {
+      if (depth > 8) return;
+      try {
+        const l = (await fs.ls(dir)) || [];
+        l.sort((a: any, b: any) => {
+          if (a.type !== b.type) return a.type === "DIRECTORY" ? -1 : 1;
+          return (a.name || "").localeCompare(b.name || "");
+        });
+        for (const e of l) {
+          const fp = dir.replace(/\/$/, "") + "/" + e.name;
+          navList.push({ name: e.name, fp, type: e.type });
+          if (e.type === "DIRECTORY" && expandedDirs.has(fp)) {
+            await walk(fp, depth + 1);
+          }
+        }
+      } catch (_) {
+        /* skip */
+      }
     }
+    await walk(startDir, 0);
   }
 
   /** Pindahkan highlight baris explorer ke entry baru (tanpa rebuild penuh). */
@@ -364,16 +376,15 @@ export const main = Program(async (args: string[]) => {
     await app.win.flush();
   }
 
-  /** Set selected ke entry level-1 + update highlight + preview (jika gambar). */
-  async function selectEntry(name: string) {
-    selected = name;
-    const e = navList.find((x) => x.name === name);
-    const fp = navPath(name);
+  /** Set selected ke entry (fp) + update highlight + preview (jika gambar). */
+  async function selectEntry(fp: string) {
+    selected = fp;
+    const e = navList.find((x) => x.fp === fp);
     await refreshSelectionHighlight(fp);
     if (!e) return;
     if (e.type === "DIRECTORY") {
       await app.update("status-bar", {
-        text: `📂 ${name}/ — direktori (klik untuk expand)`,
+        text: `📂 ${e.name}/ — direktori (Enter untuk expand)`,
       });
       return;
     }
@@ -383,11 +394,27 @@ export const main = Program(async (args: string[]) => {
   /** Geser selected maju/mundur (ArrowDown/ArrowUp), wrap di ujung. */
   async function navSelection(delta: number) {
     if (navList.length === 0) return;
-    const idx = selected ? navList.findIndex((x) => x.name === selected) : -1;
+    const idx = selected ? navList.findIndex((x) => x.fp === selected) : -1;
     let ni = idx === -1 ? 0 : idx + delta;
     if (ni < 0) ni = navList.length - 1;
     if (ni >= navList.length) ni = 0;
-    await selectEntry(navList[ni].name);
+    await selectEntry(navList[ni].fp);
+  }
+
+  /** Aktifkan entry ter-select: Enter → expand/tutup direktori / buka file. */
+  async function activateSelected() {
+    if (!selected) return;
+    const e = navList.find((x) => x.fp === selected);
+    if (!e) return;
+    if (e.type === "DIRECTORY") {
+      if (expandedDirs.has(selected)) expandedDirs.delete(selected);
+      else expandedDirs.add(selected);
+      await buildNavList();
+      await refreshExplorer();
+      await refreshSelectionHighlight(selected);
+    } else {
+      await openFile(selected);
+    }
   }
 
   // ================================================================
@@ -400,9 +427,9 @@ export const main = Program(async (args: string[]) => {
 
   // Selected awal: file param (jika ada), selain itu entry pertama.
   if (initialFile) {
-    await selectEntry(initialFile.substring(initialFile.lastIndexOf("/") + 1));
+    await selectEntry(initialFile);
   } else if (navList.length > 0) {
-    await selectEntry(navList[0].name);
+    await selectEntry(navList[0].fp);
   }
 
   // Navigasi keyboard — komponen Keyboard (fokus otomatis saat window aktif)
@@ -411,6 +438,7 @@ export const main = Program(async (args: string[]) => {
     if (!e.down || e.repeat) return; // sekali per tekan, abaikan auto-repeat
     if (e.key === "ArrowDown") void navSelection(1);
     else if (e.key === "ArrowUp") void navSelection(-1);
+    else if (e.key === "Enter") void activateSelected();
   });
   await kb.attach();
 
