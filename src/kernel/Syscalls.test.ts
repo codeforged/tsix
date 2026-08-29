@@ -975,6 +975,53 @@ describe("SyscallDispatcher (A1)", () => {
     });
 
     // ============================================================
+    // PTY (Pseudo Terminal): PTY_ALLOC wires Ctrl+C → SIGINT
+    // ============================================================
+
+    describe("PTY (Pseudo Terminal)", () => {
+        it("PTY_ALLOC wires slave onInterrupt → SIGINT to foreground process", async () => {
+            const { PTYManager } = await import("./PTYManager");
+            const ptyManager = new PTYManager();
+            (kernel as any).getPTYManager = () => ptyManager;
+
+            // Proses foreground di PTY0 memakai ttyId negatif = -(0+1) = -1
+            const fg = createTestProcess({ pid: 200, name: "ping" });
+            fg.ttyId = -1;
+            scheduler.setForegroundProcess(200, -1);
+
+            const alloc = await dispatcher.dispatch(fg.pid, SyscallCode.PTY_ALLOC, {
+                rows: 24,
+                cols: 80,
+            });
+            expect(alloc.id).toBe(0);
+
+            const pair = ptyManager.get(0)!;
+            expect(pair.slave.onInterrupt).toBeDefined();
+
+            // Simulasi Ctrl+C dari daemon (pixelterm/tsshd): inject \x03 ke slave
+            const spy = vi.spyOn(scheduler, "sendEvent");
+            pair.slave.injectInput("\x03");
+            expect(spy).toHaveBeenCalledWith(200, "signal", "SIGINT");
+            spy.mockRestore();
+        });
+
+        it("PTY_ALLOC Ctrl+C with no foreground process is a no-op", async () => {
+            const { PTYManager } = await import("./PTYManager");
+            const ptyManager = new PTYManager();
+            (kernel as any).getPTYManager = () => ptyManager;
+
+            const pcb = createTestProcess();
+            await dispatcher.dispatch(pcb.pid, SyscallCode.PTY_ALLOC, {});
+            const pair = ptyManager.get(0)!;
+
+            const spy = vi.spyOn(scheduler, "sendEvent");
+            pair.slave.injectInput("\x03");
+            expect(spy).not.toHaveBeenCalled();
+            spy.mockRestore();
+        });
+    });
+
+    // ============================================================
     // A1.108–A1.113: GUI_REQ
     // ============================================================
 

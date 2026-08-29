@@ -2160,6 +2160,26 @@ export class SyscallDispatcher {
           pair.slave.width = opts.cols;
           pair.slave.height = opts.rows;
         }
+
+        // --- WIRE CTRL+C PADA SLAVE → SIGINT KE FOREGROUND PROCESS PTY ---
+        // Sebelumnya onInterrupt slave TIDAK PERNAH di-set → injectInput("\x03")
+        // membuang Ctrl+C diam-diam (continue) tanpa mengirim sinyal → di
+        // pixelterm/tsshd/airtermd Ctrl+C tidak berefek.
+        // Konsisten dengan konsol virtual: TTYManager mengikat tty.onInterrupt →
+        // onInterruptCallback → Kernel kirim SIGINT ke foreground process TTY.
+        // Proses di PTY memakai ttyId NEGATIF = -(ptyId+1) (lihat handler EXEC),
+        // jadi foreground process dicari di ttyId tersebut.
+        const ptyTtyId = -(pair.id + 1);
+        pair.slave.onInterrupt = () => {
+          const fgPid = this.scheduler?.getForegroundProcess(ptyTtyId);
+          if (fgPid) {
+            this.logger.info(
+              `[PTY] Sending SIGINT to PID ${fgPid} (PTY${pair.id} Ctrl+C)`,
+            );
+            this.scheduler?.sendEvent(fgPid, "signal", "SIGINT");
+          }
+        };
+
         this.logger.info(
           `[PTY] PID ${pid} allocated PTY${pair.id} (/dev/pts/${pair.id})`,
         );

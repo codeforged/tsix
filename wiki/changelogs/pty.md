@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-08-29
+
+### Fix: Ctrl+C tidak berfungsi di PTY (pixelterm/tsshd/airtermd) — wiring onInterrupt slave → SIGINT
+- **File:** `src/kernel/Syscalls.ts`, `src/kernel/Syscalls.test.ts`
+- **Gejala:** Di pixelterm, Ctrl+C tidak memberi respon — proses foreground (mis. `ping`, program lain) tidak berhenti semenjak migrasi ke PTY. Console TTY (tty1..) aman.
+- **Akar masalah:** Jalur Ctrl+C di console TTY: `shell.write(pid, "\x03")` → `TTYDevice.ioctl(0x2001)` → `tty.pushInput()` → `tty.onInterrupt()` (sudah di-wire `TTYManager` → kernel kirim SIGINT ke foreground process). Di PTY: `shell.write(pid, "\x03")` → `PTYSlaveDevice.injectInput("\x03")` mengecek `this.onInterrupt` — tetapi **tidak pernah di-set** (satu-satunya setter, master ioctl `0x3001` `SET_SLAVE_INTERRUPT`, tidak dipanggil daemon mana pun). Akibatnya `\x03` dibuang diam-diam → tidak ada SIGINT → program "cuek".
+- **Perubahan:** Di handler syscall `PTY_ALLOC` (`src/kernel/Syscalls.ts`), wire `pair.slave.onInterrupt` → kirim `SIGINT` ke foreground process PTY via ttyId negatif `-(ptyId+1)` — mirror pola wiring konsol virtual di `Kernel.ts`/`TTYManager`. Sekali di kernel, berlaku untuk semua daemon (pixelterm/tsshd/airtermd).
+- **Test:** 2 test baru di `Syscalls.test.ts` (PTY_ALLOC wire onInterrupt → SIGINT ke foreground; no-op jika tidak ada foreground) — pass. Tidak ada regresi (kegagalan test yang ada sudah pre-existing, bukan dari perubahan ini).
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-28
 
 ### PTY on-demand — daemon remote & pixelterm tidak lagi pakai slot TTY konsol

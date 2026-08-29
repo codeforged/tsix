@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-08-29
+
+### Fix: Ctrl+C mencetak "^C" dobel (ping/sleep) — pixelterm ikut menulis ^C
+- **File:** `src/mirror/opt/pixelterm/pixelterm.ts`
+- **Gejala:** Saat Ctrl+C pada program yang handle SIGINT (mis. `ping`, `sleep`), karakter `^C` tampil **2x** (baris kosong di antaranya).
+- **Akar masalah:** Dua pihak mencetak `^C`: `pixelterm` menulis `termWrite("^C\r\n")` (echo manual ke xterm), DAN app mencetaknya sendiri di handler SIGINT (`ping.ts` → `"\n^C\n"`, `sleep.ts` → `"\n^C\nInterrupted!"`, `tsh.ts` → `"^C\n"`). Console TTY tidak pernah echo `\x03` — konvensi TSIX: **app yang mencetak `^C`**, bukan terminal.
+- **Perubahan:** Hapus `await termWrite("^C\r\n")` di handler `term_input` Ctrl+C. Kini `^C` muncul sekali (dari handler app) dan konsisten dengan console TTY. Bonus: app TUI raw mode (mis. `atto`) tidak lagi dapat `^C` nyasar ke layar.
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-28
 
 ### Migrasi ke PTY on-demand — tidak lagi scavenge slot TTY konsol
