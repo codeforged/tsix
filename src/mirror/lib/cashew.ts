@@ -673,6 +673,18 @@ export class TMemo extends TComponent {
     this.props.rows = v;
   }
 
+  /** Scroll konten memo ke paling bawah (ikut pola scrollTop: 999999 di codebase). */
+  async scrollToBottom(): Promise<void> {
+    if (!this._screen) return;
+    await this._screen.update(this.id, { scrollTop: 999999 });
+  }
+
+  /** Scroll konten memo ke paling atas. */
+  async scrollToTop(): Promise<void> {
+    if (!this._screen) return;
+    await this._screen.update(this.id, { scrollTop: 0 });
+  }
+
   bindEventHandler(screen: Screen): void {
     this._screen = screen;
   }

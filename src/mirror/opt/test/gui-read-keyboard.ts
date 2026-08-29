@@ -122,6 +122,7 @@ export const main = Program(async () => {
     if (log.length > 6000) log = log.slice(-6000);
     memo.text = log;
     status.text = "Listening — " + (e.key || "(none)");
+    memo.scrollToBottom();
   };
   form.add(kb);
 
