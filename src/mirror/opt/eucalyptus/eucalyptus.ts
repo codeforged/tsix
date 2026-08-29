@@ -16,7 +16,7 @@ export const main = Program(async (args: string[]) => {
   await std.log("=== Eucalyptus v1 ===");
   await theme.loadCurrent();
   theme.watch();
-  const version = "V1.2";
+  const version = "V1.3";
   const ps = await shell.ps();
   const domePid = (ps.find((p: any) => p.name.includes("dome")) || {}).pid || 0;
   const app = new Screen({
