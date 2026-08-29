@@ -77,6 +77,13 @@
           lineNumbers: true,
           autofocus: true,
           tabSize: 2,
+          // ── ENRICHMENT (addon di-load di dome-client.html) ──
+          foldGutter: true, // ikon lipat di gutter kiri (klik ▸/▾ untuk fold)
+          gutters: ["CodeMirror-foldgutter", "CodeMirror-linenumbers"],
+          matchBrackets: true, // sorot pasangan kurung saat cursor di dekatnya
+          autoCloseBrackets: true, // auto-tutup ( ) [ ] { } " ' `
+          highlightSelectionMatches: true, // sorot kata yang sama dgn seleksi
+          styleActiveLine: true, // garis aktif disorot (addon active-line)
         });
         cm.on("change", () => {
           TSIX.send({
@@ -100,6 +107,15 @@
           },
           "Ctrl-H": "replace",
           "Ctrl-L": "findNext",
+          // Comment toggle: addon comment.js TIDAK me-register shortcut sendiri
+          // (source-nya berakhir di definisi uncomment, tanpa baris keymap) —
+          // jadi kita bind eksplisit di sini, baik Ctrl-/ maupun Cmd-/ (macOS).
+          "Ctrl-/": "toggleComment",
+          "Cmd-/": "toggleComment",
+          // Folding: Ctrl-Q toggle scope; Ctrl-Shift-[ / ] fold/unfold semua.
+          "Ctrl-Q": "toggleFold",
+          "Ctrl-Shift-[": "foldAll",
+          "Ctrl-Shift-]": "unfoldAll",
         });
 
         // Auto-refresh on container resize

@@ -1,406 +1,457 @@
 ﻿<!doctype html>
 <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TSIX Desktop</title>
+    <style>
+      :root {
+        --bg: #1a1a2e;
+        --surface: #16213e;
+        --surface2: #0f3460;
+        --accent: #4caf50;
+        --danger: #f44336;
+        --text: #e0e0e0;
+        --text-dim: #888;
+        --border: #333;
+        --titlebar: #1a1a2e;
+        --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      }
 
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TSIX Desktop</title>
-  <style>
-    :root {
-      --bg: #1a1a2e;
-      --surface: #16213e;
-      --surface2: #0f3460;
-      --accent: #4caf50;
-      --danger: #f44336;
-      --text: #e0e0e0;
-      --text-dim: #888;
-      --border: #333;
-      --titlebar: #1a1a2e;
-      --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
 
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    /* Elemen dgn onClickId → pointer default via CSS (BUKAN inline).
+      /* Elemen dgn onClickId → pointer default via CSS (BUKAN inline).
          Inline cursor dari app (mis. arrow di taskbar Asteracea) tetap menang
          karena inline style mengalahkan aturan CSS. */
-    [data-tsix-onclick] {
-      cursor: pointer;
-    }
+      [data-tsix-onclick] {
+        cursor: pointer;
+      }
 
-    html,
-    body {
-      height: 100%;
-    }
+      html,
+      body {
+        height: 100%;
+      }
 
-    body {
-      font-family: "Segoe UI", system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      overflow: hidden;
-      height: 100vh;
-      width: 100vw;
-    }
+      body {
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        overflow: hidden;
+        height: 100vh;
+        width: 100vw;
+      }
 
-    #desktop {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(135deg,
+      #desktop {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          135deg,
           #1a1a2e 0%,
           #16213e 50%,
-          #0f3460 100%);
-    }
+          #0f3460 100%
+        );
+      }
 
-    #__tsix_overlay_layer__ {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 9999999999;
-      isolation: isolate;
-      display: block;
-    }
+      #__tsix_overlay_layer__ {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 9999999999;
+        isolation: isolate;
+        display: block;
+      }
 
-    .tsix-window {
-      position: absolute;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      box-shadow: var(--shadow);
-      min-width: 200px;
-      min-height: 100px;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
+      .tsix-window {
+        position: absolute;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        min-width: 200px;
+        min-height: 100px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
 
-    .tsix-resize-handle {
-      position: absolute;
-      width: 10px;
-      height: 10px;
-      z-index: 10;
-    }
+      .tsix-resize-handle {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        z-index: 10;
+      }
 
-    .tsix-resize-handle.nw {
-      top: -1px;
-      left: -1px;
-      cursor: nw-resize;
-    }
+      .tsix-resize-handle.nw {
+        top: -1px;
+        left: -1px;
+        cursor: nw-resize;
+      }
 
-    .tsix-resize-handle.ne {
-      top: -1px;
-      right: -1px;
-      cursor: ne-resize;
-    }
+      .tsix-resize-handle.ne {
+        top: -1px;
+        right: -1px;
+        cursor: ne-resize;
+      }
 
-    .tsix-resize-handle.sw {
-      bottom: -1px;
-      left: -1px;
-      cursor: sw-resize;
-    }
+      .tsix-resize-handle.sw {
+        bottom: -1px;
+        left: -1px;
+        cursor: sw-resize;
+      }
 
-    .tsix-resize-handle.se {
-      bottom: -1px;
-      right: -1px;
-      cursor: se-resize;
-    }
+      .tsix-resize-handle.se {
+        bottom: -1px;
+        right: -1px;
+        cursor: se-resize;
+      }
 
-    .tsix-resize-handle.n {
-      top: -4px;
-      left: 12px;
-      right: 12px;
-      width: auto;
-      height: 8px;
-      cursor: n-resize;
-    }
+      .tsix-resize-handle.n {
+        top: -4px;
+        left: 12px;
+        right: 12px;
+        width: auto;
+        height: 8px;
+        cursor: n-resize;
+      }
 
-    .tsix-resize-handle.s {
-      bottom: -4px;
-      left: 12px;
-      right: 12px;
-      width: auto;
-      height: 8px;
-      cursor: s-resize;
-    }
+      .tsix-resize-handle.s {
+        bottom: -4px;
+        left: 12px;
+        right: 12px;
+        width: auto;
+        height: 8px;
+        cursor: s-resize;
+      }
 
-    .tsix-resize-handle.e {
-      right: -4px;
-      top: 12px;
-      bottom: 12px;
-      width: 8px;
-      height: auto;
-      cursor: e-resize;
-    }
+      .tsix-resize-handle.e {
+        right: -4px;
+        top: 12px;
+        bottom: 12px;
+        width: 8px;
+        height: auto;
+        cursor: e-resize;
+      }
 
-    .tsix-resize-handle.w {
-      left: -4px;
-      top: 12px;
-      bottom: 12px;
-      width: 8px;
-      height: auto;
-      cursor: w-resize;
-    }
+      .tsix-resize-handle.w {
+        left: -4px;
+        top: 12px;
+        bottom: 12px;
+        width: 8px;
+        height: auto;
+        cursor: w-resize;
+      }
 
-    .tsix-window.focused {
-      border-color: var(--accent);
-      box-shadow: 0 8px 32px rgba(76, 175, 80, 0.15);
-    }
+      .tsix-window.focused {
+        border-color: var(--accent);
+        box-shadow: 0 8px 32px rgba(76, 175, 80, 0.15);
+      }
 
-    .tsix-window.frameless {
-      border: none;
-      border-radius: 0;
-      box-shadow: none;
-    }
+      .tsix-window.frameless {
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+      }
 
-    .tsix-window.frameless .tsix-content {
-      padding: 0;
-    }
+      .tsix-window.frameless .tsix-content {
+        padding: 0;
+      }
 
-    /* ===== Emerald Widgets: Badge & Taskbar Button ===== */
-    @keyframes tsix-pulse {
+      /* ===== Emerald Widgets: Badge & Taskbar Button ===== */
+      @keyframes tsix-pulse {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
 
-      0%,
-      100% {
+        50% {
+          opacity: 0.4;
+          transform: scale(0.7);
+        }
+      }
+
+      .tsix-badge {
+        margin-left: 4px;
+        flex-shrink: 0;
+      }
+
+      .tsix-badge-pulse {
+        animation: tsix-pulse 1.4s ease-in-out infinite;
+      }
+
+      .tsix-taskbar-btn:hover {
+        background: rgba(76, 175, 80, 0.08) !important;
+      }
+
+      .tsix-taskbar-btn.active {
+        background: rgba(76, 175, 80, 0.15) !important;
+        color: #4caf50 !important;
+        border-bottom-color: #4caf50 !important;
+      }
+
+      /* ===== TSIX Tooltip ===== */
+      #__tsix_tooltip__ {
+        position: fixed;
+        background: rgba(22, 33, 62, 0.95);
+        color: #e0e0e0;
+        border: 1px solid rgba(76, 175, 80, 0.3);
+        border-radius: 6px;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 9999999999;
+        opacity: 0;
+        transition: opacity 0.15s;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      }
+
+      #__tsix_tooltip__.visible {
         opacity: 1;
-        transform: scale(1);
       }
 
-      50% {
-        opacity: 0.4;
-        transform: scale(0.7);
+      /* ======================================================= */
+
+      .tsix-titlebar {
+        background: var(--titlebar);
+        padding: 8px 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: move;
+        user-select: none;
+        font-size: 13px;
+        font-weight: 600;
+        border-bottom: 1px solid var(--border);
       }
-    }
 
-    .tsix-badge {
-      margin-left: 4px;
-      flex-shrink: 0;
-    }
+      .tsix-titlebar-icon {
+        margin-right: 8px;
+        font-size: 14px;
+        line-height: 1;
+        flex-shrink: 0;
+      }
 
-    .tsix-badge-pulse {
-      animation: tsix-pulse 1.4s ease-in-out infinite;
-    }
+      .tsix-titlebar .close-btn {
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        cursor: pointer;
+        font-size: 16px;
+        padding: 0 4px;
+        border-radius: 4px;
+        line-height: 1;
+      }
 
-    .tsix-taskbar-btn:hover {
-      background: rgba(76, 175, 80, 0.08) !important;
-    }
+      .tsix-titlebar .close-btn:hover {
+        background: var(--danger);
+        color: white;
+      }
 
-    .tsix-taskbar-btn.active {
-      background: rgba(76, 175, 80, 0.15) !important;
-      color: #4caf50 !important;
-      border-bottom-color: #4caf50 !important;
-    }
+      /* Minimize & Restore buttons */
+      .tsix-titlebar .min-btn,
+      .tsix-titlebar .restore-btn {
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        cursor: pointer;
+        font-size: 13px;
+        padding: 0 5px;
+        border-radius: 3px;
+        line-height: 1;
+      }
 
-    /* ===== TSIX Tooltip ===== */
-    #__tsix_tooltip__ {
-      position: fixed;
-      background: rgba(22, 33, 62, 0.95);
-      color: #e0e0e0;
-      border: 1px solid rgba(76, 175, 80, 0.3);
-      border-radius: 6px;
-      padding: 4px 10px;
-      font-size: 11px;
-      font-family: "Segoe UI", system-ui, sans-serif;
-      white-space: nowrap;
-      pointer-events: none;
-      z-index: 9999999999;
-      opacity: 0;
-      transition: opacity 0.15s;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-    }
+      /* Maximize & Unmaximize — brighter to indicate active state */
+      .tsix-titlebar .max-btn,
+      .tsix-titlebar .unmax-btn {
+        background: none;
+        border: none;
+        color: var(--text);
+        cursor: pointer;
+        font-size: 13px;
+        padding: 0 5px;
+        border-radius: 3px;
+        line-height: 1;
+      }
 
-    #__tsix_tooltip__.visible {
-      opacity: 1;
-    }
+      .tsix-titlebar .min-btn:hover,
+      .tsix-titlebar .restore-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--text);
+      }
 
-    /* ======================================================= */
+      .tsix-titlebar .max-btn:hover,
+      .tsix-titlebar .unmax-btn:hover {
+        background: rgba(76, 175, 80, 0.15);
+        color: var(--accent);
+      }
 
-    .tsix-titlebar {
-      background: var(--titlebar);
-      padding: 8px 12px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      cursor: move;
-      user-select: none;
-      font-size: 13px;
-      font-weight: 600;
-      border-bottom: 1px solid var(--border);
-    }
+      .tsix-content {
+        flex: 1;
+        padding: 2px;
+        overflow: auto;
+      }
 
-    .tsix-titlebar-icon {
-      margin-right: 8px;
-      font-size: 14px;
-      line-height: 1;
-      flex-shrink: 0;
-    }
+      /* Built-in widget styles */
+      .tsix-content button {
+        background: var(--accent);
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+      }
 
-    .tsix-titlebar .close-btn {
-      background: none;
-      border: none;
-      color: var(--text-dim);
-      cursor: pointer;
-      font-size: 16px;
-      padding: 0 4px;
-      border-radius: 4px;
-      line-height: 1;
-    }
+      .tsix-content button:hover {
+        opacity: 0.9;
+      }
 
-    .tsix-titlebar .close-btn:hover {
-      background: var(--danger);
-      color: white;
-    }
+      .tsix-content button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
 
-    /* Minimize & Restore buttons */
-    .tsix-titlebar .min-btn,
-    .tsix-titlebar .restore-btn {
-      background: none;
-      border: none;
-      color: var(--text-dim);
-      cursor: pointer;
-      font-size: 13px;
-      padding: 0 5px;
-      border-radius: 3px;
-      line-height: 1;
-    }
+      .tsix-content input,
+      .tsix-content textarea {
+        background: var(--surface2);
+        color: var(--text);
+        border: 1px solid var(--border);
+        padding: 8px;
+        border-radius: 4px;
+        font-size: 14px;
+        width: 100%;
+      }
 
-    /* Maximize & Unmaximize — brighter to indicate active state */
-    .tsix-titlebar .max-btn,
-    .tsix-titlebar .unmax-btn {
-      background: none;
-      border: none;
-      color: var(--text);
-      cursor: pointer;
-      font-size: 13px;
-      padding: 0 5px;
-      border-radius: 3px;
-      line-height: 1;
-    }
+      .tsix-content input:focus,
+      .tsix-content textarea:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
 
-    .tsix-titlebar .min-btn:hover,
-    .tsix-titlebar .restore-btn:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: var(--text);
-    }
+      .xterm-viewport::-webkit-scrollbar {
+        width: 6px;
+      }
 
-    .tsix-titlebar .max-btn:hover,
-    .tsix-titlebar .unmax-btn:hover {
-      background: rgba(76, 175, 80, 0.15);
-      color: var(--accent);
-    }
+      .xterm-viewport::-webkit-scrollbar-thumb {
+        background: #333;
+      }
 
-    .tsix-content {
-      flex: 1;
-      padding: 2px;
-      overflow: auto;
-    }
+      /* CodeMirror full-height fix */
+      .CodeMirror {
+        height: 100% !important;
+      }
 
-    /* Built-in widget styles */
-    .tsix-content button {
-      background: var(--accent);
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-    }
+      /* CodeMirror — font JetBrains Mono (editor Eucalyptus)
+         !important diperlukan: rule ini di <style> atas, sedangkan
+         codemirror.min.css (juga set .CodeMirror font-family) di-load
+         SETELAH-nya → tanpa !important, monospace default menang. */
+      .CodeMirror {
+        font-family:
+          "JetBrains Mono", "Fira Code", "SF Mono", "Menlo", "Consolas",
+          monospace !important;
+        font-size: 13px !important;
+      }
 
-    .tsix-content button:hover {
-      opacity: 0.9;
-    }
+      .CodeMirror-scroll {
+        overflow: auto !important;
+      }
+    </style>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"
+    />
+    <!-- JetBrains Mono — font editor CodeMirror (Eucalyptus) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/solarized.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.css"
+    />
+    <!-- Tabulator v6 — data grid (theme midnight, cocok dark theme TSIX) -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css"
+    />
+    <!-- Pixel font (Press Start 2P) — untuk teks canvas ala game retro -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  </head>
 
-    .tsix-content button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+  <body>
+    <div id="desktop"></div>
+    <div id="__tsix_overlay_layer__"></div>
 
-    .tsix-content input,
-    .tsix-content textarea {
-      background: var(--surface2);
-      color: var(--text);
-      border: 1px solid var(--border);
-      padding: 8px;
-      border-radius: 4px;
-      font-size: 14px;
-      width: 100%;
-    }
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/search.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/searchcursor.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.js"></script>
+    <!-- CodeMirror enrichment (Eucalyptus): comment toggle, folding, brackets, active line -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/comment/comment.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/brace-fold.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/indent-fold.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/comment-fold.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/match-highlighter.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+    <!-- Tabulator v6 — data grid (browser-side widget, dipakai ConnectedTabulator) -->
+    <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
+    <!-- Lightweight Charts loaded above in <head> -->
 
-    .tsix-content input:focus,
-    .tsix-content textarea:focus {
-      outline: none;
-      border-color: var(--accent);
-    }
-
-    .xterm-viewport::-webkit-scrollbar {
-      width: 6px;
-    }
-
-    .xterm-viewport::-webkit-scrollbar-thumb {
-      background: #333;
-    }
-
-    /* CodeMirror full-height fix */
-    .CodeMirror {
-      height: 100% !important;
-    }
-
-    .CodeMirror-scroll {
-      overflow: auto !important;
-    }
-  </style>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/solarized.min.css" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.css" />
-  <!-- Tabulator v6 — data grid (theme midnight, cocok dark theme TSIX) -->
-  <link rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css" />
-  <!-- Pixel font (Press Start 2P) — untuk teks canvas ala game retro -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
-  <script
-    src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.2.0/dist/lightweight-charts.standalone.production.js"></script>
-</head>
-
-<body>
-  <div id="desktop"></div>
-  <div id="__tsix_overlay_layer__"></div>
-
-  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/search.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/searchcursor.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.js"></script>
-  <!-- Tabulator v6 — data grid (browser-side widget, dipakai ConnectedTabulator) -->
-  <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
-  <!-- Lightweight Charts loaded above in <head> -->
-
-  <!-- ============================================================
+    <!-- ============================================================
          DOME Client — modul JS terpisah (dome-client-*.js).
          Di-load berurutan: core dulu (definisikan window.TSIX),
          lalu modul fungsi per-modul. File disajikan oleh DOME server
          dari /opt/dome/ via rute /dome/*.js.
          ============================================================ -->
-  <script src="/dome/dome-client-core.js"></script>
-  <script src="/dome/dome-client-term.js"></script>
-  <script src="/dome/dome-client-codemirror.js"></script>
-  <script src="/dome/dome-client-chart.js"></script>
-  <script src="/dome/dome-client-tabulator.js"></script>
-  <script src="/dome/framebuffer.js"></script>
-  <script src="/dome/dome-client-ddc.js"></script>
-  <script src="/dome/dome-client-res.js"></script>
-  <script src="/dome/dome-client-dom.js"></script>
-  <script src="/dome/dome-client-windows.js"></script>
-  <script src="/dome/dome-client-ui.js"></script>
-</body>
-
+    <script src="/dome/dome-client-core.js"></script>
+    <script src="/dome/dome-client-term.js"></script>
+    <script src="/dome/dome-client-codemirror.js"></script>
+    <script src="/dome/dome-client-chart.js"></script>
+    <script src="/dome/dome-client-tabulator.js"></script>
+    <script src="/dome/framebuffer.js"></script>
+    <script src="/dome/dome-client-ddc.js"></script>
+    <script src="/dome/dome-client-res.js"></script>
+    <script src="/dome/dome-client-dom.js"></script>
+    <script src="/dome/dome-client-windows.js"></script>
+    <script src="/dome/dome-client-ui.js"></script>
+  </body>
 </html>

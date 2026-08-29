@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-08-30
+
+### Font JetBrains Mono + enrichment CodeMirror (folding, comment toggle, brackets)
+
+- **File:** `src/mirror/opt/dome/dome-client.html`, `src/mirror/opt/dome/dome-client-dom.js`
+- **Perubahan:**
+  - **Font editor = JetBrains Mono** — webfont Google Fonts + CSS `.CodeMirror` (`!important` karena rule di `<style>` atas kalah cascade oleh `codemirror.min.css` yang di-load setelahnya).
+  - **Comment toggle** — `Ctrl+/` & `Cmd+/`. Catatan: addon `comment.js` **tidak me-register shortcut sendiri** (source berakhir di definisi `uncomment`, tanpa baris keymap) → binding dibuat eksplisit di `extraKeys`.
+  - **Code folding** — gutter ikon lipat (klik ▸/▾), `Ctrl+Q` toggle scope, `Ctrl+Shift+[` / `Ctrl+Shift+]` fold/unfold semua. Helper: brace-fold (fungsi/blok JS), comment-fold, indent-fold.
+  - **Match brackets** — pasangan kurung tersorot saat cursor di dekatnya (`matchBrackets`).
+  - **Auto-close brackets** — `( ) [ ] { } " ' \`` auto tertutup (`autoCloseBrackets`).
+  - **Highlight selection matches** — kata yang sama dengan seleksi ikut tersorot (`match-highlighter`).
+  - **Active line** — garis aktif disorot (`active-line`).
+- **Dampak:** Editor Eucalyptus lebih nyaman & lengkap (ala editor modern). Addon di-load dari CDN cdnjs (perlu internet di klien).
+- **Deploy:** `npm run vfs:bootstrap` → restart daemon DOME (atau reboot TSIX) → hard-refresh browser (Cmd+Shift+R).
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-08
 
 ### Fix race condition — indikator modified (●) langsung muncul saat buka file (macOS)
