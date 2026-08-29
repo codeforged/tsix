@@ -242,10 +242,10 @@ async function readList(path: string): Promise<string[]> {
 async function writeList(path: string, entries: string[]): Promise<void> {
   try {
     await fs.mkdir(TRUST_DIR);
-  } catch (_) { }
+  } catch (_) {}
   try {
     await fs.writeFile(path, entries.join("\n") + "\n");
-  } catch (_) { }
+  } catch (_) {}
 }
 
 /** Tambah satu entri ke list (jika belum ada). */
@@ -593,7 +593,9 @@ async function tryLogin(
     } finally {
       try {
         await fs.unlink(verifyOut);
-      } catch (_) { /* file mungkin belum sempat dibuat */ }
+      } catch (_) {
+        /* file mungkin belum sempat dibuat */
+      }
     }
     if (!authOk) {
       await win.updateProps(errEl, {
@@ -1194,7 +1196,7 @@ async function showWallpaperDialog(win: Window) {
       setTimeout(async () => {
         try {
           await win.unmount(overlayId);
-        } catch (_) { }
+        } catch (_) {}
       }, 600);
     } catch (e: any) {
       await win.updateProps(statusId, { text: "❌ " + (e.message || "Gagal") });
@@ -1209,7 +1211,7 @@ async function showWallpaperDialog(win: Window) {
     try {
       const home = await fs.ls("/root");
       currentDir = "/root";
-    } catch (_2) { }
+    } catch (_2) {}
   }
 
   await refreshFileList();
@@ -1433,7 +1435,7 @@ export const main = Program(async (args: string[]) => {
     const overlayId = "__notif_overlay__";
     try {
       await win.unmount(overlayId);
-    } catch (_) { }
+    } catch (_) {}
     // Hanya tampilkan notif yang BELUM dibaca
     const items = notifHistory
       .filter((n) => !n.read)
@@ -1486,13 +1488,27 @@ export const main = Program(async (args: string[]) => {
             ),
             n.message.length > 120
               ? div(
-                {
-                  id: `__nmsg_${i}`,
-                  onClickId: `__nmsg_${i}`,
-                  style: { cursor: "pointer" },
-                },
-                paragraph({
-                  text: n.message.substring(0, 120) + " ...",
+                  {
+                    id: `__nmsg_${i}`,
+                    onClickId: `__nmsg_${i}`,
+                    style: { cursor: "pointer" },
+                  },
+                  paragraph({
+                    text: n.message.substring(0, 120) + " ...",
+                    style: {
+                      color: "#ccc",
+                      fontSize: "11px",
+                      margin: "0",
+                      lineHeight: "1.3",
+                    },
+                  }),
+                  span({
+                    text: "🔍 Tap to read more",
+                    style: { color: "#4caf50", fontSize: "9px" },
+                  }),
+                )
+              : paragraph({
+                  text: n.message,
                   style: {
                     color: "#ccc",
                     fontSize: "11px",
@@ -1500,38 +1516,24 @@ export const main = Program(async (args: string[]) => {
                     lineHeight: "1.3",
                   },
                 }),
-                span({
-                  text: "🔍 Tap to read more",
-                  style: { color: "#4caf50", fontSize: "9px" },
-                }),
-              )
-              : paragraph({
-                text: n.message,
-                style: {
-                  color: "#ccc",
-                  fontSize: "11px",
-                  margin: "0",
-                  lineHeight: "1.3",
-                },
-              }),
           ),
           !n.read
             ? button({
-              id: readBtnId,
-              text: "✓",
-              style: {
-                background: "rgba(76,175,80,0.2)",
-                color: "#4caf50",
-                border: "1px solid #4caf50",
-                borderRadius: "50%",
-                width: "26px",
-                height: "26px",
-                cursor: "pointer",
-                fontSize: "13px",
-                fontWeight: "700",
-                flexShrink: 0,
-              },
-            })
+                id: readBtnId,
+                text: "✓",
+                style: {
+                  background: "rgba(76,175,80,0.2)",
+                  color: "#4caf50",
+                  border: "1px solid #4caf50",
+                  borderRadius: "50%",
+                  width: "26px",
+                  height: "26px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontWeight: "700",
+                  flexShrink: 0,
+                },
+              })
             : span({}),
         ),
       );
@@ -1547,17 +1549,17 @@ export const main = Program(async (args: string[]) => {
           await win.updateProps(`__nh_${i}`, {
             style: { opacity: "0.5" },
           } as any);
-        } catch (_) { }
+        } catch (_) {}
         try {
           await win.updateProps(readBtnId, {
             style: { display: "none" },
           } as any);
-        } catch (_) { }
+        } catch (_) {}
         // Auto-close overlay kalau semua notif sudah dibaca
         if (unreadCount === 0) {
           try {
             await win.unmount(overlayId);
-          } catch (_) { }
+          } catch (_) {}
         }
       });
 
@@ -1574,12 +1576,12 @@ export const main = Program(async (args: string[]) => {
             await win.updateProps(`__nh_${i}`, {
               style: { opacity: "0.5" },
             } as any);
-          } catch (_) { }
+          } catch (_) {}
           try {
             await win.updateProps(readBtnId, {
               style: { display: "none" },
             } as any);
-          } catch (_) { }
+          } catch (_) {}
           await showAlertDialog(win, n.title, n.message);
         });
       }
@@ -1587,7 +1589,7 @@ export const main = Program(async (args: string[]) => {
 
     try {
       await win.unmount(overlayId);
-    } catch (_) { }
+    } catch (_) {}
     await win.mount(
       div(
         {
@@ -1615,45 +1617,45 @@ export const main = Program(async (args: string[]) => {
           ...rows,
           rows.length === 0
             ? div(
-              {
-                style: {
-                  padding: "20px",
-                  textAlign: "center",
-                  color: "#888",
-                  fontSize: "12px",
+                {
+                  style: {
+                    padding: "20px",
+                    textAlign: "center",
+                    color: "#888",
+                    fontSize: "12px",
+                  },
                 },
-              },
-              span({ text: "No notifications" }),
-            )
+                span({ text: "No notifications" }),
+              )
             : div({}),
         ),
         // Footer — Mark All Read button (hanya tampil kalau ada unread)
         rows.length > 0
           ? div(
-            {
-              style: {
-                padding: "10px 12px",
-                borderTop: "1px solid rgba(255,255,255,0.08)",
-                display: "flex",
-                justifyContent: "center",
-                flexShrink: 0,
+              {
+                style: {
+                  padding: "10px 12px",
+                  borderTop: "1px solid rgba(255,255,255,0.08)",
+                  display: "flex",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                },
               },
-            },
-            button({
-              id: "__notif_mark_all__",
-              text: "✅ Mark All as Read",
-              style: {
-                background: "rgba(76,175,80,0.2)",
-                color: "#4caf50",
-                border: "1px solid #4caf50",
-                borderRadius: "8px",
-                padding: "6px 20px",
-                cursor: "pointer",
-                fontSize: "12px",
-                fontWeight: "600",
-              },
-            }),
-          )
+              button({
+                id: "__notif_mark_all__",
+                text: "✅ Mark All as Read",
+                style: {
+                  background: "rgba(76,175,80,0.2)",
+                  color: "#4caf50",
+                  border: "1px solid #4caf50",
+                  borderRadius: "8px",
+                  padding: "6px 20px",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                },
+              }),
+            )
           : div({}),
       ),
       "launcher-overlay",
@@ -1670,7 +1672,7 @@ export const main = Program(async (args: string[]) => {
       await updateBadge();
       try {
         await win.unmount(overlayId);
-      } catch (_) { }
+      } catch (_) {}
     });
 
     await win.flush();
@@ -1702,7 +1704,7 @@ export const main = Program(async (args: string[]) => {
         await win.updateProps(n.id, {
           style: { zIndex: String(9999999 - i) },
         } as any);
-      } catch (_) { }
+      } catch (_) {}
     }
   }
 
@@ -1724,7 +1726,7 @@ export const main = Program(async (args: string[]) => {
       try {
         logContent =
           (await fs.readFile("/opt/asteracea/desktop-notif.log")) || "";
-      } catch (_) { }
+      } catch (_) {}
       const lines = logContent.split("\n").filter((l) => l.trim());
       lines.push(logLine.trim());
       while (lines.length > notifMaxLog) lines.shift();
@@ -1732,7 +1734,7 @@ export const main = Program(async (args: string[]) => {
         "/opt/asteracea/desktop-notif.log",
         lines.join("\n") + "\n",
       );
-    } catch (_) { }
+    } catch (_) {}
 
     try {
       await win.mount(
@@ -1799,7 +1801,7 @@ export const main = Program(async (args: string[]) => {
       await win.updateProps(nid, {
         style: { opacity: "", transform: "" },
       } as any);
-    } catch (_) { }
+    } catch (_) {}
 
     // Timer auto-dismiss
     const timer = setTimeout(async () => {
@@ -1808,10 +1810,10 @@ export const main = Program(async (args: string[]) => {
           style: { opacity: "0", transform: slideDir },
         } as any);
         await new Promise((r) => setTimeout(r, 280));
-      } catch (_) { }
+      } catch (_) {}
       try {
         await win.unmount(nid);
-      } catch (_) { }
+      } catch (_) {}
       const i = activeNotifs.findIndex((x) => x.id === nid);
       if (i >= 0) {
         activeNotifs.splice(i, 1);
@@ -2024,8 +2026,8 @@ export const main = Program(async (args: string[]) => {
               ...S.clock,
               marginLeft:
                 notifPosition === "nw" ||
-                  notifPosition === "sw" ||
-                  notifPosition === "w"
+                notifPosition === "sw" ||
+                notifPosition === "w"
                   ? "auto"
                   : "initial",
             },
@@ -2210,7 +2212,7 @@ export const main = Program(async (args: string[]) => {
     }
     try {
       await win.unmount("__notif_overlay__");
-    } catch (_) { }
+    } catch (_) {}
   });
 
   // Launcher search
@@ -2259,8 +2261,10 @@ export const main = Program(async (args: string[]) => {
       // Pastikan desktop tampil lagi walau logout gagal di tengah jalan
       try {
         await win.updateProps("wm-root", { style: { display: "block" } });
-        await win.updateProps("taskbar-wrapper", { style: { display: "flex" } });
-      } catch (_) { }
+        await win.updateProps("taskbar-wrapper", {
+          style: { display: "flex" },
+        });
+      } catch (_) {}
     }
   });
 
@@ -2324,11 +2328,11 @@ export const main = Program(async (args: string[]) => {
           const ans = await win.confirm(
             "🛡️ Allow Native JS (DDC)?",
             `App "${appName}" wants to run Native JavaScript (NJ) in the browser.\n\n` +
-            `NJ runs with full page DOM access, so it could affect other windows.\n\n` +
-            `Allow this app to use DDC?\n` +
-            `  • Yes → allow & remember\n` +
-            `  • No → block & remember\n` +
-            `  • Cancel → allow once (not remembered)`,
+              `NJ runs with full page DOM access, so it could affect other windows.\n\n` +
+              `Allow this app to use DDC?\n` +
+              `  • Yes → allow & remember\n` +
+              `  • No → block & remember\n` +
+              `  • Cancel → allow once (not remembered)`,
             ["✅ Yes", "🚫 No", "Cancel"],
           );
           if (ans === "✅ Yes") {
@@ -2350,7 +2354,7 @@ export const main = Program(async (args: string[]) => {
             appName,
             allowed,
           });
-        } catch (_) { }
+        } catch (_) {}
         return;
       }
 
@@ -2365,7 +2369,7 @@ export const main = Program(async (args: string[]) => {
           const pos = JSON.parse(payload.value || "{}");
           cx = pos.x || cx;
           cy = pos.y || cy;
-        } catch (_) { }
+        } catch (_) {}
         void showDesktopContextMenu(win, cx, cy, bus, appState, pendingErrors);
         return;
       }
@@ -2536,7 +2540,7 @@ export const main = Program(async (args: string[]) => {
     for (const [, inst] of appState.getAllRunning()) {
       try {
         if (inst.pid) await shell.kill(inst.pid, 15); // SIGTERM
-      } catch (_) { }
+      } catch (_) {}
     }
 
     // Tunggu 3 detik
@@ -2546,7 +2550,7 @@ export const main = Program(async (args: string[]) => {
     for (const [, inst] of appState.getAllRunning()) {
       try {
         if (inst.pid) await shell.kill(inst.pid, 9); // SIGKILL
-      } catch (_) { }
+      } catch (_) {}
     }
   }
 
@@ -2561,7 +2565,7 @@ export const main = Program(async (args: string[]) => {
     }
     try {
       await win.close();
-    } catch (_) { }
+    } catch (_) {}
   });
 
   // ================================================================
@@ -2605,7 +2609,7 @@ async function showDesktopContextMenu(
   // Hapus menu lama — pakai fixed ID + unmount rekursif
   try {
     await win.unmount("__ctx_menu");
-  } catch (_) { }
+  } catch (_) {}
 
   const mid = "__ctx_menu";
   _ctxMenuId = mid;
@@ -2619,7 +2623,7 @@ async function showDesktopContextMenu(
   try {
     const allApps = await loadMenuFromFiles();
     dcmApps = allApps.filter((a) => a.dcmLauncher);
-  } catch (_) { }
+  } catch (_) {}
 
   // Bangun menu items dinamis
   const menuItems: any[] = [];
@@ -2780,7 +2784,7 @@ async function refreshMenus(
   // Clear pinned launchers
   try {
     await win.setContent("tb-pinned");
-  } catch (_) { }
+  } catch (_) {}
   // Reload
   const apps = await loadMenuFromFiles();
   for (const app of apps.filter((a) => a.pinnedLauncher)) {
@@ -3014,7 +3018,11 @@ async function openApp(
       `[asteracea] Failed to launch ${app.label} (${app.command}): ${errMsg}`,
       "asteracea",
     );
-    void showError(win, app.label, `Failed to run the application.\n\n${errMsg}`);
+    void showError(
+      win,
+      app.label,
+      `Failed to run the application.\n\n${errMsg}`,
+    );
     return;
   }
   if (!proc || !proc.pid) {
@@ -3061,14 +3069,14 @@ async function openApp(
           animation: "tsix-pulse 1.4s ease-in-out infinite",
         },
       });
-    } catch (_) { }
+    } catch (_) {}
     // Update pinned button style jadi active
     if (isPinned) {
       try {
         await win.updateProps(`pl-${app.id}`, {
           style: { ...S.tbBtn, ...S.tbBtnActive },
         } as any);
-      } catch (_) { }
+      } catch (_) {}
     }
   }
 
@@ -3128,14 +3136,14 @@ async function openApp(
           await win.updateProps(`pl-${app.id}-badge`, {
             style: { display: "none" },
           } as any);
-        } catch (_) { }
+        } catch (_) {}
         try {
           await win.updateProps(`pl-${app.id}`, { style: S.tbBtn } as any);
-        } catch (_) { }
+        } catch (_) {}
       } else {
         try {
           await win.unmount(inst.taskbarId);
-        } catch (_) { }
+        } catch (_) {}
       }
     }
   })();
@@ -3250,12 +3258,12 @@ async function registerForeignApp(
   (async () => {
     try {
       await shell.waitpid(pid);
-    } catch (_) { }
+    } catch (_) {}
     if (appState.getByAppId(appId)) {
       appState.removeByAppId(appId);
       try {
         await win.unmount(btnId);
-      } catch (_) { }
+      } catch (_) {}
     }
   })();
 

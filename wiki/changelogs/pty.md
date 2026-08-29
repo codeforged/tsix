@@ -7,6 +7,7 @@
 ## 2026-08-29
 
 ### Fix: Ctrl+C tidak berfungsi di PTY (pixelterm/tsshd/airtermd) — wiring onInterrupt slave → SIGINT
+
 - **File:** `src/kernel/Syscalls.ts`, `src/kernel/Syscalls.test.ts`
 - **Gejala:** Di pixelterm, Ctrl+C tidak memberi respon — proses foreground (mis. `ping`, program lain) tidak berhenti semenjak migrasi ke PTY. Console TTY (tty1..) aman.
 - **Akar masalah:** Jalur Ctrl+C di console TTY: `shell.write(pid, "\x03")` → `TTYDevice.ioctl(0x2001)` → `tty.pushInput()` → `tty.onInterrupt()` (sudah di-wire `TTYManager` → kernel kirim SIGINT ke foreground process). Di PTY: `shell.write(pid, "\x03")` → `PTYSlaveDevice.injectInput("\x03")` mengecek `this.onInterrupt` — tetapi **tidak pernah di-set** (satu-satunya setter, master ioctl `0x3001` `SET_SLAVE_INTERRUPT`, tidak dipanggil daemon mana pun). Akibatnya `\x03` dibuang diam-diam → tidak ada SIGINT → program "cuek".
@@ -19,6 +20,7 @@
 ## 2026-08-28
 
 ### PTY on-demand — daemon remote & pixelterm tidak lagi pakai slot TTY konsol
+
 - **File:** `src/kernel/PTYManager.ts` (baru), `src/kernel/devices/PTYDevice.ts` (baru, master `/dev/ptmx`), `src/kernel/devices/PTYSlaveDevice.ts` (baru, slave `/dev/pts/N`), `src/common/SyscallCode.ts`, `src/kernel/Syscalls.ts`, `src/kernel/Kernel.ts`, `src/mirror/lib/UserLib.ts`, `src/mirror/opt/tssh/tsshd.ts`, `src/mirror/sbin/airtermd.ts`, `src/mirror/opt/pixelterm/pixelterm.ts`, `wiki/PTY-Pseudo-Terminal.md` (baru), `src/kernel/PTYManager.test.ts` (baru)
 - **Masalah:** Sebelumnya daemon terminal remote (`tsshd`, `airtermd`) dan terminal emulator (`pixelterm`) memakai **slot konsol virtual** (`tty3..6`) yang: (1) pre-alokasi di boot → boros RAM (buffer layar penuh meski tidak dipakai), (2) terbatas — jumlah slot = `ttyCount - loginCount`; kalau penuh sesi baru gagal.
 - **Perubahan:** Sub-sistem **PTY on-demand** ala Linux:
@@ -33,6 +35,7 @@
 - **Oleh:** Copilot · **Laporan/konsep:** kakang
 
 ### Fix double-echo di pixelterm — kontrak ioctl cmd 10 = SET_RAW_MODE
+
 - **File:** `src/kernel/devices/PTYSlaveDevice.ts`, `src/kernel/devices/PTYDevice.ts`
 - **Gejala:** Di pixelterm, prompt + ketikan tampil dobel (`ls` → `ls` ganda); tty1-3 aman.
 - **Akar masalah:** `PTYSlaveDevice.ioctl` salah — cmd `10` dikira `INC_READ_REF`, padahal **kontrak `TTYDevice` `cmd 10 = SET_RAW_MODE`** (dipakai `lib.std.setRawMode()`). Akibat `setRawMode(true)` tidak jalan → `injectInput` selalu cooked → echo kernel + echo `tsh` (redraw manual) = **double**.

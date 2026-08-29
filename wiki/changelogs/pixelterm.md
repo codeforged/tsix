@@ -7,6 +7,7 @@
 ## 2026-08-29
 
 ### Fix: Ctrl+C mencetak "^C" dobel (ping/sleep) — pixelterm ikut menulis ^C
+
 - **File:** `src/mirror/opt/pixelterm/pixelterm.ts`
 - **Gejala:** Saat Ctrl+C pada program yang handle SIGINT (mis. `ping`, `sleep`), karakter `^C` tampil **2x** (baris kosong di antaranya).
 - **Akar masalah:** Dua pihak mencetak `^C`: `pixelterm` menulis `termWrite("^C\r\n")` (echo manual ke xterm), DAN app mencetaknya sendiri di handler SIGINT (`ping.ts` → `"\n^C\n"`, `sleep.ts` → `"\n^C\nInterrupted!"`, `tsh.ts` → `"^C\n"`). Console TTY tidak pernah echo `\x03` — konvensi TSIX: **app yang mencetak `^C`**, bukan terminal.
@@ -18,6 +19,7 @@
 ## 2026-08-28
 
 ### Migrasi ke PTY on-demand — tidak lagi scavenge slot TTY konsol
+
 - **File:** `src/mirror/opt/pixelterm/pixelterm.ts`, `src/kernel/PTYManager.ts`, `src/mirror/lib/UserLib.ts`
 - **Masalah:** Pixelterm memakai slot TTY konsol (scan `ttyId` di range daemon) yang terbatas & pre-alokasi; tabrakan antar instance mungkin.
 - **Perubahan:** Setiap instance `lib.pty.alloc(24,80)` → shell di-spawn di slave `pts/N` via `shell.exec(..., ptyId)`. Resize via `/dev/pts/N` (TIOCSWINSZ ioctl 3). PTY di-`free` saat shell exit.
@@ -29,6 +31,7 @@
 ## 2026-08-15
 
 ### Fix resize atto saat pixelterm dijalankan non-root — /dev/ttyN kini world-accessible
+
 - **File:** `src/kernel/devices/TTYDevice.ts`, `src/mirror/opt/pixelterm/pixelterm.ts`
 - **Gejala:** atto tidak mau resize (layar tetap 80x24 / status bar tidak ikut) ketika pixelterm dijalankan **non-root**; kalau root aman.
 - **Akar masalah:** `applyTtySize()` membuka `/dev/ttyN` dengan `"w+"` lalu `ioctl(fd, 3)` (TIOCSWINSZ). Device `/dev/ttyN` default `mode = 0o600` (root-only, dari `device.mode ?? 0o600` di syscall OPEN) → non-root ditolak `Permission Denied`, error ditelan `catch` → TIOCSWINSZ tidak pernah jalan → `tty.height/width` tidak di-update → `getScreenInfo()` atto stale 80x24 & tanpa SIGWINCH; hanya IPC RESIZE fallback yang jalan (heuristik "deepest child" → tidak konsisten).
@@ -43,6 +46,7 @@
 ## 2026-08-05
 
 ### Fix resize multi-instance — status bar atto ikut cursor di SEMUA pixelterm
+
 - **File:** `src/mirror/opt/pixelterm/pixelterm.ts`, `src/mirror/bin/tsh.ts`, `src/mirror/bin/atto.ts`, `src/mirror/opt/dome/dome-client-term.js`
 - **Masalah (iterasi panjang):** Di pixelterm ke-2+, status bar atto tidak mengikuti cursor (harus resize manual dulu di instance pertama). Akar masalah:
   - `getScreenInfo()` atto = ukuran device TTY yang dibuat kernel dengan ukuran **host terminal** (bukan ukuran window pixelterm) → status bar ter-draw di luar layar.
@@ -56,11 +60,13 @@
 - **Oleh:** Copilot
 
 ### Tooltip row:col saat resize terminal
+
 - **File:** `src/mirror/opt/dome/dome-client-term.js`
 - **Perubahan:** Overlay kecil di pojok kanan-bawah xterm (`initResizeTooltip`) menampilkan `R:<rows>  C:<cols>` saat terminal di-resize, auto-hilang setelah 1,5 detik. `pointer-events:none` (tidak mengganggu klik); aman dibangun ulang saat recreate tema (guard `isConnected`).
 - **Oleh:** Copilot
 
 ### Hapus resize grip sendiri milik xterm
+
 - **File:** `src/mirror/opt/dome/dome-client-dom.js`
 - **Perubahan:** Hapus `el.style.resize = "both"` pada node `xterm` di `buildDOM` — titik resize native di pojok kanan-bawah xterm dihilangkan; resize mengikuti window saja (via `ResizeObserver(fit)` di dome-client-term.js).
 - **Oleh:** Copilot
@@ -70,6 +76,7 @@
 ## 2026-07-31
 
 ### Auto-focus terminal setelah launch
+
 - **File:** `src/mirror/bin/pixelterm.ts`, `src/mirror/bin/dome-client.html`, `src/mirror/bin/dome.ts`
 - **Perubahan:**
   - `pixelterm.ts`: Helper `termFocus()` mengirim pesan `TERM_FOCUS` ke DOME setelah shell spawn (+250ms delay biar xterm & window siap).
@@ -83,6 +90,7 @@
 ## 2026-07-30
 
 ### Selection color fix — transparent canvas background
+
 - **File:** `src/mirror/bin/dome-client.html`
 - **Perubahan:**
   - xterm.js canvas renderer ngisi background tiap sel text canvas → bikin opaque → nutup selection layer di belakangnya
@@ -97,6 +105,7 @@
 ## 2026-07-28
 
 ### Alokasi TTY diperluas ke range 7-32
+
 - **File:** `src/mirror/bin/pixelterm.ts`
 - **Perubahan:** Range alokasi TTY isolasi dari `7-12` jadi `7-32`, menyesuaikan kapasitas TTY Manager yang sekarang 32.
 - **Dampak:** Lebih banyak slot TTY tersedia untuk multi-instance pixelterm.
@@ -107,6 +116,7 @@
 ## 2026-07-27
 
 ### Migrasi dari pipe I/O ke isolated TTY
+
 - **File:** `src/mirror/bin/pixelterm.ts`
 - **Perubahan:** Hapus `shell.pipe()` dan pipe-based I/O. Ganti dengan alokasi TTY terisolasi (7-12) + `shell.read(pid)` / `shell.write(pid, data)` via TTY buffer.
 - **Detail:**

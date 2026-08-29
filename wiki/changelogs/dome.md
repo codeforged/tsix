@@ -15,6 +15,7 @@
 - **Oleh:** Copilot
 
 ### Keyboard capture mati setelah klik body window — refokus pola DDC + fallback ke window fokus
+
 - **File:** `src/mirror/opt/dome/dome-client-dom.js`
 - **Masalah:** Komponen `Keyboard`/`TKeyboard` berhenti merespons ("cuek") begitu user mengklik area kosong window. Saat mousedown pada area non-interaktif, browser memindahkan fokus ke `<body>` (yang berada di luar `.tsix-window`), sehingga `kbDocSend()` menolak event berikutnya karena `e.target.closest(".tsix-window")` gagal → keyboard mati sampai fokus dikembalikan manual.
 - **Perubahan:**
@@ -28,6 +29,7 @@
 ## 2026-08-13
 
 ### Tombol launcher (logout/reboot) mati setelah reboot — overlay layer tidak dibersihkan saat auto-reconnect
+
 - **File:** `src/mirror/opt/dome/dome-client-core.js`
 - **Masalah:** Setelah `reboot` (dari mana pun), WM Asteracea restart → DOME restart → WebSocket browser putus → browser auto-reconnect. Handler `onclose` hanya membersihkan `state.windows` (elemen window), TAPI **tidak membersihkan `__tsix_overlay_layer__`** tempat `launcher-overlay` di-ekstrak (rendering di atas semua window). Saat DOME replay state window WM, `buildDOM`/`handleMountNode` membuat `launcher-overlay` BARU → **duplikat** (lama basi + baru) di overlay layer. `findElementById()`/`querySelector()` mengembalikan yang **pertama (basi, terikat wid lama yang sudah mati)** → klik tombol `launcher-logout` / `launcher-reboot` terkirim ke wid mati → tidak merespon. `btn-start` ada di dalam window (dibersihkan & dibangun ulang) → tetap berfungsi. Refresh browser (F5) me-reset seluruh halaman → overlay layer kosong → replay bersih → tombol normal lagi.
 - **Perubahan:** Saat `onclose` (auto-reconnect), selain membersihkan `state.windows`, sekarang juga membersihkan `state.overlayLayer` (`innerHTML = ""`) dan menghapus `#__global_start_menu__` bila ada. Semua elemen itu di-replay ulang oleh DOME saat koneksi baru, jadi aman dibersihkan — mencegah duplikat & memastikan tombol launcher terikat ke window baru.
@@ -37,6 +39,7 @@
 ## 2026-08-06
 
 ### Maximize mengabaikan flag `maximizable` — double-click titlebar & menu taskbar tetap bisa maximize
+
 - **File:** `src/mirror/opt/dome/dome-client-windows.js`, `src/mirror/opt/dome/dome-client-ui.js`, `src/mirror/opt/dome/dome.ts`
 - **Masalah:** Properti `maximizable` hanya dipakai untuk menyembunyikan tombol maximize di titlebar; tidak disimpan sebagai state window dan tidak dicek oleh jalur maximize lain. Window dengan `maximizable: false` (mis. `ps-sample1.ts`) tetap bisa di-maximize lewat **double-click titlebar** dan item **"Maximize"** di context menu taskbar (item tidak disable).
 - **Perubahan:**
@@ -54,6 +57,7 @@
 - **Oleh:** Copilot
 
 ### Maximize saat window minimized — window tetap hidden + rect tersimpan nol (0,0,0,0)
+
 - **File:** `src/mirror/opt/dome/dome-client-windows.js`
 - **Masalah:** Saat aplikasi di-minimize lalu user pilih **"Maximize"** di context menu taskbar (klik kanan):
   - `handleMaximizeWindow()` berjalan tapi window masih `display:none` → `getBoundingClientRect()` mengembalikan `(0,0,0,0)` → `_savedRect`/`_unmaximizeRect` tersimpan nol, dan window tidak pernah ditampilkan → **tidak terlihat apa-apa** ("diam saja").
@@ -65,6 +69,7 @@
 - **Oleh:** Copilot
 
 ### Proteksi navigasi — konfirmasi sebelum refresh/back tidak sengaja
+
 - **File:** `src/mirror/opt/dome/dome-client-core.js`
 - **Masalah:** User sering tidak sengaja refresh (F5 / Ctrl+R / Cmd+R) atau back gesture (macOS trackpad) di browser TDE → seluruh desktop hilang dan harus menunggu reconnect + replay state.
 - **Perubahan:** IIFE `protectNavigation()` di akhir `dome-client-core.js`:
@@ -79,6 +84,7 @@
 ## 2026-08-05
 
 ### Per-app traffic accounting — observer tidak menghitung dirinya sendiri
+
 - **File:** `src/mirror/opt/dome/dome.ts`, `src/mirror/opt/pixelspace-traffic/pixelspace-traffic.ts`
 - **Masalah:** PixelSpace Traffic Monitor (observer) menghitung traffic visualisasi-nya sendiri (chart data + update label) → dengan hanya monitor yang jalan tetap terbaca ±3.3KB/s.
 - **Perubahan:**
@@ -92,6 +98,7 @@
 - **Oleh:** Copilot
 
 ### Modul client DDC (dome-client-ddc.js) + CDN Fabric.js/Three.js
+
 - **File:** `src/mirror/opt/dome/dome-client-ddc.js` (baru), `src/mirror/opt/dome/dome.ts`, `src/mirror/opt/dome/dome-client.html`, `src/mirror/opt/dome/dome-client-dom.js`, `src/mirror/opt/dome/dome-client-windows.js`
 - **Perubahan:**
   - Modul baru `dome-client-ddc.js` — host aplikasi DDC: mount NJ app di Shadow DOM, daftarkan inbound `DDC_MSG`/`DDC_RESIZE`/`DDC_STOP`, expose `TSIX.initDDC(el, wid, props)`.
@@ -107,6 +114,7 @@
 ## 2026-08-04
 
 ### Login asteracea selalu gagal — fix listener DOM (cloneNode menghapus listener)
+
 - **File:** `src/mirror/opt/dome/dome-client-dom.js`
 - **Masalah:** `handleUpdateProps` memakai `cloneNode` untuk "membersihkan listener lama". Jika satu batch `UPDATE_PROPS` membawa >1 listener props untuk elemen yang sama (mis. field password login asteracea mengirim `{ onInputId, onKeydownId }` sekaligus), clone ke-2 menghapus listener ke-1 (cloneNode tidak menyalin listener) → listener `input` mati → ketikan password tidak terkirim → `loginPass` selalu kosong → login ditolak meski password benar. Gejala lama: login "berhasil" karena field di-prefill `"1"` sehingga tidak pernah butuh mengetik.
 - **Perubahan:** Helper baru `ensureListener(el, event, listener)` memasang listener sekali per elemen per event type (dilacak via `el.__tsixL`). Dipakai di `buildDOM()` dan `handleUpdateProps()` untuk `onClickId`, `onContextMenuId`, `onInputId`, `onKeydownId` (menggantikan pola cloneNode).
@@ -114,12 +122,14 @@
 - **Oleh:** Copilot
 
 ### dome-client monolitik dipisah menjadi modul statis
+
 - **File:** `src/mirror/opt/dome/dome-client.html` → modul: `dome-client-core.js`, `dome-client-term.js`, `dome-client-codemirror.js`, `dome-client-chart.js`, `dome-client-dom.js`, `dome-client-windows.js`, `dome-client-ui.js`
 - **Perubahan:** Logika JS inline dipisah per fungsi ke modul statis. `dome.ts` memuat semua modul dari VFS `/opt/dome/*.js` ke `staticAssets` saat startup dan menyajikannya via rute `/dome/*.js`; HTML kini tipis (CSS + tag `<script>`).
 - **Dampak:** Kode client terorganisir per tanggung jawab (core/term/codemirror/chart/dom/windows/ui); debug lebih mudah. Backup monolit lama: `dome-client.html.bak`.
 - **Oleh:** Copilot
 
 ### Boot readiness — penanda `/var/run/dome.ready`
+
 - **File:** `src/mirror/opt/dome/dome.ts`, `src/mirror/etc/rc.local.ts`
 - **Masalah:** Asteracea memanggil `CREATE_WINDOW` sebelum DOME terdaftar sebagai GUI daemon → kernel melempar `"GUI_REQ: DOME engine is not running"` → layar blank dengan background khas dome saat boot.
 - **Perubahan:** DOME menulis `/var/run/dome.ready` (berisi PID) di callback `server.listen`. `rc.local` menghapus penanda, memulai `/opt/dome/dome.js`, lalu mempoll penanda (timeout 10s, interval 200ms) sebelum menjalankan `/opt/asteracea/asteracea.js` (menggantikan sleep 1000ms).
@@ -131,6 +141,7 @@
 ## 2026-08-03
 
 ### DataGrid — resize kolom scope fix (header + body ikut resize)
+
 - **File:** `src/mirror/bin/dome-client.html`
 - **Masalah:** Setelah ConnectedDataGrid pindah ke satu scroll container, handler resize kolom mencari scope via `table.parentElement` (thead-scroll yang sudah tidak ada) → colgroup body tidak ikut resize saat drag, dan event `col_resized` dikirim ke targetId salah.
 - **Perubahan:** Scope resize kini `table.closest(".tsix-dgrid")` — wrapper grid (selalu berisi semua colgroup header & body). Komentar header-table-wrapper sudah tidak ada (diperbarui).
@@ -138,6 +149,7 @@
 - **Oleh:** Copilot
 
 ### DataGrid — hapus kompensasi lebar manual & relay scroll
+
 - **File:** `src/mirror/bin/dome-client.html`
 - **Perubahan:**
   - Blok khusus `tsix-dgrid` yang mengatur `hdr.style.width = calc(100% - scrollbarWidth)` **dihapus** — alignment lebar kini dikelola oleh satu scroll container di sisi app (lihat changelog Cashew).
@@ -150,6 +162,7 @@
 ## 2026-08-02
 
 ### `<option selected>` — buildDOM menangani properti `selected`
+
 - **File:** `src/mirror/bin/dome-client.html` — `buildDOM()`
 - **Masalah:** Properti `selected` pada node `<option>` tidak di-handle di loop props `buildDOM` — jatuh tanpa cabang, diam-diam diabaikan. Akibatnya `<select>` selalu menampilkan option pertama (mis. "(semua)") meskipun `selectedIndex` sudah diset. (`value` pada `<input>` sudah di-handle → input text normal, hanya combobox yang salah.)
 - **Perubahan:** Tambah cabang `else if (key === "selected") { el.selected = !!value; }` sebelum penanganan `value`.
@@ -161,6 +174,7 @@
 ## 2026-07-31
 
 ### TERM_FOCUS relay — auto-focus xterm
+
 - **File:** `src/mirror/bin/dome.ts`, `src/mirror/bin/dome-client.html`
 - **Perubahan:**
   - `dome.ts`: Tambah relay `TERM_FOCUS` ke whitelist `ipc_message` → browser (sebelumnya tidak ada di whitelist, jadi auto-focus PixelTerm tidak pernah sampai ke browser).
@@ -169,6 +183,7 @@
 - **Oleh:** Copilot
 
 ### Native column resize (data-col-resize)
+
 - **File:** `src/mirror/bin/dome-client.html`
 - **Perubahan:** Elemen bertanda `data-col-resize="1"` (handle di header th) → drag native di browser (mousedown/mousemove/mouseup) menyesuaikan lebar `<col>` di colgroup, min 60px. Klik pada handle di-stop-propagation biar tidak trigger sort th.
 - **Dampak:** Kolom DataGrid bisa di-resize langsung di browser tanpa event relay ke app.
@@ -179,12 +194,14 @@
 ## 2026-07-30
 
 ### Lightweight Charts (TradingView) — Real-time IoT Chart
+
 - **File:** `src/mirror/bin/dome-client.html`, `src/mirror/lib/cashew.ts`, `src/mirror/bin/dome.ts`, `src/mirror/bin/cashew-demo3.ts`
 - **Latar Belakang:** Awalnya pakai custom SVG line chart (TLineChart) yang bermasalah dengan scroll/flicker. Migrasi ke uPlot gagal karena CDN versioning error dan CSS `min-content` collapse (root div 0x0).
 - **Keputusan:** Beralih ke **Lightweight Charts v5.2.0** (TradingView) — library mature, zero CSS dependency, API simple.
 - **Perubahan:**
 
 #### `dome-client.html`
+
 - Tambah CDN `lightweight-charts@5.2.0` (standalone production build, di `<head>`)
 - Hapus semua kode uPlot (CDN CSS/JS, CSS override, handler)
 - Handler baru:
@@ -196,6 +213,7 @@
 - **Retry mechanism** — 30× retry (200ms) jika element `data-tsix-id` belum di-mount
 
 #### `cashew.ts` — TChart component
+
 - Class baru `TChart extends TComponent`:
   - `tag = "div"`, style `width:100%; height:<props.height>px; minHeight:60px`
   - `bindEventHandler` — set `_wid` dari screen, `_lib` dari `global._tsixLib`
@@ -205,9 +223,11 @@
 - Semua komunikasi via IPC (`SEND_MSG` syscall → Kernel → DOME worker → WebSocket → browser)
 
 #### `dome.ts`
+
 - Tambah `std.log` di relay CHART_INIT/CHART_DATA/CHART_DESTROY (debugging)
 
 #### `cashew-demo3.ts`
+
 - Demo IoT dashboard pake `TChart("temp-chart")` dengan data real-time dari `TTimer`
 - Data diakumulasi (max 60 titik), dikirim full array tiap tick
 
@@ -224,4 +244,4 @@
 
 ## 2026-07-27
 
-*(initial)*
+_(initial)_

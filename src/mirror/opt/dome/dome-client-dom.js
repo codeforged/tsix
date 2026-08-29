@@ -264,10 +264,7 @@
         // (z-index check is in handleMountNode for dynamically-mounted overlays, not here.)
         // - launcher-overlay: modal launcher
         // - taskbar-wrapper:  taskbar Asteracea — ALWAYS ON TOP, tanpa ini kalah sama window app
-        if (
-          child.id === "launcher-overlay" ||
-          child.id === "taskbar-wrapper"
-        ) {
+        if (child.id === "launcher-overlay" || child.id === "taskbar-wrapper") {
           const overlay = document.getElementById("__tsix_overlay_layer__");
           if (overlay) {
             if (child.id === "launcher-overlay") {
@@ -651,7 +648,7 @@
     if (
       down &&
       ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].indexOf(e.key) >=
-      0
+        0
     ) {
       e.preventDefault();
     }
