@@ -16,7 +16,7 @@ import { openSync } from "i2c-bus";
 // Platform-specific hardware configuration
 // Modify this for your hardware setup
 const HARDWARE_CONFIGS = [
-    { bus: 2, address: 0x20, name: "mcp23017" }  // Orange Pi 3B default
+    { bus: 1, address: 0x20, name: "mcp23017" }  // Raspberry Pi/Orange Pi 3B default
     // Add more configurations as needed:
     // { bus: 1, address: 0x20, name: "mcp0" },  // Raspberry Pi
     // { bus: 1, address: 0x24, name: "mcp1" },  // Second chip
