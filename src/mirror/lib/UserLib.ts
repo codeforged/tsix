@@ -11,7 +11,7 @@ import { DbLib } from "./DbLib";
  * Gunanya membungkus Syscall yang ribet jadi fungsi yang manusiawi.
  */
 export class UserLib {
-  private version: string = "1.05.20260214";
+  private version: string = "1.2.20260830.1";
   private pid: number;
   private responseMap: Map<string, (res: SyscallResponse) => void> = new Map();
   private eventListeners: Map<string, ((data: any) => void)[]> = new Map();
@@ -24,6 +24,7 @@ export class UserLib {
   public net: NetworkLib;
   public db: DbLib;
   public pty: PtyLib;
+  public keyboard: KeyboardLib;
 
   constructor(pid: number) {
     this.pid = pid;
@@ -78,6 +79,7 @@ export class UserLib {
     this.net = new NetworkLib(this.dispatch.bind(this));
     this.db = new DbLib(this.dispatch.bind(this));
     this.pty = new PtyLib(this.dispatch.bind(this));
+    this.keyboard = new KeyboardLib(this.std);
 
     // Inject parent reference
     (this.std as any)._lib = this;
@@ -86,6 +88,7 @@ export class UserLib {
     (this.net as any)._lib = this;
     (this.db as any)._lib = this;
     (this.pty as any)._lib = this;
+    (this.keyboard as any)._lib = this;
   }
 
   /**
@@ -155,7 +158,7 @@ export class StdLib {
 
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) { }
+  ) {}
 
   public setStdin(fd: number) {
     this.stdinFd = fd;
@@ -259,7 +262,7 @@ export class StdLib {
 
     try {
       await (this as any)._lib.fs.mkdir(logDir);
-    } catch (e) { }
+    } catch (e) {}
 
     try {
       const fd = await (this as any)._lib.fs.open(logFile, "a");
@@ -267,7 +270,7 @@ export class StdLib {
         await (this as any)._lib.fs.write(fd, logLine);
         await (this as any)._lib.fs.close(fd);
       }
-    } catch (e) { }
+    } catch (e) {}
   }
 
   /**
@@ -436,13 +439,428 @@ export class StdLib {
   }
 }
 
+// ============================================================
+// KEY EVENT (decoder keyboard CLI)
+// ============================================================
+
+export interface KeyEvent {
+  /** Nama tampilan: "a", "Up", "Ctrl+X", "F5", "Alt+b", dst. */
+  key: string;
+  /** Kode logis ala DOM: "KeyX", "ArrowUp", "Digit5", "F5", dst. */
+  code: string;
+  ctrl: boolean;
+  shift: boolean;
+  alt: boolean;
+  /** Byte mentah yang di-escape untuk tampilan, mis. "\\x1b[1;5A". */
+  seq: string;
+}
+
+/**
+ * KEYBOARD LIBRARY (keyboard)
+ *
+ * Padanan CLI dari komponen TKeyboard (Cashew) / Keyboard (Emerald):
+ * decoder penekanan tombol dari byte stream terminal (pixelterm / TTY).
+ *
+ * Terminal HANYA mengirim byte stream — TIDAK ada event keyup & auto-repeat.
+ * Jadi setiap `readKey()` = satu "down". Decode yang didukung:
+ *   - printable chars
+ *   - control chars (Ctrl+A..Ctrl+Z, Tab, Enter, Backspace, dll.)
+ *   - escape sequence CSI/SS3 (Arrow, Home/End, PageUp/PageDown, Del,
+ *     Insert, F1..F12) + modifier Shift/Alt/Ctrl (param `;N`)
+ *   - Alt+<char> (dan Alt+Escape, Alt+Backspace)
+ *   - ESC tunggal dideteksi via timeout 120ms (tidak hang; byte yang telat
+ *     tidak hilang — ditampung di pendingChar).
+ *
+ * Usage:
+ *   await keyboard.enable();   // raw mode
+ *   try {
+ *     while (true) {
+ *       const ev = await keyboard.readKey();
+ *       if (!ev) break;        // EOF
+ *       std.print(ev.key + "\n");
+ *     }
+ *   } finally {
+ *     await keyboard.disable(); // cooked mode
+ *   }
+ */
+export class KeyboardLib {
+  // Karakter yang "telat" datang setelah timeout (hasil getChar yang kita
+  // tinggalkan) — ditampung di sini supaya TIDAK ada byte yang hilang.
+  private pendingChar: string | null | undefined;
+
+  constructor(private std: StdLib) {}
+
+  /** Masuk raw mode — wajib dipanggil sebelum readKey(). */
+  public async enable(): Promise<void> {
+    await this.std.setRawMode(true);
+  }
+
+  /** Kembali ke cooked mode (aman dipanggil berkali-kali). */
+  public async disable(): Promise<void> {
+    await this.std.setRawMode(false);
+  }
+
+  /**
+   * readKey(): Baca satu penekanan tombol (blocking) dan decode.
+   * Mengembalikan null saat EOF.
+   */
+  public async readKey(): Promise<KeyEvent | null> {
+    const c1 = await this.getChar();
+    if (c1 === null || c1 === "") return null;
+    const o1 = c1.charCodeAt(0);
+
+    if (c1 === "\x1b") return this.readEscape();
+    if (o1 < 32) return this.decodeControl(c1);
+    if (c1 === "\x7f")
+      return this.base({
+        key: "Backspace",
+        code: "Backspace",
+        seq: "\\x7f",
+      });
+
+    // Printable
+    const up = c1.toUpperCase();
+    const code = /^[A-Za-z]$/.test(c1)
+      ? "Key" + up
+      : /^[0-9]$/.test(c1)
+        ? "Digit" + c1
+        : "Char";
+    return this.base({ key: c1, code, seq: this.esc(c1) });
+  }
+
+  // ───────────── internal ─────────────
+
+  private base(partial: Partial<KeyEvent> = {}): KeyEvent {
+    return {
+      key: "",
+      code: "",
+      ctrl: false,
+      shift: false,
+      alt: false,
+      seq: "",
+      ...partial,
+    };
+  }
+
+  /** Tampilkan byte non-printable sebagai \xNN (biar terlihat "mentah"). */
+  private esc(s: string): string {
+    let out = "";
+    for (const ch of s) {
+      const c = ch.charCodeAt(0);
+      if (c === 27) out += "\\x1b";
+      else if (c < 32 || c === 127)
+        out += "\\x" + c.toString(16).padStart(2, "0");
+      else out += ch;
+    }
+    return out;
+  }
+
+  /** Decode angka modifier xterm (2=Shift,3=Alt,4=Shift+Alt,5=Ctrl,...). */
+  private decodeMod(n: number): {
+    shift: boolean;
+    alt: boolean;
+    ctrl: boolean;
+  } {
+    const m = (n - 1) & 7;
+    return { shift: !!(m & 1), alt: !!(m & 2), ctrl: !!(m & 4) };
+  }
+
+  private async getChar(): Promise<string | null> {
+    if (this.pendingChar !== undefined) {
+      const c = this.pendingChar;
+      this.pendingChar = undefined;
+      return c;
+    }
+    return await this.std.getChar();
+  }
+
+  /**
+   * Coba baca satu karakter dalam jangka `ms`. Kalau timeout, kembalikan null.
+   * Jika karakter datang SETELAH timeout, hasilnya tetap ditangkap ke
+   * pendingChar (tidak hilang) dan akan dibaca di iterasi berikutnya.
+   */
+  private async peekCharTimeout(ms: number): Promise<string | null> {
+    if (this.pendingChar !== undefined) {
+      const c = this.pendingChar;
+      this.pendingChar = undefined;
+      return c;
+    }
+    const p = (async () => await this.std.getChar())();
+    const t = this.std.sleep(ms).then(() => null);
+    const result = await Promise.race([p, t]);
+    if (result !== null && result !== undefined) return result;
+    // Timeout menang — tangkap hasil getChar yang mungkin datang belakangan.
+    p.then((c) => {
+      if (c !== null && c !== undefined) this.pendingChar = c;
+    }).catch(() => {});
+    return null;
+  }
+
+  private decodeControl(c: string): KeyEvent {
+    const o = c.charCodeAt(0);
+    if (o === 9) return this.base({ key: "Tab", code: "Tab", seq: "\\t" });
+    if (o === 13 || o === 10)
+      return this.base({
+        key: "Enter",
+        code: "Enter",
+        seq: o === 13 ? "\\r" : "\\n",
+      });
+    if (o === 0)
+      return this.base({
+        key: "Ctrl+Space",
+        code: "Space",
+        ctrl: true,
+        seq: "\\x00",
+      });
+    if (o >= 1 && o <= 26) {
+      const letter = String.fromCharCode(64 + o); // 1→A ... 26→Z
+      return this.base({
+        key: "Ctrl+" + letter,
+        code: "Key" + letter,
+        ctrl: true,
+        seq: "\\x" + o.toString(16).padStart(2, "0"),
+      });
+    }
+    if (o === 28)
+      return this.base({
+        key: "Ctrl+\\",
+        code: "Backslash",
+        ctrl: true,
+        seq: "\\x1c",
+      });
+    if (o === 29)
+      return this.base({
+        key: "Ctrl+]",
+        code: "BracketRight",
+        ctrl: true,
+        seq: "\\x1d",
+      });
+    if (o === 30)
+      return this.base({
+        key: "Ctrl+^",
+        code: "Caret",
+        ctrl: true,
+        seq: "\\x1e",
+      });
+    if (o === 31)
+      return this.base({
+        key: "Ctrl+_",
+        code: "Minus",
+        ctrl: true,
+        seq: "\\x1f",
+      });
+    return this.base({
+      key: "Ctrl",
+      code: "Unknown",
+      ctrl: true,
+      seq: "\\x" + o.toString(16).padStart(2, "0"),
+    });
+  }
+
+  private async readEscape(): Promise<KeyEvent> {
+    const c2 = await this.peekCharTimeout(120);
+    if (c2 === null || c2 === "") {
+      return this.base({ key: "Escape", code: "Escape", seq: "\\x1b" });
+    }
+    if (c2 === "[") return this.readCsi();
+    if (c2 === "O") return this.readSs3();
+    // Alt + char (atau ESC lalu karakter cepat — ambigu, dianggap Alt+char)
+    if (c2 === "\x1b")
+      return this.base({
+        key: "Alt+Escape",
+        code: "Escape",
+        alt: true,
+        seq: "\\x1b\\x1b",
+      });
+    if (c2 === "\x7f")
+      return this.base({
+        key: "Alt+Backspace",
+        code: "Backspace",
+        alt: true,
+        seq: "\\x1b\\x7f",
+      });
+    return this.base({
+      key: "Alt+" + c2,
+      code: "Alt+" + c2,
+      alt: true,
+      seq: this.esc("\x1b" + c2),
+    });
+  }
+
+  // ── CSI: ESC [ <param>;... <final> ──
+  private async readCsi(): Promise<KeyEvent> {
+    let seq = "\x1b[";
+    let params: number[] = [];
+    let num = "";
+    let final = "";
+    while (true) {
+      const ch = await this.getChar();
+      if (ch === null || ch === "") break;
+      seq += ch;
+      const o = ch.charCodeAt(0);
+      if (o >= 48 && o <= 57) {
+        num += ch;
+        continue;
+      }
+      if (ch === ";") {
+        params.push(num === "" ? 0 : parseInt(num, 10));
+        num = "";
+        continue;
+      }
+      if (ch === "?") {
+        num = "";
+        continue; // CSI privat, abaikan prefix
+      }
+      if (num !== "") {
+        params.push(parseInt(num, 10));
+        num = "";
+      }
+      final = ch;
+      break;
+    }
+    return this.decodeCsi(params, final, seq);
+  }
+
+  private decodeCsi(params: number[], final: string, seq: string): KeyEvent {
+    // Modifier: umumnya param kedua bernilai 2..8 → Shift/Alt/Ctrl
+    let mod: { shift: boolean; alt: boolean; ctrl: boolean } | undefined;
+    if (params.length >= 2 && params[1] >= 2 && params[1] <= 8) {
+      mod = this.decodeMod(params[1]);
+    }
+
+    // CSI 27;mod;code~ → tombol printable dengan modifier (mis. Ctrl+Enter)
+    if (final === "~" && params[0] === 27 && params.length >= 3) {
+      const ch = String.fromCharCode(params[2]);
+      const up = ch.toUpperCase();
+      const code = /^[A-Za-z]$/.test(ch)
+        ? "Key" + up
+        : /^[0-9]$/.test(ch)
+          ? "Digit" + ch
+          : "Char";
+      return this.base({ key: ch, code, seq: this.esc(seq), ...(mod || {}) });
+    }
+
+    // CSI <code>~ (Home/End/PgUp/PgDn/Del/Insert/F1..F12)
+    const tilde: Record<number, [string, string]> = {
+      1: ["Home", "Home"],
+      2: ["Insert", "Insert"],
+      3: ["Delete", "Delete"],
+      4: ["End", "End"],
+      5: ["PageUp", "PageUp"],
+      6: ["PageDown", "PageDown"],
+      7: ["Home", "Home"],
+      8: ["End", "End"],
+      11: ["F1", "F1"],
+      12: ["F2", "F2"],
+      13: ["F3", "F3"],
+      14: ["F4", "F4"],
+      15: ["F5", "F5"],
+      17: ["F6", "F6"],
+      18: ["F7", "F7"],
+      19: ["F8", "F8"],
+      20: ["F9", "F9"],
+      21: ["F10", "F10"],
+      23: ["F11", "F11"],
+      24: ["F12", "F12"],
+    };
+    if (final === "~" && tilde[params[0]]) {
+      const [key, code] = tilde[params[0]];
+      return this.base({ key, code, seq: this.esc(seq), ...(mod || {}) });
+    }
+
+    // Arrow / Home / End / F1..F4 / Shift+Tab (final letter)
+    const letter: Record<string, [string, string]> = {
+      A: ["Up", "ArrowUp"],
+      B: ["Down", "ArrowDown"],
+      C: ["Right", "ArrowRight"],
+      D: ["Left", "ArrowLeft"],
+      H: ["Home", "Home"],
+      F: ["End", "End"],
+      P: ["F1", "F1"],
+      Q: ["F2", "F2"],
+      R: ["F3", "F3"],
+      S: ["F4", "F4"],
+      Z: ["Tab", "Tab"],
+    };
+    if (letter[final]) {
+      const [key, code] = letter[final];
+      const m =
+        final === "Z" ? { shift: true, alt: false, ctrl: false } : mod || {};
+      return this.base({ key, code, seq: this.esc(seq), ...m });
+    }
+
+    // CSI tidak dikenal — tampilkan apa adanya
+    return this.base({
+      key: "CSI[" + final + "]",
+      code: "Unknown",
+      seq: this.esc(seq),
+      ...(mod || {}),
+    });
+  }
+
+  // ── SS3: ESC O <final> (biasanya arrow/Home/End/F1..F4) ──
+  private async readSs3(): Promise<KeyEvent> {
+    let seq = "\x1bO";
+    let params: number[] = [];
+    let num = "";
+    let final = "";
+    while (true) {
+      const ch = await this.getChar();
+      if (ch === null || ch === "") break;
+      seq += ch;
+      const o = ch.charCodeAt(0);
+      if (o >= 48 && o <= 57) {
+        num += ch;
+        continue;
+      }
+      if (ch === ";") {
+        params.push(num === "" ? 0 : parseInt(num, 10));
+        num = "";
+        continue;
+      }
+      if (num !== "") {
+        params.push(parseInt(num, 10));
+        num = "";
+      }
+      final = ch;
+      break;
+    }
+    const map: Record<string, [string, string]> = {
+      A: ["Up", "ArrowUp"],
+      B: ["Down", "ArrowDown"],
+      C: ["Right", "ArrowRight"],
+      D: ["Left", "ArrowLeft"],
+      H: ["Home", "Home"],
+      F: ["End", "End"],
+      P: ["F1", "F1"],
+      Q: ["F2", "F2"],
+      R: ["F3", "F3"],
+      S: ["F4", "F4"],
+    };
+    let mod: { shift: boolean; alt: boolean; ctrl: boolean } | undefined;
+    if (params.length >= 1 && params[0] >= 2 && params[0] <= 8) {
+      mod = this.decodeMod(params[0]);
+    }
+    if (map[final]) {
+      const [key, code] = map[final];
+      return this.base({ key, code, seq: this.esc(seq), ...(mod || {}) });
+    }
+    return this.base({
+      key: "SS3",
+      code: "Unknown",
+      seq: this.esc(seq),
+      ...(mod || {}),
+    });
+  }
+}
+
 /**
  * FILESYSTEM LIBRARY (fs)
  */
 export class FsLib {
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) { }
+  ) {}
 
   public async open(path: string, flags: string = "r") {
     return await this.dispatch(SyscallCode.OPEN, { path, flags });
@@ -703,7 +1121,7 @@ export class ShellLib {
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
     private pid: number,
-  ) { }
+  ) {}
 
   public getPid(): number {
     return this.pid;
@@ -941,7 +1359,7 @@ export class ShellLib {
 export class NetworkLib {
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) { }
+  ) {}
 
   public async socket(): Promise<number> {
     return await this.dispatch(SyscallCode.SOCKET, null);
@@ -1032,10 +1450,13 @@ export class NetworkLib {
 export class PtyLib {
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) { }
+  ) {}
 
   /** alloc(): Buat PTY baru. Returns { id, slavePath, masterPath }. */
-  public async alloc(rows?: number, cols?: number): Promise<{
+  public async alloc(
+    rows?: number,
+    cols?: number,
+  ): Promise<{
     id: number;
     slavePath: string;
     masterPath: string;

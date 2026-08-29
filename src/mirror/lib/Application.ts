@@ -1,7 +1,15 @@
 export { IProgram, OSContext } from "./IProgram";
 import { IProgram, OSContext } from "./IProgram";
-import { UserLib, StdLib, FsLib, ShellLib, NetworkLib } from "./UserLib";
+import {
+  UserLib,
+  StdLib,
+  FsLib,
+  ShellLib,
+  NetworkLib,
+  KeyboardLib,
+} from "./UserLib";
 export { NetworkLib } from "./NetworkLib";
+export type { KeyEvent } from "./UserLib";
 import { DbLib } from "./DbLib";
 import { RandomLib } from "./RandomLib";
 
@@ -51,6 +59,13 @@ export const db: DbLib = new Proxy({} as DbLib, {
   get: (_, prop) => {
     const val = (getLib().db as any)[prop];
     return typeof val === "function" ? val.bind(getLib().db) : val;
+  },
+});
+
+export const keyboard: KeyboardLib = new Proxy({} as KeyboardLib, {
+  get: (_, prop) => {
+    const val = (getLib().keyboard as any)[prop];
+    return typeof val === "function" ? val.bind(getLib().keyboard) : val;
   },
 });
 
