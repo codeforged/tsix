@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-08-29
+
+### Keyboard capture mati setelah klik body window — refokus pola DDC + fallback ke window fokus
+- **File:** `src/mirror/opt/dome/dome-client-dom.js`
+- **Masalah:** Komponen `Keyboard`/`TKeyboard` berhenti merespons ("cuek") begitu user mengklik area kosong window. Saat mousedown pada area non-interaktif, browser memindahkan fokus ke `<body>` (yang berada di luar `.tsix-window`), sehingga `kbDocSend()` menolak event berikutnya karena `e.target.closest(".tsix-window")` gagal → keyboard mati sampai fokus dikembalikan manual.
+- **Perubahan:**
+  - **Refokus pola DDC** pada handler `mousedown`: klik area non-interaktif window → `e.preventDefault()` (cegah browser mencuri fokus ke body) + `keyboardCaptureFocus(wid)`. Klik tombol/elemen klik lain → biarkan click-nya jalan dulu, lalu refokus via `setTimeout(0)` (agar spasi/Enter tidak "menekan ulang" tombol).
+  - **Fallback di `kbDocSend`**: jika `e.target` berada di luar window (mis. `<body>` karena fokus sempat nyasar), event tetap diarahkan ke window yang sedang **fokus/teratas** yang punya `keyboardCaptureByWid` — keyboard tetap jalan walau fokus belum sempat dikembalikan.
+- **Dampak:** Keyboard global (panah/spasi/Enter) tetap hidup selama window aktif, meski body window diklik. Deploy: restart DOME + hard-refresh browser (sekali).
+- **Oleh:** Copilot · **Laporan/reproduksi:** kakang
+
+---
+
 ## 2026-08-13
 
 ### Tombol launcher (logout/reboot) mati setelah reboot — overlay layer tidak dibersihkan saat auto-reconnect
