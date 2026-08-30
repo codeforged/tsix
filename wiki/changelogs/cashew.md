@@ -56,7 +56,7 @@
   - `id` tetap dibutuhkan **internal** (Emerald/DOM: mount, event binding, `screen.update`/`setContent`, `onClickId`/`onInputId` untuk routing event di browser) — hanya saja user tidak perlu repot mengisinya lagi.
   - **Object-first:** komponen yang menerima style/props bisa dipanggil langsung dengan object tanpa id — `new TButton({...})`, `new TSensorCard({...})`, `new TPanel({...})`.
   - `TStatusBar`/`TProgressBar`/`TGroupBox` yang menurunkan id sub-komponen kini memakai `this.id` (id hasil auto-generate), bukan `id` param.
-  - `TTimer` disederhanakan: `new TTimer(id?, interval?, enabled?)` — id opsional.
+  - `TTimer` disederhanakan: `new TTimer(id?, interval?, enabled?)` — id opsional; bisa juga **object literal** `new TTimer({ interval, enabled })` (id auto-generate).
   - `TDataGrid`/`TTabulatorGrid`: `new TDataGrid(id?, columns?, data?, opts?)` — id opsional, `ConnectedDataGrid`/`ConnectedTabulator` menerima `this.id` yang sudah ter-resolve.
   - **Kompatibel ke belakang** — semua pemanggilan `new TButton("btn", {...})`, `new TSensorCard("temp", {...})`, `new TTabulatorGrid("sensor", cols, ...)` lama tetap bekerja.
 - **Dampak:** User cukup `new TButton()` + set properti via instance (atau `new TButton({...})`), tidak perlu menebak id unik. Id unik dijamin oleh counter global per proses.

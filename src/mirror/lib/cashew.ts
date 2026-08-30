@@ -2425,6 +2425,11 @@ export class TSlider extends TComponent {
  *   timer.onTimer = () => { ... };
  *   form.add(timer);
  *
+ *   // Atau object literal (id otomatis):
+ *   const timer = new TTimer({ interval: 3000, enabled: true });
+ *   timer.onTimer = () => { ... };
+ *   form.add(timer);
+ *
  * Props:
  *   - interval: ms antar tick (default 1000)
  *   - enabled:  start/stop timer
@@ -2438,10 +2443,18 @@ export class TTimer extends TComponent {
   private _enabled: boolean = false;
   private _screen: Screen | null = null;
 
-  constructor(id?: string, interval?: number, enabled?: boolean) {
+  constructor(
+    idOrOpts?: string | { interval?: number; enabled?: boolean },
+    interval?: number,
+    enabled?: boolean,
+  ) {
+    const { id, config } = splitFirstArg(idOrOpts) as {
+      id?: string;
+      config?: { interval?: number; enabled?: boolean };
+    };
     super(id);
-    this._interval = interval ?? 1000;
-    this._enabled = enabled ?? false;
+    this._interval = config?.interval ?? interval ?? 1000;
+    this._enabled = config?.enabled ?? enabled ?? false;
   }
 
   /** Interval dalam ms */
