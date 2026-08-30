@@ -23,7 +23,7 @@ audience: all
 - [ ] Explain the socket flow: bind → sendto → recvfrom
 - [ ] Explain the role of PortManager and releasePortsByPid
 - [ ] Explain why there is no listen/accept (polling emulation)
-- [ ] List the networking syscalls (30–34)
+- [ ] List the networking syscalls (30–34) + SECAGENT_LIST (39)
 
 ---
 
@@ -83,10 +83,12 @@ App → socket() → bind(port) → driver.registerHandler(port)
 ### Syscall
 
 ```
-SOCKET=30, BIND=31, SENDTO=32, RECVFROM=33, NETSTAT=34
+SOCKET=30, BIND=31, SENDTO=32, RECVFROM=33, NETSTAT=34, SECAGENT_LIST=39
 ```
 
 There is no `listen/accept` at the syscall level. UserLib emulates it: `listen()` = `socket()` + `bind()`; `accept()` = polling `recv()` until the first packet arrives.
+
+> `SECAGENT_LIST` (39) is used by the `secagent` tool to list the encryption agents registered in the kernel.
 
 ---
 
@@ -124,7 +126,7 @@ Detailed steps:
 4. **Fragmentation** — `send()` splits the payload into 32KB chunks when needed, then wraps each chunk in a packet with a 9-field header.
 5. **Publish** — the driver publishes each chunk to the topic `mqtnl@1.0/esp32S3` (`qos: 0`, `retain: false`).
 6. **Broker & filter** — all nodes subscribed to `mqtnl@1.x/#` receive the packet. Each driver filters: a packet is processed only when `dstAddress` equals its `localAddress` (or `"*"`). Other packets are dropped. Packets sent by the node itself (src = local) are also ignored.
-7. **Reassembly & decryption** — the destination driver reassembles the chunks (session per `srcAddr:srcPort → dstAddr:dstPort`, TTL 30s), then decrypts the payload via `SecurityAgent` (the port can be upgraded to ChaCha20-Poly1305 via ioctl `0x1001`).
+7. **Reassembly & decryption** — the destination driver reassembles the chunks (session per `srcAddr:srcPort → dstAddr:dstPort`, TTL 30s), then decrypts the payload via the agent attached to the port (default `SecurityAgent`/"chacha20"; it can be upgraded to another agent via `upgradeSecurity(key, { agent })`, e.g. `"aes-gcm"`).
 8. **Dispatch** — the driver calls the handler on `dstPort` → `socket.push({ src, port, localPort, data, isBinary, ts })` → data enters the socket buffer.
 9. **RECVFROM** — App B calls `recv(fd)`. The kernel reads the buffer (`read()` = `buffer.shift()`). If empty, the kernel waits event-driven (`waitForData`) until data is pushed.
 
@@ -139,12 +141,16 @@ Detailed steps:
 | `src/kernel/devices/SimpleMQTNLDriver.ts` | MQTNL network interface |
 | `src/kernel/devices/SocketDevice.ts` | Socket = device (everything is a file) |
 | `src/kernel/PortManager.ts` | Virtual port allocation |
-| `src/mirror/lib/NetworkLib.ts` | `lib.net` API (legacy, OSContext-based) |
-| `src/mirror/lib/UserLib.ts` | Inline `lib.net` (new, `this.dispatch`) |
-| `src/kernel/Syscalls.ts` | SOCKET–NETSTAT syscall implementation (30–34) |
+| `src/mirror/lib/NetworkLib.ts` | `lib.net` API + `NetSocket` component (single source of truth) |
+| `src/mirror/lib/UserLib.ts` | Imports & re-exports `NetworkLib` from `./NetworkLib` |
+| `src/mirror/lib/Application.ts` | `net` proxy + exports `NetSocket`/`NetPacket` |
+| `src/common/ISecurityAgent.ts` | Encryption agent contract (pluggable) |
+| `src/common/AesGcmAgent.ts` | Example custom AES-256-GCM agent |
+| `src/kernel/Syscalls.ts` | SOCKET–NETSTAT syscall implementation (30–34) + SECAGENT_LIST (39) |
+| `src/mirror/sbin/secagent.ts` | Tool to list registered agents |
 | `src/sysconfig.json` | Default network interface configuration |
 
-> [!WARNING] **Dual NetworkLib.** There are two `lib.net` implementations: inline in `UserLib.ts` (new) and `NetworkLib.ts` (legacy, OSContext-based). Both reach the same syscalls.
+> [!NOTE] **Single `NetworkLib`.** The `NetworkLib` class is now the single source of truth in `NetworkLib.ts` and accepts either `dispatch` or `OSContext` (backward compatible). For new apps, prefer `NetSocket` — a high-level API wrapping lifecycle + events + security.
 
 ### Default network interfaces (`sysconfig.json`)
 
@@ -163,15 +169,15 @@ At boot, the kernel reads `cfg.network.interfaces` and creates one `SimpleMQTNLD
 
 All snippets below are **copied from the source** — "code is truth". Trimmed parts are marked `// ...`.
 
-### NetworkLib — usage from the app side (`UserLib.ts`)
+### NetworkLib — usage from the app side (`NetworkLib.ts`)
 
-`lib.net` is a `NetworkLib` instance on `UserLib` (new apps) and on `NetworkLib.ts` (legacy apps based on `OSContext`). A socket is returned as an **fd** (number), not an object:
+`lib.net` is a `NetworkLib` instance (single source of truth in `NetworkLib.ts`). Its constructor accepts either `dispatch` (used by `UserLib`) or `OSContext` (used by `ping.ts`/`network-traffic.ts`). A socket is returned as an **fd** (number), not an object:
 
 ```ts
 export class NetworkLib {
-  constructor(
-    private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) { }
+  // Accepts `dispatch` (UserLib) OR `OSContext` (legacy apps) — unified into
+  // a single source of truth (resolveDispatch picks the right dispatcher).
+  constructor(source: DispatchFn | OSContext) { /* resolveDispatch(source) */ }
 
   public async socket(): Promise<number> {
     return await this.dispatch(SyscallCode.SOCKET, null);
@@ -243,6 +249,25 @@ const data = await lib.net.recv(fd);                // baca data
 
 // Client mengirim ke node "esp32S3", port 5000
 await lib.net.sendto(fd, "esp32S3", 5000, JSON.stringify({ cmd: "ping" }));
+```
+
+### NetSocket — high-level API à la Cashew (`NetworkLib.ts`)
+
+`NetSocket` wraps syscalls + security + lifecycle into a component: instantiate → event → open → close. Security is not automatic — switch explicitly via `upgradeSecurity(key, { agent })`:
+
+```ts
+const sock = new NetSocket({ port: 8080, key: KEY_HEX });
+
+sock.onData = (pkt) => std.println(`[${pkt.src}:${pkt.port}] ${pkt.data}`);
+sock.onError = (err) => std.println(`ERR: ${err.message}`);
+
+await sock.open();                                         // socket + bind (plain first)
+await sock.upgradeSecurity(KEY_HEX);                       // switch to chacha20 (default)
+await sock.upgradeSecurity(KEY_HEX, { agent: "aes-gcm" }); // or a custom agent
+await sock.sendTo("esp32S3", 5000, JSON.stringify({ cmd: "ping" }));
+
+await sock.waitClosed();                                   // keep the process alive
+await sock.close();                                        // release port + normalize agent
 ```
 
 ### PortManager — bind & release (`PortManager.ts`)
@@ -435,7 +460,7 @@ case SyscallCode.BIND: {
 - `src/kernel/devices/SimpleMQTNLDriver.ts` — network interface
 - `src/kernel/devices/SocketDevice.ts` — socket = device
 - `src/kernel/PortManager.ts` — virtual port allocation
-- `src/kernel/Syscalls.ts` — SOCKET–NETSTAT syscall implementation (30–34)
+- `src/kernel/Syscalls.ts` — SOCKET–NETSTAT syscall implementation (30–34) + SECAGENT_LIST (39)
 - `src/sysconfig.json` — default network interfaces
 
 ---

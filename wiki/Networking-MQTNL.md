@@ -15,13 +15,13 @@ MQTNL **bukan** MQTT biasa — ia adalah lapisan enriched yang menambahkan:
 
 ### Kenapa MQTT?
 
-| Alasan | Detail |
-|--------|--------|
+| Alasan             | Detail                                                         |
+| ------------------ | -------------------------------------------------------------- |
 | **IoT Compatible** | MQTT bisa jalan di ESP32, ESP8266, dan microcontroller lainnya |
-| **Lightweight** | Bandwidth dan memory footprint minimal |
-| **NAT Traversal** | Tidak perlu IP publik — broker sebagai relay |
-| **Cross-Platform** | Desktop, Raspberry Pi, ESP32 bisa berkomunikasi seamless |
-| **Event-Driven** | Pub/Sub model cocok untuk sensor data & command broadcasting |
+| **Lightweight**    | Bandwidth dan memory footprint minimal                         |
+| **NAT Traversal**  | Tidak perlu IP publik — broker sebagai relay                   |
+| **Cross-Platform** | Desktop, Raspberry Pi, ESP32 bisa berkomunikasi seamless       |
+| **Event-Driven**   | Pub/Sub model cocok untuk sensor data & command broadcasting   |
 
 ---
 
@@ -70,15 +70,15 @@ graph LR
 
 ### Komponen
 
-| Komponen | File | Deskripsi |
-|----------|------|-----------|
+| Komponen            | File                   | Deskripsi                                                                      |
+| ------------------- | ---------------------- | ------------------------------------------------------------------------------ |
 | `SimpleMQTNLDriver` | `SimpleMQTNLDriver.ts` | Driver utama — publish/subscribe MQTT topics + factory registry agent enkripsi |
-| `PortManager` | `PortManager.ts` | Mengelola port binding & routing paket ke proses |
-| `SecurityAgent` | `SecurityAgent.ts` | Agent enkripsi default "chacha20" (RSA, ChaCha20, fingerprints) |
-| `ISecurityAgent` | `ISecurityAgent.ts` | Kontrak agent enkripsi (pluggable — bisa diganti agent kustom) |
-| `AesGcmAgent` | `AesGcmAgent.ts` | Contoh agent kustom AES-256-GCM |
-| `NetSocket` | `NetworkLib.ts` | API high-level ala Cashew (open → event → close) |
-| `PacketForwarder` | `PacketForwarder.ts` | Routing & forwarding paket antar-interface |
+| `PortManager`       | `PortManager.ts`       | Mengelola port binding & routing paket ke proses                               |
+| `SecurityAgent`     | `SecurityAgent.ts`     | Agent enkripsi default "chacha20" (RSA, ChaCha20, fingerprints)                |
+| `ISecurityAgent`    | `ISecurityAgent.ts`    | Kontrak agent enkripsi (pluggable — bisa diganti agent kustom)                 |
+| `AesGcmAgent`       | `AesGcmAgent.ts`       | Contoh agent kustom AES-256-GCM                                                |
+| `NetSocket`         | `NetworkLib.ts`        | API high-level ala Cashew (open → event → close)                               |
+| `PacketForwarder`   | `PacketForwarder.ts`   | Routing & forwarding paket antar-interface                                     |
 
 ---
 
@@ -100,20 +100,20 @@ sequenceDiagram
     Client->>Client: Decrypt session key with RSA
     Client->>Broker: 3. ACK (encrypted confirmation)
     Broker->>Server: Forward ACK
-    
+
     Note over Client, Server: 🔒 Session established — ChaCha20-Poly1305 encrypted
-    
+
     Client->>Broker: 4. DATA (encrypted payload)
     Broker->>Server: Forward DATA
 ```
 
 ### Layer Enkripsi
 
-| Layer | Algoritma | Fungsi |
-|-------|-----------|--------|
-| **Identity** | RSA-2048 | Verifikasi identitas node & key exchange |
-| **Session** | ChaCha20-Poly1305 (default) | High-speed AEAD encryption untuk data transfer — **pluggable** via custom agent |
-| **Integrity** | SHA-256 | Fingerprint verification & MITM protection |
+| Layer         | Algoritma                   | Fungsi                                                                          |
+| ------------- | --------------------------- | ------------------------------------------------------------------------------- |
+| **Identity**  | RSA-2048                    | Verifikasi identitas node & key exchange                                        |
+| **Session**   | ChaCha20-Poly1305 (default) | High-speed AEAD encryption untuk data transfer — **pluggable** via custom agent |
+| **Integrity** | SHA-256                     | Fingerprint verification & MITM protection                                      |
 
 ### Custom Security Agent (Pluggable)
 
@@ -141,23 +141,23 @@ Konfigurasi interface di `src/sysconfig.json`:
 
 ```json
 {
-    "network": {
-        "interfaces": [
-            {
-                "broker": "mqtt://192.168.0.109",
-                "deviceName": "smqtnl0",
-                "address": "antigonon",
-                "defaultPort": 1883
-            },
-            {
-                "broker": "mqtt://192.168.0.109",
-                "deviceName": "smqtnl1",
-                "address": "tsix-node-2",
-                "defaultPort": 1883
-            }
-        ],
-        "defaultDevice": "smqtnl0"
-    }
+  "network": {
+    "interfaces": [
+      {
+        "broker": "mqtt://192.168.0.109",
+        "deviceName": "smqtnl0",
+        "address": "antigonon",
+        "defaultPort": 1883
+      },
+      {
+        "broker": "mqtt://192.168.0.109",
+        "deviceName": "smqtnl1",
+        "address": "tsix-node-2",
+        "defaultPort": 1883
+      }
+    ],
+    "defaultDevice": "smqtnl0"
+  }
 }
 ```
 
@@ -165,17 +165,17 @@ Konfigurasi interface di `src/sysconfig.json`:
 
 ## Perintah Networking
 
-| Perintah | Deskripsi |
-|----------|-----------|
-| `ifconfig` | Menampilkan status interface (IP, MAC, Rx/Tx stats) |
-| `ping <node>` | Cek konektivitas ke node lain |
-| `nmap` | Scan port terbuka di node remote |
-| `nettop` | Monitor traffic real-time (like `htop` for network) |
-| `airterm <node>` | Remote terminal ke node lain (SSH-like via MQTNL) |
-| `scp <src> <node>:<dst>` | Secure file copy antar-node |
-| `listen_net` | Listen incoming packets di port tertentu |
-| `forward` | Port forwarding antar-interface |
-| `secagent` | Tampilkan daftar Security Agent yang terdaftar di kernel (`secagent` / `--list` / `--json`) |
+| Perintah                 | Deskripsi                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------- |
+| `ifconfig`               | Menampilkan status interface (IP, MAC, Rx/Tx stats)                                         |
+| `ping <node>`            | Cek konektivitas ke node lain                                                               |
+| `nmap`                   | Scan port terbuka di node remote                                                            |
+| `nettop`                 | Monitor traffic real-time (like `htop` for network)                                         |
+| `airterm <node>`         | Remote terminal ke node lain (SSH-like via MQTNL)                                           |
+| `scp <src> <node>:<dst>` | Secure file copy antar-node                                                                 |
+| `listen_net`             | Listen incoming packets di port tertentu                                                    |
+| `forward`                | Port forwarding antar-interface                                                             |
+| `secagent`               | Tampilkan daftar Security Agent yang terdaftar di kernel (`secagent` / `--list` / `--json`) |
 
 ### Contoh Penggunaan
 
@@ -186,7 +186,7 @@ ping tsix-node-2
 # Remote terminal ke node lain
 airterm tsix-node-2
 
-# Copy file ke node remote  
+# Copy file ke node remote
 scp /root/data.txt tsix-node-2:/tmp/
 
 # Lihat interface aktif
@@ -201,15 +201,19 @@ nettop
 ## Use Cases Nyata
 
 ### 1. Remote Edge Management
+
 Kelola STB atau Edge device yang tersebar di balik NAT/4G — tanpa infrastruktur.
 
 ### 2. Educational Sandbox
+
 Pelajari konsep networking Unix (socket, bind, listen, accept) di lingkungan yang aman.
 
 ### 3. Resilient Chat-Ops
+
 Deploy "command-center" node di area remote (kapal, stasiun riset) via satellite bandwidth minimal.
 
 ### 4. Home IoT
+
 Kontrol perangkat rumah via ESP32 yang terhubung ke MQTT broker — akses dari mana saja.
 
 ---
