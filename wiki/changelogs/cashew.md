@@ -6,6 +6,15 @@
 
 ## 2026-08-30
 
+### TFlowPanel default full-width di grid (`gridColumn: "1 / -1"`)
+
+- **File:** `src/mirror/lib/cashew.ts`
+- **Perubahan:** `TFlowPanel` kini menyertakan **default `gridColumn: "1 / -1"`** di style-nya — diletakkan **sebelum** `...extraStyle`, jadi tetap bisa di-override user. Karena `TFlowPanel` paling sering dipakai sebagai baris penuh (section) di dalam `TGridPanel`/form grid, user tidak perlu set `gridColumn` manual lagi.
+- **Dampak:** `TFlowPanel("sensor-row")` langsung full-width saat jadi child grid. Di parent non-grid properti diabaikan browser (aman). Override tetap jalan: `TFlowPanel("row", { gridColumn: "2 / 3" })`.
+- **Oleh:** Copilot · **Konsep:** kakang
+
+## 2026-08-30
+
 ### Unifikasi pola opsi — semua komponen kini domain-separated (props di atas + style: {} di bawah)
 
 - **File:** `src/mirror/lib/cashew.ts`

@@ -435,6 +435,11 @@ timer.onTimer = async () => {
 };
 form.add(timer);
 
+// Atau object literal — id otomatis:
+const timer2 = new TTimer({ interval: 2000, enabled: true });
+timer2.onTimer = () => { ... };
+form.add(timer2);
+
 // Kontrol runtime
 timer.enabled = false; // stop
 timer.interval = 5000; // ganti interval (auto-restart)
@@ -630,12 +635,14 @@ Header full width:
 lblTitle.style = { gridColumn: "1 / -1" };
 ```
 
+> **Catatan:** `TFlowPanel` sudah punya **default `gridColumn: "1 / -1"`** — dipakai sebagai child grid (mis. di dalam `TGridPanel` atau form `display:grid`), otomatis full-width tanpa set manual. Bisa di-override: `TFlowPanel("row", { gridColumn: "2 / 3" })`. Di parent non-grid, browser mengabaikan properti ini.
+
 ### Layout Helpers
 
 | Helper                                                                    | Fungsi                                                    |
 | :------------------------------------------------------------------------ | :-------------------------------------------------------- |
 | **`TGridPanel(id, cols?, style?)**                                        | Panel dengan CSS Grid, jumlah kolom tetap                 |
-| **`TFlowPanel(id, style?)**                                               | Flex wrap — item otomatis pindah baris                    |
+| **`TFlowPanel(id, style?)**                                               | Flex wrap — item otomatis pindah baris; **default full-width** (`gridColumn: "1 / -1"`) di parent grid |
 | **`TScrollBox(id, style?)**                                               | Panel dengan overflow auto (scroll)                       |
 | **`TSplitHorizontal(c1, c2, ratio?)**                                     | Dua panel bersebelahan (kiri \| kanan) — **bisa di-drag** |
 | **`TSplitVertical(c1, c2, ratio?)**                                       | Dua panel bertumpuk (atas \| bawah) — **bisa di-drag**    |
