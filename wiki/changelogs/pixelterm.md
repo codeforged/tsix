@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-08-30
+
+### Fix: PTY menggantung saat window ditutup lewat klik X (title bar) — `/dev/pts/X` tidak di-remove
+
+- **File:** `src/mirror/opt/pixelterm/pixelterm.ts`
+- **Gejala:** Ketik `exit` di shell prompt → `/dev/pts/X` ikut terhapus (benar). Tapi tutup lewat **klik X di title bar** → `/dev/pts/X` menggantung (tidak di-remove).
+- **Akar masalah:** Free PTY (`lib.pty.free`) hanya dipanggil di watcher `waitpid` (jalur shell exit). Jalur close via title bar berakhir di `app.loopUntilClose()` → cleanup huponexit, **tanpa** mem-free PTY → slave PTY tidak pernah dibebaskan.
+- **Perubahan:**
+  - Tambah helper **`freePty()`** dengan **guard idempotent** (`ptyFreed` flag) — mencegah double-free.
+  - Watcher shell-exit kini memakai `await freePty()` (bukan `lib.pty.free` langsung).
+  - Setelah `await app.loopUntilClose()` (window ditutup — termasuk klik X) → `await freePty()` — sehingga **apapun jalur tutupnya**, PTY selalu dibebaskan.
+  - Tidak pakai `win.onClose` karena handler `("__window__", "close_window")` di Emerald cuma **satu slot** — kalau didaftarkan lagi akan menimpa handler internal `loopUntilClose()`.
+- **Dampak:** Klik X di title bar kini menghapus `/dev/pts/X` — konsisten dengan perilaku `exit` di shell. Deploy: sync `pixelterm.ts` ke VFS → tutup & buka ulang PixelTerm.
+- **Oleh:** Copilot · **Laporan:** kakang
+
+---
+
 ## 2026-08-29
 
 ### Fix: Ctrl+C mencetak "^C" dobel (ping/sleep) — pixelterm ikut menulis ^C

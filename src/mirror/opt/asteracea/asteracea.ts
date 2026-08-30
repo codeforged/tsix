@@ -3195,7 +3195,7 @@ async function registerForeignApp(
   const appId = `__foreign_${pid}`;
   const entry: AppEntry = {
     id: appId,
-    icon: icon || "💻",
+    icon: icon || "▶️",
     label: title,
     command: "",
     params: [],
@@ -3219,7 +3219,7 @@ async function registerForeignApp(
         "data-wid": wid,
         title, // tooltip (→ data-tt di DOME) — konsisten dgn taskbar app terdaftar
       },
-      span({ style: { fontSize: "14px" } }, text(icon || "💻")),
+      span({ style: { fontSize: "14px" } }, text(icon || "▶️")),
       badge({ id: `${btnId}-badge`, color: "#4caf50", size: 6 }),
     ),
     "tb-running",

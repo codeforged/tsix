@@ -15,7 +15,14 @@ export const main = Program(async (args: string[]) => {
   const appTitle = "PixelTerm";
   await theme.loadCurrent();
   theme.watch();
-  const app = new Screen(appTitle, undefined, false, 680, 430);
+  const app = new Screen({
+    title: appTitle,
+    icon: "💻",
+    width: 680,
+    height: 430,
+    resizable: true,
+    maximizable: true,
+  });
   let currentCmd = ""; // untuk deteksi command di title bar
   const termId = "xterm-main";
   const huponexit = args.includes("--huponexit") || args.includes("-hue");
@@ -201,6 +208,21 @@ export const main = Program(async (args: string[]) => {
     "pixelterm",
   );
 
+  // Bebaskan PTY — WAJIB di SEMUA jalur tutup: exit command ATAU klik X di title bar.
+  // Guard idempotent: watcher shell-exit & jalur setelah loopUntilClose sama-sama
+  // memanggil ini, tapi free hanya dieksekusi sekali (hindari double-free).
+  let ptyFreed = false;
+  async function freePty() {
+    if (ptyFreed) return;
+    ptyFreed = true;
+    try {
+      await lib.pty.free(ptyId);
+      await std.log(`[pixelterm] PTY${ptyId} freed`, "pixelterm");
+    } catch (_) {
+      /* ignore — PTY mungkin sudah dibebaskan kernel */
+    }
+  }
+
   // Tunggu resize dari xterm.js di browser (ukuran real dari container).
   // 400ms: beri waktu cukup buat xterm mengirim term_resize AWAL (sekarang
   // dome-client-term.js selalu kirim setelah konstruksi), biar env LINES/COLUMNS
@@ -293,9 +315,7 @@ export const main = Program(async (args: string[]) => {
       await shell.waitpid(shResult.pid);
       await termWrite("\r\n[Shell exited]\r\n");
       await new Promise((r) => setTimeout(r, 300));
-      try {
-        await lib.pty.free(ptyId);
-      } catch (_) {}
+      await freePty();
       await app.close();
     }
   })();
@@ -404,6 +424,11 @@ export const main = Program(async (args: string[]) => {
   });
 
   await app.loopUntilClose();
+
+  // Window ditutup lewat klik X (title bar) — TANPA shell exit.
+  // PTY tetap harus dibebaskan (guard idempotent — sudah di-free oleh watcher
+  // shell-exit tidak masalah). Kalau tidak, /dev/pts/X menggantung (tidak di-remove).
+  await freePty();
 
   // Cleanup
   if (huponexit) {
