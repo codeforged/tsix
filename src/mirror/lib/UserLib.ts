@@ -3,6 +3,7 @@ import { parentPort } from "worker_threads";
 import { SyscallRequest, SyscallResponse } from "../../common/IPCTypes";
 import { v4 as uuidv4 } from "uuid";
 import { DbLib } from "./DbLib";
+import { NetworkLib } from "./NetworkLib";
 
 /**
  * USER LIBRARY (lib) - WORKER VERSION
@@ -1353,92 +1354,9 @@ export class ShellLib {
   }
 }
 
-/**
- * NETWORK LIBRARY (net)
- */
-export class NetworkLib {
-  constructor(
-    private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) {}
-
-  public async socket(): Promise<number> {
-    return await this.dispatch(SyscallCode.SOCKET, null);
-  }
-
-  public async bind(
-    fd: number,
-    port: number,
-    address?: string,
-  ): Promise<boolean> {
-    return await this.dispatch(SyscallCode.BIND, { fd, port, address });
-  }
-
-  public async listen(port: number): Promise<number> {
-    const fd = await this.socket();
-    const ok = await this.bind(fd, port);
-    return ok ? fd : -1;
-  }
-
-  public async accept(serverFd: number): Promise<any> {
-    // Simple accept: wait for any data on port, then return pseudo-socket
-    // In this simple architecture, we poll for the first packet to identify client
-    while (true) {
-      const pkt = await this.recv(serverFd);
-      if (pkt) {
-        return {
-          fd: serverFd,
-          src: pkt.src,
-          port: pkt.port,
-          localPort: pkt.localPort || 0, // Now populated by driver
-          firstPkt: pkt,
-        };
-      }
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  }
-
-  public async sendto(
-    fd: number,
-    address: string,
-    port: number,
-    data: any,
-    flag: number = 0,
-    srcPort: number = 0,
-  ): Promise<boolean> {
-    return await this.dispatch(SyscallCode.SENDTO, {
-      fd,
-      address,
-      port,
-      data,
-      flag,
-      srcPort,
-    });
-  }
-
-  public async recv(fd: number): Promise<any> {
-    return await this.dispatch(SyscallCode.RECVFROM, fd);
-  }
-
-  public async close(fd: number): Promise<boolean> {
-    return await this.dispatch(SyscallCode.CLOSE, fd);
-  }
-
-  public async cha20P1305Agent(
-    fd: number,
-    port: number,
-    key: any,
-  ): Promise<any> {
-    return await this.dispatch(SyscallCode.IOCTL, {
-      fd,
-      cmd: 0x1001,
-      arg: { port, sessionKey: key },
-    });
-  }
-
-  public async ioctl(fd: number, cmd: number, arg: any): Promise<any> {
-    return await this.dispatch(SyscallCode.IOCTL, { fd, cmd, arg });
-  }
-}
+// NetworkLib dipindah ke ./NetworkLib.ts (single source of truth) dan di-re-export
+// supaya `import { NetworkLib } from "./UserLib"` (dipakai Application.ts) tetap jalan.
+export { NetworkLib } from "./NetworkLib";
 
 /**
  * PTY LIB (Pseudo Terminal, on-demand)

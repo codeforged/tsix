@@ -1,14 +1,9 @@
 export { IProgram, OSContext } from "./IProgram";
 import { IProgram, OSContext } from "./IProgram";
-import {
-  UserLib,
-  StdLib,
-  FsLib,
-  ShellLib,
-  NetworkLib,
-  KeyboardLib,
-} from "./UserLib";
-export { NetworkLib } from "./NetworkLib";
+import { NetworkLib, NetSocket } from "./NetworkLib";
+import { UserLib, StdLib, FsLib, ShellLib, KeyboardLib } from "./UserLib";
+export { NetworkLib, NetSocket } from "./NetworkLib";
+export type { NetPacket } from "./NetworkLib";
 export type { KeyEvent } from "./UserLib";
 import { DbLib } from "./DbLib";
 import { RandomLib } from "./RandomLib";

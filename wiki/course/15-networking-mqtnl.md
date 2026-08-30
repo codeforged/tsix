@@ -23,7 +23,7 @@ audience: all
 - [ ] Menjelaskan alur socket: bind → sendto → recvfrom
 - [ ] Menjelaskan peran PortManager dan releasePortsByPid
 - [ ] Menjelaskan mengapa tidak ada listen/accept (emulasi polling)
-- [ ] Menyebutkan syscall networking (30–34)
+- [ ] Menyebutkan syscall networking (30–34) + SECAGENT_LIST (39)
 
 ---
 
@@ -83,8 +83,10 @@ App → socket() → bind(port) → driver.registerHandler(port)
 ### Syscall
 
 ```
-SOCKET=30, BIND=31, SENDTO=32, RECVFROM=33, NETSTAT=34
+SOCKET=30, BIND=31, SENDTO=32, RECVFROM=33, NETSTAT=34, SECAGENT_LIST=39
 ```
+
+> `SECAGENT_LIST` (39) dipakai tool `secagent` untuk menampilkan agent enkripsi yang terdaftar di kernel.
 
 Tidak ada `listen/accept` di level syscall. UserLib meng-emulasi: `listen()` = `socket()` + `bind()`; `accept()` = polling `recv()` sampai ada paket pertama.
 
@@ -124,7 +126,7 @@ Langkah detail:
 4. **Fragmentasi** — `send()` memecah payload menjadi chunk 32KB bila perlu, lalu membungkus tiap chunk dalam paket ber-header 9 field.
 5. **Publish** — driver publish tiap chunk ke topic `mqtnl@1.0/esp32S3` (`qos: 0`, `retain: false`).
 6. **Broker & filter** — semua node subscribe `mqtnl@1.x/#` menerima paket. Tiap driver menyaring: paket hanya diproses bila `dstAddress` sama dengan `localAddress` (atau `"*"`). Paket lain di-drop. Paket yang dikirim sendiri (src = local) juga diabaikan.
-7. **Reassembly & dekripsi** — driver tujuan merakit chunk (sesi per `srcAddr:srcPort → dstAddr:dstPort`, TTL 30s), lalu mendekripsi payload via `SecurityAgent` (port dapat di-upgrade ke ChaCha20-Poly1305 via ioctl `0x1001`).
+7. **Reassembly & dekripsi** — driver tujuan merakit chunk (sesi per `srcAddr:srcPort → dstAddr:dstPort`, TTL 30s), lalu mendekripsi payload via agent yang terpasang di port (default `SecurityAgent`/"chacha20"; bisa di-upgrade ke agent lain via `upgradeSecurity(key, { agent })`, mis. `"aes-gcm"`).
 8. **Dispatch** — driver memanggil handler pada `dstPort` → `socket.push({ src, port, localPort, data, isBinary, ts })` → data masuk buffer socket.
 9. **RECVFROM** — App B memanggil `recv(fd)`. Kernel membaca buffer (`read()` = `buffer.shift()`). Jika kosong, kernel menunggu event-driven (`waitForData`) sampai data di-push.
 
@@ -139,12 +141,16 @@ Langkah detail:
 | `src/kernel/devices/SimpleMQTNLDriver.ts` | Network interface MQTNL |
 | `src/kernel/devices/SocketDevice.ts` | Socket = device (everything is a file) |
 | `src/kernel/PortManager.ts` | Alokasi port virtual |
-| `src/mirror/lib/NetworkLib.ts` | API `lib.net` (legacy, OSContext-based) |
-| `src/mirror/lib/UserLib.ts` | `lib.net` inline (baru, `this.dispatch`) |
-| `src/kernel/Syscalls.ts` | Implementasi syscall SOCKET–NETSTAT (30–34) |
+| `src/mirror/lib/NetworkLib.ts` | API `lib.net` + komponen `NetSocket` (single source of truth) |
+| `src/mirror/lib/UserLib.ts` | Import & re-export `NetworkLib` dari `./NetworkLib` |
+| `src/mirror/lib/Application.ts` | Proxy `net` + export `NetSocket`/`NetPacket` |
+| `src/common/ISecurityAgent.ts` | Kontrak agent enkripsi (pluggable) |
+| `src/common/AesGcmAgent.ts` | Contoh agent kustom AES-256-GCM |
+| `src/kernel/Syscalls.ts` | Implementasi syscall SOCKET–NETSTAT (30–34) + SECAGENT_LIST (39) |
+| `src/mirror/sbin/secagent.ts` | Tool daftar agent yang terdaftar |
 | `src/sysconfig.json` | Konfigurasi interface network default |
 
-> [!WARNING] **Dual NetworkLib.** Ada dua implementasi `lib.net`: inline di `UserLib.ts` (baru) dan `NetworkLib.ts` (legacy, OSContext-based). Keduanya menuju syscall yang sama.
+> [!NOTE] **Satu `NetworkLib`.** Class `NetworkLib` kini tunggal di `NetworkLib.ts` dan menerima `dispatch` ATAU `OSContext` (kompatibel pemakai lama). Untuk aplikasi baru, disarankan `NetSocket` — API high-level yang membungkus lifecycle + events + security.
 
 ### Interface network default (`sysconfig.json`)
 
@@ -163,15 +169,15 @@ Saat boot, kernel membaca `cfg.network.interfaces` dan membuat satu `SimpleMQTNL
 
 Semua snippet di bawah **disalin dari sumber** — "kode adalah kebenaran". Bagian yang dipangkas ditandai `// ...`.
 
-### NetworkLib — pemakaian dari sisi app (`UserLib.ts`)
+### NetworkLib — pemakaian dari sisi app (`NetworkLib.ts`)
 
-`lib.net` adalah instance `NetworkLib` pada `UserLib` (aplikasi baru) dan pada `NetworkLib.ts` (aplikasi legacy berbasis `OSContext`). Socket dikembalikan sebagai **fd** (angka), bukan objek:
+`lib.net` adalah instance `NetworkLib` (single source of truth di `NetworkLib.ts`). Konstruktornya menerima `dispatch` (dipakai `UserLib`) ATAU `OSContext` (dipakai `ping.ts`/`network-traffic.ts`). Socket dikembalikan sebagai **fd** (angka), bukan objek:
 
 ```ts
 export class NetworkLib {
-  constructor(
-    private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) { }
+  // Menerima `dispatch` (UserLib) ATAU `OSContext` (app legacy) — disatukan
+  // jadi satu source of truth (resolveDispatch memilih dispatch yang benar).
+  constructor(source: DispatchFn | OSContext) { /* resolveDispatch(source) */ }
 
   public async socket(): Promise<number> {
     return await this.dispatch(SyscallCode.SOCKET, null);
@@ -243,6 +249,25 @@ const data = await lib.net.recv(fd);                // baca data
 
 // Client mengirim ke node "esp32S3", port 5000
 await lib.net.sendto(fd, "esp32S3", 5000, JSON.stringify({ cmd: "ping" }));
+```
+
+### NetSocket — API high-level ala Cashew (`NetworkLib.ts`)
+
+`NetSocket` membungkus syscall + security + lifecycle jadi komponen: instantiate → event → open → close. Security tidak otomatis — switch eksplisit via `upgradeSecurity(key, { agent })`:
+
+```ts
+const sock = new NetSocket({ port: 8080, key: KEY_HEX });
+
+sock.onData = (pkt) => std.println(`[${pkt.src}:${pkt.port}] ${pkt.data}`);
+sock.onError = (err) => std.println(`ERR: ${err.message}`);
+
+await sock.open();                                         // socket + bind (plain dulu)
+await sock.upgradeSecurity(KEY_HEX);                       // switch ke chacha20 (default)
+await sock.upgradeSecurity(KEY_HEX, { agent: "aes-gcm" }); // atau agent kustom
+await sock.sendTo("esp32S3", 5000, JSON.stringify({ cmd: "ping" }));
+
+await sock.waitClosed();                                   // jaga proses tetap hidup
+await sock.close();                                        // release port + normalisasi agent
 ```
 
 ### PortManager — bind & release (`PortManager.ts`)

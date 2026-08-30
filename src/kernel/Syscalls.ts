@@ -67,7 +67,6 @@ export class SyscallDispatcher {
     this.satpam = satpam;
     this.kernel = kernel;
 
-
     // Register Global Exit Hook: Cleanup resources on ANY process exit
     this.scheduler.setOnProcessExit(async (pid) => {
       const pcb = this.scheduler.getProcess(pid);
@@ -89,7 +88,7 @@ export class SyscallDispatcher {
         // (antisipasi kalo ada socket yang kelewat cleanup-nya)
         try {
           this.kernel.getPortManager().releasePortsByPid(pid);
-        } catch (_) { }
+        } catch (_) {}
 
         // --- GUI Cleanup ---
         const guiRegistry = this.kernel.guiRegistry;
@@ -136,7 +135,7 @@ export class SyscallDispatcher {
       }
       const mysqlDev = this.kernel.devices?.mysql as any;
       if (mysqlDev && typeof mysqlDev.release === "function") {
-        mysqlDev.release(pid).catch(() => { });
+        mysqlDev.release(pid).catch(() => {});
       }
 
       // --- Network Sniffer cleanup: proses mati → lepas dari semua interface ---
@@ -595,8 +594,9 @@ export class SyscallDispatcher {
               const ptyId = parseInt(devName.substring(4), 10);
               if (!isNaN(ptyId)) {
                 device =
-                  (this.kernel.getPTYManager?.()?.getSlave(ptyId) as unknown as IDevice) ||
-                  null;
+                  (this.kernel
+                    .getPTYManager?.()
+                    ?.getSlave(ptyId) as unknown as IDevice) || null;
               }
             } else if (stdoutAliases.includes(devName)) {
               device =
@@ -986,7 +986,11 @@ export class SyscallDispatcher {
           }
 
           const ttyCount = Config.get().shell.ttyCount ?? 6;
-          if (!isNaN(targetTtyId) && targetTtyId >= 1 && targetTtyId <= ttyCount) {
+          if (
+            !isNaN(targetTtyId) &&
+            targetTtyId >= 1 &&
+            targetTtyId <= ttyCount
+          ) {
             await this.kernel.ttyManager?.switch(targetTtyId);
             return 0;
           }
@@ -1123,7 +1127,8 @@ export class SyscallDispatcher {
         // (pts/N) — daemon (tsshd/airtermd/pixelterm) menjalankan shell di sini.
         let targetTtyDevice: IDevice | null = null;
         if (ptyId !== undefined && ptyId >= 0) {
-          const ptySlave = this.kernel.getPTYManager?.()?.getSlave(ptyId) || null;
+          const ptySlave =
+            this.kernel.getPTYManager?.()?.getSlave(ptyId) || null;
           if (ptySlave) targetTtyDevice = ptySlave as unknown as IDevice;
         } else {
           const ttyCount = Config.get().shell.ttyCount ?? 6;
@@ -1332,7 +1337,7 @@ export class SyscallDispatcher {
         }
         // Non-blocking cleanup: allows worker to receive the result of this syscall
         // before it gets terminated by the kernel.
-        this.cleanupProcess(pid).catch(() => { });
+        this.cleanupProcess(pid).catch(() => {});
         return true;
       }
 
@@ -1424,7 +1429,7 @@ export class SyscallDispatcher {
           if (!isAuthorized) {
             this.logger.warn(
               `GUI: PID ${pid} attempted to modify window '${payload.wid}' ` +
-              `owned by PID ${ownerPid}. Sending SIGSEGV.`,
+                `owned by PID ${ownerPid}. Sending SIGSEGV.`,
             );
             this.scheduler.sendEvent(pid, "signal", "SIGSEGV");
             throw new Error(
@@ -1635,6 +1640,11 @@ export class SyscallDispatcher {
           interfaces: stats,
           defaultDevice: cfg.network.defaultDevice,
         };
+      }
+
+      case SyscallCode.SECAGENT_LIST: {
+        // Daftar Security Agent yang terdaftar di kernel (dipakai tool `secagent`).
+        return SimpleMQTNLDriver.listAgents();
       }
 
       case SyscallCode.DETACH: {
@@ -2057,7 +2067,9 @@ export class SyscallDispatcher {
         const device = this.kernel.devices?.mysql as any;
         if (!device) throw new Error("DB_CONNECT: /dev/mysql tidak tersedia");
         if (!args || typeof args !== "object") {
-          throw new Error("DB_CONNECT: cfg {host,user,password,database} wajib");
+          throw new Error(
+            "DB_CONNECT: cfg {host,user,password,database} wajib",
+          );
         }
         const ok = await device.connect(args, pid);
         this.logger.info(
@@ -2088,7 +2100,8 @@ export class SyscallDispatcher {
         }
         // Transport default: /dev/mysql device
         const device = this.kernel.devices?.mysql as any;
-        if (!device) throw new Error("DB_DISCONNECT: /dev/mysql tidak tersedia");
+        if (!device)
+          throw new Error("DB_DISCONNECT: /dev/mysql tidak tersedia");
         const ok = await device.disconnect(pid);
         this.logger.info(`[DB] PID ${pid} disconnect: ${ok}`);
         return ok;
@@ -2125,7 +2138,8 @@ export class SyscallDispatcher {
           iface = args == null ? "*" : String(args);
         }
         this.ensureSnifferWiring();
-        if (!this.netSniffers.has(iface)) this.netSniffers.set(iface, new Map());
+        if (!this.netSniffers.has(iface))
+          this.netSniffers.set(iface, new Map());
         const isRootSniffer = this.isRoot(pcb);
         // Izin: plaintext (decrypted) HANYA dikabulkan jika ROOT && decrypt
         // (opt-in eksplisit via flag --decrypt di bitshark). Non-root tidak pernah.

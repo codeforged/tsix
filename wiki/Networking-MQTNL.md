@@ -10,7 +10,7 @@ MQTNL **bukan** MQTT biasa — ia adalah lapisan enriched yang menambahkan:
 
 - **Virtual Addressing** — Setiap node memiliki alamat unik (hostname-based)
 - **Port-based Connections** — Seperti TCP/IP, aplikasi mengikat ke port tertentu
-- **Socket-Like API** — `bind()`, `listen()`, `accept()`, `connect()` via syscall
+- **Socket-Like API** — `NetSocket` high-level (`open`, `sendTo`, `recv`, `reply`, `close`) di atas syscall `socket()`/`bind()`/`sendto()`/`recvfrom()`
 - **End-to-End Encryption** — RSA handshake + ChaCha20-Poly1305
 
 ### Kenapa MQTT?
@@ -72,9 +72,12 @@ graph LR
 
 | Komponen | File | Deskripsi |
 |----------|------|-----------|
-| `SimpleMQTNLDriver` | `SimpleMQTNLDriver.ts` | Driver utama — publish/subscribe MQTT topics |
+| `SimpleMQTNLDriver` | `SimpleMQTNLDriver.ts` | Driver utama — publish/subscribe MQTT topics + factory registry agent enkripsi |
 | `PortManager` | `PortManager.ts` | Mengelola port binding & routing paket ke proses |
-| `SecurityAgent` | `SecurityAgent.ts` | Cryptographic stack (RSA, ChaCha20, fingerprints) |
+| `SecurityAgent` | `SecurityAgent.ts` | Agent enkripsi default "chacha20" (RSA, ChaCha20, fingerprints) |
+| `ISecurityAgent` | `ISecurityAgent.ts` | Kontrak agent enkripsi (pluggable — bisa diganti agent kustom) |
+| `AesGcmAgent` | `AesGcmAgent.ts` | Contoh agent kustom AES-256-GCM |
+| `NetSocket` | `NetworkLib.ts` | API high-level ala Cashew (open → event → close) |
 | `PacketForwarder` | `PacketForwarder.ts` | Routing & forwarding paket antar-interface |
 
 ---
@@ -109,8 +112,22 @@ sequenceDiagram
 | Layer | Algoritma | Fungsi |
 |-------|-----------|--------|
 | **Identity** | RSA-2048 | Verifikasi identitas node & key exchange |
-| **Session** | ChaCha20-Poly1305 | High-speed AEAD encryption untuk data transfer |
+| **Session** | ChaCha20-Poly1305 (default) | High-speed AEAD encryption untuk data transfer — **pluggable** via custom agent |
 | **Integrity** | SHA-256 | Fingerprint verification & MITM protection |
+
+### Custom Security Agent (Pluggable)
+
+Lapisan **Session** bersifat pluggable. Driver tidak meng-hardcode `SecurityAgent` — ia memakai kontrak `ISecurityAgent` dan memilih agent via nama string:
+
+```ts
+// Daftarkan agent kustom (sisi kernel)
+SimpleMQTNLDriver.registerAgent("aes-gcm", () => new AesGcmAgent());
+
+// Pilih dari aplikasi (userland) — default "chacha20"
+await sock.upgradeSecurity(KEY_HEX, { agent: "aes-gcm" });
+```
+
+Cek agent yang terdaftar: `secagent` (syscall `SECAGENT_LIST`). Agent tak dikenal → fallback ke "chacha20".
 
 ### Visual Identity
 
@@ -158,6 +175,7 @@ Konfigurasi interface di `src/sysconfig.json`:
 | `scp <src> <node>:<dst>` | Secure file copy antar-node |
 | `listen_net` | Listen incoming packets di port tertentu |
 | `forward` | Port forwarding antar-interface |
+| `secagent` | Tampilkan daftar Security Agent yang terdaftar di kernel (`secagent` / `--list` / `--json`) |
 
 ### Contoh Penggunaan
 
