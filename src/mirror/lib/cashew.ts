@@ -1394,6 +1394,7 @@ export function TFlowPanel(
     display: "flex",
     flexWrap: "wrap",
     gap: "6px",
+    gridColumn: "1 / -1",
     ...extraStyle,
   });
 }
