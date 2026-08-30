@@ -42,18 +42,18 @@ Sending is fire-and-forget without a session — that is why this model is **con
 
 ### Address & Port
 
-| Concept | Value | TCP/IP analog |
-|---|---|---|
-| Address | Node name (string) | IP address |
-| Port | Application endpoint (0–65535) | TCP/UDP port |
-| Wire | MQTT pub/sub topic | IP packet |
-| Connection | Connectionless (fire-and-forget) | UDP |
+| Concept    | Value                            | TCP/IP analog |
+| ---------- | -------------------------------- | ------------- |
+| Address    | Node name (string)               | IP address    |
+| Port       | Application endpoint (0–65535)   | TCP/UDP port  |
+| Wire       | MQTT pub/sub topic               | IP packet     |
+| Connection | Connectionless (fire-and-forget) | UDP           |
 
 Each `sendto()` creates a self-contained packet. The packet header carries the destination address & port, so no connection needs to be kept.
 
 ### Three Main Components
 
-1. **SimpleMQTNLDriver** — *network interface* (`/dev/smqtnl0`, `/dev/smqtnl1`). Keeps the connection to the MQTT broker, publishes outbound packets, receives & filters inbound packets, 32KB fragmentation, reassembly, and decryption. Each instance has its own `localAddress` (node name).
+1. **SimpleMQTNLDriver** — _network interface_ (`/dev/smqtnl0`, `/dev/smqtnl1`). Keeps the connection to the MQTT broker, publishes outbound packets, receives & filters inbound packets, 32KB fragmentation, reassembly, and decryption. Each instance has its own `localAddress` (node name).
 2. **SocketDevice** — the abstraction of one socket: inbound data buffer + waiter list. Created per `SOCKET` syscall and stored in the FD table. It is passive — inbound data is `push`ed by the driver, and the application reads it via `recvfrom`.
 3. **PortManager** — keeper of virtual ports 0–65535. `allocatePort()` for explicit bind, `allocateRandomPort(10000-20000)` for `bind(0)`, `releasePortsByPid()` when a process exits.
 
@@ -136,19 +136,19 @@ Detailed steps:
 
 ## Source Code
 
-| File | Role |
-|---|---|
-| `src/kernel/devices/SimpleMQTNLDriver.ts` | MQTNL network interface |
-| `src/kernel/devices/SocketDevice.ts` | Socket = device (everything is a file) |
-| `src/kernel/PortManager.ts` | Virtual port allocation |
-| `src/mirror/lib/NetworkLib.ts` | `lib.net` API + `NetSocket` component (single source of truth) |
-| `src/mirror/lib/UserLib.ts` | Imports & re-exports `NetworkLib` from `./NetworkLib` |
-| `src/mirror/lib/Application.ts` | `net` proxy + exports `NetSocket`/`NetPacket` |
-| `src/common/ISecurityAgent.ts` | Encryption agent contract (pluggable) |
-| `src/common/AesGcmAgent.ts` | Example custom AES-256-GCM agent |
-| `src/kernel/Syscalls.ts` | SOCKET–NETSTAT syscall implementation (30–34) + SECAGENT_LIST (39) |
-| `src/mirror/sbin/secagent.ts` | Tool to list registered agents |
-| `src/sysconfig.json` | Default network interface configuration |
+| File                                      | Role                                                               |
+| ----------------------------------------- | ------------------------------------------------------------------ |
+| `src/kernel/devices/SimpleMQTNLDriver.ts` | MQTNL network interface                                            |
+| `src/kernel/devices/SocketDevice.ts`      | Socket = device (everything is a file)                             |
+| `src/kernel/PortManager.ts`               | Virtual port allocation                                            |
+| `src/mirror/lib/NetworkLib.ts`            | `lib.net` API + `NetSocket` component (single source of truth)     |
+| `src/mirror/lib/UserLib.ts`               | Imports & re-exports `NetworkLib` from `./NetworkLib`              |
+| `src/mirror/lib/Application.ts`           | `net` proxy + exports `NetSocket`/`NetPacket`                      |
+| `src/common/ISecurityAgent.ts`            | Encryption agent contract (pluggable)                              |
+| `src/common/AesGcmAgent.ts`               | Example custom AES-256-GCM agent                                   |
+| `src/kernel/Syscalls.ts`                  | SOCKET–NETSTAT syscall implementation (30–34) + SECAGENT_LIST (39) |
+| `src/mirror/sbin/secagent.ts`             | Tool to list registered agents                                     |
+| `src/sysconfig.json`                      | Default network interface configuration                            |
 
 > [!NOTE] **Single `NetworkLib`.** The `NetworkLib` class is now the single source of truth in `NetworkLib.ts` and accepts either `dispatch` or `OSContext` (backward compatible). For new apps, prefer `NetSocket` — a high-level API wrapping lifecycle + events + security.
 
@@ -156,10 +156,10 @@ Detailed steps:
 
 At boot, the kernel reads `cfg.network.interfaces` and creates one `SimpleMQTNLDriver` per entry (`Kernel.ts` → "Initialize Network Interfaces"). Each interface has a **deviceName** (`/dev` name), an **address** (node name), and a **broker**:
 
-| deviceName | address (node name) | broker | defaultPort |
-|---|---|---|---|
-| `smqtnl0` | `tsix` | `mqtt://192.168.1.204` | 1883 |
-| `smqtnl1` | `tsix-node-2` | `mqtt://192.168.1.204` | 1883 |
+| deviceName | address (node name) | broker                 | defaultPort |
+| ---------- | ------------------- | ---------------------- | ----------- |
+| `smqtnl0`  | `tsix`              | `mqtt://192.168.1.204` | 1883        |
+| `smqtnl1`  | `tsix-node-2`       | `mqtt://192.168.1.204` | 1883        |
 
 `cfg.network.defaultDevice` = `smqtnl0`. If `bind()` is called without an `address` argument, the kernel uses this default interface.
 
@@ -177,7 +177,9 @@ All snippets below are **copied from the source** — "code is truth". Trimmed p
 export class NetworkLib {
   // Accepts `dispatch` (UserLib) OR `OSContext` (legacy apps) — unified into
   // a single source of truth (resolveDispatch picks the right dispatcher).
-  constructor(source: DispatchFn | OSContext) { /* resolveDispatch(source) */ }
+  constructor(source: DispatchFn | OSContext) {
+    /* resolveDispatch(source) */
+  }
 
   public async socket(): Promise<number> {
     return await this.dispatch(SyscallCode.SOCKET, null);
@@ -243,9 +245,9 @@ Usage example (server–client pattern):
 
 ```ts
 // Server di node "tsix"
-const fd = await lib.net.listen(8080);              // socket + bind(8080)
-const client = await lib.net.accept(fd);            // polling recv → { src, port, firstPkt }
-const data = await lib.net.recv(fd);                // baca data
+const fd = await lib.net.listen(8080); // socket + bind(8080)
+const client = await lib.net.accept(fd); // polling recv → { src, port, firstPkt }
+const data = await lib.net.recv(fd); // baca data
 
 // Client mengirim ke node "esp32S3", port 5000
 await lib.net.sendto(fd, "esp32S3", 5000, JSON.stringify({ cmd: "ping" }));
@@ -261,13 +263,13 @@ const sock = new NetSocket({ port: 8080, key: KEY_HEX });
 sock.onData = (pkt) => std.println(`[${pkt.src}:${pkt.port}] ${pkt.data}`);
 sock.onError = (err) => std.println(`ERR: ${err.message}`);
 
-await sock.open();                                         // socket + bind (plain first)
-await sock.upgradeSecurity(KEY_HEX);                       // switch to chacha20 (default)
+await sock.open(); // socket + bind (plain first)
+await sock.upgradeSecurity(KEY_HEX); // switch to chacha20 (default)
 await sock.upgradeSecurity(KEY_HEX, { agent: "aes-gcm" }); // or a custom agent
 await sock.sendTo("esp32S3", 5000, JSON.stringify({ cmd: "ping" }));
 
-await sock.waitClosed();                                   // keep the process alive
-await sock.close();                                        // release port + normalize agent
+await sock.waitClosed(); // keep the process alive
+await sock.close(); // release port + normalize agent
 ```
 
 ### PortManager — bind & release (`PortManager.ts`)
@@ -465,4 +467,4 @@ case SyscallCode.BIND: {
 
 ---
 
-*Module 15 — done. Continue to [Module 16 — Wire Protocol MQTNL](16-wire-protocol-mqtnl.en.md).*
+_Module 15 — done. Continue to [Module 16 — Wire Protocol MQTNL](16-wire-protocol-mqtnl.en.md)._
