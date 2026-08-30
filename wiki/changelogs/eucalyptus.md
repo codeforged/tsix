@@ -6,6 +6,21 @@
 
 ## 2026-08-30
 
+### TS syntax & type check — live (tiap ketikan) + tombol "Check TS"
+
+- **File:** `src/mirror/opt/eucalyptus/eucalyptus.ts`, `src/mirror/opt/dome/dome.ts`, `src/mirror/opt/dome/dome-client-codemirror.js`, `src/mirror/opt/dome/dome-client-dom.js`, `src/mirror/opt/dome/dome-client.html`
+- **Perubahan:**
+  - **Cek ringan (tiap ketikan, debounce ~350ms):** `esbuild.transformSync` → error sintaks pertama → status bar (`⚠️ L12: ...`) + marker di gutter CodeMirror (`✖`). Bersih → `✅ Syntax OK`. Hanya untuk file `.ts/.tsx/.js/.jsx/.mjs/.cjs`.
+  - **Tombol "🔍 Check TS" (toolbar):** **syntax + type check** via `ts.createProgram` (bukan cuma `transpileModule`) — jadi menangkap error tipe seperti `let a: string = 123;` ("Type 'number' is not assignable to type 'string'"). Lazy-load `require("typescript")` (berat, hanya saat diklik). Laporan: count error/warning di status bar + dialog daftar error + marker di semua baris.
+  - **Tolerant host:** file yang dicek = buffer editor (file virtual via `CompilerHost` override); import eksternal (`@tsix/*`, dll) di-skip (`noResolve: true` → dianggap `any`, tanpa noise "cannot find module"); globals umum (console/require/process/Buffer/dll) di-stub jadi `any`; `skipLibCheck`, `noEmit`.
+  - **Marker CodeMirror:** pesan DOME baru `CM_SET_DIAGNOSTICS` → gutter `euc-lint` (`✖` error / `⚠` warning) + background baris error + tooltip pesan.
+  - **Fallback:** kalau `typescript` tidak tersedia → tombol pakai esbuild (syntax, error pertama).
+- **Dampak:** `let a: string = 123;` kini ditandai oleh tombol Check TS (bukan cuma saat live-check — live-check tetap level sintaks agar ringan per ketikan).
+- **Deploy:** `npm run vfs:bootstrap` → restart daemon DOME (atau reboot TSIX) → hard-refresh browser (Cmd+Shift+R).
+- **Oleh:** Copilot
+
+## 2026-08-30
+
 ### Font JetBrains Mono + enrichment CodeMirror (folding, comment toggle, brackets)
 
 - **File:** `src/mirror/opt/dome/dome-client.html`, `src/mirror/opt/dome/dome-client-dom.js`

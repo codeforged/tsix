@@ -4,6 +4,64 @@
 
 ---
 
+## 2026-08-30
+
+### Unifikasi pola opsi — semua komponen kini domain-separated (props di atas + style: {} di bawah)
+
+- **File:** `src/mirror/lib/cashew.ts`
+- **Latar:** Sebelumnya ada dua pola berbeda: widget IoT memakai props + `style:{}` (domain-separated), sedangkan komponen sederhana memakai objek sebagai flat-style langsung. Sekarang disatukan.
+- **Perubahan:**
+  - Helper baru `splitConfig(config, knownProps)` — memisahkan opsi objek literal menjadi **props komponen** (key di `knownProps`, diterapkan via setter) dan **css** (gabungan `style:{}` nested + key lain).
+  - Komponen sederhana (`TPanel`, `TLabel`, `TButton`, `TEdit`, `TMemo`, `TCheckBox`, `TComboBox`, `TStatusBar`, `TProgressBar`) kini menerima **props + `style:{}`**, misalnya:
+    ```ts
+    new TButton({ caption: "OK", enabled: false, style: { background: "#222" } });
+    new TEdit({ text: "halo", placeholder: "Ketik...", style: { width: "200px" } });
+    new TComboBox({ items: ["A", "B"], selectedIndex: 0, style: { width: "140px" } });
+    new TProgressBar({ value: 50, min: 0, max: 100, unit: "%", style: { height: "24px" } });
+    new TStatusBar({ leftText: "Siap", style: { padding: "8px 12px" } });
+    ```
+  - **Backward-compat penuh:** flat style (`new TButton("btn", { background: "#222" })`) dan setter (`btn.caption = "OK"`) tetap bekerja — key yang bukan prop komponen dianggap CSS.
+  - `TListBox` kini bisa `new TListBox({ items: [...], style: {...} })` (selain `new TListBox("id")` + setter).
+  - `TRadioButton` kini bisa `new TRadioButton({ caption, group, checked, style })` (selain `(id, group, extraStyle)`).
+  - `TGroupBox` kini bisa `new TGroupBox({ caption, style })` (selain `(id, caption, extraStyle)`).
+  - `TChart` ikut menerapkan `style:{}` (di-merge ke `this.style`, dipakai base build).
+  - **Urutan penting:** `TStatusBar`/`TProgressBar` menerapkan props di akhir constructor (setelah sub-komponen dibuat), karena setter-nya (`leftText`, `value`, dll.) memakai sub-komponen internal.
+- **Dampak:** Satu konvensi di seluruh framework — props komponen ditulis langsung di opsi, styling di bawah key `style`. Nama prop komponen tidak ada yang bertabrakan dengan properti CSS (`min`/`max` di `TProgressBar` aman karena CSS pakai `min-width`/`min-height`).
+- **Oleh:** Copilot
+
+## 2026-08-30
+
+### Opsi objek literal widget IoT kini menerapkan styling (style)
+
+- **File:** `src/mirror/lib/cashew.ts`, `src/mirror/lib/emerald.ts`
+- **Masalah:** Widget IoT Cashew (`TRadialGauge`, `TLineChart`, `TSevenSegment`, `TIndicatorLamp`, `TToggleSwitch`, `TVerticalGauge`, `TSensorCard`, `TRelayCard`, `TSlider`) menerima opsi objek literal, tapi `style` yang dikirim lewat opsi itu **tidak pernah diterapkan** — fungsi widget Emerald membangun kartu luar dengan style hardcoded dan mengabaikan prop `style`.
+- **Perubahan:**
+  - **Emerald:** semua fungsi widget (`sensorCard`, `relayCard`, `lineChart`, `radialGauge`, `sevenSegment`, `indicatorLamp`, `toggleSwitch`, `verticalGauge`, `slider`) kini menerima prop **`style`** dan meng-merge-nya **di atas** style default kartu (`{ ...default, ...props.style }`). Blok `Props:` di-dokumentasikan.
+  - **Cashew:** wrapper widget menyinkronkan `style` dari opsi objek literal ke `this.style` — konsisten dengan komponen Cashew lain (`comp.style` kini merefleksikan opsi yang dikirim).
+- **Contoh:**
+  ```ts
+  const gauge = new TRadialGauge({ value: 72, style: { width: "220px", background: "#111" } });
+  const card  = new TSensorCard({ label: "Temp", style: { minWidth: "220px" } });
+  ```
+- **Dampak:** User bisa mengkustomisasi kartu luar widget IoT langsung dari opsi objek literal (atau lewat `comp.style`).
+- **Oleh:** Copilot
+
+## 2026-08-30
+
+### id komponen otomatis — user tidak perlu lagi mengisi id di constructor
+
+- **File:** `src/mirror/lib/cashew.ts`
+- **Perubahan:**
+  - `id` di semua komponen (`TComponent` + turunan: `TPanel`, `TLabel`, `TButton`, `TEdit`, `TMemo`, `TCheckBox`, `TListBox`, `TRadioButton`, `TComboBox`, `TStatusBar`, `TProgressBar`, `TLineChart`, `TRadialGauge`, `TSevenSegment`, `TIndicatorLamp`, `TToggleSwitch`, `TVerticalGauge`, `TSensorCard`, `TRelayCard`, `TSlider`, `TTimer`, `TChart`, `TDataGrid`, `TTabulatorGrid`, `TImage`, dll.) kini **opsional** — kalau tidak diisi, di-generate otomatis dari nama class (`TButton` → `button_1`, `button_2`, ...; readable saat debug di browser).
+  - `id` tetap dibutuhkan **internal** (Emerald/DOM: mount, event binding, `screen.update`/`setContent`, `onClickId`/`onInputId` untuk routing event di browser) — hanya saja user tidak perlu repot mengisinya lagi.
+  - **Object-first:** komponen yang menerima style/props bisa dipanggil langsung dengan object tanpa id — `new TButton({...})`, `new TSensorCard({...})`, `new TPanel({...})`.
+  - `TStatusBar`/`TProgressBar`/`TGroupBox` yang menurunkan id sub-komponen kini memakai `this.id` (id hasil auto-generate), bukan `id` param.
+  - `TTimer` disederhanakan: `new TTimer(id?, interval?, enabled?)` — id opsional.
+  - `TDataGrid`/`TTabulatorGrid`: `new TDataGrid(id?, columns?, data?, opts?)` — id opsional, `ConnectedDataGrid`/`ConnectedTabulator` menerima `this.id` yang sudah ter-resolve.
+  - **Kompatibel ke belakang** — semua pemanggilan `new TButton("btn", {...})`, `new TSensorCard("temp", {...})`, `new TTabulatorGrid("sensor", cols, ...)` lama tetap bekerja.
+- **Dampak:** User cukup `new TButton()` + set properti via instance (atau `new TButton({...})`), tidak perlu menebak id unik. Id unik dijamin oleh counter global per proses.
+- **Oleh:** Copilot
+
 ## 2026-08-18
 
 ### Penambahan paramater left, top dan desktopCentered untuk positioning TForm

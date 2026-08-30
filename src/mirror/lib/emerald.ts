@@ -406,6 +406,7 @@ export function taskbarButton(props: Record<string, any> = {}): IDOMNode {
  *   - color:    Warna utama (hex, e.g. "#f44336")
  *   - value:    Nilai saat ini (number). Default "—" jika undefined
  *   - min/max:  Range untuk progress bar (default 0/100)
+ *   - style:    Style tambahan kartu luar (di-merge di atas default)
  */
 export function sensorCard(props: Record<string, any> = {}): IDOMNode {
   const id = props.id || uuidv4();
@@ -432,6 +433,7 @@ export function sensorCard(props: Record<string, any> = {}): IDOMNode {
         borderRadius: "10px",
         padding: "16px",
         border: `1px solid ${color}44`,
+        ...(props.style || {}),
       },
     },
     div(
@@ -497,6 +499,7 @@ export function sensorCard(props: Record<string, any> = {}): IDOMNode {
  *   - icon:    Emoji
  *   - color:   Warna saat ON (e.g. "#4caf50")
  *   - active:  true = ON, false = OFF (default false)
+ *   - style:   Style tambahan kartu luar (di-merge di atas default)
  */
 export function relayCard(props: Record<string, any> = {}): IDOMNode {
   const id = props.id || uuidv4();
@@ -515,6 +518,7 @@ export function relayCard(props: Record<string, any> = {}): IDOMNode {
         background: on ? `${color}22` : theme.colors.card,
         flex: "1",
         textAlign: "center" as any,
+        ...(props.style || {}),
       },
     },
     span({
@@ -851,6 +855,7 @@ function splinePath(pts: number[][], tension = 0.5): string {
  *   - height: tinggi SVG (default 180)
  *   - min/max: rentang Y (auto dari data jika tidak di-set)
  *   - title:  judul chart
+ *   - style:  style tambahan kartu luar (di-merge di atas default)
  */
 export function lineChart(props: Record<string, any> = {}): IDOMNode {
   const id = props.id || uuidv4();
@@ -944,6 +949,7 @@ export function lineChart(props: Record<string, any> = {}): IDOMNode {
         padding: "14px",
         border: `1px solid ${color}44`,
         overflow: "hidden",
+        ...(props.style || {}),
       },
     },
     props.title
@@ -979,6 +985,7 @@ export function lineChart(props: Record<string, any> = {}): IDOMNode {
  *   - size:   diameter (default 120)
  *   - label:  teks di bawah gauge
  *   - unit:   satuan setelah nilai
+ *   - style:  style tambahan kartu luar (di-merge di atas default)
  */
 export function radialGauge(props: Record<string, any> = {}): IDOMNode {
   const id = props.id || uuidv4();
@@ -1025,8 +1032,9 @@ export function radialGauge(props: Record<string, any> = {}): IDOMNode {
   html += `<line x1="${cx}" y1="${cy}" x2="${cx + nl}" y2="${cy}" stroke="${rgFg}" stroke-width="2" stroke-linecap="round"/>`;
   html += `</g>`;
   html += `<circle cx="${cx}" cy="${cy}" r="${size * 0.04}" fill="${rgFg}"/>`;
-  html += `<text id="rg-val-${id}" data-tsix-id="rg-val-${id}" x="${cx}" y="${cy + size * 0.05 + 15}" fill="${rgFg}" font-size="${size * 0.14}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${val % 1 === 0 ? Math.round(val) : val.toFixed(1)}</text>`;
-  html += `<text x="${cx}" y="${cy + size * 0.2 + 15}" fill="#888" font-size="${size * 0.09}" text-anchor="middle">${unit}</text>`;
+  const rgFormatted = val % 1 === 0 ? String(Math.round(val)) : val.toFixed(1);
+  html += `<text id="rg-val-${id}" data-tsix-id="rg-val-${id}" x="${cx}" y="${cy + size * 0.05 + 15}" fill="${rgFg}" font-size="${size * 0.14}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${rgFormatted}</text>`;
+  html += `<text id="rg-unit-${id}" data-tsix-id="rg-unit-${id}" x="${cx}" y="${cy + size * 0.2 + 15}" fill="#888" font-size="${size * 0.09}" text-anchor="middle">${unit}</text>`;
   html += `</svg>`;
 
   const children: IDOMNode[] = [
@@ -1063,6 +1071,7 @@ export function radialGauge(props: Record<string, any> = {}): IDOMNode {
         border: `1px solid ${color}44`,
         textAlign: "center" as any,
         overflow: "hidden",
+        ...(props.style || {}),
       },
     },
     ...children,
@@ -1082,6 +1091,7 @@ export function radialGauge(props: Record<string, any> = {}): IDOMNode {
  *   - decimals: jumlah digit di belakang koma (default 0)
  *   - color:    warna LED saat menyala (default "#4caf50")
  *   - offColor: warna LED saat mati (default "#ffffff08")
+ *   - style:    style tambahan kartu luar (di-merge di atas default)
  */
 export function isLightColor(hex: string): boolean {
   if (!hex || !hex.startsWith("#")) return false;
@@ -1213,6 +1223,7 @@ export function sevenSegment(props: Record<string, any> = {}): IDOMNode {
     overflow: "hidden",
     display: "flex",
     flexDirection: "column",
+    ...(props.style || {}),
   };
   if (props.height != null) segStyle.height = props.height;
   return div({ id, style: segStyle }, ...children);
@@ -1231,6 +1242,7 @@ export function sevenSegment(props: Record<string, any> = {}): IDOMNode {
  *   - on:    true = menyala, false = mati (default false)
  *   - label: teks label di bawah lampu
  *   - size:  diameter lampu dalam px (default 36)
+ *   - style: style tambahan kartu luar (di-merge di atas default)
  */
 export function indicatorLamp(props: Record<string, any> = {}): IDOMNode {
   const id = props.id || uuidv4();
@@ -1286,6 +1298,7 @@ export function indicatorLamp(props: Record<string, any> = {}): IDOMNode {
         border: `1px solid ${on ? color : theme.colors.border}44`,
         textAlign: "center" as any,
         overflow: "hidden",
+        ...(props.style || {}),
       },
     },
     ...children,
@@ -1321,6 +1334,7 @@ export function toggleSwitch(props: Record<string, any> = {}): IDOMNode {
       textAlign: "center" as any,
       cursor: "pointer",
       overflow: "hidden",
+      ...(props.style || {}),
     },
   };
   if (props.onClickId) cardProps.onClickId = props.onClickId;
@@ -1373,6 +1387,7 @@ export function toggleSwitch(props: Record<string, any> = {}): IDOMNode {
  *   - bg:     warna background tabung (default "#ffffff08")
  *   - w:      lebar tabung px (default 48)
  *   - h:      tinggi tabung px (default 160)
+ *   - style:  style tambahan kartu luar (di-merge di atas default)
  */
 export function verticalGauge(props: Record<string, any> = {}): IDOMNode {
   const id = props.id || uuidv4();
@@ -1455,6 +1470,7 @@ export function verticalGauge(props: Record<string, any> = {}): IDOMNode {
         border: `1px solid ${color}44`,
         textAlign: "center" as any,
         overflow: "hidden",
+        ...(props.style || {}),
       },
     },
     ...children,
@@ -3514,6 +3530,7 @@ export function slider(props: Record<string, any> = {}): IDOMNode {
         borderRadius: "10px",
         padding: "14px",
         border: `1px solid ${color}44`,
+        ...(props.style || {}),
       },
     },
     ...children,
@@ -3928,6 +3945,34 @@ export class Window {
    */
   public async flush(): Promise<void> {
     await this.flushNow();
+  }
+
+  // ============================================================
+  // DOM TRAVERSAL — support query ala jQuery (lazy mode, app-side)
+  // ============================================================
+
+  /** Id-id sibling dari target (urutan struktural vdom). Kosong jika tak ditemukan. */
+  public siblingIdsOf(targetId: string): string[] {
+    for (const node of this.vdom.values()) {
+      const childIds = (node.children || []).map((c) => c.id);
+      if (childIds.includes(targetId)) return childIds;
+    }
+    return [];
+  }
+
+  /** Id parent dari target (via scan children). null jika tak ditemukan. */
+  public parentIdOf(targetId: string): string | null {
+    for (const [pid, node] of this.vdom.entries()) {
+      const childIds = (node.children || []).map((c) => c.id);
+      if (childIds.includes(targetId)) return pid;
+    }
+    return null;
+  }
+
+  /** Id-id child langsung dari target. */
+  public childIdsOf(targetId: string): string[] {
+    const node = this.vdom.get(targetId);
+    return (node?.children || []).map((c) => c.id);
   }
 
   // ============================================================
@@ -5600,3 +5645,152 @@ export class Keyboard {
     }
   }
 }
+
+// ============================================================
+// DOM QUERY — fluent query ala jQuery (lazy mode, app-side)
+// ------------------------------------------------------------
+// Bekerja di virtual DOM app-side (Window.vdom) — TANPA RPC ke browser.
+// Traversal (next/prev/parent/children) resolve ke id, lalu operasi
+// mutasi memakai window.updateProps (di-batch seperti biasa).
+//
+// Limitasi "lazy mode":
+//  - Hanya mengenal node yang ter-mount sebagai IDOMNode. Elemen hasil
+//    innerHTML (mis. SVG di dalam widget) & child dari setContent() yang
+//    tidak tercatat di children parentnya tidak bisa di-traverse.
+//
+// Usage:
+//   dom(app.win, "row-3").next().html("<b>x</b>");
+//   dom(app, "card").children().first().text("Halo");
+//   dom(app.win, "lbl").style({ color: "#f44336" }).update({ bold: "1" });
+// ============================================================
+
+export class DomQuery {
+  private win: Window;
+  private _ids: string[];
+
+  constructor(win: Window, ids: string[]) {
+    this.win = win;
+    this._ids = ids;
+  }
+
+  /** Jumlah elemen yang sedang ditunjuk. */
+  get length(): number {
+    return this._ids.length;
+  }
+
+  /** Id-id yang sedang ditunjuk (copy). */
+  get ids(): string[] {
+    return [...this._ids];
+  }
+
+  // ── TRAVERSAL (resolve ke id — sync) ──
+
+  /** Elemen berikutnya (sibling setelah target, urutan struktural vdom). */
+  next(): DomQuery {
+    const out: string[] = [];
+    for (const id of this._ids) {
+      const sibs = this.win.siblingIdsOf(id);
+      const i = sibs.indexOf(id);
+      if (i >= 0 && i + 1 < sibs.length) out.push(sibs[i + 1]);
+    }
+    return new DomQuery(this.win, out);
+  }
+
+  /** Elemen sebelumnya (sibling sebelum target). */
+  prev(): DomQuery {
+    const out: string[] = [];
+    for (const id of this._ids) {
+      const sibs = this.win.siblingIdsOf(id);
+      const i = sibs.indexOf(id);
+      if (i > 0) out.push(sibs[i - 1]);
+    }
+    return new DomQuery(this.win, out);
+  }
+
+  /** Parent (container) langsung dari target. */
+  parent(): DomQuery {
+    const out: string[] = [];
+    for (const id of this._ids) {
+      const p = this.win.parentIdOf(id);
+      if (p) out.push(p);
+    }
+    return new DomQuery(this.win, out);
+  }
+
+  /** Child-child langsung dari target. */
+  children(): DomQuery {
+    const out: string[] = [];
+    for (const id of this._ids) {
+      out.push(...this.win.childIdsOf(id));
+    }
+    return new DomQuery(this.win, out);
+  }
+
+  /** Ambil elemen pertama saja. */
+  first(): DomQuery {
+    return new DomQuery(this.win, this._ids.slice(0, 1));
+  }
+
+  /** Ambil elemen ke-i (negatif = dari belakang). */
+  eq(i: number): DomQuery {
+    const idx = i < 0 ? this._ids.length + i : i;
+    return new DomQuery(
+      this.win,
+      idx >= 0 && idx < this._ids.length ? [this._ids[idx]] : [],
+    );
+  }
+
+  // ── MUTATION (async, di-batch via updateProps) ──
+
+  private async mutate(props: Record<string, any>): Promise<DomQuery> {
+    for (const id of this._ids) {
+      await this.win.updateProps(id, props);
+    }
+    return this;
+  }
+
+  /** Set innerHTML. */
+  html(v: string): Promise<DomQuery> {
+    return this.mutate({ innerHTML: v });
+  }
+
+  /** Set text. */
+  text(v: string): Promise<DomQuery> {
+    return this.mutate({ text: v });
+  }
+
+  /** Set value (input). */
+  val(v: string): Promise<DomQuery> {
+    return this.mutate({ value: v });
+  }
+
+  /** Merge style. */
+  style(obj: Record<string, any>): Promise<DomQuery> {
+    return this.mutate({ style: obj });
+  }
+
+  /** Update props generik. */
+  update(props: Record<string, any>): Promise<DomQuery> {
+    return this.mutate(props);
+  }
+
+  /** Set satu atribut/prop. */
+  attr(k: string, v: any): Promise<DomQuery> {
+    return this.mutate({ [k]: v });
+  }
+}
+
+/**
+ * dom(): Buat query DOM ala jQuery untuk TSIX (app-side, lazy mode).
+ * Terima Window atau Screen; id awal opsional (kosong = query kosong).
+ *
+ * @param target Window atau Screen
+ * @param ids    id awal yang ditunjuk
+ */
+export function dom(target: Window | Screen, ...ids: string[]): DomQuery {
+  const win: Window = target instanceof Screen ? target.win : target;
+  return new DomQuery(win, ids);
+}
+
+/** Alias gaya jQuery — sama dengan dom(). */
+export const $ = dom;

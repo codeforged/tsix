@@ -79,7 +79,11 @@
           tabSize: 2,
           // ── ENRICHMENT (addon di-load di dome-client.html) ──
           foldGutter: true, // ikon lipat di gutter kiri (klik ▸/▾ untuk fold)
-          gutters: ["CodeMirror-foldgutter", "CodeMirror-linenumbers"],
+          gutters: [
+            "CodeMirror-foldgutter",
+            "CodeMirror-linenumbers",
+            "euc-lint", // gutter marker error TS (Eucalyptus syntax check)
+          ],
           matchBrackets: true, // sorot pasangan kurung saat cursor di dekatnya
           autoCloseBrackets: true, // auto-tutup ( ) [ ] { } " ' `
           highlightSelectionMatches: true, // sorot kata yang sama dgn seleksi

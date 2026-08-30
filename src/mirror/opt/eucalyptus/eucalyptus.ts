@@ -1,6 +1,8 @@
 import { Program, std, fs, shell } from "@tsix/Application";
 import { Screen, div, button, text, span, h2, h3, input } from "@tsix/emerald";
 import { theme } from "@tsix/theme";
+// TS syntax checker — esbuild pasti tersedia di runtime (dipakai loader OS).
+import { transformSync as esbuildTransform } from "esbuild";
 
 /**
  * EUCALYPTUS 1.0 — TSIX Text Editor (CodeMirror-powered)
@@ -108,6 +110,8 @@ export const main = Program(async (args: string[]) => {
         modified = isDirty;
         updateModifiedStatus();
       }
+      // Cek sintaks TS ringan (debounce) — hanya untuk file .ts/.tsx/.js
+      scheduleSyntaxCheck();
     }
     // Ctrl+S from browser
     if (ev?.eventType === "cm_save") {
@@ -128,6 +132,210 @@ export const main = Program(async (args: string[]) => {
     if (!currentFile) return false;
     const ext = currentFile.split(".").pop()?.toLowerCase() || "";
     return ext === "ts" || ext === "js";
+  }
+
+  // ── TS SYNTAX CHECK ──
+  // Ringan (esbuild, tiap ketikan, debounce) + Lengkap (TypeScript, tombol).
+  const TS_CHECK_EXTS = ["ts", "tsx", "js", "jsx", "mjs", "cjs"];
+  function isCheckableFile(): boolean {
+    if (!currentFile) return false;
+    const ext = currentFile.split(".").pop()?.toLowerCase() || "";
+    return TS_CHECK_EXTS.includes(ext);
+  }
+  function tsLoaderForFile(): "ts" | "tsx" | "js" | "jsx" {
+    const ext = currentFile?.split(".").pop()?.toLowerCase() || "ts";
+    if (ext === "tsx") return "tsx";
+    if (ext === "jsx") return "jsx";
+    if (ext === "js" || ext === "mjs" || ext === "cjs") return "js";
+    return "ts";
+  }
+  /** Kirim marker error ke CodeMirror via DOME. */
+  async function applyDiagnostics(
+    diags: { line: number; message: string; severity?: string }[],
+  ) {
+    if (!domePid) return;
+    try {
+      await shell.send(domePid, {
+        type: "CM_SET_DIAGNOSTICS",
+        wid: app.wid,
+        targetId: cmId,
+        diagnostics: diags,
+      });
+    } catch (_) {}
+  }
+  async function clearDiagnostics() {
+    await applyDiagnostics([]);
+  }
+  /** Error sintaks pertama via esbuild (cek ringan). */
+  function esbuildFirstError(
+    code: string,
+  ): { line: number; message: string } | null {
+    try {
+      esbuildTransform(code, { loader: tsLoaderForFile() });
+      return null;
+    } catch (err: any) {
+      const e = err || {};
+      const d = (Array.isArray(e.errors) && e.errors[0]) || {};
+      const text = d.text || e.message || "Syntax error";
+      const loc = d.location || e.location || {};
+      return {
+        line: Math.max(0, (loc.line || 1) - 1), // 0-based utk CodeMirror
+        message: String(text),
+      };
+    }
+  }
+  // ── Cek ringan (debounce) — di-trigger tiap ketikan ──
+  let syntaxTimer: any = null;
+  function scheduleSyntaxCheck(delay = 350) {
+    if (!isCheckableFile()) return;
+    if (syntaxTimer) clearTimeout(syntaxTimer);
+    syntaxTimer = setTimeout(() => {
+      syntaxTimer = null;
+      const err = esbuildFirstError(editorContent);
+      if (err) {
+        applyDiagnostics([{ ...err, severity: "error" }]);
+        app.update("status-bar", {
+          text: `⚠️ L${err.line + 1}: ${err.message}`,
+        });
+      } else {
+        clearDiagnostics();
+        app.update("status-bar", { text: "✅ Syntax OK" });
+      }
+    }, delay);
+  }
+  // ── Cek lengkap (tombol) — TypeScript compiler: sintaks + tipe ──
+  let _tsModule: any = null;
+  async function checkSyntaxFull() {
+    if (!currentFile || !isCheckableFile()) return;
+    try {
+      // Lazy-load TypeScript compiler (berat) — hanya saat tombol ditekan.
+      if (!_tsModule) _tsModule = require("typescript");
+      const ts = _tsModule;
+      // ── Type + syntax check via ts.createProgram ──
+      // File virtual = buffer editor (bisa beda dari isi disk). Import
+      // eksternal (@tsix/*, dll) di-skip (noResolve → dianggap `any`),
+      // sehingga tidak ada noise "cannot find module" — tipe di dalam file
+      // itu sendiri tetap diperiksa penuh (mis. `let a: string = 123`).
+      const fileName = currentFile;
+      const sourceText = editorContent;
+      // Global umum (console, require, dll) di-stub jadi `any` supaya file
+      // TSIX biasa tidak banjir error "cannot find name".
+      const globalsPath = "tsix-globals.d.ts";
+      const globalsText = [
+        "declare var console: any;",
+        "declare var require: any;",
+        "declare var process: any;",
+        "declare var global: any;",
+        "declare var Buffer: any;",
+        "declare var module: any;",
+      ].join("\n");
+
+      const options: any = {
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.CommonJS,
+        jsx: ts.JsxEmit.Preserve,
+        esModuleInterop: true,
+        strict: true,
+        noEmit: true,
+        skipLibCheck: true,
+        noResolve: true, // import eksternal → any (tanpa noise "cannot find module")
+        types: [], // jangan auto-load @types — cepat, globals dari tsix-globals
+      };
+
+      const host = ts.createCompilerHost(options);
+      const origGetSourceFile = host.getSourceFile.bind(host);
+      const origFileExists = host.fileExists.bind(host);
+      const origReadFile = host.readFile.bind(host);
+      host.fileExists = (f: string) =>
+        f === fileName || f === globalsPath ? true : origFileExists(f);
+      host.readFile = (f: string) =>
+        f === fileName
+          ? sourceText
+          : f === globalsPath
+            ? globalsText
+            : origReadFile(f);
+      host.getSourceFile = (
+        f: string,
+        langVer: any,
+        onError?: any,
+        shouldCreate?: boolean,
+      ) => {
+        if (f === fileName)
+          return ts.createSourceFile(f, sourceText, langVer, true);
+        if (f === globalsPath)
+          return ts.createSourceFile(f, globalsText, langVer, true);
+        return origGetSourceFile(f, langVer, onError, shouldCreate);
+      };
+
+      const program = ts.createProgram([fileName, globalsPath], options, host);
+      const diags: any[] = ts
+        .getPreEmitDiagnostics(program)
+        .filter(
+          (d: any) =>
+            d.file && d.file.fileName === fileName && d.start != null,
+        );
+      if (!diags.length) {
+        await clearDiagnostics();
+        await app.update("status-bar", {
+          text: "✅ No errors (syntax & types)",
+        });
+        await app.alert(
+          "🔍 Check TS",
+          `${currentFile}\n\n✅ No errors (syntax & types).`,
+        );
+        return;
+      }
+      const mapped = diags.map((d: any) => {
+        const pos = d.file.getLineAndCharacterOfPosition(d.start);
+        const raw =
+          typeof d.messageText === "string"
+            ? d.messageText
+            : d.messageText?.messageText || "?";
+        const cat = d.category; // 1 = error, 2 = warning
+        return {
+          line: pos.line, // 0-based utk CodeMirror
+          message: String(raw).replace(/\s+/g, " ").trim(),
+          severity: cat === 2 ? "warning" : "error",
+        };
+      });
+      await applyDiagnostics(mapped);
+      const errs = mapped.filter((d: any) => d.severity === "error").length;
+      const warns = mapped.length - errs;
+      const first = mapped[0];
+      await app.update("status-bar", {
+        text: `🔍 ${errs} error${errs === 1 ? "" : "s"}${
+          warns ? " · " + warns + " warning(s)" : ""
+        } · first L${first.line + 1}`,
+      });
+      const lines = mapped
+        .slice(0, 12)
+        .map((d: any) => `L${d.line + 1}: ${d.message}`)
+        .join("\n");
+      await app.alert(
+        "🔍 Check TS",
+        `${currentFile}\n${errs} error(s)${
+          warns ? ", " + warns + " warning(s)" : ""
+        }:\n\n${lines}${
+          mapped.length > 12 ? `\n… +${mapped.length - 12} lagi` : ""
+        }`,
+      );
+    } catch (e: any) {
+      // Fallback: TypeScript tidak tersedia → esbuild (error pertama saja).
+      const err = esbuildFirstError(editorContent);
+      if (err) {
+        await applyDiagnostics([{ ...err, severity: "error" }]);
+        await app.update("status-bar", {
+          text: `⚠️ L${err.line + 1}: ${err.message}`,
+        });
+        await app.alert(
+          "🔍 Check TS",
+          `${currentFile}\n\n⚠️ L${err.line + 1}: ${err.message}`,
+        );
+      } else {
+        await clearDiagnostics();
+        await app.update("status-bar", { text: "✅ Syntax OK" });
+      }
+    }
   }
 
   async function readRunPid(): Promise<number | null> {
@@ -222,11 +430,12 @@ export const main = Program(async (args: string[]) => {
     await runCurrent();
   }
 
-  /** Sinkronkan enable/disable tombol Run & Re-run. */
+  /** Sinkronkan enable/disable tombol Run, Re-run & Check Syntax. */
   async function updateRunButtons() {
     const canRun = isRunnableFile();
     await app.update("tb-run", { disabled: canRun ? "" : "1" });
     await app.update("tb-rerun", { disabled: runPid ? "" : "1" });
+    await app.update("tb-check", { disabled: isCheckableFile() ? "" : "1" });
     await (app as any).win.flush();
   }
 
@@ -258,6 +467,7 @@ export const main = Program(async (args: string[]) => {
       const c = raw ? String(raw) : "";
       currentFile = filePath;
       savedContent = c; // baseline bersih = isi file saat dibuka
+      await clearDiagnostics();
       await cmSetValue(c);
       await app.update("status-bar", {
         text: "📄 " + filePath + " (" + c.length + " chars)",
@@ -313,6 +523,7 @@ export const main = Program(async (args: string[]) => {
     currentFile = null;
     modified = false;
     savedContent = "";
+    await clearDiagnostics();
     await cmSetValue("");
     await app.update("status-bar", { text: "Editor cleared" });
     await updateModifiedStatus();
@@ -514,6 +725,18 @@ export const main = Program(async (args: string[]) => {
           disabled: "1",
         }),
         button({
+          id: "tb-check",
+          text: "🔍 Check TS",
+          title: "Check TS syntax & types (TypeScript compiler)",
+          style: {
+            ...tb(),
+            color: theme.colors.warning,
+            borderColor: theme.colors.warning + "66",
+          },
+          onClickId: "tb-check",
+          disabled: "1",
+        }),
+        button({
           id: "tb-close",
           text: "✕ Close",
           style: {
@@ -639,6 +862,7 @@ export const main = Program(async (args: string[]) => {
   await app.on("tb-close", "click", closeFile);
   await app.on("tb-run", "click", runCurrent);
   await app.on("tb-rerun", "click", rerunCurrent);
+  await app.on("tb-check", "click", checkSyntaxFull);
 
   // Pulihkan referensi PID instance yang mungkin masih berjalan dari sesi
   // sebelumnya (baca dari pidfile) — supaya Re-run bisa langsung dipakai.

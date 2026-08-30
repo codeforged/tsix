@@ -49,6 +49,82 @@ async function ensureShell(): Promise<any> {
 }
 
 // ================================================================
+// ID GENERATOR — auto-id kalau user tidak memberi id eksplisit
+// ================================================================
+
+let _compSeq = 0;
+
+/**
+ * Generate id DOM unik otomatis berbasis nama class (readable saat debug):
+ *   TButton → button_1, button_2, ...
+ *   TSensorCard → sensorcard_1, ...
+ *
+ * Id ini TETAP dibutuhkan internal (Emerald/DOM: mount, event binding,
+ * screen.update / screen.setContent) — hanya saja user tidak perlu
+ * repot mengisinya di constructor.
+ */
+function genComponentId(ctor: { name?: string }): string {
+  const name =
+    (ctor?.name || "comp")
+      .replace(/^T/, "")
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toLowerCase() || "comp";
+  return `${name}_${++_compSeq}`;
+}
+
+/**
+ * Normalisasi argumen pertama konstruktor: boleh id eksplisit ATAU
+ * langsung style/props object (tanpa id — id auto-generate):
+ *
+ *   new TButton()               → id: undefined (auto), config: {}
+ *   new TButton("btn")          → id: "btn",     config: {}
+ *   new TButton("btn", {...})   → id: "btn",     config: {...}
+ *   new TButton({...})          → id: undefined (auto), config: {...}
+ */
+function splitFirstArg(
+  idOrConfig?: string | Record<string, any>,
+  extra?: Record<string, any>,
+): { id?: string; config?: Record<string, any> } {
+  if (typeof idOrConfig === "object" && idOrConfig !== null) {
+    return { id: undefined, config: { ...idOrConfig, ...(extra || {}) } };
+  }
+  return { id: idOrConfig, config: extra };
+}
+
+/**
+ * Pisahkan opsi objek literal menjadi: props komponen + style (css).
+ * Dipakai komponen "sederhana" (TButton, TLabel, dll.) yang objek opsi-nya
+ * tadinya flat-style — kini tetap flat-style (backward-compat) ATAU
+ * domain-separated (props di atas, `style: {...}` di bawah):
+ *
+ *   { caption: "OK", background: "#222", style: { padding: "4px" } }
+ *     → props: { caption: "OK" }, css: { background: "#222", padding: "4px" }
+ *
+ * Aturan:
+ *   - key "style" (objek) → isinya masuk css
+ *   - key di `knownProps` → masuk props (diterapkan via setter komponen)
+ *   - key lain            → dianggap CSS flat (backward-compat)
+ */
+function splitConfig(
+  config: Record<string, any> | undefined,
+  knownProps: string[],
+): { props: Record<string, any>; css: Record<string, any> } {
+  const props: Record<string, any> = {};
+  const css: Record<string, any> = {};
+  for (const k of Object.keys(config || {})) {
+    const v = (config as any)[k];
+    if (k === "style") {
+      if (v && typeof v === "object") Object.assign(css, v);
+    } else if (knownProps.includes(k)) {
+      props[k] = v;
+    } else {
+      css[k] = v;
+    }
+  }
+  return { props, css };
+}
+
+// ================================================================
 // BASE CLASS — TComponent
 // ================================================================
 
@@ -60,8 +136,9 @@ export class TComponent {
   public props: Record<string, any> = {};
   public style: Record<string, any> = {};
 
-  constructor(id: string) {
-    this.id = id;
+  constructor(id?: string) {
+    // Kalau id tidak diberikan, generate otomatis dari nama class.
+    this.id = id ?? genComponentId(this.constructor);
   }
 
   /** Tambah child otomatis set parent */
@@ -489,15 +566,21 @@ export class TDialogs {
 // ================================================================
 
 export class TPanel extends TComponent {
-  constructor(id: string, extraStyle?: Record<string, any>) {
+  constructor(
+    idOrStyle?: string | Record<string, any>,
+    extraStyle?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrStyle, extraStyle);
     super(id);
     this.tag = "div";
+    const { props, css } = splitConfig(config, ["caption"]);
+    if (props.caption !== undefined) this.caption = props.caption;
     this.style = {
       background: "var(--surface, #16213e)",
       borderRadius: "8px",
       padding: "10px",
       border: "1px solid var(--accent, rgba(76,175,80,0.2))",
-      ...extraStyle,
+      ...css,
     };
   }
 
@@ -516,13 +599,19 @@ export class TPanel extends TComponent {
 export class TLabel extends TComponent {
   private _screen: Screen | null = null;
 
-  constructor(id: string, extraStyle?: Record<string, any>) {
+  constructor(
+    idOrStyle?: string | Record<string, any>,
+    extraStyle?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrStyle, extraStyle);
     super(id);
     this.tag = "span";
+    const { props, css } = splitConfig(config, ["caption"]);
+    if (props.caption !== undefined) this.caption = props.caption;
     this.style = {
       color: "var(--text-dim, #ccc)",
       fontSize: "13px",
-      ...extraStyle,
+      ...css,
     };
   }
 
@@ -547,10 +636,17 @@ export class TButton extends TComponent {
   public onClick: (() => void) | null = null;
   private _screen: Screen | null = null;
 
-  constructor(id: string, extraStyle?: Record<string, any>) {
+  constructor(
+    idOrStyle?: string | Record<string, any>,
+    extraStyle?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrStyle, extraStyle);
     super(id);
     this.tag = "button";
-    this.props.onClickId = id;
+    this.props.onClickId = this.id;
+    const { props, css } = splitConfig(config, ["caption", "enabled"]);
+    if (props.caption !== undefined) this.caption = props.caption;
+    if (props.enabled !== undefined) this.enabled = props.enabled;
     this.style = {
       background: "var(--button-bg, #0f3460)",
       color: "var(--accent, #4caf50)",
@@ -560,7 +656,7 @@ export class TButton extends TComponent {
       cursor: "pointer",
       fontSize: "12px",
       fontWeight: "600",
-      ...extraStyle,
+      ...css,
     };
   }
 
@@ -594,11 +690,18 @@ export class TEdit extends TComponent {
   public onInput: ((value: string) => void) | null = null;
   private _screen: Screen | null = null;
 
-  constructor(id: string, extraStyle?: Record<string, any>) {
+  constructor(
+    idOrStyle?: string | Record<string, any>,
+    extraStyle?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrStyle, extraStyle);
     super(id);
     this.tag = "input";
     this.props.type = "text";
-    this.props.onInputId = id;
+    this.props.onInputId = this.id;
+    const { props, css } = splitConfig(config, ["text", "placeholder"]);
+    if (props.text !== undefined) this.text = props.text;
+    if (props.placeholder !== undefined) this.placeholder = props.placeholder;
     this.style = {
       width: "100%",
       padding: "8px 12px",
@@ -609,7 +712,7 @@ export class TEdit extends TComponent {
       fontSize: "13px",
       outline: "none",
       boxSizing: "border-box",
-      ...extraStyle,
+      ...css,
     };
   }
 
@@ -642,10 +745,17 @@ export class TEdit extends TComponent {
 export class TMemo extends TComponent {
   private _screen: Screen | null = null;
 
-  constructor(id: string, extraStyle?: Record<string, any>) {
+  constructor(
+    idOrStyle?: string | Record<string, any>,
+    extraStyle?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrStyle, extraStyle);
     super(id);
     this.tag = "textarea";
     this.props.rows = 5;
+    const { props, css } = splitConfig(config, ["text", "rows"]);
+    if (props.text !== undefined) this.text = props.text;
+    if (props.rows !== undefined) this.rows = props.rows;
     this.style = {
       width: "100%",
       padding: "8px 12px",
@@ -658,7 +768,7 @@ export class TMemo extends TComponent {
       fontFamily: "monospace",
       boxSizing: "border-box",
       resize: "vertical",
-      ...extraStyle,
+      ...css,
     };
   }
 
@@ -698,10 +808,17 @@ export class TCheckBox extends TComponent {
   public onClick: ((checked: boolean) => void) | null = null;
   private _screen: Screen | null = null;
 
-  constructor(id: string, extraStyle?: Record<string, any>) {
+  constructor(
+    idOrStyle?: string | Record<string, any>,
+    extraStyle?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrStyle, extraStyle);
     super(id);
     this.tag = "div";
-    this.props.onClickId = id;
+    this.props.onClickId = this.id;
+    const { props, css } = splitConfig(config, ["caption", "checked"]);
+    if (props.caption !== undefined) this.caption = props.caption;
+    if (props.checked !== undefined) this.checked = props.checked;
     this.style = {
       display: "flex",
       alignItems: "center",
@@ -710,7 +827,7 @@ export class TCheckBox extends TComponent {
       padding: "0 0",
       margin: "0",
       fontSize: "12px",
-      ...extraStyle,
+      ...css,
     };
   }
 
@@ -787,8 +904,12 @@ export class TListBox extends TComponent {
   public onClick: ((index: number, item: string) => void) | null = null;
   private _screen: Screen | null = null;
 
-  constructor(id: string) {
-    super(id);
+  constructor(
+    idOrOpts?: string | { items?: string[]; style?: Record<string, any> },
+  ) {
+    const opts =
+      typeof idOrOpts === "object" && idOrOpts !== null ? idOrOpts : undefined;
+    super(typeof idOrOpts === "string" ? idOrOpts : undefined);
     this.tag = "div";
     this.style = {
       background: "var(--surface, rgba(0,0,0,0.2))",
@@ -797,7 +918,9 @@ export class TListBox extends TComponent {
       overflowY: "auto",
       minHeight: "100px",
       border: "1px solid var(--border, rgba(255,255,255,0.08))",
+      ...(opts?.style || {}),
     };
+    if (opts?.items) this.items = opts.items;
   }
 
   bindEventHandler(screen: Screen): void {
@@ -856,14 +979,23 @@ export class TRadioButton extends TComponent {
   private _group: string;
 
   constructor(
-    id: string,
+    idOrOpts?: string | Record<string, any>,
     group: string = "default",
     extraStyle?: Record<string, any>,
   ) {
+    let id: string | undefined;
+    let opts: Record<string, any> | undefined;
+    if (typeof idOrOpts === "object" && idOrOpts !== null) {
+      opts = idOrOpts;
+      group = opts.group ?? group;
+      extraStyle = { ...(opts.style || {}), ...(extraStyle || {}) };
+    } else {
+      id = idOrOpts;
+    }
     super(id);
     this._group = group;
     this.tag = "div";
-    this.props.onClickId = id;
+    this.props.onClickId = this.id;
     this.props["data-radio-group"] = group;
     this.style = {
       display: "flex",
@@ -875,6 +1007,10 @@ export class TRadioButton extends TComponent {
       fontSize: "12px",
       ...extraStyle,
     };
+    if (opts) {
+      if (opts.caption !== undefined) this.caption = opts.caption;
+      if (opts.checked !== undefined) this.checked = opts.checked;
+    }
   }
 
   set caption(v: string) {
@@ -961,10 +1097,18 @@ export class TComboBox extends TComponent {
   public onChange: ((index: number, item: string) => void) | null = null;
   private _screen: Screen | null = null;
 
-  constructor(id: string, extraStyle?: Record<string, any>) {
+  constructor(
+    idOrStyle?: string | Record<string, any>,
+    extraStyle?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrStyle, extraStyle);
     super(id);
     this.tag = "select";
-    this.props.onInputId = id;
+    this.props.onInputId = this.id;
+    const { props, css } = splitConfig(config, ["items", "selectedIndex"]);
+    if (props.items !== undefined) this.items = props.items;
+    if (props.selectedIndex !== undefined)
+      this.selectedIndex = props.selectedIndex;
     this.style = {
       width: "100%",
       padding: "8px 10px",
@@ -976,7 +1120,7 @@ export class TComboBox extends TComponent {
       outline: "none",
       cursor: "pointer",
       boxSizing: "border-box",
-      ...extraStyle,
+      ...css,
     };
   }
 
@@ -1032,9 +1176,18 @@ export class TStatusBar extends TComponent {
   private _leftSpan: TComponent;
   private _rightSpan: TComponent;
 
-  constructor(id: string, extraStyle?: Record<string, any>) {
+  constructor(
+    idOrStyle?: string | Record<string, any>,
+    extraStyle?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrStyle, extraStyle);
     super(id);
     this.tag = "div";
+    const { props, css } = splitConfig(config, [
+      "leftText",
+      "rightText",
+      "text",
+    ]);
     this.style = {
       display: "flex",
       justifyContent: "space-between",
@@ -1045,15 +1198,15 @@ export class TStatusBar extends TComponent {
       fontSize: "11px",
       color: "var(--text-muted, #888)",
       fontFamily: "monospace",
-      ...extraStyle,
+      ...css,
     };
 
     // 1. Buat sub-komponen menggunakan base class TComponent asli
-    this._leftSpan = new TComponent(`${id}_left`);
+    this._leftSpan = new TComponent(`${this.id}_left`);
     this._leftSpan.tag = "span";
     this._leftSpan.props.text = "";
 
-    this._rightSpan = new TComponent(`${id}_right`);
+    this._rightSpan = new TComponent(`${this.id}_right`);
     this._rightSpan.tag = "span";
     this._rightSpan.props.text = "";
 
@@ -1061,6 +1214,11 @@ export class TStatusBar extends TComponent {
     // Ini mengunci agar TComponent.build() otomatis merender keduanya!
     this.add(this._leftSpan);
     this.add(this._rightSpan);
+
+    // Terapkan props setelah sub-komponen dibuat
+    if (props.leftText !== undefined) this.leftText = props.leftText;
+    if (props.rightText !== undefined) this.rightText = props.rightText;
+    if (props.text !== undefined) this.text = props.text;
   }
 
   set leftText(v: string) {
@@ -1219,20 +1377,20 @@ export const alCenter = "center";
  * TPanel dengan scroll otomatis (overflow: auto)
  */
 export function TScrollBox(
-  id: string,
+  idOrStyle?: string | Record<string, any>,
   extraStyle?: Record<string, any>,
 ): TPanel {
-  return new TPanel(id, { overflow: "auto", ...extraStyle });
+  return new TPanel(idOrStyle, { overflow: "auto", ...extraStyle });
 }
 
 /**
  * TFlowPanel — flex wrap container, items otomatis pindah baris
  */
 export function TFlowPanel(
-  id: string,
+  idOrStyle?: string | Record<string, any>,
   extraStyle?: Record<string, any>,
 ): TPanel {
-  return new TPanel(id, {
+  return new TPanel(idOrStyle, {
     display: "flex",
     flexWrap: "wrap",
     gap: "6px",
@@ -1244,11 +1402,11 @@ export function TFlowPanel(
  * TGridPanel — grid dengan jumlah kolom tetap
  */
 export function TGridPanel(
-  id: string,
+  idOrStyle?: string | Record<string, any>,
   cols: number = 2,
   extraStyle?: Record<string, any>,
 ): TPanel {
-  return new TPanel(id, {
+  return new TPanel(idOrStyle, {
     display: "grid",
     gridTemplateColumns: `repeat(${cols}, 1fr)`,
     gap: "6px",
@@ -1376,10 +1534,17 @@ export function TSplitVertical(
  * TGroupBox — panel dengan border & label (kayak GroupBox Delphi)
  */
 export function TGroupBox(
-  id: string,
-  caption: string,
+  idOrOpts?: string | { caption?: string; style?: Record<string, any> },
+  caption?: string,
   extraStyle?: Record<string, any>,
 ): TPanel {
+  let id: string | undefined;
+  if (typeof idOrOpts === "object" && idOrOpts !== null) {
+    caption = idOrOpts.caption ?? caption;
+    extraStyle = { ...(idOrOpts.style || {}), ...(extraStyle || {}) };
+  } else {
+    id = idOrOpts;
+  }
   const box = new TPanel(id, {
     border: "1px solid var(--accent, rgba(76,175,80,0.3))",
     padding: "10px",
@@ -1388,8 +1553,8 @@ export function TGroupBox(
     ...extraStyle,
   });
   // Label group
-  const lbl = new TLabel(`${id}_title`);
-  lbl.caption = caption;
+  const lbl = new TLabel(`${box.id}_title`);
+  lbl.caption = caption || "";
   lbl.style = {
     position: "absolute",
     top: "-10px",
@@ -1420,9 +1585,15 @@ export class TLineChart extends TComponent {
   private _chartProps: Record<string, any> = {};
   private _screen: Screen | null = null;
 
-  constructor(id: string, props?: Record<string, any>) {
+  constructor(
+    idOrProps?: string | Record<string, any>,
+    props?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrProps, props);
     super(id);
-    this._chartProps = { ...props, id };
+    this._chartProps = { ...config, id: this.id };
+    // Style dari opsi objek literal — sinkron ke this.style (konsisten dgn Cashew lain)
+    this.style = { ...(config?.style || {}) };
     if (!this._chartProps.maxPoints) this._chartProps.maxPoints = 15;
   }
 
@@ -1620,22 +1791,48 @@ export class TRadialGauge extends TComponent {
   private _gaugeProps: Record<string, any> = {};
   private _screen: Screen | null = null;
 
-  constructor(id: string, props?: Record<string, any>) {
+  constructor(
+    idOrProps?: string | Record<string, any>,
+    props?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrProps, props);
     super(id);
-    this._gaugeProps = { ...props, id };
+    this._gaugeProps = { ...config, id: this.id };
+    // Style dari opsi objek literal — sinkron ke this.style (konsisten dgn Cashew lain)
+    this.style = { ...(config?.style || {}) };
   }
 
   get value(): number {
     return this._gaugeProps.value ?? 0;
   }
   set value(v: number) {
-    this._gaugeProps.value = v;
+    void this.setValue(v);
   }
   get color(): string {
     return this._gaugeProps.color || "#4caf50";
   }
   set color(v: string) {
     this._gaugeProps.color = v;
+  }
+
+  /** Teks nilai yang ditampilkan (angka saja — unit di baris terpisah di bawah). */
+  private formatValue(): string {
+    const v = this.value;
+    return v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+  }
+
+  get unit(): string {
+    return this._gaugeProps.unit || "";
+  }
+  set unit(u: string) {
+    void this.setUnit(u);
+  }
+
+  /** Update unit saja — teks unit terpisah di bawah nilai (regular). */
+  async setUnit(u: string): Promise<void> {
+    this._gaugeProps.unit = u;
+    if (!this._screen) return;
+    await this._screen.update(`rg-unit-${this.id}`, { text: u });
   }
 
   bindEventHandler(screen: Screen): void {
@@ -1660,14 +1857,13 @@ export class TRadialGauge extends TComponent {
     const arcLength =
       (radius * Math.abs(endAngle - startAngle) * Math.PI) / 180;
     const dashOffset = arcLength * (1 - pct);
-    const formatted = val % 1 === 0 ? String(Math.round(val)) : val.toFixed(1);
     await s.update(`rg-arc-${this.id}`, {
       style: { strokeDashoffset: String(dashOffset) },
     });
     await s.update(`rg-needle-group-${this.id}`, {
       style: { transform: `rotate(${angle}deg)` },
     });
-    await s.update(`rg-val-${this.id}`, { text: formatted });
+    await s.update(`rg-val-${this.id}`, { text: this.formatValue() });
   }
 
   build(): IDOMNode {
@@ -1688,16 +1884,23 @@ export class TSevenSegment extends TComponent {
   private _segProps: Record<string, any> = {};
   private _screen: Screen | null = null;
 
-  constructor(id: string, props?: Record<string, any>) {
+  constructor(
+    idOrProps?: string | Record<string, any>,
+    props?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrProps, props);
     super(id);
-    this._segProps = { ...props, id };
+    this._segProps = { ...config, id: this.id };
+    // Style dari opsi objek literal — sinkron ke this.style (konsisten dgn Cashew lain)
+    this.style = { ...(config?.style || {}) };
   }
 
   get value(): number {
     return this._segProps.value ?? 0;
   }
   set value(v: number) {
-    this._segProps.value = v;
+    // this._segProps.value = v;
+    this.setValue(v);
   }
 
   bindEventHandler(screen: Screen): void {
@@ -1730,9 +1933,15 @@ export class TIndicatorLamp extends TComponent {
   private _lampProps: Record<string, any> = {};
   private _screen: Screen | null = null;
 
-  constructor(id: string, props?: Record<string, any>) {
+  constructor(
+    idOrProps?: string | Record<string, any>,
+    props?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrProps, props);
     super(id);
-    this._lampProps = { ...props, id };
+    this._lampProps = { ...config, id: this.id };
+    // Style dari opsi objek literal — sinkron ke this.style (konsisten dgn Cashew lain)
+    this.style = { ...(config?.style || {}) };
   }
 
   get on(): boolean {
@@ -1814,9 +2023,15 @@ export class TToggleSwitch extends TComponent {
   public onClick: (() => void) | null = null;
   private _screen: Screen | null = null;
 
-  constructor(id: string, props?: Record<string, any>) {
+  constructor(
+    idOrProps?: string | Record<string, any>,
+    props?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrProps, props);
     super(id);
-    this._tglProps = { ...props, id };
+    this._tglProps = { ...config, id: this.id };
+    // Style dari opsi objek literal — sinkron ke this.style (konsisten dgn Cashew lain)
+    this.style = { ...(config?.style || {}) };
   }
 
   get on(): boolean {
@@ -1914,16 +2129,23 @@ export class TVerticalGauge extends TComponent {
   private _vgProps: Record<string, any> = {};
   private _screen: Screen | null = null;
 
-  constructor(id: string, props?: Record<string, any>) {
+  constructor(
+    idOrProps?: string | Record<string, any>,
+    props?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrProps, props);
     super(id);
-    this._vgProps = { ...props, id };
+    this._vgProps = { ...config, id: this.id };
+    // Style dari opsi objek literal — sinkron ke this.style (konsisten dgn Cashew lain)
+    this.style = { ...(config?.style || {}) };
   }
 
   get value(): number {
     return this._vgProps.value ?? 0;
   }
   set value(v: number) {
-    this._vgProps.value = v;
+    // this._vgProps.value = v;
+    this.setValue(v);
   }
 
   bindEventHandler(screen: Screen): void {
@@ -1971,16 +2193,23 @@ export class TSensorCard extends TComponent {
   private _cardProps: Record<string, any> = {};
   private _screen: Screen | null = null;
 
-  constructor(id: string, props?: Record<string, any>) {
+  constructor(
+    idOrProps?: string | Record<string, any>,
+    props?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrProps, props);
     super(id);
-    this._cardProps = { ...props, id };
+    this._cardProps = { ...config, id: this.id };
+    // Style dari opsi objek literal — sinkron ke this.style (konsisten dgn Cashew lain)
+    this.style = { ...(config?.style || {}) };
   }
 
   get value(): number | undefined {
     return this._cardProps.value;
   }
   set value(v: number | undefined) {
-    this._cardProps.value = v;
+    // this._cardProps.value = v;
+    this.setValue(v ?? 0);
   }
 
   bindEventHandler(screen: Screen): void {
@@ -2023,9 +2252,15 @@ export class TRelayCard extends TComponent {
   private _relayProps: Record<string, any> = {};
   private _screen: Screen | null = null;
 
-  constructor(id: string, props?: Record<string, any>) {
+  constructor(
+    idOrProps?: string | Record<string, any>,
+    props?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrProps, props);
     super(id);
-    this._relayProps = { ...props, id };
+    this._relayProps = { ...config, id: this.id };
+    // Style dari opsi objek literal — sinkron ke this.style (konsisten dgn Cashew lain)
+    this.style = { ...(config?.style || {}) };
   }
 
   get active(): boolean {
@@ -2093,16 +2328,22 @@ export class TSlider extends TComponent {
   public onInput: ((value: number) => void) | null = null;
   private _screen: Screen | null = null;
 
-  constructor(id: string, props?: Record<string, any>) {
+  constructor(
+    idOrProps?: string | Record<string, any>,
+    props?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrProps, props);
     super(id);
     this._sliderProps = {
       min: 0,
       max: 100,
       step: 1,
       value: 50,
-      ...props,
-      id,
+      ...config,
+      id: this.id,
     };
+    // Style dari opsi objek literal — sinkron ke this.style (konsisten dgn Cashew lain)
+    this.style = { ...(config?.style || {}) };
   }
 
   get min(): number {
@@ -2197,10 +2438,10 @@ export class TTimer extends TComponent {
   private _enabled: boolean = false;
   private _screen: Screen | null = null;
 
-  constructor(id: string, interval: number = 1000, enabled: boolean = false) {
+  constructor(id?: string, interval?: number, enabled?: boolean) {
     super(id);
-    this._interval = interval;
-    this._enabled = enabled;
+    this._interval = interval ?? 1000;
+    this._enabled = enabled ?? false;
   }
 
   /** Interval dalam ms */
@@ -2283,17 +2524,22 @@ export class TChart extends TComponent {
   private _seriesData: Record<string, number[]> = {};
   private _seriesKeys: string[] = [];
 
-  constructor(id: string, props?: Record<string, any>) {
+  constructor(
+    idOrProps?: string | Record<string, any>,
+    props?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrProps, props);
     super(id);
-    this._chartOpts = { ...props, id };
+    this._chartOpts = { ...config, id: this.id };
     this.tag = "div";
     this.style = {
       width: "100%",
-      height: (props?.height || 160) + "px",
+      height: (config?.height || 160) + "px",
       position: "relative",
+      ...(config?.style || {}),
     };
     // Init multi-series buffer
-    const series = props?.series;
+    const series = config?.series;
     if (Array.isArray(series) && series.length > 0) {
       this._seriesKeys = series.map((s: any) => s.key);
       for (const s of series) {
@@ -2469,7 +2715,7 @@ export class TDataGrid extends TComponent {
   private _screen: Screen | null = null;
 
   constructor(
-    id: string,
+    id?: string,
     columns: DataGridColumn[] = [],
     data: Record<string, any>[] = [],
     opts: { height?: number | string; maxRows?: number } = {},
@@ -2479,7 +2725,7 @@ export class TDataGrid extends TComponent {
     this._data = data;
     this.tag = "div";
     this.grid = new ConnectedDataGrid({
-      id,
+      id: this.id,
       columns,
       data,
       height: opts.height,
@@ -2637,7 +2883,7 @@ export class TTabulatorGrid extends TComponent {
   private _screen: Screen | null = null;
 
   constructor(
-    id: string,
+    id?: string,
     columns: DataGridColumn[] = [],
     data: Record<string, any>[] = [],
     opts: { height?: number | string; maxRows?: number } = {},
@@ -2647,7 +2893,7 @@ export class TTabulatorGrid extends TComponent {
     this._data = data;
     this.tag = "div";
     this.grid = new ConnectedTabulator({
-      id,
+      id: this.id,
       columns,
       data,
       height: opts.height,
@@ -2776,9 +3022,14 @@ export class TProgressBar extends TComponent {
   private _fgText: TComponent;
   private _unit: string = "%";
 
-  constructor(id: string, extraStyle?: Record<string, any>) {
+  constructor(
+    idOrStyle?: string | Record<string, any>,
+    extraStyle?: Record<string, any>,
+  ) {
+    const { id, config } = splitFirstArg(idOrStyle, extraStyle);
     super(id);
     this.tag = "div";
+    const { props, css } = splitConfig(config, ["value", "min", "max", "unit"]);
 
     this.props.min = 0;
     this.props.max = 100;
@@ -2793,10 +3044,10 @@ export class TProgressBar extends TComponent {
       overflow: "hidden",
       position: "relative",
       boxSizing: "border-box",
-      ...extraStyle,
+      ...css,
     };
     // LAYER 2: Progress Bar Pengisi (Bertindak sebagai jendela kliping)
-    this._bar = new TComponent(`${id}_bar`);
+    this._bar = new TComponent(`${this.id}_bar`);
     this._bar.tag = "div";
     this._bar.style = {
       width: "0%",
@@ -2811,7 +3062,7 @@ export class TProgressBar extends TComponent {
     };
 
     // LAYER 3: Teks klona di dalam bar pengisi (Hanya terlihat saat tertutup bar)
-    this._fgText = new TComponent(`${id}_fgtext`);
+    this._fgText = new TComponent(`${this.id}_fgtext`);
     this._fgText.tag = "span";
     this._fgText.style = {
       position: "absolute",
@@ -2833,6 +3084,12 @@ export class TProgressBar extends TComponent {
     // Susun hirarki komponen sesuai lifecycle Cashew
     this._bar.add(this._fgText); // fgText dimasukkan ke dalam bar
     this.add(this._bar); // bar dimasukkan ke base container
+
+    // Terapkan props setelah _bar/_fgText dibuat (setter memakai keduanya)
+    if (props.unit !== undefined) this.unit = props.unit;
+    if (props.min !== undefined) this.min = props.min;
+    if (props.max !== undefined) this.max = props.max;
+    if (props.value !== undefined) this.value = props.value;
   }
 
   set value(v: number) {
@@ -2968,38 +3225,38 @@ export class TImage extends TComponent {
   /** Mencegah double-load saat bind dipanggil berkali-kali. */
   private _fileLoaded = false;
 
-  constructor(id: string, opts: TImageOptions = {}) {
+  constructor(idOrOpts?: string | TImageOptions, opts: TImageOptions = {}) {
+    const id = typeof idOrOpts === "string" ? idOrOpts : undefined;
+    const o: TImageOptions =
+      typeof idOrOpts === "object" && idOrOpts !== null ? idOrOpts : opts;
     super(id);
     this.tag = "img";
-    this._alt = opts.alt || "";
-    if (opts.mime) this._mime = opts.mime;
-    if (opts.fit) this._fit = opts.fit;
+    this._alt = o.alt || "";
+    if (o.mime) this._mime = o.mime;
+    if (o.fit) this._fit = o.fit;
     this.style = {
       display: "block",
       maxWidth: "100%",
       objectFit: this._fit,
       borderRadius: "0px",
-      ...(opts.width != null
+      ...(o.width != null
         ? {
-            width:
-              typeof opts.width === "number" ? opts.width + "px" : opts.width,
+            width: typeof o.width === "number" ? o.width + "px" : o.width,
           }
         : {}),
-      ...(opts.height != null
+      ...(o.height != null
         ? {
             height:
-              typeof opts.height === "number"
-                ? opts.height + "px"
-                : opts.height,
+              typeof o.height === "number" ? o.height + "px" : o.height,
           }
         : {}),
-      ...(opts.style || {}),
+      ...(o.style || {}),
     };
-    if (opts.file) {
-      this._file = opts.file;
-      this._src = opts.file; // sementara — akan diganti data URI saat load
-    } else if (opts.src) {
-      this._src = opts.src;
+    if (o.file) {
+      this._file = o.file;
+      this._src = o.file; // sementara — akan diganti data URI saat load
+    } else if (o.src) {
+      this._src = o.src;
     }
   }
 

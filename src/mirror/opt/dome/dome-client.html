@@ -362,6 +362,23 @@
       .CodeMirror-scroll {
         overflow: auto !important;
       }
+
+      /* Eucalyptus — TS syntax check (gutter marker + background baris error) */
+      .CodeMirror-gutter.euc-lint {
+        width: 18px;
+      }
+      .euc-lint-marker {
+        font-size: 12px;
+        text-align: center;
+        line-height: 15px;
+        color: #f44336;
+      }
+      .euc-lint-marker.euc-lint-warn {
+        color: #ff9800;
+      }
+      .euc-error-line {
+        background: rgba(244, 67, 54, 0.12) !important;
+      }
     </style>
     <link
       rel="stylesheet"

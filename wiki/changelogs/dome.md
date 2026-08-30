@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-08-30
+
+### Relay `CM_SET_DIAGNOSTICS` + marker lint CodeMirror (gutter `euc-lint`)
+
+- **File:** `src/mirror/opt/dome/dome.ts`, `src/mirror/opt/dome/dome-client-codemirror.js`, `src/mirror/opt/dome/dome-client-dom.js`, `src/mirror/opt/dome/dome-client.html`
+- **Perubahan:**
+  - Pesan DOME baru **`CM_SET_DIAGNOSTICS`** di-relay ke semua klien (`{ type, wid, targetId, diagnostics }`) — dipakai Eucalyptus untuk mengirim hasil cek sintaks/type ke editor.
+  - Client CodeMirror: `handleCMSetDiagnostics` membersihkan marker lama lalu menempatkan marker gutter `✖`/`⚠` per baris bermasalah + `addLineClass` background baris error; tooltip pesan.
+  - Gutter `euc-lint` ditambahkan ke array `gutters` (setelah `linenumbers`); CSS marker & baris error di `dome-client.html`.
+- **Dampak:** Editor bisa menampilkan error/warning per-baris langsung dari app.
+- **Oleh:** Copilot
+
 ## 2026-08-29
 
 ### Taskbar Asteracea selalu di atas semua window (always-on-top)

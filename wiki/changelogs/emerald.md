@@ -4,6 +4,34 @@
 
 ---
 
+## 2026-08-30
+
+### Widget menerima prop `style`; radial gauge unit terpisah (`rg-unit`) + update runtime
+
+- **File:** `src/mirror/lib/emerald.ts`
+- **Perubahan:**
+  - Semua fungsi widget (`sensorCard`, `relayCard`, `lineChart`, `radialGauge`, `sevenSegment`, `indicatorLamp`, `toggleSwitch`, `verticalGauge`, `slider`) kini menerima prop **`style`** dan meng-merge-nya **di atas** style default kartu (`{ ...default, ...props.style }`). Blok `Props:` di-dokumentasikan.
+  - **radialGauge:** teks nilai sekarang number-only & tebal (`rg-val`, `font-weight: 700`, format `v % 1 === 0 ? round : toFixed(1)`), sedangkan unit dipisah ke elemen sendiri (`rg-unit-${id}`) di bawah nilai (ukuran kecil, warna `#888`) — bukan lagi "value unit" satu baris.
+  - `setValue()` meng-update `rg-arc`, `rg-needle-group`, dan `rg-val`; `setUnit()` meng-update `_gaugeProps.unit` + teks `rg-unit` secara runtime.
+- **Dampak:** Styling widget IoT bisa dikustomisasi dari opsi objek literal; unit radial gauge bisa diubah runtime.
+- **Oleh:** Copilot
+
+### Helper query `dom()` / `$` — navigasi & mutasi DOM app-side ala jQuery (lazy mode)
+
+- **File:** `src/mirror/lib/emerald.ts`
+- **Perubahan:**
+  - Class baru **`DomQuery`** — hasil pencarian `dom()`: getter `length`, `ids`; traversal sinkron `next()`, `prev()`, `parent()`, `children()`, `first()`, `eq(i)` (semua resolve ke id); mutasi async `html(v)`, `text(v)`, `val(v)`, `style(obj)`, `update(props)`, `attr(k, v)` (mengirim batch `updateProps` via `window.updateProps`).
+  - **`Window`** mendapat traversal: `siblingIdsOf(id)`, `parentIdOf(id)`, `childIdsOf(id)` (scan vdom).
+  - Ekspor **`dom(target, ...ids)`** dan alias **`$`** — `target` boleh `Window` atau `Screen` (di-resolve ke `.win`). Mode **lazy**: pencarian di-resolve saat pemanggilan (app-side, tanpa query ke browser).
+- **Contoh:**
+  ```ts
+  const $ = dom(win);            // alias $ = dom
+  $.eq(0).text("halo").style({ color: "red" });
+  dom(win, "btn-1").next().html("<b>x</b>");
+  ```
+- **Dampak:** Pola navigasi DOM ala jQuery tanpa round-trip IPC — nyaman untuk manipulasi window berantai.
+- **Oleh:** Copilot
+
 ## 2026-08-18
 
 ### Penambahan paramater left, top dan desktopCentered untuk positioning window dan screen

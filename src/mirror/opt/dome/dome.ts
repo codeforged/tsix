@@ -67,6 +67,8 @@ interface BrowserMessage {
     | "UNMAXIMIZE_WINDOW"
     | "TERM_OUTPUT"
     | "CM_SET_VALUE"
+    | "CM_SET_THEME"
+    | "CM_SET_DIAGNOSTICS"
     | "CHART_INIT"
     | "CHART_DATA"
     | "CHART_DESTROY"
@@ -568,6 +570,15 @@ export const main = Program(async (args: string[]) => {
           wid: payload.wid,
           targetId: payload.targetId,
           theme: payload.theme,
+        });
+      }
+      // CM_SET_DIAGNOSTICS relay: Eucalyptus â†' DOME â†' browser (TS syntax markers)
+      if (payload?.type === "CM_SET_DIAGNOSTICS") {
+        broadcastToAll({
+          type: "CM_SET_DIAGNOSTICS",
+          wid: payload.wid,
+          targetId: payload.targetId,
+          diagnostics: payload.diagnostics,
         });
       }
       // CHART_INIT relay: cashew â†' DOME â†' browser (create uPlot)
