@@ -14,10 +14,10 @@
         }
     },
     "deviceCategories": {
-        "esp32": {
-            "label": "ESP32",
+        "esp": {
+            "label": "ESP",
             "icon": "🔧",
-            "description": "ESP32 fisik via MQTNL"
+            "description": "ESP fisik via MQTNL"
         },
         "simulator": {
             "label": "Simulator",

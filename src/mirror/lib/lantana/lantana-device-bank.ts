@@ -145,7 +145,7 @@ export class DeviceBank {
     /** Infer kategori device dari nodeId (statis — fase 2: dinamis dari device). */
     private inferDeviceCategory(nodeId: string): string {
         const id = nodeId.toLowerCase();
-        if (id.includes("esp32") || id.includes("esp")) return "esp32";
+        if (id.includes("esp32") || id.includes("esp")) return "esp";
         if (id.includes("sim") || id.includes("demo")) return "simulator";
         return "generic";
     }

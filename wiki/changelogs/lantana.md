@@ -4,6 +4,27 @@
 
 ---
 
+## 2026-08-31 (lanjutan)
+
+### Dashboard di-porting ke Cashew + fix tampil nilai sensor
+- **File:** `src/mirror/opt/lantana/lantana-dashboard.ts`
+- **Perubahan:**
+  - Port penuh dari **Emerald** → **Cashew**: `Screen/div/span/textarea` → `TForm`, `TPanel`, `TLabel`, `TMemo`, `TStatusBar`, `TTimer`.
+  - Device list di-render dinamis via `screen.setContent(...)` (pola Cashew yang benar).
+  - Status log pakai `TMemo` + **`scrollToBottom()`** → auto scroll ke bawah setiap ada log baru.
+  - Polling snapshot pakai `TTimer` (3 detik) menggantikan while-loop Emerald.
+  - **Dukungan multi-tenant:** map device & sensor di-key `tenant::nodeId` (nodeId boleh sama antar tenant).
+- **Fix bug tampilan:** sebelumnya span sensor menampilkan `sensors: 01, 02, 03, 04` (daftar ID) karena nilai di-update terpisah (`renderAllSensors`) yang rawan race dengan `setContent`. Sekarang nilai sensor di-render **langsung** dari `sensorMap` di `renderDeviceList` → tampil `01=39 °C 02=14 % 03=52 hPa 04=29 lx`; `renderAllSensors` dihapus.
+- **Oleh:** Copilot
+
+### Kategori device `esp32` → `esp` (selaras config)
+- **File:** `src/mirror/etc/lantana/config.json`, `src/mirror/lib/lantana/lantana-device-bank.ts`, `lantana-core.ts`, `lantana-device-bank.test.ts`
+- **Perubahan:** `inferDeviceCategory()` return `"esp"` (bukan `"esp32"`); fallback config `deviceCategories.esp32` → `esp`; test ikut disesuaikan.
+- **Dampak:** device dengan nodeId `esp8266-dev-01` kini match key `"esp"` di config → label/icon `ESP` tampil benar (sebelumnya fallback ke nodeId karena key tidak match).
+- **Oleh:** kakang (config) + Copilot (kode/test)
+
+---
+
 ## 2026-08-31
 
 ### API key tenant (`apiKeyHex`) — kredensial + enkripsi

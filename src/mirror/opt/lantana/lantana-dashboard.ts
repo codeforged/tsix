@@ -1,10 +1,12 @@
 /**
- * lantana-dashboard.ts — Lantana Consumer: Dashboard (GUI)
+ * lantana-dashboard.ts — Lantana Consumer: Dashboard (GUI) — port Cashew
  *
- * Dashboard multi-device untuk Lantana. Menampilkan:
- *  - Daftar device (multi-device) dengan kategori, tenant, dan status
+ * Dashboard multi-device untuk Lantana (di-porting dari Emerald ke Cashew).
+ * Menampilkan:
+ *  - Daftar device (multi-device) dengan kategori, tenant, grup, dan status
  *    heartbeat (ONLINE/STALE/OFFLINE dari umur data / dataAgeMs)
  *  - Kartu sensor per device (kategori statis dari config)
+ *  - Memo status + auto scroll ke bawah
  *  - Filter tenant
  *
  * Usage (dari Asteracea/CLI):
@@ -15,89 +17,109 @@
  * (c) 2026 TSIX Project — Lantana
  */
 
-import { Program, std, shell } from "@tsix/Application";
-import { Screen, div, span, h1, h2, sensorCard, lineChart, textarea } from "@tsix/emerald";
-import { theme } from "@tsix/theme";
-import { LANTANA_UUID, DEVICE_STALE_MS, DEVICE_OFFLINE_MS, NormalizedSensorData, DeviceStatusInfo } from "@tsix/lantana/lantana-core";
+import { Program, shell } from "@tsix/Application";
+import {
+    TForm,
+    TPanel,
+    TLabel,
+    TMemo,
+    TStatusBar,
+    TTimer,
+} from "@tsix/cashew";
+import { LANTANA_UUID, DeviceStatusInfo } from "@tsix/lantana/lantana-core";
 
 export const appMode = "gui";
 
-export const main = Program(async (args: string[]) => {
-    await theme.loadCurrent();
-    theme.watch();
+/** Key gabungan tenant + nodeId (nodeId boleh sama antar tenant). */
+const dkey = (tenant: string, nodeId: string) => `${tenant}::${nodeId}`;
 
+export const main = Program(async (args: string[]) => {
     const target = args[0] || LANTANA_UUID;
     const tenantFilter = args[1] && !args[1].startsWith("--") ? args[1] : undefined;
 
-    const app = new Screen({ title: "🌺 Lantana IoT Dashboard", width: 980, height: 680 });
+    const lib = (global as any)._tsixLib;
 
-    // State
-    const devices = new Map<string, DeviceStatusInfo>();
-    const sensorMap = new Map<string, any>(); // nodeId → { id: reading }
-    const history: Record<string, number[]> = {};
-    let pktCnt = 0;
+    // ── State ──
+    const devices = new Map<string, DeviceStatusInfo>(); // tenant::nodeId → info
+    const sensorMap = new Map<string, any>();            // tenant::nodeId → { id: reading }
     let statusBuf = "";
-    let autoScroll = true;
 
-    await app.mount(
-        div({ id: "root", style: { padding: "14px", height: "100%", display: "flex", flexDirection: "column", gap: "10px", overflowY: "auto", background: theme.colors.bg, color: theme.colors.text } },
-            // HEADER
-            div({ style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: "0" } },
-                h1({ text: "🌺 Lantana IoT Dashboard", style: { fontSize: "22px", color: theme.colors.accent, margin: "0" } }),
-                span({ id: "header-info", text: `Target: ${target} | 🔴 Disconnected`, style: { fontSize: "12px", color: theme.colors.textMuted } }),
-            ),
-            // DEVICE LIST
-            div({ id: "devices-header", style: { flexShrink: "0" } },
-                h2({ text: "📡 Devices", style: { fontSize: "15px", color: theme.colors.accent, margin: "4px 0 6px" } }),
-            ),
-            div({ id: "device-list", style: { display: "flex", flexDirection: "column", gap: "8px", flexShrink: "0" } },
-                span({ id: "device-empty", text: "⏳ Menunggu data dari daemon Lantana...", style: { fontSize: "12px", color: theme.colors.textDim } }),
-            ),
-            // STATUS LOG
-            div({ id: "status-header", style: { flexShrink: "0" } },
-                h2({ text: "📋 Status", style: { fontSize: "15px", color: theme.colors.accent, margin: "4px 0 6px" } }),
-            ),
-            // Hapus overflowY: "auto" di sini agar div-nya tidak ikut memunculkan scrollbar baru
-            div({ id: "status-scroll", style: { flex: "1", background: theme.colors.bgAlt, borderRadius: "8px", padding: "10px", fontSize: "11px", fontFamily: "monospace", color: theme.colors.textDim, minHeight: "60px" } },
-                // Tambahkan style width & height 100% serta hilangkan border default textarea jika diperlukan agar rapi
-                textarea({ id: "status-txt", rows: "17", style: { width: "100%", height: "100%", background: "transparent", border: "none", outline: "none", resize: "none", fontFamily: "monospace", color: "inherit" }, text: "⏳ Starting...\n" }),
-            ),
-        ),
-    );
+    const statusColor = (s: string) =>
+        s === "ONLINE" ? "#4caf50" : s === "STALE" ? "#ff9800" : "#f44336";
 
+    // ── Form ──
+    const form = new TForm({
+        title: "🌺 Lantana IoT Dashboard",
+        icon: "🌺",
+        width: 980,
+        height: 680,
+        style: { display: "grid", gridTemplateColumns: "1fr", gap: "10px", padding: "12px" },
+    });
+
+    // Header info
+    const headerLabel = new TLabel("dash-header", {
+        caption: `Target: ${target}${tenantFilter ? ` | Tenant: ${tenantFilter}` : ""} | 🔴 Disconnected`,
+        style: { fontWeight: "700", fontSize: "14px", color: "var(--accent, #4caf50)" },
+    });
+    form.add(headerLabel);
+
+    // Daftar device (diisi dinamis)
+    const deviceList = new TPanel("device-list", {
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+        overflowY: "auto",
+        maxHeight: "300px",
+    });
+    form.add(deviceList);
+
+    // Memo status (auto scroll bottom)
+    const statusMemo = new TMemo("status-memo", {
+        rows: 12,
+        text: "⏳ Starting...\n",
+        style: { fontFamily: "monospace", fontSize: "11px", width: "100%", resize: "vertical" },
+    });
+    form.add(statusMemo);
+
+    const statusBar = new TStatusBar("status-bar", {
+        leftText: `🌺 Lantana | ${target}`,
+        rightText: tenantFilter ? `Tenant: ${tenantFilter}` : "All tenants",
+    });
+    statusBar.style = { gridColumn: "1 / -1" };
+    form.add(statusBar);
+
+    // ── Helpers ──
     const log = async (m: string) => {
-        if (!app.running) return;
         statusBuf += m + "\n";
-        if (statusBuf.length > 3000) statusBuf = statusBuf.slice(-3000);
-        try {
-            await app.update("status-txt", { text: statusBuf });
-
-            if (autoScroll) {
-                // Ambil element langsung dari textarea-nya
-                const txtEl = document.getElementById("status-txt") as HTMLTextAreaElement;
-                if (txtEl) {
-                    // Set scrollTop ke nilai scrollHeight maksimal si textarea
-                    txtEl.scrollTop = txtEl.scrollHeight;
-                }
-            }
-        } catch (_) { /* window destroyed */ }
+        if (statusBuf.length > 6000) statusBuf = statusBuf.slice(-6000);
+        statusMemo.text = statusBuf;
+        // Auto scroll ke bawah
+        await statusMemo.scrollToBottom().catch(() => { });
     };
 
-    const statusColor = (s: string) => (s === "ONLINE" ? "#4caf50" : s === "STALE" ? "#ff9800" : "#f44336");
+    /** Build DOM node sederhana untuk satu baris device. */
+    const node = (id: string, tag: string, props: Record<string, any>, children: any[] = []): any =>
+        ({ id, tag, props, children });
 
+    /** Rebuild daftar device (dikelompokkan per grup tenant). */
     const renderDeviceList = async () => {
-        if (!app.running) return;
+        const screen = form.screen;
+        if (!screen) return;
+
         const visible = Array.from(devices.values())
             .filter((d) => !tenantFilter || d.tenant === tenantFilter);
 
         if (visible.length === 0) {
-            await app.setContent("device-list",
-                span({ id: "device-empty", text: "⏳ Menunggu data dari daemon Lantana...", style: { fontSize: "12px", color: theme.colors.textDim } }),
+            await screen.setContent("device-list",
+                node("device-empty", "span", {
+                    text: "⏳ Menunggu data dari daemon Lantana...",
+                    style: { fontSize: "12px", color: "var(--text-dim, #999)" },
+                }),
             );
             return;
         }
 
-        // Kelompokkan device berdasarkan grup tenant (deviceGroupMap), fallback "Ungrouped"
+        // Kelompokkan per grup (deviceGroupMap), fallback "Ungrouped"
         const grouped = new Map<string, DeviceStatusInfo[]>();
         for (const d of visible) {
             const g = d.group || "Ungrouped";
@@ -105,145 +127,128 @@ export const main = Program(async (args: string[]) => {
             grouped.get(g)!.push(d);
         }
 
-        const cards: any[] = [];
+        const rows: any[] = [];
         for (const [g, list] of grouped.entries()) {
-            // Header grup
-            cards.push(div({ style: { display: "flex", alignItems: "center", gap: "6px", marginTop: "6px" } },
-                span({ text: `▸ ${g}`, style: { fontWeight: "700", fontSize: "12px", color: theme.colors.accent } }),
-                span({ text: `${list.length} device`, style: { fontSize: "11px", color: theme.colors.textMuted } }),
-            ));
+            rows.push(node(`grp-${g}`, "div", {
+                text: `▸ ${g}  (${list.length} device)`,
+                style: { fontWeight: "700", fontSize: "12px", color: "var(--accent, #4caf50)", marginTop: "6px" },
+            }));
+
             for (const d of list) {
+                const k = dkey(d.tenant, d.nodeId);
                 const ageStr = d.dataAgeMs >= 0 ? `${(d.dataAgeMs / 1000).toFixed(1)}s` : "—";
-                cards.push(div({ id: `dev-${d.nodeId}`, style: { display: "flex", justifyContent: "space-between", alignItems: "center", background: theme.colors.card, borderRadius: "8px", padding: "10px 14px", border: `1px solid ${statusColor(d.status)}44` } },
-                    div({ style: { display: "flex", flexDirection: "column", gap: "2px" } },
-                        span({ text: `${d.label} (${d.nodeId})`, style: { fontWeight: "600", fontSize: "13px" } }),
-                        span({ text: `tenant: ${d.tenant} · cat: ${d.category}${d.group ? " · grp: " + d.group : ""}`, style: { fontSize: "11px", color: theme.colors.textDim } }),
-                        span({ id: `dev-sensors-${d.nodeId}`, text: `sensors: ${d.sensorIds.join(", ") || "—"}`, style: { fontSize: "11px", color: theme.colors.textDim } }),
-                    ),
-                    div({ style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" } },
-                        span({ id: `dev-status-${d.nodeId}`, text: d.status, style: { color: statusColor(d.status), fontWeight: "700", fontSize: "12px" } }),
-                        span({ id: `dev-age-${d.nodeId}`, text: `${ageStr} ago`, style: { fontSize: "11px", color: theme.colors.textMuted } }),
-                    ),
-                ));
+
+                // Nilai sensor diambil langsung dari sensorMap (bukan cuma daftar ID).
+                // Format: 01=39 °C 02=14 % ... — fallback ke daftar ID bila belum ada data.
+                const sensObj = sensorMap.get(k) || {};
+                const sensKeys = Object.keys(sensObj);
+                const sensorText = sensKeys.length > 0
+                    ? sensKeys.map((sk) => {
+                        const s = sensObj[sk];
+                        return `${s.id}=${s.value}${s.unit ? " " + s.unit : ""}`;
+                    }).join("  ")
+                    : `sensors: ${d.sensorIds.join(", ") || "—"}`;
+
+                rows.push(node(`dev-${k}`, "div", {
+                    style: {
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                        background: "var(--surface, #16213e)", borderRadius: "8px", padding: "10px 14px",
+                        border: `1px solid ${statusColor(d.status)}44`,
+                    },
+                }, [
+                    node(`devl-${k}`, "div", { style: { display: "flex", flexDirection: "column", gap: "2px" } }, [
+                        node(`devt-${k}`, "span", { text: `${d.label} (${d.nodeId})`, style: { fontWeight: "600", fontSize: "13px" } }),
+                        node(`devm-${k}`, "span", { text: `tenant: ${d.tenant} · cat: ${d.category}${d.group ? " · grp: " + d.group : ""}`, style: { fontSize: "11px", color: "var(--text-dim, #999)" } }),
+                        node(`devs-${k}`, "span", { text: sensorText, style: { fontSize: "11px", color: "var(--text-dim, #999)" } }),
+                    ]),
+                    node(`devr-${k}`, "div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" } }, [
+                        node(`devst-${k}`, "span", { text: d.status, style: { color: statusColor(d.status), fontWeight: "700", fontSize: "12px" } }),
+                        node(`deva-${k}`, "span", { text: `${ageStr} ago`, style: { fontSize: "11px", color: "var(--text-muted, #777)" } }),
+                    ]),
+                ]));
             }
         }
-        await app.setContent("device-list", ...cards);
+
+        await screen.setContent("device-list", ...rows);
     };
 
-    /** Render nilai sensor per device sebagai teks (di span dev-sensors-*). */
-    const renderAllSensors = async () => {
-        if (!app.running) return;
-        for (const nodeId of sensorMap.keys()) {
-            const sensors = sensorMap.get(nodeId);
-            if (!sensors) continue;
-            const parts: string[] = [];
-            for (const key of Object.keys(sensors)) {
-                const s = sensors[key];
-                parts.push(`${s.id}=${s.value}${s.unit ? " " + s.unit : ""}`);
-            }
-            try {
-                await app.update(`dev-sensors-${nodeId}`, { text: parts.join("  ") || "—" });
-            } catch (_) { /* window destroyed / belum ada */ }
-        }
-    };
+    // ── Handler IPC ──
+    form.onSetup = async () => {
+        headerLabel.caption = `Target: ${target}${tenantFilter ? ` | Tenant: ${tenantFilter}` : ""} | 🟢 Connected`;
+        statusBar.leftText = `🌺 Lantana | ${target}`;
+        statusBar.rightText = tenantFilter ? `Tenant: ${tenantFilter}` : "All tenants";
 
-    // Tangani data sensor masuk
-    const handleSensorData = (data: any) => {
-        if (!app.running) return;
-        pktCnt++;
-        const nodeId = data.nodeId;
-        const sensors: any = {};
-        for (const s of data.sensors || []) {
-            sensors[s.id] = {
-                id: s.id,
-                label: s.label,
-                unit: s.unit,
-                icon: undefined,
-                color: undefined,
-                value: s.value,
-                category: s.category,
-            };
-            // History per sensor (node+sensor)
-            const hk = `${nodeId}:${s.id}`;
-            if (!history[hk]) history[hk] = [];
-            history[hk].push(s.value);
-            if (history[hk].length > 30) history[hk].shift();
-        }
-        sensorMap.set(nodeId, { ...(sensorMap.get(nodeId) || {}), ...sensors });
-    };
+        if (lib?.onEvent) {
+            lib.onEvent("ipc_message", async (msg: any) => {
+                const payload = msg?.data || msg;
+                if (!payload || typeof payload !== "object") return;
 
-    const handleDeviceStatus = (data: any) => {
-        if (!app.running) return;
-        for (const d of data || []) {
-            devices.set(d.nodeId, d);
-        }
-        renderDeviceList().catch(() => { });
-        renderAllSensors().catch(() => { });
-    };
+                if (payload.type === "LANTANA_SENSOR_DATA") {
+                    const data = payload.data;
+                    if (tenantFilter && data.tenant !== tenantFilter) return;
+                    const k = dkey(data.tenant, data.nodeId);
 
-    await log(`🔌 Target: ${target}`);
-    await log("⏳ Registering ke distributor...\n");
+                    log(`📥 [${new Date(data.receivedAt || Date.now()).toLocaleTimeString()}] ${data.tenant}/${data.nodeId} (${data.format}) → ${data.sensors.length} sensor, age ${data.dataAgeMs}ms`);
 
-    const lib = (global as any)._tsixLib;
-    if (lib?.onEvent) {
-        lib.onEvent("ipc_message", (msg: any) => {
-            if (!app.running) return;
-            const payload = msg?.data || msg;
-            if (!payload || typeof payload !== "object") return;
-            if (payload.type === "LANTANA_SENSOR_DATA") {
-                const data = payload.data;
-                if (tenantFilter && data.tenant !== tenantFilter) return;
-                log(`📥 [${new Date(data.receivedAt || Date.now()).toLocaleTimeString()}] ${data.tenant}/${data.nodeId} (${data.format}) → ${data.sensors.length} sensor, age ${data.dataAgeMs}ms`);
-                handleSensorData(data);
-                // update device status via data
-                const dev = devices.get(data.nodeId);
-                if (dev) {
-                    dev.lastDataAt = data.receivedAt;
-                    dev.dataAgeMs = data.dataAgeMs;
-                    dev.status = data.deviceStatus;
-                    devices.set(data.nodeId, dev);
-                }
-                renderDeviceList().catch(() => { });
-                renderAllSensors().catch(() => { });
-            } else if (payload.type === "LANTANA_DEVICE_STATUS") {
-                handleDeviceStatus(payload.data);
-            } else if (payload.type === "LANTANA_SNAPSHOT_REPLY") {
-                log(`📦 Snapshot diterima: ${payload.data.devices.length} device`);
-                for (const dev of payload.data.devices || []) {
-                    devices.set(dev.nodeId, dev);
-                    const sd = (payload.data.sensorData || []).find((x: any) => x.nodeId === dev.nodeId);
-                    if (sd) {
-                        const sensors: any = {};
-                        for (const s of sd.sensors || []) {
-                            sensors[s.id] = { id: s.id, label: s.label, unit: s.unit, value: s.value, category: s.category };
-                        }
-                        sensorMap.set(dev.nodeId, sensors);
+                    const sensors: any = { ...(sensorMap.get(k) || {}) };
+                    for (const s of data.sensors || []) {
+                        sensors[s.id] = {
+                            id: s.id,
+                            label: s.label,
+                            unit: s.unit,
+                            value: s.value,
+                            category: s.category,
+                        };
                     }
+                    sensorMap.set(k, sensors);
+
+                    const dev = devices.get(k);
+                    if (dev) {
+                        dev.lastDataAt = data.receivedAt;
+                        dev.dataAgeMs = data.dataAgeMs;
+                        dev.status = data.deviceStatus;
+                        devices.set(k, dev);
+                    }
+
+                    await renderDeviceList();
+                } else if (payload.type === "LANTANA_DEVICE_STATUS") {
+                    for (const d of payload.data || []) {
+                        devices.set(dkey(d.tenant, d.nodeId), d);
+                    }
+                    await renderDeviceList();
+                } else if (payload.type === "LANTANA_SNAPSHOT_REPLY") {
+                    log(`📦 Snapshot diterima: ${payload.data.devices.length} device`);
+                    for (const dev of payload.data.devices || []) {
+                        const k = dkey(dev.tenant, dev.nodeId);
+                        devices.set(k, dev);
+                        const sd = (payload.data.sensorData || []).find(
+                            (x: any) => x.nodeId === dev.nodeId && x.tenant === dev.tenant,
+                        );
+                        if (sd) {
+                            const sensors: any = {};
+                            for (const s of sd.sensors || []) {
+                                sensors[s.id] = { id: s.id, label: s.label, unit: s.unit, value: s.value, category: s.category };
+                            }
+                            sensorMap.set(k, sensors);
+                        }
+                    }
+                    await renderDeviceList();
                 }
-                renderDeviceList().catch(() => { });
-                renderAllSensors().catch(() => { });
-            }
-        });
-    }
+            });
+        }
 
-    app.win.bindHandler("status-scroll", "scroll", (ev: any) => {
-        const st = ev?.scrollTop ?? 0, sh = ev?.scrollHeight ?? 1, ch = ev?.clientHeight ?? 1;
-        autoScroll = (sh - st - ch) < 20;
-    });
+        await shell.send(target, { type: "LANTANA_REGISTER", name: "dashboard", tenant: tenantFilter, fromPid: lib?.getPid?.() }).catch(() => { });
+        await shell.send(target, { type: "LANTANA_SNAPSHOT", fromPid: lib?.getPid?.() }).catch(() => { });
+    };
 
-    app.win.onClose(() => { app.running = false; });
-
-    // Register ke distributor
-    await shell.send(target, { type: "LANTANA_REGISTER", name: "dashboard", tenant: tenantFilter, fromPid: lib?.getPid?.() }).catch(() => { });
-    await shell.send(target, { type: "LANTANA_SNAPSHOT", fromPid: lib?.getPid?.() }).catch(() => { });
-
-    await app.win.flush();
-
-    while (app.running) {
+    // Polling snapshot tiap 3 detik (menggantikan while loop)
+    const timer = new TTimer({ interval: 3000, enabled: true });
+    timer.onTimer = async () => {
         try {
             await shell.send(target, { type: "LANTANA_SNAPSHOT", fromPid: lib?.getPid?.() });
         } catch (_) { }
-        await new Promise((r) => setTimeout(r, 3000));
-    }
-    await app.close();
+    };
+    form.add(timer);
+
+    await form.run();
 });

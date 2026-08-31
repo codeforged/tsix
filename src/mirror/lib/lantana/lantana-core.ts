@@ -161,7 +161,7 @@ export async function loadConfig(): Promise<LantanaConfig> {
             },
         },
         deviceCategories: {
-            esp32: { label: "ESP32", icon: "🔧" },
+            esp: { label: "ESP", icon: "🔧" },
             simulator: { label: "Simulator", icon: "💻" },
             generic: { label: "Generic Device", icon: "📡" },
         },

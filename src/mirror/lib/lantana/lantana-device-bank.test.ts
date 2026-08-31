@@ -19,7 +19,7 @@ vi.mock("@tsix/lantana/lantana-core", () => {
         loadConfig: vi.fn(async () => ({
             ports: {},
             deviceCategories: {
-                esp32: { label: "ESP32", icon: "🔧" },
+                esp: { label: "ESP", icon: "🔧" },
                 generic: { label: "Generic Device", icon: "📡" },
             },
             sensorCategories: {
@@ -68,7 +68,7 @@ describe("DeviceBank group (deviceGroupMap)", () => {
 
     it("kategori device tetap berjalan normal (tidak terganggu group)", async () => {
         const dev = upsert(bank, "esp8266-dev-01");
-        expect(dev.category).toBe("esp32"); // heuristic: mengandung "esp"
+        expect(dev.category).toBe("esp"); // heuristic: mengandung "esp"
         expect(dev.group).toBe("client-a");
     });
 
@@ -92,7 +92,7 @@ describe("DeviceBank kategori (tidak regresi)", () => {
 
     it("infer kategori dari nodeId (fallback generic)", async () => {
         const dev = upsert(bank, "esp32-01");
-        expect(dev.category).toBe("esp32");
+        expect(dev.category).toBe("esp");
         const gen = upsert(bank, "something-else");
         expect(gen.category).toBe("generic");
     });
@@ -116,7 +116,7 @@ describe("DeviceBank multi-tenant (nodeId sama, tenant beda)", () => {
         const b = bank.getDevice("dev-01", "Tenant Lain")!;
         expect(a.tenant).toBe("Juragan Sensor");
         expect(b.tenant).toBe("Tenant Lain");
-        expect(a.getSensors?.("01")?.value ?? a.sensors.get("01")!.value).toBe(25);
+        expect(a.sensors.get("01")!.value).toBe(25);
         expect(b.sensors.get("01")!.value).toBe(99);
     });
 
