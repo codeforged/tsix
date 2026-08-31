@@ -195,6 +195,32 @@ export class SecurityAgent implements ISecurityAgent {
   }
 
   /**
+   * securePacketInRawBuffer(): Decrypt raw Buffer → Buffer utuh (tanpa konversi
+   * utf8). Dipakai protocol biner terenkripsi (Binfeo) supaya byte >= 0x80
+   * tidak rusak. Return null kalau gagal / tanpa key.
+   */
+  public securePacketInRawBuffer(data: Buffer): Buffer | null {
+    if (!data || data.length === 0) return null;
+    if (!this.sessionKey) return data; // plain passthrough
+    try {
+      if (data.length < 28) return null; // Malformed (12 IV + 16 Tag)
+      const iv = data.subarray(0, 12);
+      const tag = data.subarray(12, 28);
+      const encrypted = data.subarray(28);
+      const decipher = crypto.createDecipheriv(
+        "chacha20-poly1305",
+        this.sessionKey,
+        iv,
+        { authTagLength: 16 },
+      );
+      decipher.setAuthTag(tag);
+      return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  /**
    * sign(): Sign data using Private Key (RSA)
    */
   public static sign(privateKeyPem: string, data: string): string {

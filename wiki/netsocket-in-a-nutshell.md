@@ -17,6 +17,7 @@ NetworkLib (syscall: socket/bind/sendto/recv/ioctl)
 | Konsep | Penjelasan |
 |---|---|
 | **Port lokal (pilih sendiri atau `0` = ephemeral)** | NetSocket bisa bind port tertentu ATAU minta port random dengan `port: 0`. Setelah `open()`, `sock.port` berisi **port ASLI** hasil pilihan kernel — dan `upgradeSecurity()` otomatis memasang session key ke port asli itu. Penting karena MQTNL mengenkripsi **per srcPort**. |
+| **Biner TERSANDI (Binfeo)** | Protocol biner yang BISA dienkripsi utk komunikasi normal (bukan OTA). Pilih via `protocol: "Binfeo"` — driver enkripsi payload (Buffer utuh, byte ≥ 0x80 tidak rusak). |
 | **Plain dulu, upgrade belakangan** | `open()` membuat socket plain. Enkripsi (ChaCha20-Poly1305) diaktifkan **eksplisit** via `upgradeSecurity()`. Bisa mulai plain → handshake → switch secure. |
 | **Event-driven vs manual** | Bisa terima data via `onData` (loop internal) ATAU loop `recv()` manual. Keduanya eksklusif. |
 | **Auto-cleanup** | Ctrl+C → `close()` otomatis (release port + normalisasi security agent). |
@@ -184,7 +185,49 @@ await sock.waitClosed();
 
 ---
 
-## 7. Contoh 4 — RSA handshake untuk berbagi secret key ChaCha20
+## 7. Contoh — Protocol biner TERSANDI (Binfeo)
+
+**Binfeo** adalah protocol biner yang BISA DIENKRIPSI untuk komunikasi NORMAL
+(BUKAN untuk ESP OTA). Berbeda dari OTA "Binary" (`mqtnl@1.1/`, magic `0x42`) yang
+selalu **bypass enkripsi** supaya panjang byte persis, Binfeo (`mqtnl@1.2/`, magic
+`0x66`) dikirim **terenkripsi oleh driver** — payload biner tetap utuh sampai
+receiver (byte ≥ 0x80 tidak rusak), dan RX menerimanya sebagai `Buffer`.
+
+| Protocol | Nama | Magic | Topic | Enkripsi driver |
+|---|---|---|---|---|
+| JSON (default) | `"JSON"` | `0x5B` `'['` | `mqtnl@1.0/` | string hex |
+| Biner OTA | `"Binary"` | `0x42` `'B'` | `mqtnl@1.1/` | **tidak** (bypass, utk OTA) |
+| **Biner tersandi** | `"Binfeo"` | `0x66` `'f'` | `mqtnl@1.2/` | **ya** (raw Buffer) |
+
+Pilih lewat opsi `protocol` di `NetSocket` (mengalahkan `binary: true`):
+
+```ts
+const KEY_HEX =
+  "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619";
+
+// RX — bind port tetap, terima Buffer hasil dekripsi
+const rx = new NetSocket({ port: 2700, key: KEY_HEX, protocol: "Binfeo" });
+rx.onData = (pkt) => {
+  const buf = Buffer.isBuffer(pkt.data) ? pkt.data : Buffer.from(pkt.data);
+  std.println(`[RX] ${buf.toString("hex")}`);   // byte persis sama
+};
+await rx.open();
+await rx.upgradeSecurity();       // key menempel ke port rx
+await rx.waitClosed();
+
+// TX — port ephemeral (0), kirim Buffer; driver enkripsi otomatis
+const tx = new NetSocket({ port: 0, key: KEY_HEX, protocol: "Binfeo" });
+await tx.open();                  // sock.port = port asli dari kernel
+await tx.upgradeSecurity();       // key menempel ke port asli itu
+await tx.sendTo("localhost", 2700, Buffer.from([0xde, 0xad, 0xbe, 0xef, 0x00, 0x80, 0xff]));
+await tx.close();
+```
+
+Contoh lengkap: `netsocket-binfeo-rx.ts` / `netsocket-binfeo-tx.ts`.
+
+---
+
+## 8. Contoh 4 — RSA handshake untuk berbagi secret key ChaCha20
 
 Pola ini dipakai di **TeleChat** dan **tpkgd**: RSA (asimetris) dipakai **sekali** untuk
 mengirim session key ChaCha20 (simetris) dengan aman. Setelah itu semua data memakai
@@ -324,11 +367,11 @@ await sock.waitClosed();
 
 ---
 
-## 8. API ringkas
+## 9. API ringkas
 
 | Method | Kegunaan |
 |---|---|
-| `new NetSocket({ port, key?, binary?, iface? })` | Konfigurasi (port wajib) |
+| `new NetSocket({ port, key?, binary?, protocol?, iface? })` | Konfigurasi (port wajib) — `protocol` mis. `"Binfeo"` utk biner tersandi |
 | `open()` / `listen()` | Socket + bind (plain), start recv-loop kalau `onData` ada |
 | `upgradeSecurity(key?, { agent? })` | Switch ke enkripsi (default ChaCha20, bisa `aes-gcm`) |
 | `sendTo(addr, port, data, flag?, srcPort?)` | Kirim data dari socket ini |
@@ -355,7 +398,7 @@ await sock.waitClosed();
 
 ---
 
-## 9. Checklist cepat (biar tidak salah)
+## 10. Checklist cepat (biar tidak salah)
 
 - [ ] Set `onData` **sebelum** `open()` (kalau mau event-driven)
 - [ ] Jangan set `onData` sekaligus pakai `recv()` manual (eksklusif)

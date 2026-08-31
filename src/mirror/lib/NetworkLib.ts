@@ -316,6 +316,14 @@ export interface NetSocketOptions {
   /** Mode protocol biner per-port (default: false → JSON). */
   binary?: boolean;
   /**
+   * Nama protocol per-port (opsional, mengalahkan `binary`). Contoh:
+   *  - "Binary" → biner OTA (bypass enkripsi)
+   *  - "Binfeo" → biner TERSANDI untuk komunikasi normal (dipasang via
+   *    `upgradeSecurity()`; payload bisa Buffer, terdekripsi utuh di RX)
+   * Kosong + `binary: true` → "Binary".
+   */
+  protocol?: string;
+  /**
    * Auto-cleanup saat SIGINT/SIGTERM (default: true): close() lalu exit(130/143).
    * Set false jika aplikasi ingin menangani signal sendiri.
    */
@@ -344,6 +352,7 @@ export class NetSocket {
   private readonly iface?: string;
   private key: string | null = null;
   private readonly binary: boolean;
+  private readonly protocol?: string;
   private readonly autoCleanup: boolean;
   private secured = false;
   private agentName: string = "chacha20";
@@ -365,6 +374,7 @@ export class NetSocket {
     this.iface = opts.iface;
     this.key = opts.key ?? null;
     this.binary = opts.binary ?? false;
+    this.protocol = opts.protocol;
     this.autoCleanup = opts.autoCleanup !== false;
   }
 
@@ -422,10 +432,12 @@ export class NetSocket {
     // bisa mulai plain dulu lalu switch ke ChaCha20-Poly1305 (mis. setelah
     // handshake / pertukaran session key).
 
-    // Protocol biner per-port (dulu magic ioctl 0x1002) — pakai port asli
-    if (this.binary) {
+    // Protocol biner per-port (dulu magic ioctl 0x1002) — pakai port asli.
+    // `protocol` (mis. "Binfeo") mengalahkan `binary` (→ "Binary").
+    if (this.binary || this.protocol) {
       await lib.ioctl(fd, SMQTNL_IOCTL.SET_BINARY_MODE, {
         port: actualPort,
+        ...(this.protocol ? { protocol: this.protocol } : {}),
       });
     }
 

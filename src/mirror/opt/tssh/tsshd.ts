@@ -60,9 +60,10 @@ export default class TSSHDaemon {
     // --- 2. BIND SOCKET AFTER DAEMONIZE ---
     const socket = await lib.net.socket();
     await lib.net.bind(socket, port);
-    // Aktifkan MQTNL v1.1 Binary Mode PER-PORT (bukan global) supaya
-    // aplikasi lain (ping, nmap, dsb) tetap memakai JSON v1.0 di port mereka.
-    await lib.net.ioctl(socket, 0x1002, { port });
+    // Aktifkan protocol Binfeo PER-PORT (bukan global) supaya aplikasi lain
+    // (ping, nmap, dsb) tetap memakai JSON v1.0 di port mereka. Binfeo =
+    // biner TERSANDI utk komunikasi normal (bukan OTA Binary yg bypass security).
+    await lib.net.ioctl(socket, 0x1002, { port, protocol: "Binfeo" });
 
     // Signal Handler
     (lib as any).onEvent("signal", async (sig: any) => {
@@ -197,10 +198,11 @@ export default class TSSHDaemon {
         );
         sess.agent.setSessionKey(sessionKey);
 
-        // JANGAN upgrade ioctl 0x1001 di sini: binary protocol driver sudah
-        // bypass security saat TX & auto-decrypt saat RX, sedangkan payload
-        // TSSH sudah dienkripsi manual oleh agent. Lapisan driver ganda hanya
-        // merusak frame / mengandalkan fallback authTag-fail. (Pola sama dgn airtermd.)
+        // JANGAN upgrade ioctl 0x1001 di sini: driver TIDAK mengenkripsi
+        // (Binfeo dipakai hanya utk framing biner), payload TSSH dienkripsi
+        // MANUAL oleh agent per-session — karena banyak client berbagi SATU
+        // port (key berbeda), sedangkan security driver per-port hanya 1 key.
+        // Lapisan driver ganda hanya merusak frame. (Pola sama dgn airtermd.)
 
         const ack = TSSHProtocol.pack(
           TSSHOpcode.CONNECT_ACK,

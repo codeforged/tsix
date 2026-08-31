@@ -6,6 +6,29 @@
 
 ---
 
+## 2026-09-01
+
+### Protocol biner TERSANDI — Binfeo (bukan OTA)
+
+- **File:** `src/common/protocols/MQTNLProtocolBinfeo.ts`, `src/common/protocols/MQTNLProtocolBinary.ts`, `src/kernel/devices/SimpleMQTNLDriver.ts`, `src/common/ISecurityAgent.ts`, `src/common/SecurityAgent.ts`, `src/common/AesGcmAgent.ts`, `src/mirror/lib/NetworkLib.ts`
+- **Perubahan:**
+  - Protocol baru **`Binfeo`** (extend `MQTNLProtocolBinary`): biner yang BISA dienkripsi utk komunikasi normal — magic `0x66` (`'f'`), topic `mqtnl@1.2/` (bukan OTA `0x42`/`mqtnl@1.1/`). Magic & version di `MQTNLProtocolBinary` dibuat `protected` supaya bisa di-override.
+  - Driver: **TX Binfeo dienkripsi** via `securePacketOutRaw()` (beda dari OTA yang bypass); **RX dekripsi ke Buffer utuh** via `securePacketInRawBuffer()` (byte ≥ 0x80 tidak rusak; OTA tetap jalur string).
+  - Per-port protocol digeneralisasi: `binaryPorts: Set` → `portProtocols: Map<port, nama>`; ioctl `0x1002` terima `{ port, protocol: "Binfeo" }`.
+  - `ISecurityAgent` + agent: tambah `securePacketInRawBuffer()` (decrypt → Buffer) & `securePacketOutRaw?` (encrypt → Buffer) — binary-safe.
+  - `NetSocket`: opsi baru **`protocol`** (mis. `protocol: "Binfeo"`) — mengalahkan `binary: true`.
+  - Sniffer (`bitshark`) melabeli nama protocol asli (mis. `Binfeo`).
+- **Contoh:** `netsocket-binfeo-rx.ts` / `netsocket-binfeo-tx.ts`; test `MQTNLProtocolBinfeo.test.ts`.
+- **Dampak:** komunikasi biner normal bisa terenkripsi end-to-end tanpa menyalahgunakan protocol OTA (yang bypass security).
+
+### tssh / tsshd pindah ke Binfeo
+
+- **File:** `src/mirror/opt/tssh/tssh.ts`, `src/mirror/opt/tssh/tsshd.ts`
+- **Perubahan:** protocol per-port dari OTA Binary → **Binfeo** (`ioctl 0x1002 { port, protocol: "Binfeo" }`). Enkripsi payload tetap di app level (per-session key) karena `tsshd` multiplex banyak session di SATU port — security driver per-port (1 key/port) tidak cukup.
+- **Dampak:** shell TSSH tidak lagi memakai protocol OTA (semantiknya "bypass enkripsi"); wire memakai `mqtnl@1.2/` / magic `0x66`.
+
+- **Oleh:** Copilot
+
 ## 2026-08-31
 
 ### NetSocket — komponen networking high-level ala Cashew

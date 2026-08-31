@@ -106,4 +106,25 @@ export class AesGcmAgent implements ISecurityAgent {
       return "";
     }
   }
+
+  /** securePacketInRawBuffer(): Dekripsi Buffer mentah → Buffer utuh (binary-safe). */
+  public securePacketInRawBuffer(data: Buffer): Buffer | null {
+    if (!data || data.length === 0) return null;
+    if (!this.sessionKey) return data; // plain passthrough
+    try {
+      if (data.length < 28) return null; // 12 IV + 16 Tag
+      const iv = data.subarray(0, 12);
+      const tag = data.subarray(12, 28);
+      const encrypted = data.subarray(28);
+      const decipher = crypto.createDecipheriv(
+        "aes-256-gcm",
+        this.sessionKey,
+        iv,
+      );
+      decipher.setAuthTag(tag);
+      return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    } catch (_e) {
+      return null;
+    }
+  }
 }

@@ -8,6 +8,7 @@ import { AesGcmAgent } from "../../common/AesGcmAgent";
 import { IMQTNLProtocol } from "../../common/protocols/IMQTNLProtocol";
 import { MQTNLProtocolJSON } from "../../common/protocols/MQTNLProtocolJSON";
 import { MQTNLProtocolBinary } from "../../common/protocols/MQTNLProtocolBinary";
+import { MQTNLProtocolBinfeo } from "../../common/protocols/MQTNLProtocolBinfeo";
 import * as mqtt from "mqtt";
 
 /**
@@ -85,11 +86,11 @@ export class SimpleMQTNLDriver implements IDevice {
   private activeProtocol: IMQTNLProtocol;
   private protocolRegistry: Map<string, IMQTNLProtocol> = new Map();
 
-  // [PER-PORT BINARY MODE] Port yang di-opt-in utk selalu memakai protocol
-  // Binary (MQTNL v1.1) saat TX. Dipakai oleh tsshd/tssh agar TIDAK mengubah
-  // activeProtocol GLOBAL (yang membuat aplikasi lain seperti ping/nmap ikut
-  // binary). Default: kosong → semua port memakai activeProtocol (JSON).
-  private binaryPorts: Set<number> = new Set();
+  // [PER-PORT PROTOCOL MODE] Port → nama protocol per-port (mis. "Binary" utk
+  // OTA, "Binfeo" utk biner TERSANDI komunikasi normal). Dipakai supaya aplikasi
+  // TIDAK mengubah activeProtocol GLOBAL (yang membuat aplikasi lain seperti
+  // ping/nmap ikut binary). Default: kosong → semua port memakai activeProtocol (JSON).
+  private portProtocols: Map<number, string> = new Map();
 
   // Sniffer (bitshark): callback menangkap paket
   // TX = payload SEBELUM dienkripsi, RX = payload SETELAH dekripsi (plaintext terbaca)
@@ -107,7 +108,11 @@ export class SimpleMQTNLDriver implements IDevice {
     this.security = new SecurityAgent();
 
     // Initialize Protocols (Pluggable)
-    this.protocols = [new MQTNLProtocolJSON(), new MQTNLProtocolBinary()];
+    this.protocols = [
+      new MQTNLProtocolJSON(),
+      new MQTNLProtocolBinary(),
+      new MQTNLProtocolBinfeo(),
+    ];
     this.activeProtocol = this.protocols[0]; // Default: JSON
 
     // Periodically cleanup abandoned packets (older than 1 minute)
@@ -123,6 +128,15 @@ export class SimpleMQTNLDriver implements IDevice {
     return SimpleMQTNLDriver.instances.find(
       (d) => d.localAddress === address || d.name === address,
     );
+  }
+
+  /**
+   * isBinaryProtocol(): True kalau protocol mengirim payload sebagai byte mentah
+   * (Binary utk OTA, Binfeo utk biner terenkripsi). JSON → false.
+   */
+  private isBinaryProtocol(proto: IMQTNLProtocol): boolean {
+    const n = proto.getName();
+    return n === "Binary" || n === "Binfeo";
   }
 
   /**
@@ -250,7 +264,9 @@ export class SimpleMQTNLDriver implements IDevice {
       // --- SECURITY LAYER ---
       const dstPort = packet.header.dstPort;
       const portSec = this.portSecurity.get(dstPort) || this.security;
-      const isBinary = proto.getName() === "Binary";
+      const isBinary = this.isBinaryProtocol(proto);
+      const protoName = proto.getName();
+      const isRawOta = protoName === "Binary"; // OTA: jalur string legacy
 
       let decryptedPayload: any;
       // Apakah `data` benar-benar hasil DEKRIPSI? Kalau driver tidak punya
@@ -260,10 +276,26 @@ export class SimpleMQTNLDriver implements IDevice {
       if (isBinary) {
         if (portSec.hasSessionKey()) {
           // Ada session key utk port ini → coba decrypt otomatis.
-          decryptedPayload = portSec.securePacketInRaw(
-            assembledPayload as Buffer,
-          );
-          if (decryptedPayload) actuallyDecrypted = true;
+          // Protocol biner TERSANDI (Binfeo, bukan OTA): dekripsi ke Buffer utuh
+          // supaya byte >= 0x80 tidak rusak. OTA tetap jalur string (backward compat).
+          if (
+            !isRawOta &&
+            typeof (portSec as any).securePacketInRawBuffer === "function"
+          ) {
+            const rawBuf = (portSec as any).securePacketInRawBuffer(
+              assembledPayload as Buffer,
+            );
+            if (rawBuf && rawBuf.length > 0) {
+              decryptedPayload = rawBuf;
+              actuallyDecrypted = true;
+            }
+          }
+          if (decryptedPayload === undefined) {
+            decryptedPayload = portSec.securePacketInRaw(
+              assembledPayload as Buffer,
+            );
+            if (decryptedPayload) actuallyDecrypted = true;
+          }
         } else if (Buffer.isBuffer(assembledPayload)) {
           // TANPA session key (plain/passthrough). JANGAN panggil
           // securePacketInRaw() — tanpa key ia melakukan
@@ -286,9 +318,10 @@ export class SimpleMQTNLDriver implements IDevice {
           decryptedPayload = assembledPayload;
         }
 
-        // [FALLBACK] If decryption failed, but we are using binary protocol,
-        // permit the raw payload (Plain Mode) to support optimized OTA.
-        if (!decryptedPayload && assembledPayload.length > 0) {
+        // [FALLBACK] Hanya untuk OTA: kalau dekripsi gagal, izinkan payload
+        // mentah (Plain Mode) supaya OTA tetap jalan. Untuk Binfeo, kegagalan
+        // dekripsi = error asli → dibiarkan drop (bukan passthrough ciphertext).
+        if (isRawOta && !decryptedPayload && assembledPayload.length > 0) {
           decryptedPayload = assembledPayload;
         }
       } else {
@@ -319,7 +352,7 @@ export class SimpleMQTNLDriver implements IDevice {
         dstAddress: packet.header.dstAddress,
         dstPort: packet.header.dstPort,
         flag: packet.header.packetHeaderFlag,
-        protocol: isBinary ? "Binary" : "JSON",
+        protocol: proto.getName(),
         size: Buffer.isBuffer(decryptedPayload)
           ? decryptedPayload.length
           : String(decryptedPayload || "").length,
@@ -504,27 +537,40 @@ export class SimpleMQTNLDriver implements IDevice {
 
     // --- PROTOCOL SELECTION ---
     // Look up registered protocol for this destination; fallback ke per-port
-    // binary (binaryPorts) lalu global default (activeProtocol).
+    // protocol (portProtocols) lalu global default (activeProtocol).
     let protocol = this.protocolRegistry.get(address);
     if (!protocol) {
-      protocol = this.binaryPorts.has(srcPort)
-        ? this.protocols.find((p) => p.getName() === "Binary")!
+      const perPortName = this.portProtocols.get(srcPort);
+      protocol = perPortName
+        ? this.protocols.find((p) => p.getName() === perPortName) ??
+          this.activeProtocol
         : this.activeProtocol;
     }
-    const useRaw = protocol.getName() === "Binary";
+    const protocolName = protocol.getName();
+    const useRaw = protocolName === "Binary"; // OTA: bypass enkripsi
+    const isBinfeo = protocolName === "Binfeo"; // biner TERSANDI
     const prefix = protocol.getTopicPrefix();
 
     // Security: Prioritize specific local port (e.g., 4000 for otad) then fallback to global
     let portSec = this.portSecurity.get(srcPort);
     if (!portSec) portSec = this.security;
 
-    // [BYPASS SECURITY] If using Binary protocol (useRaw), DO NOT add security overhead.
-    // This ensures the payload length matches exactly what the receiver expects (e.g. for OTA flash alignment).
-    const securedPayload = useRaw
-      ? payload
-      : typeof payload === "string"
-        ? portSec.securePacketOut(payload)
-        : JSON.stringify(payload);
+    let securedPayload: any;
+    if (useRaw) {
+      // [BYPASS SECURITY] OTA: JANGAN tambah overhead enkripsi — panjang byte
+      // harus persis sesuai ekspektasi receiver (mis. alignment flash OTA).
+      securedPayload = payload;
+    } else if (isBinfeo) {
+      // Binfeo: biner TERSANDI untuk komunikasi normal. Enkripsi kalau ada
+      // session key utk srcPort; kalau belum (handshake), kirim byte mentah.
+      const enc = portSec.securePacketOutRaw?.(payload) ?? payload;
+      securedPayload = Buffer.isBuffer(enc) ? enc : payload;
+    } else {
+      securedPayload =
+        typeof payload === "string"
+          ? portSec.securePacketOut(payload)
+          : JSON.stringify(payload);
+    }
 
     // [SNIFFER] TX — `data` = payload SEBELUM enkripsi (plaintext), `raw` = yang
     // benar-benar keluar ke wire (encrypted). Kernel memfilter siapa dapat versi
@@ -539,7 +585,7 @@ export class SimpleMQTNLDriver implements IDevice {
       dstAddress: address,
       dstPort: port,
       flag,
-      protocol: useRaw ? "Binary" : "JSON",
+      protocol: protocol.getName(),
       size: Buffer.isBuffer(payload) ? payload.length : String(payload).length,
       data: Buffer.isBuffer(payload) ? payload.toString("utf8") : payload,
       raw: Buffer.isBuffer(securedPayload)
@@ -554,7 +600,7 @@ export class SimpleMQTNLDriver implements IDevice {
     // --- FRAGMENTATION LAYER ---
     const chunks: (string | Buffer)[] = [];
     if (securedPayload.length === 0) {
-      chunks.push(useRaw ? Buffer.alloc(0) : "");
+      chunks.push(this.isBinaryProtocol(protocol) ? Buffer.alloc(0) : "");
     } else {
       for (let i = 0; i < securedPayload.length; i += this.packetSize) {
         if (typeof securedPayload === "string") {
@@ -662,24 +708,30 @@ export class SimpleMQTNLDriver implements IDevice {
       }
     }
     if (cmd === 0x1002) {
-      // SMQTNL_IOCTL_SET_BINARY_MODE
-      // Bentuk per-port: { port } → daftarkan port tsb sebagai binary
-      // (TIDAK mengubah activeProtocol GLOBAL, jadi app lain tetap JSON).
+      // SMQTNL_IOCTL_SET_BINARY_MODE — pilih protocol per-port.
+      // Bentuk per-port: { port, protocol?: "<nama>" } → set protocol port tsb
+      // (mis. "Binary" utk OTA, "Binfeo" utk biner terenkripsi). Tanpa nama →
+      // default "Binary" (backward compat). { port, enabled: false } → kembali
+      // ke protocol default (JSON). TIDAK mengubah activeProtocol GLOBAL.
       if (
         arg &&
         typeof arg === "object" &&
         typeof (arg as any).port === "number"
       ) {
-        const { port } = arg as { port: number };
+        const { port, protocol } = arg as { port: number; protocol?: string };
         if ((arg as any).enabled === false) {
-          this.binaryPorts.delete(port);
+          this.portProtocols.delete(port);
           this.logger.info(
-            `Interface ${this.name} port ${port} -> protocol JSON (per-port binary off)`,
+            `Interface ${this.name} port ${port} -> protocol default (per-port override off)`,
           );
         } else {
-          this.binaryPorts.add(port);
+          const name =
+            typeof protocol === "string" && protocol.length > 0
+              ? protocol
+              : "Binary";
+          this.portProtocols.set(port, name);
           this.logger.info(
-            `Interface ${this.name} port ${port} -> protocol Binary (per-port)`,
+            `Interface ${this.name} port ${port} -> protocol ${name} (per-port)`,
           );
         }
         return true;

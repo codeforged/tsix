@@ -25,9 +25,23 @@ export interface ISecurityAgent {
   /** Enkripsi data → string HEX (dipakai driver saat TX). */
   securePacketOut(data: string | Buffer): string;
 
+  /**
+   * Enkripsi data → Buffer mentah (opsional). Dipakai protocol biner
+   * terenkripsi (mis. "Binfeo") saat TX supaya byte >= 0x80 tidak rusak.
+   * Tanpa session key → passthrough (plain).
+   */
+  securePacketOutRaw?(data: string | Buffer): Buffer | string;
+
   /** Dekripsi string HEX → string (dipakai driver saat RX, jalur JSON). */
   securePacketIn(data: string): string;
 
   /** Dekripsi Buffer mentah → string (dipakai driver saat RX, jalur biner). */
   securePacketInRaw(data: Buffer): string;
+
+  /**
+   * Dekripsi Buffer mentah → Buffer utuh (opsional). Dipakai protocol biner
+   * terenkripsi (mis. "Binfeo") supaya byte >= 0x80 TIDAK rusak oleh konversi
+   * utf8. Return null kalau gagal / data rusak.
+   */
+  securePacketInRawBuffer?(data: Buffer): Buffer | null;
 }
