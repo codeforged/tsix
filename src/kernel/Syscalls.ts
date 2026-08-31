@@ -1560,7 +1560,11 @@ export class SyscallDispatcher {
           socket.push(data);
         });
 
-        return true;
+        // Return port ASLI yang ter-bind (angka), bukan sekadar `true`.
+        // Krusial untuk bind port 0 (ephemeral): userland harus tahu port mana
+        // yang dipilih kernel agar bisa upgradeSecurity()/sendTo() per-srcPort
+        // yang benar (MQTNL mengenkripsi per srcPort).
+        return actualPort;
       }
 
       case SyscallCode.SENDTO: {

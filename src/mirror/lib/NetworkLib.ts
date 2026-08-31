@@ -96,20 +96,25 @@ export class NetworkLib {
     return await this.dispatch(SyscallCode.SOCKET, null);
   }
 
-  /** bind(): Mengikat socket ke port lokal (address/interface opsional). */
+  /**
+   * bind(): Mengikat socket ke port lokal (address/interface opsional).
+   * Return port ASLI yang ter-bind (angka). Kalau `port` = 0, kernel memilih
+   * port random yang available dan nilainya dikembalikan di sini — penting
+   * untuk per-srcPort encryption (upgradeSecurity). Lempar error kalau gagal.
+   */
   public async bind(
     fd: number,
     port: number,
     address?: string,
-  ): Promise<boolean> {
+  ): Promise<number> {
     return await this.dispatch(SyscallCode.BIND, { fd, port, address });
   }
 
   /** listen(): shortcut socket() + bind() untuk server. Return fd atau -1. */
   public async listen(port: number): Promise<number> {
     const fd = await this.socket();
-    const ok = await this.bind(fd, port);
-    return ok ? fd : -1;
+    const bound = await this.bind(fd, port);
+    return bound ? fd : -1;
   }
 
   /** accept(): Tunggu klien pertama, return pseudo-connection { fd, src, port }. */
@@ -281,17 +286,21 @@ export class NetworkLib {
  *   await sock.sendTo("leptopus", 1000, "halo");
  *   await sock.close();                      // release port + normalisasi security agent
  *
- * Contoh klien (kirim tanpa perlu bind port tetap):
+ * Contoh klien (kirim tanpa perlu bind port tetap — port ephemeral dari kernel):
  *
- *   const sock = new NetSocket({ port: 0 });
+ *   const sock = new NetSocket({ port: 0 });   // 0 = minta port random
  *   await sock.open();
+ *   // sock.port sekarang berisi port ASLI hasil pilihan kernel — dipakai juga
+ *   // oleh upgradeSecurity()/sendTo() untuk per-srcPort encryption.
  *   await sock.sendTo("leptopus", 1000, "hello");
  *   await sock.close();
  */
 export interface NetSocketOptions {
   /**
    * Port lokal untuk bind. WAJIB diisi (angka).
-   * Gunakan 0 untuk port ephemeral acak (dikelola kernel).
+   * Gunakan 0 untuk port ephemeral acak (dikelola kernel) — setelah `open()`,
+   * baca `sock.port` untuk port ASLI yang dipilih (dipakai juga oleh
+   * `upgradeSecurity()`/`sendTo()` supaya session key menempel di port yang benar).
    */
   port: number;
   /** Interface/address MQTNL (opsional). Contoh: "tsix-node-2" atau "smqtnl1". */
@@ -397,8 +406,10 @@ export class NetSocket {
     if (fd < 0) throw new Error("NetSocket: gagal membuat socket");
     this.fd = fd;
 
-    const bound = await lib.bind(fd, this.portWanted, this.iface);
-    if (!bound) {
+    // bind() return port ASLI yang ter-bind. Kalau portWanted = 0 (ephemeral),
+    // ini port random yang dipilih kernel — dipakai untuk per-srcPort security.
+    const actualPort = await lib.bind(fd, this.portWanted, this.iface);
+    if (!actualPort) {
       await lib.close(fd).catch(() => {});
       this.fd = -1;
       throw new Error(
@@ -411,15 +422,15 @@ export class NetSocket {
     // bisa mulai plain dulu lalu switch ke ChaCha20-Poly1305 (mis. setelah
     // handshake / pertukaran session key).
 
-    // Protocol biner per-port (dulu magic ioctl 0x1002)
+    // Protocol biner per-port (dulu magic ioctl 0x1002) — pakai port asli
     if (this.binary) {
       await lib.ioctl(fd, SMQTNL_IOCTL.SET_BINARY_MODE, {
-        port: this.portWanted,
+        port: actualPort,
       });
     }
 
     this.opened = true;
-    this.boundPort = this.portWanted;
+    this.boundPort = actualPort;
 
     if (this.autoCleanup) this.armAutoCleanup();
     if (this.onData) this.startLoop();
@@ -462,8 +473,11 @@ export class NetSocket {
         "NetSocket: tidak ada session key — berikan argumen atau set opsi 'key'",
       );
     }
+    // Key dipasang ke port ASLI yang ter-bind — krusial untuk port ephemeral
+    // (port 0): kalau pakai portWanted = 0, session key nyasar ke port 0.
+    const securePort = this.boundPort ?? this.portWanted;
     await this.lib.ioctl(this.fd, SMQTNL_IOCTL.UPGRADE_SECURITY, {
-      port: this.portWanted,
+      port: securePort,
       sessionKey,
       ...(opts?.agent ? { agent: opts.agent } : {}),
     });

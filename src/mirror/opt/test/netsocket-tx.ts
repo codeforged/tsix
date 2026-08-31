@@ -4,7 +4,8 @@ import { Program, std, NetSocket } from "@tsix/Application";
  * NETSOCKET TX — Example sender using NetSocket (Cashew-style).
  *
  * Flow shown:
- *   1. `new NetSocket({ port, key })` — bind a FIXED local port
+ *   1. `new NetSocket({ port, key })` — request a RANDOM available port (0);
+ *      after `open()`, `sock.port` holds the ACTUAL port the kernel picked
  *   2. Set `onData` BEFORE `open()` — the event-driven recv loop only starts
  *      if `onData` is already attached when `open()` runs (so TX can receive
  *      the reply/pong back from the receiver)
@@ -13,10 +14,11 @@ import { Program, std, NetSocket } from "@tsix/Application";
  *   5. `sendTo(addr, port, data)` — send a message (here via setTimeout)
  *   6. `waitClosed()` + `close()` — keep alive until closed, then release
  *
- * ⚠️ Why must the TX port be FIXED (not 0)? MQTNL encrypts per srcPort — the
- * session key from `upgradeSecurity()` is attached to that port. With an
- * ephemeral port 0 the key lands on the wrong port and the payload is sent
- * plaintext (a secured receiver will fail to decrypt).
+ * ✅ Port boleh 0 (ephemeral): kernel memilih port random yang available dan
+ * `sock.port` otomatis berisi port ASLI hasil pilihan kernel setelah `open()`.
+ * MQTNL encrypts per srcPort, jadi `upgradeSecurity()` menempelkan session key
+ * ke `sock.port` (port asli) — bukan ke port 0 — sehingga TX aman tetap bisa
+ * meng-upgrade security tanpa harus memilih port tetap sendiri.
  *
  * ⚠️ Encrypted mode is ON here — make sure the receiver also calls
  * `upgradeSecurity()` with the same key (e.g. netsocket-rx).
@@ -37,7 +39,7 @@ const reset = "\x1b[0m";
 export const main = Program(async (args: string[]) => {
   const targetAddr = args[0] || "localhost";
   const targetPort = parseInt(args[1] || "2500", 10);
-  const myPort = 2501; // fixed local port so per-srcPort encryption works
+  const myPort = 0; // 0 = minta port random yang available (kernel yang pilih)
 
   const sock = new NetSocket({ port: myPort, key: KEY_HEX });
 
@@ -52,7 +54,7 @@ export const main = Program(async (args: string[]) => {
 
   await sock.open();
   await std.println(
-    `${green}[TX] Socket ready (local port ${sock.port}, PLAIN)${reset}`,
+    `${green}[TX] Socket ready (local port ${sock.port} — assigned by kernel, PLAIN)${reset}`,
   );
 
   // Switch to secure mode EXPLICITLY (encrypted). The receiver must do the

@@ -9,14 +9,16 @@ import { Program, std, NetSocket } from "@tsix/Application";
  * because RX decrypts according to the agent attached to its port).
  *
  * Flow:
- *   1. `new NetSocket({ port, key })` — bind a FIXED local port
+ *   1. `new NetSocket({ port, key })` — request a RANDOM available port (0);
+ *      after `open()`, `sock.port` holds the ACTUAL port the kernel picked
  *   2. `open()` — socket + bind (PLAIN first)
  *   3. `upgradeSecurity(key, { agent: "aes-gcm" })` — switch to AES-256-GCM
  *   4. `sendTo(addr, port, data)` — send several messages
  *   5. `close()` — release port + normalize agent
  *
- * ⚠️ The TX port must be FIXED (not 0): MQTNL encrypts per-srcPort, so the
- * session key from `upgradeSecurity()` must be attached to the right port.
+ * ✅ TX port boleh 0 (ephemeral): kernel memilih port random yang available,
+ * `sock.port` berisi port ASLI hasil pilihan kernel, dan `upgradeSecurity()`
+ * menempelkan session key ke port asli itu (MQTNL encrypts per-srcPort).
  *
  * Run:  netsocket-tx-aesgcm [address] [port] [count]
  * (default address "mactsix", port 2600, 3 messages — pair with `netsocket-rx-aesgcm`)
@@ -35,13 +37,13 @@ export const main = Program(async (args: string[]) => {
   const targetAddr = args[0] || "mactsix";
   const targetPort = parseInt(args[1] || "2600", 10);
   const count = parseInt(args[2] || "3", 10);
-  const myPort = 2601; // fixed local port so per-srcPort encryption works
+  const myPort = 0; // 0 = minta port random yang available (kernel yang pilih)
 
   const sock = new NetSocket({ port: myPort, key: KEY_HEX });
 
   await sock.open();
   await std.println(
-    `${green}[TX-aesgcm] Socket ready (local port ${sock.port}, PLAIN)${reset}`,
+    `${green}[TX-aesgcm] Socket ready (local port ${sock.port} — assigned by kernel, PLAIN)${reset}`,
   );
 
   // Switch to secure mode with the CUSTOM aes-gcm agent (explicit).

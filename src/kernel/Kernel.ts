@@ -35,7 +35,7 @@ import { std } from "@tsix/Application";
 export class Kernel {
   // Versi kernel saat ini
   private codename: string = "Dinawari";
-  private version: string = "0.2.5.20260831.1";
+  private version: string = "0.2.5.20260831.2";
 
   public getCodename(): string {
     return this.codename;

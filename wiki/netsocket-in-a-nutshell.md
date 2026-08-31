@@ -16,7 +16,7 @@ NetworkLib (syscall: socket/bind/sendto/recv/ioctl)
 
 | Konsep | Penjelasan |
 |---|---|
-| **Port lokal TETAP** | NetSocket selalu bind ke port tertentu (bukan ephemeral). Ini penting karena MQTNL mengenkripsi **per srcPort** — session key di-`upgradeSecurity()` dipasang ke port itu. |
+| **Port lokal (pilih sendiri atau `0` = ephemeral)** | NetSocket bisa bind port tertentu ATAU minta port random dengan `port: 0`. Setelah `open()`, `sock.port` berisi **port ASLI** hasil pilihan kernel — dan `upgradeSecurity()` otomatis memasang session key ke port asli itu. Penting karena MQTNL mengenkripsi **per srcPort**. |
 | **Plain dulu, upgrade belakangan** | `open()` membuat socket plain. Enkripsi (ChaCha20-Poly1305) diaktifkan **eksplisit** via `upgradeSecurity()`. Bisa mulai plain → handshake → switch secure. |
 | **Event-driven vs manual** | Bisa terima data via `onData` (loop internal) ATAU loop `recv()` manual. Keduanya eksklusif. |
 | **Auto-cleanup** | Ctrl+C → `close()` otomatis (release port + normalisasi security agent). |
@@ -48,6 +48,25 @@ await sock.open();
 
 - Kalau `onData` diisi → pakai mode event-driven. `recv()` akan melempar error.
 - Kalau tidak diisi → pakai loop `while (sock.isOpen) { await sock.recv(); }`.
+
+### ✅ Port `0` = minta port random (ephemeral)
+
+Sebagai pengirim, kita biasanya tidak peduli port lokal kita berapa — yang penting
+port targetnya. Cukup pakai `port: 0`: kernel memilih port random yang available,
+lalu `open()` mengisi `sock.port` dengan **port asli** hasil pilihan kernel:
+
+```ts
+const sock = new NetSocket({ port: 0, key: KEY_HEX });  // 0 = port random
+await sock.open();
+std.println(`local port = ${sock.port}`);               // port ASLI (mis. 13562)
+await sock.upgradeSecurity();                           // key menempel ke port asli itu
+```
+
+Ini aman untuk mode terenkripsi: karena MQTNL encrypts **per srcPort**, session key
+dari `upgradeSecurity()` otomatis dipasang ke `sock.port` (bukan ke 0). Jadi aturan
+lama "port harus TETAP kalau mau enkripsi" **sudah tidak wajib lagi** — port tetap
+cuma diperlukan kalau pihak lain harus tahu port kita dari awal (mis. receiver yang
+menunggu di port tetap).
 
 ---
 
@@ -101,12 +120,12 @@ export const main = Program(async (args: string[]) => {
 import { Program, std, NetSocket } from "@tsix/Application";
 
 export const main = Program(async (args: string[]) => {
-  const sock = new NetSocket({ port: 2501 });
+  const sock = new NetSocket({ port: 0 });   // 0 = port random (ephemeral)
 
   // onData SEBELUM open() — biar TX bisa menerima pong balik
   sock.onData = (pkt) => std.println(`[TX] ← ${pkt.src}:${pkt.port} -> ${pkt.data}`);
 
-  await sock.open();
+  await sock.open();                          // sock.port = port asli dari kernel
   await sock.sendTo("localhost", 2500, "halo!");
   await sock.waitClosed();
   await sock.close();
@@ -159,8 +178,9 @@ await sock.upgradeSecurity();     // switch ke ChaCha20-Poly1305
 await sock.waitClosed();
 ```
 
-> Port harus TETAP (bukan 0) — kalau ephemeral, key terpasang ke port yang salah
-> dan receiver secured gagal decrypt.
+> Port boleh TETAP maupun `0` (ephemeral). Kalau `port: 0`, `sock.port` berisi port
+> ASLI hasil pilihan kernel dan `upgradeSecurity()` otomatis memasang key ke port
+> asli itu — jadi enkripsi tetap bekerja tanpa harus memilih port sendiri.
 
 ---
 
@@ -213,7 +233,7 @@ const OP = { REQ_KEY: "1", PUBKEY: "2", SECRET_KEY: "3", MSG: "4" };
 
 let handshaked = false; // true setelah upgradeSecurity() — channel terenkripsi
 
-const sock = new NetSocket({ port: 2501 });
+const sock = new NetSocket({ port: 0 });   // client: port random (ephemeral) — tidak peduli port lokal
 sock.onData = (pkt) => {
   const text = String(pkt.data);
   const op = text.charAt(0);              // char pertama = opcode
@@ -321,7 +341,7 @@ await sock.waitClosed();
 ### Property
 | Property | Arti |
 |---|---|
-| `port` | Port lokal yang ter-bind (null sebelum open) |
+| `port` | Port lokal yang ter-bind — untuk `port: 0`, berisi port ASLI hasil pilihan kernel (null sebelum open) |
 | `isOpen` | True selama socket terbuka |
 | `isSecured` | True setelah `upgradeSecurity()` |
 | `agent` | Nama agent enkripsi aktif (`chacha20` default) |
@@ -339,7 +359,7 @@ await sock.waitClosed();
 
 - [ ] Set `onData` **sebelum** `open()` (kalau mau event-driven)
 - [ ] Jangan set `onData` sekaligus pakai `recv()` manual (eksklusif)
-- [ ] Port lokal **tetap** (bukan 0) kalau pakai enkripsi
+- [ ] Port lokal boleh **tetap** atau `0` (ephemeral) — `upgradeSecurity()` otomatis memakai `sock.port` (port asli). Port tetap cuma perlu kalau pihak lain harus tahu port kita dari awal
 - [ ] Kedua sisi pakai **key yang sama** + sama-sama `upgradeSecurity()`
 - [ ] Untuk handshake: RSA kirim session key → `upgradeSecurity(sessionKey)` di kedua sisi
 - [ ] `waitClosed()` untuk jaga proses tetap hidup; `close()` untuk cleanup
