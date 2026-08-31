@@ -2,7 +2,13 @@
     "ports": {
         "1000": {
             "tenant": "default",
-            "keyHex": "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619",
+            "apiKeyHex": "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619",
+            "enabled": true,
+            "mode": "auto"
+        },
+        "1001": {
+            "tenant": "Juragan Sensor",
+            "apiKeyHex": "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619",
             "enabled": true,
             "mode": "auto"
         }
@@ -65,5 +71,12 @@
         "02": "hum",
         "03": "pres",
         "04": "light"
+    },
+    "deviceGroupMap": {
+        "Juragan Sensor": {
+            "esp8266-dev-01": "client-a",
+            "esp8266-dev-02": "client-a",
+            "esp8266-dev-03": "client-b"
+        }
     }
 }

@@ -21,8 +21,8 @@ import {
 
 const config: LantanaConfig = {
     ports: {
-        "1000": { tenant: "default", keyHex: "ab", enabled: true, mode: "auto" },
-        "1001": { tenant: "tenant-b", keyHex: "cd", enabled: false, mode: "auto" },
+        "1000": { tenant: "default", apiKeyHex: "ab", enabled: true, mode: "auto" },
+        "1001": { tenant: "tenant-b", apiKeyHex: "cd", enabled: false, mode: "auto" },
     },
     deviceCategories: {},
     sensorCategories: {},

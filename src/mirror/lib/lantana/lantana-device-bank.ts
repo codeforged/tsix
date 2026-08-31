@@ -27,6 +27,8 @@ export interface DeviceEntry {
     tenant: string;
     category: string;   // kategori device (statis dari config)
     label: string;
+    /** Grup tenant (dari deviceGroupMap config) — opsional */
+    group?: string;
     lastDataAt: number;
     lastFormat: "binary" | "plain";
     lastPort: number;
@@ -55,6 +57,28 @@ export class DeviceBank {
         this.config = await loadConfig();
     }
 
+    /**
+     * Key internal registry = tenant::nodeId.
+     * nodeId boleh sama antar tenant (apiKey berbeda) — tenant memisahkan entri.
+     */
+    private key(nodeId: string, tenant: string): string {
+        return `${tenant}::${nodeId}`;
+    }
+
+    /** Resolve grup tenant dari deviceGroupMap (nested { tenant: { nodeId: group } }
+     *  ATAU flat legacy { nodeId: group }). Backward compatible. */
+    private resolveGroup(nodeId: string, tenant: string): string | undefined {
+        const map = this.config?.deviceGroupMap as any;
+        if (!map) return undefined;
+        // Bentuk nested: { "Juragan Sensor": { "dev-01": "client-a" } }
+        const perTenant = map[tenant];
+        if (perTenant && typeof perTenant === "object") {
+            return perTenant[nodeId];
+        }
+        // Bentuk flat legacy: { "dev-01": "client-a" }
+        return map[nodeId];
+    }
+
     /** Upsert device + sensor dari satu raw data. */
     upsert(
         nodeId: string,
@@ -66,9 +90,10 @@ export class DeviceBank {
         srcAddress?: string,
         srcPort?: number,
     ): DeviceEntry {
-        if (!this.config) this.config = { ports: {}, deviceCategories: {}, sensorCategories: {} };
+        if (!this.config) this.config = { ports: {}, deviceCategories: {}, sensorCategories: {}, deviceGroupMap: {} };
 
-        let dev = this.devices.get(nodeId);
+        const key = this.key(nodeId, tenant);
+        let dev = this.devices.get(key);
         if (!dev) {
             // Deteksi kategori device statis dari config (fallback: generic)
             const cat = this.inferDeviceCategory(nodeId);
@@ -78,6 +103,7 @@ export class DeviceBank {
                 tenant,
                 category: cat,
                 label: catCfg?.label || nodeId,
+                group: this.resolveGroup(nodeId, tenant),
                 lastDataAt: 0,
                 lastFormat: format,
                 lastPort: port,
@@ -85,11 +111,14 @@ export class DeviceBank {
                 srcPort: srcPort || 0,
                 sensors: new Map(),
             };
-            this.devices.set(nodeId, dev);
+            this.devices.set(key, dev);
         }
 
         // Update info device
         dev.tenant = tenant;
+        // Grup selalu di-resolve ulang agar registrasi device baru via
+        // deviceGroupMap langsung berlaku tanpa restart daemon.
+        dev.group = this.resolveGroup(nodeId, tenant);
         dev.lastDataAt = ts;
         dev.lastFormat = format;
         dev.lastPort = port;
@@ -145,6 +174,7 @@ export class DeviceBank {
                 tenant: dev.tenant,
                 category: dev.category,
                 label: dev.label,
+                group: dev.group,
                 lastDataAt: dev.lastDataAt,
                 dataAgeMs: now - dev.lastDataAt,
                 status: this.computeStatus(dev.lastDataAt, now),
@@ -156,21 +186,33 @@ export class DeviceBank {
         return out;
     }
 
-    /** Ambil snapshot sensor untuk satu device. */
-    getDevice(nodeId: string): DeviceEntry | undefined {
-        return this.devices.get(nodeId);
+    /** Ambil device berdasarkan tenant+nodeId. */
+    getDevice(nodeId: string, tenant: string): DeviceEntry | undefined {
+        return this.devices.get(this.key(nodeId, tenant));
+    }
+
+    /** Cari device hanya dari nodeId (untuk command dua arah saat tenant tidak
+     *  diketahui). Ambil yang terbaru jika ada beberapa tenant dgn nodeId sama. */
+    getDeviceByNode(nodeId: string): DeviceEntry | undefined {
+        let best: DeviceEntry | undefined;
+        for (const dev of this.devices.values()) {
+            if (dev.nodeId === nodeId && (!best || dev.lastDataAt > best.lastDataAt)) {
+                best = dev;
+            }
+        }
+        return best;
     }
 
     /** Ambil alamat sumber device (untuk kirim command balik / dua arah). */
-    getDeviceAddress(nodeId: string): { srcAddress: string; srcPort: number } | null {
-        const dev = this.devices.get(nodeId);
+    getDeviceAddress(nodeId: string, tenant: string): { srcAddress: string; srcPort: number } | null {
+        const dev = this.devices.get(this.key(nodeId, tenant));
         if (!dev) return null;
         return { srcAddress: dev.srcAddress, srcPort: dev.srcPort };
     }
 
     /** Ambil snapshot sensor ternormalisasi untuk satu device. */
-    getSensors(nodeId: string): SensorReading[] {
-        const dev = this.devices.get(nodeId);
+    getSensors(nodeId: string, tenant: string): SensorReading[] {
+        const dev = this.devices.get(this.key(nodeId, tenant));
         if (!dev) return [];
         const out: SensorReading[] = [];
         for (const s of dev.sensors.values()) {

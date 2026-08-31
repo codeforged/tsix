@@ -8,7 +8,7 @@
  *  - Bind ke satu atau lebih port dari config /etc/lantana/config.json
  *  - Auto-detect format payload: BINER (MQTNL v1.1, magic 0x42 / frame 0x4C)
  *    atau PLAINTEXT (`id:val;id:val` atau `LANTANA|<nodeId>|...`)
- *  - Upgrade security ChaCha20 per port (key dari config, bukan hardcode)
+ *  - Upgrade security ChaCha20 per port (apiKey tenant dari config, bukan hardcode)
  *  - Kirim raw data ke distributor via IPC (LANTANA_RAW_DATA)
  *
  * (c) 2026 TSIX Project — Lantana
@@ -27,7 +27,7 @@ const TAG = "lantana-listener";
 export class LantanaListener {
   private socketFds: Map<number, number> = new Map(); // port → fd
 
-  constructor(private emitRaw: (data: RawSensorData) => void) {}
+  constructor(private emitRaw: (data: RawSensorData) => void) { }
 
   /** Bind & upgrade security untuk semua port yang di-enable di config. */
   async start(): Promise<boolean> {
@@ -53,9 +53,9 @@ export class LantanaListener {
         continue;
       }
 
-      // Upgrade security per port — key dari config (bukan hardcode)
+      // Upgrade security per port — apiKey tenant dari config (bukan hardcode)
       try {
-        await net.ioctl(fd, 0x1001, { port, sessionKey: portCfg.keyHex });
+        await net.ioctl(fd, 0x1001, { port, sessionKey: portCfg.apiKeyHex });
       } catch (e: any) {
         await std.log(
           `[${TAG}] Warning: gagal upgrade security port ${port}: ${e?.message}`,

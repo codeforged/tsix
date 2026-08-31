@@ -2,8 +2,8 @@
 #include <noslib.h>
 
 // ── Konfigurasi WiFi / MQTT ──
-#define WIFI_SSID "Your SSID"
-#define WIFI_PASSWORD "Your SSID Password"
+#define WIFI_SSID "BabamGo"
+#define WIFI_PASSWORD "bismillah"
 #define MQTT_SERVER "192.168.1.204"
 #define MQTT_PORT 1883
 
@@ -11,9 +11,9 @@
 // NODE_ID = identitas device di Device Bank Lantana (multi-device).
 // LANTANA_HOST = alamat node TSIX tempat daemon Lantana berjalan.
 // LANTANA_PORT = port MQTN Lantana (default 1000).
-#define NODE_ID "esp32-dev-01"
-#define LANTANA_HOST "antigonon"
-#define LANTANA_PORT 1000
+#define NODE_ID "esp8266-dev-01"
+#define LANTANA_HOST "wintsix"
+#define LANTANA_PORT 1001
 
 // Relay pin definitions
 #ifdef ESP8266
@@ -24,11 +24,10 @@
 #define RELAY2_PIN 17
 #endif
 
-char key[KEY_SIZE] = {0x81, 0xFF, 0x71, 0xED, 0x57, 0x4E, 0x54, 0x59,
-                      0x76, 0x90, 0xAE, 0x7B, 0x04, 0xE4, 0xEF, 0x5F,
-                      0xC8, 0x74, 0x97, 0xFE, 0x10, 0xB6, 0xB0, 0x37,
-                      0xCB, 0x03, 0x1A, 0xF7, 0xC7, 0xD6, 0x76, 0x19};
-NOS nos(NODE_ID, 100, key, MQTT_SERVER, MQTT_PORT);
+// API key tenant (string hex) = kunci enkripsi ChaCha20 (diterbitkan portal
+// Lantana saat tenant mendaftar). Tinggal salin dari portal ke sini.
+char apiKey[] = "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619";
+NOS nos(NODE_ID, 100, apiKey, MQTT_SERVER, MQTT_PORT);
 
 const char *sensorIds[] = {"01", "02", "03", "04"};
 int sensorVals[4] = {0, 0, 0, 0}; // Initial values for sensors

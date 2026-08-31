@@ -74,7 +74,7 @@ Contoh plaintext: `LANTANA|esp32-01|01:25;02:60;03:1013;04:100`
 ```jsonc
 {
   "ports": {
-    "1000": { "tenant": "default", "keyHex": "...", "enabled": true, "mode": "auto" }
+    "1000": { "tenant": "default", "apiKeyHex": "...", "enabled": true, "mode": "auto" }
   },
   "deviceCategories": { "esp32": { "label": "ESP32", "icon": "🔧" }, ... },
   "sensorCategories": { "temp": { "label": "Temperature", "unit": "°C", ... }, ... },
@@ -82,11 +82,19 @@ Contoh plaintext: `LANTANA|esp32-01|01:25;02:60;03:1013;04:100`
 }
 ```
 
-- **Key** (ChaCha20) diambil dari config per port — bukan hardcode. Struktur `ports`
-  berbentuk map `{ port → { tenant, keyHex, enabled } }` sehingga siap di-extend ke
-  multi-port/multi-key (tenant berbeda) tanpa rombak besar.
+- **API Key tenant** (`apiKeyHex`, ChaCha20) diambil dari config per port — bukan hardcode.
+  API key diterbitkan portal Lantana saat tenant mendaftar, lalu ditanam ke firmware device;
+  sekaligus berperan sebagai kredensial akses (otentikasi) karena ChaCha20-Poly1305
+  bersifat *authenticated encryption* — hanya device yang memegang apiKey tenant yang bisa
+  terdekripsi & diterima. Struktur `ports` berbentuk map
+  `{ port → { tenant, apiKeyHex, enabled } }` sehingga siap di-extend ke multi-port/multi-key
+  (tenant berbeda) tanpa rombak besar.
 - **Kategori device & sensor statis** di config (keputusan: dinamis dari device = fase 2).
 - `sensorIdMap` memetakan id sensor (`01`) ke kategori (`temp`).
+- **Multi-tenant, nodeId boleh sama**: Device Bank di-key `tenant::nodeId` — dua tenant
+  dengan `apiKeyHex` berbeda boleh memakai `nodeId` yang sama tanpa konflik (entri,
+  sensor, grup, dan command terpisah per tenant). `deviceGroupMap` berbentuk
+  `{ tenant: { nodeId: group } }` (flat legacy tetap didukung).
 
 ## Konsep
 
@@ -136,6 +144,9 @@ tahu alamat di sisi consumer). Firmware ESP32 (`main.cpp`) sudah memproses
 - [x] Multi-device + kategori statis + heartbeat/umur data + tenant
 - [x] Consumer: dashboard (GUI), db-injector (MySQL), file-logger (VFS history)
 - [x] **Dua arah (command ke device)**: kirim perintah (mis. relay) dari consumer → device
+- [x] **Multi-tenant aman**: registry `tenant::nodeId` — apiKey beda, nodeId boleh sama
+- [x] API key tenant (`apiKeyHex`) = kredensial + enkripsi ChaCha20 (dari `keyHex`)
+- [x] `deviceGroupMap` per tenant (nested), grouping di dashboard
 - [x] Auto-start daemon di `rc.local`
 - [ ] Telegram (tunda)
 - [ ] Firmware ESP32 asli (tunda — simulator sudah sinkron nodeId & biner)

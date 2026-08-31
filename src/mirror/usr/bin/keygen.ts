@@ -12,28 +12,11 @@ export default Program(async (args) => {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
-  // 3. Format C array dirapikan per 8 kolom (baris baru)
-  const columns = 8;
-  const formattedRows = [];
-
-  for (let i = 0; i < buffer.length; i += columns) {
-    // Ambil potongan 8 byte
-    const chunk = Array.from(buffer.slice(i, i + columns));
-
-    // Ubah ke format 0xXX
-    const hexParts = chunk.map(
-      (b) => `0x${b.toString(16).toUpperCase().padStart(2, "0")}`,
-    );
-
-    // Gabungkan dengan koma, lalu beri indentasi spasi agar rapi sejajar
-    formattedRows.push("    " + hexParts.join(", "));
-  }
-
-  // Gabungkan semua baris dengan koma dan baris baru (\n)
-  const cArrayValues = "\n" + formattedRows.join(",\n") + "\n";
-  const C_ARRAY = `char key[KEY_SIZE] = {${cArrayValues}};`;
+  // 3. Format untuk firmware — API key ditanam sebagai string hex (ramah dibaca)
+  const C_STRING = `char apiKey[] = "${KEY_HEX}";`;
 
   // Tampilkan hasil ke terminal TSIX via std
   std.println(`const KEY_HEX = "${KEY_HEX}";`);
-  std.println(C_ARRAY);
+  std.println(`// === taruh di firmware (main.cpp) ===`);
+  std.println(C_STRING);
 });

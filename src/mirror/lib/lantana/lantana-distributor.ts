@@ -60,7 +60,7 @@ export class LantanaDistributor {
         );
 
         // 2. Bangun payload normalisasi
-        const sensors = this.bank.getSensors(raw.nodeId);
+        const sensors = this.bank.getSensors(raw.nodeId, raw.tenant);
         const status = this.bank.computeStatus(ts);
         const payload: NormalizedSensorData = {
             type: EVT_SENSOR_DATA,
@@ -68,6 +68,7 @@ export class LantanaDistributor {
             nodeId: raw.nodeId,
             nodeCategory: dev.category,
             nodeLabel: dev.label,
+            group: dev.group,
             format: raw.format,
             receivedAt: ts,
             dataAgeMs: Date.now() - ts,
@@ -113,7 +114,7 @@ export class LantanaDistributor {
                     sensorData: devices.map((d) => ({
                         nodeId: d.nodeId,
                         tenant: d.tenant,
-                        sensors: this.bank.getSensors(d.nodeId),
+                        sensors: this.bank.getSensors(d.nodeId, d.tenant),
                     })),
                     ts: now,
                 },
@@ -178,7 +179,15 @@ export class LantanaDistributor {
             return { ok: false, error: "LANTANA_COMMAND butuh nodeId & command" };
         }
 
-        const addr = this.bank.getDeviceAddress(nodeId);
+        // Resolve alamat: utamakan tenant+nodeId (jika cmd membawa tenant),
+        // fallback cari nodeId terbaru (multi-tenant, nodeId sama).
+        const addr =
+            (cmd.tenant ? this.bank.getDeviceAddress(nodeId, cmd.tenant) : null) ||
+            (() => {
+                const dev = this.bank.getDeviceByNode(nodeId);
+                if (!dev) return null;
+                return this.bank.getDeviceAddress(dev.nodeId, dev.tenant);
+            })();
         if (!addr) {
             std.log(`[${TAG}] Command ke ${nodeId} gagal: device tidak dikenal`, TAG);
             return { ok: false, error: `device ${nodeId} tidak dikenal` };

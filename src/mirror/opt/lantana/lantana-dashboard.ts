@@ -16,7 +16,7 @@
  */
 
 import { Program, std, shell } from "@tsix/Application";
-import { Screen, div, span, h1, h2, sensorCard, lineChart } from "@tsix/emerald";
+import { Screen, div, span, h1, h2, sensorCard, lineChart, textarea } from "@tsix/emerald";
 import { theme } from "@tsix/theme";
 import { LANTANA_UUID, DEVICE_STALE_MS, DEVICE_OFFLINE_MS, NormalizedSensorData, DeviceStatusInfo } from "@tsix/lantana/lantana-core";
 
@@ -57,19 +57,29 @@ export const main = Program(async (args: string[]) => {
             div({ id: "status-header", style: { flexShrink: "0" } },
                 h2({ text: "📋 Status", style: { fontSize: "15px", color: theme.colors.accent, margin: "4px 0 6px" } }),
             ),
-            div({ id: "status-scroll", style: { flex: "1", background: theme.colors.bgAlt, borderRadius: "8px", padding: "10px", overflowY: "auto", fontSize: "11px", fontFamily: "monospace", color: theme.colors.textDim, minHeight: "60px" } },
-                span({ id: "status-txt", text: "⏳ Starting...\n" }),
+            // Hapus overflowY: "auto" di sini agar div-nya tidak ikut memunculkan scrollbar baru
+            div({ id: "status-scroll", style: { flex: "1", background: theme.colors.bgAlt, borderRadius: "8px", padding: "10px", fontSize: "11px", fontFamily: "monospace", color: theme.colors.textDim, minHeight: "60px" } },
+                // Tambahkan style width & height 100% serta hilangkan border default textarea jika diperlukan agar rapi
+                textarea({ id: "status-txt", rows: "17", style: { width: "100%", height: "100%", background: "transparent", border: "none", outline: "none", resize: "none", fontFamily: "monospace", color: "inherit" }, text: "⏳ Starting...\n" }),
             ),
         ),
     );
 
     const log = async (m: string) => {
         if (!app.running) return;
-        statusBuf += m + "\r\n";
+        statusBuf += m + "\n";
         if (statusBuf.length > 3000) statusBuf = statusBuf.slice(-3000);
         try {
             await app.update("status-txt", { text: statusBuf });
-            if (autoScroll) await app.update("status-scroll", { scrollTop: 999999 });
+
+            if (autoScroll) {
+                // Ambil element langsung dari textarea-nya
+                const txtEl = document.getElementById("status-txt") as HTMLTextAreaElement;
+                if (txtEl) {
+                    // Set scrollTop ke nilai scrollHeight maksimal si textarea
+                    txtEl.scrollTop = txtEl.scrollHeight;
+                }
+            }
         } catch (_) { /* window destroyed */ }
     };
 
@@ -87,20 +97,35 @@ export const main = Program(async (args: string[]) => {
             return;
         }
 
-        const cards: any[] = [];
+        // Kelompokkan device berdasarkan grup tenant (deviceGroupMap), fallback "Ungrouped"
+        const grouped = new Map<string, DeviceStatusInfo[]>();
         for (const d of visible) {
-            const ageStr = d.dataAgeMs >= 0 ? `${(d.dataAgeMs / 1000).toFixed(1)}s` : "—";
-            cards.push(div({ id: `dev-${d.nodeId}`, style: { display: "flex", justifyContent: "space-between", alignItems: "center", background: theme.colors.card, borderRadius: "8px", padding: "10px 14px", border: `1px solid ${statusColor(d.status)}44` } },
-                div({ style: { display: "flex", flexDirection: "column", gap: "2px" } },
-                    span({ text: `${d.label} (${d.nodeId})`, style: { fontWeight: "600", fontSize: "13px" } }),
-                    span({ text: `tenant: ${d.tenant} · cat: ${d.category}`, style: { fontSize: "11px", color: theme.colors.textDim } }),
-                    span({ id: `dev-sensors-${d.nodeId}`, text: `sensors: ${d.sensorIds.join(", ") || "—"}`, style: { fontSize: "11px", color: theme.colors.textDim } }),
-                ),
-                div({ style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" } },
-                    span({ id: `dev-status-${d.nodeId}`, text: d.status, style: { color: statusColor(d.status), fontWeight: "700", fontSize: "12px" } }),
-                    span({ id: `dev-age-${d.nodeId}`, text: `${ageStr} ago`, style: { fontSize: "11px", color: theme.colors.textMuted } }),
-                ),
+            const g = d.group || "Ungrouped";
+            if (!grouped.has(g)) grouped.set(g, []);
+            grouped.get(g)!.push(d);
+        }
+
+        const cards: any[] = [];
+        for (const [g, list] of grouped.entries()) {
+            // Header grup
+            cards.push(div({ style: { display: "flex", alignItems: "center", gap: "6px", marginTop: "6px" } },
+                span({ text: `▸ ${g}`, style: { fontWeight: "700", fontSize: "12px", color: theme.colors.accent } }),
+                span({ text: `${list.length} device`, style: { fontSize: "11px", color: theme.colors.textMuted } }),
             ));
+            for (const d of list) {
+                const ageStr = d.dataAgeMs >= 0 ? `${(d.dataAgeMs / 1000).toFixed(1)}s` : "—";
+                cards.push(div({ id: `dev-${d.nodeId}`, style: { display: "flex", justifyContent: "space-between", alignItems: "center", background: theme.colors.card, borderRadius: "8px", padding: "10px 14px", border: `1px solid ${statusColor(d.status)}44` } },
+                    div({ style: { display: "flex", flexDirection: "column", gap: "2px" } },
+                        span({ text: `${d.label} (${d.nodeId})`, style: { fontWeight: "600", fontSize: "13px" } }),
+                        span({ text: `tenant: ${d.tenant} · cat: ${d.category}${d.group ? " · grp: " + d.group : ""}`, style: { fontSize: "11px", color: theme.colors.textDim } }),
+                        span({ id: `dev-sensors-${d.nodeId}`, text: `sensors: ${d.sensorIds.join(", ") || "—"}`, style: { fontSize: "11px", color: theme.colors.textDim } }),
+                    ),
+                    div({ style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" } },
+                        span({ id: `dev-status-${d.nodeId}`, text: d.status, style: { color: statusColor(d.status), fontWeight: "700", fontSize: "12px" } }),
+                        span({ id: `dev-age-${d.nodeId}`, text: `${ageStr} ago`, style: { fontSize: "11px", color: theme.colors.textMuted } }),
+                    ),
+                ));
+            }
         }
         await app.setContent("device-list", ...cards);
     };

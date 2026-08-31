@@ -33,11 +33,17 @@ export interface LantanaConfig {
     ports: Record<string, LantanaPortConfig>;
     deviceCategories: Record<string, LantanaDeviceCategory>;
     sensorCategories: Record<string, LantanaSensorCategory>;
+    /** Peta grup tenant: { tenant: { nodeId: group } } — pengelompokan device di
+     *  sisi tenant/dashboard. nodeId boleh sama antar tenant (key per tenant).
+     *  Bentuk flat legacy { nodeId: group } tetap didukung (backward compat). */
+    deviceGroupMap?: Record<string, Record<string, string>>;
 }
 
 export interface LantanaPortConfig {
     tenant: string;
-    keyHex: string;
+    /** API key tenant (hex) — kredensial akses ke layanan Lantana, sekaligus
+     *  kunci enkripsi ChaCha20 (diterbitkan portal saat registrasi). */
+    apiKeyHex: string;
     enabled: boolean;
     /** Opsional: mode default untuk port ini ("auto" | "binary" | "plain") */
     mode?: "auto" | "binary" | "plain";
@@ -91,6 +97,8 @@ export interface LantanaCommand {
     nodeId: string;
     /** Isi perintah yang dikirim ke device, mis. "RELAY_1:ON" */
     command: string;
+    /** Opsional: tenant tujuan — dipakai saat nodeId sama di beberapa tenant */
+    tenant?: string;
     /** Opsional: siapa yang meminta (untuk log) */
     from?: string;
 }
@@ -102,6 +110,8 @@ export interface NormalizedSensorData {
     nodeId: string;
     nodeCategory: string;
     nodeLabel: string;
+    /** Grup tenant (dari deviceGroupMap) — opsional */
+    group?: string;
     format: "binary" | "plain";
     receivedAt: number;
     dataAgeMs: number;
@@ -120,6 +130,8 @@ export interface DeviceStatusInfo {
     tenant: string;
     category: string;
     label: string;
+    /** Grup tenant (dari deviceGroupMap) — opsional */
+    group?: string;
     lastDataAt: number;
     dataAgeMs: number;
     status: DeviceStatus;
@@ -143,7 +155,7 @@ export async function loadConfig(): Promise<LantanaConfig> {
         ports: {
             "1000": {
                 tenant: "default",
-                keyHex: "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619",
+                apiKeyHex: "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619",
                 enabled: true,
                 mode: "auto",
             },
@@ -160,6 +172,7 @@ export async function loadConfig(): Promise<LantanaConfig> {
             light: { label: "Light", unit: "lx", icon: "☀️", min: 0, max: 100 },
             generic: { label: "Sensor", unit: "", icon: "📊" },
         },
+        deviceGroupMap: {},
     };
 
     try {
@@ -171,6 +184,7 @@ export async function loadConfig(): Promise<LantanaConfig> {
             ports: parsed.ports || fallback.ports,
             deviceCategories: parsed.deviceCategories || fallback.deviceCategories,
             sensorCategories: parsed.sensorCategories || fallback.sensorCategories,
+            deviceGroupMap: parsed.deviceGroupMap || {},
         };
     } catch (e: any) {
         // Config tidak ada/rusak → gunakan default
@@ -178,7 +192,7 @@ export async function loadConfig(): Promise<LantanaConfig> {
     }
 }
 
-/** Cari port config untuk tenant/key; return null jika port tidak di-enable. */
+/** Cari port config untuk tenant/apiKey; return null jika port tidak di-enable. */
 export function getPortConfig(
     config: LantanaConfig,
     port: number,

@@ -6,9 +6,10 @@
  * via MQTNL (mis. "RELAY_1:ON" / "RELAY_2:OFF").
  *
  * Usage:
- *   lantana-cmd <nodeId> <command> [target]
+ *   lantana-cmd <nodeId> <command> [target] [tenant]
  *   lantana-cmd esp32-dev-01 "RELAY_1:ON"
  *   lantana-cmd gudang-a "LAMP:OFF" <lantanaPid|uuid>
+ *   lantana-cmd dev-01 "RELAY_1:ON" <lantanaPid|uuid> "Juragan Sensor"
  *
  * (c) 2026 TSIX Project — Lantana
  */
@@ -22,9 +23,10 @@ export const main = Program(async (args: string[]) => {
     const nodeId = args[0];
     const command = args[1];
     const target = args[2] || LANTANA_UUID;
+    const tenant = args[3];
 
     if (!nodeId || !command) {
-        await std.print("Usage: lantana-cmd <nodeId> <command> [target]\n");
+        await std.print("Usage: lantana-cmd <nodeId> <command> [target] [tenant]\n");
         await std.print("  lantana-cmd esp32-dev-01 \"RELAY_1:ON\"\n");
         return;
     }
@@ -36,6 +38,7 @@ export const main = Program(async (args: string[]) => {
         type: EVT_COMMAND,
         nodeId,
         command,
+        tenant, // opsional — target tenant saat nodeId sama di beberapa tenant
         from: "lantana-cmd",
     }).catch((e: any) => ({ error: e?.message || String(e) }));
 
