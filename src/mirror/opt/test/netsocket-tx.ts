@@ -1,25 +1,28 @@
 import { Program, std, NetSocket } from "@tsix/Application";
 
 /**
- * NETSOCKET TX — Contoh sender memakai NetSocket (Cashew-style).
+ * NETSOCKET TX — Example sender using NetSocket (Cashew-style).
  *
- * Alur yang ditunjukkan:
- *   1. `new NetSocket({ port, key })` — bind port lokal TETAP
- *   2. `open()` — socket + bind (PLAIN dulu)
- *   3. `upgradeSecurity()` — switch eksplisit ke ChaCha20-Poly1305
- *   4. `sendTo(addr, port, data)` — kirim beberapa pesan
- *   5. `close()` — release port + normalisasi security agent
+ * Flow shown:
+ *   1. `new NetSocket({ port, key })` — bind a FIXED local port
+ *   2. Set `onData` BEFORE `open()` — the event-driven recv loop only starts
+ *      if `onData` is already attached when `open()` runs (so TX can receive
+ *      the reply/pong back from the receiver)
+ *   3. `open()` — socket + bind (PLAIN first)
+ *   4. `upgradeSecurity()` — explicit switch to ChaCha20-Poly1305
+ *   5. `sendTo(addr, port, data)` — send a message (here via setTimeout)
+ *   6. `waitClosed()` + `close()` — keep alive until closed, then release
  *
- * ⚠️ Kenapa port TX harus TETAP (bukan 0)? Karena MQTNL mengenkripsi per
- * srcPort — session key di-`upgradeSecurity()` dipasang ke port itu. Kalau
- * pakai port 0 (ephemeral), key terpasang ke port yang salah dan payload
- * terkirim plaintext (receiver secured akan gagal decrypt).
+ * ⚠️ Why must the TX port be FIXED (not 0)? MQTNL encrypts per srcPort — the
+ * session key from `upgradeSecurity()` is attached to that port. With an
+ * ephemeral port 0 the key lands on the wrong port and the payload is sent
+ * plaintext (a secured receiver will fail to decrypt).
  *
- * ⚠️ Mode terenkripsi: aktifkan baris `await sock.upgradeSecurity();` di
- * bawah, dan lakukan hal yang sama di receiver dengan key yang sama.
+ * ⚠️ Encrypted mode is ON here — make sure the receiver also calls
+ * `upgradeSecurity()` with the same key (e.g. netsocket-rx).
  *
- * Jalankan:  netsocket-tx [address] [port] [count]
- * (default address "mactsix", port 2500, 3 pesan — pasangkan dengan `netsocket-rx`)
+ * Run:  netsocket-tx [address] [port]
+ * (default address "localhost", port 2500 — pair with `netsocket-rx`)
  */
 
 const KEY_HEX =
@@ -32,39 +35,46 @@ const red = "\x1b[91m";
 const reset = "\x1b[0m";
 
 export const main = Program(async (args: string[]) => {
-  const targetAddr = args[0] || "mactsix";
+  const targetAddr = args[0] || "localhost";
   const targetPort = parseInt(args[1] || "2500", 10);
-  const count = parseInt(args[2] || "3", 10);
-  const myPort = 2501; // port lokal tetap supaya enkripsi per-srcPort bekerja
+  const myPort = 2501; // fixed local port so per-srcPort encryption works
 
   const sock = new NetSocket({ port: myPort, key: KEY_HEX });
+
+  // Set onData BEFORE open() — the event-driven recv loop only starts when
+  // onData is already attached at open() time. If set afterwards, TX will
+  // never receive the reply (pong) from the receiver.
+  sock.onData = (pkt) => {
+    std.println(
+      `${yellow}[RX] ${pkt.src}:${pkt.port} (local ${pkt.localPort}) -> ${pkt.data}${reset}`,
+    );
+  };
 
   await sock.open();
   await std.println(
     `${green}[TX] Socket ready (local port ${sock.port}, PLAIN)${reset}`,
   );
 
-  // Switch ke mode aman SECARA EKSPLISIT. Aktifkan baris di bawah untuk
-  // mode terenkripsi (dan lakukan hal yang sama di receiver dengan key sama):
-  //   await sock.upgradeSecurity();
+  // Switch to secure mode EXPLICITLY (encrypted). The receiver must do the
+  // same with the same key.
+  await sock.upgradeSecurity();
   await std.println(
-    `${green}[TX] Mode: ${sock.isSecured ? "ChaCha20-Poly1305 ACTIVE" : "PLAIN (tanpa enkripsi)"} (isSecured=${sock.isSecured})${reset}`,
+    `${green}[TX] Mode: ${sock.isSecured ? "ChaCha20-Poly1305 ACTIVE" : "PLAIN (no encryption)"} (isSecured=${sock.isSecured})${reset}`,
   );
 
-  for (let i = 1; i <= count; i++) {
+  // Send a message after 2s so the receiver has time to be ready.
+  setTimeout(async () => {
     const msg = JSON.stringify({
-      seq: i,
+      seq: 100,
       from: "netsocket-tx",
       ts: Date.now(),
     });
     const ok = await sock.sendTo(targetAddr, targetPort, msg);
-    await std.println(
-      `${ok ? green : red}[TX] #${i} -> ${targetAddr}:${targetPort} ${ok ? "OK" : "FAILED"}${reset}  ${cyan}${msg}${reset}`,
-    );
-    if (i < count) await new Promise((r) => setTimeout(r, 500));
-  }
+    std.println(`${ok ? green : red}[TX] -> ${targetAddr}:${targetPort} ${ok ? "OK" : "FAILED"}${reset}  ${cyan}${msg}${reset}`);
+  }, 2000);
 
-  // Tutup: release port + normalisasi security agent (idempotent).
+  await sock.waitClosed();
+  // Close: release port + normalize security agent (idempotent).
   await sock.close();
   await std.println(
     `${yellow}[TX] Done. Socket closed (port released).${reset}`,

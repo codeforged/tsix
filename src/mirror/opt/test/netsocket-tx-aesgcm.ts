@@ -1,25 +1,25 @@
 import { Program, std, NetSocket } from "@tsix/Application";
 
 /**
- * NETSOCKET TX AESGCM — Sender memakai agent enkripsi kustom (Jalur A).
+ * NETSOCKET TX AESGCM — Example sender using a custom encryption agent (Path A).
  *
- * Varian `netsocket-tx` yang memilih AES-256-GCM via SOP custom agent:
- * `upgradeSecurity(key, { agent: "aes-gcm" })`. Pasangkan dengan
- * `netsocket-rx-aesgcm` (kedua sisi harus pakai agent yang SAMA + key yang
- * sama, karena RX mendekripsi sesuai agent yang terpasang di port-nya).
+ * A variant of `netsocket-tx` that picks AES-256-GCM via the custom-agent SOP:
+ * `upgradeSecurity(key, { agent: "aes-gcm" })`. Pair it with
+ * `netsocket-rx-aesgcm` (both sides must use the SAME agent + the SAME key,
+ * because RX decrypts according to the agent attached to its port).
  *
- * Alur:
- *   1. `new NetSocket({ port, key })` — bind port lokal TETAP
- *   2. `open()` — socket + bind (PLAIN dulu)
- *   3. `upgradeSecurity(key, { agent: "aes-gcm" })` — switch ke AES-256-GCM
- *   4. `sendTo(addr, port, data)` — kirim beberapa pesan
- *   5. `close()` — release port + normalisasi agent
+ * Flow:
+ *   1. `new NetSocket({ port, key })` — bind a FIXED local port
+ *   2. `open()` — socket + bind (PLAIN first)
+ *   3. `upgradeSecurity(key, { agent: "aes-gcm" })` — switch to AES-256-GCM
+ *   4. `sendTo(addr, port, data)` — send several messages
+ *   5. `close()` — release port + normalize agent
  *
- * ⚠️ Port TX harus TETAP (bukan 0): MQTNL mengenkripsi per-srcPort, jadi
- * session key di-`upgradeSecurity()` harus terpasang ke port yang benar.
+ * ⚠️ The TX port must be FIXED (not 0): MQTNL encrypts per-srcPort, so the
+ * session key from `upgradeSecurity()` must be attached to the right port.
  *
- * Jalankan:  netsocket-tx-aesgcm [address] [port] [count]
- * (default address "mactsix", port 2600, 3 pesan — pasangkan dengan `netsocket-rx-aesgcm`)
+ * Run:  netsocket-tx-aesgcm [address] [port] [count]
+ * (default address "mactsix", port 2600, 3 messages — pair with `netsocket-rx-aesgcm`)
  */
 
 const KEY_HEX =
@@ -35,7 +35,7 @@ export const main = Program(async (args: string[]) => {
   const targetAddr = args[0] || "mactsix";
   const targetPort = parseInt(args[1] || "2600", 10);
   const count = parseInt(args[2] || "3", 10);
-  const myPort = 2601; // port lokal tetap supaya enkripsi per-srcPort bekerja
+  const myPort = 2601; // fixed local port so per-srcPort encryption works
 
   const sock = new NetSocket({ port: myPort, key: KEY_HEX });
 
@@ -44,7 +44,7 @@ export const main = Program(async (args: string[]) => {
     `${green}[TX-aesgcm] Socket ready (local port ${sock.port}, PLAIN)${reset}`,
   );
 
-  // Switch ke mode aman dengan AGENT KUSTOM aes-gcm (eksplisit).
+  // Switch to secure mode with the CUSTOM aes-gcm agent (explicit).
   await sock.upgradeSecurity(KEY_HEX, { agent: "aes-gcm" });
   await std.println(
     `${green}[TX-aesgcm] AES-256-GCM ACTIVE (isSecured=${sock.isSecured}, agent=${sock.agent})${reset}`,
@@ -63,7 +63,7 @@ export const main = Program(async (args: string[]) => {
     if (i < count) await new Promise((r) => setTimeout(r, 500));
   }
 
-  // Tutup: release port + normalisasi agent (idempotent).
+  // Close: release port + normalize agent (idempotent).
   await sock.close();
   await std.println(
     `${yellow}[TX-aesgcm] Done. Socket closed (port released).${reset}`,

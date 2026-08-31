@@ -1,24 +1,24 @@
 import { Program, std, NetSocket } from "@tsix/Application";
 
 /**
- * NETSOCKET RX AESGCM — Receiver memakai agent enkripsi kustom (Jalur A).
+ * NETSOCKET RX AESGCM — Example receiver using a custom encryption agent (Path A).
  *
- * Ini varian `netsocket-rx` yang menunjukkan SOP custom security agent:
- * `upgradeSecurity(key, { agent: "aes-gcm" })` — AES-256-GCM, bukan default
- * chacha20. Agent dipilih via NAMA string (bukan class) karena kernel yang
- * meng-instantiate-nya lewat registry (SimpleMQTNLDriver.getAgent).
+ * This variant of `netsocket-rx` shows the custom security-agent SOP:
+ * `upgradeSecurity(key, { agent: "aes-gcm" })` — AES-256-GCM, not the default
+ * chacha20. The agent is chosen by NAME (string, not a class) because the
+ * kernel instantiates it through a registry (SimpleMQTNLDriver.getAgent).
  *
- * Alur:
- *   1. `new NetSocket({ port, key })` — konfigurasi object literal
- *   2. `onData` / `onError` — event handler
- *   3. `open()` — socket + bind (PLAIN dulu)
- *   4. `upgradeSecurity(key, { agent: "aes-gcm" })` — switch ke AES-256-GCM
- *   5. `waitClosed()` — jaga proses hidup sampai socket ditutup (Ctrl+C)
+ * Flow:
+ *   1. `new NetSocket({ port, key })` — configure via object literal
+ *   2. `onData` / `onError` — event handlers
+ *   3. `open()` — socket + bind (PLAIN first)
+ *   4. `upgradeSecurity(key, { agent: "aes-gcm" })` — switch to AES-256-GCM
+ *   5. `waitClosed()` — keep the process alive until the socket closes (Ctrl+C)
  *
- * Auto-cleanup default: Ctrl+C → close() (release port + normalisasi agent).
+ * Auto-cleanup default: Ctrl+C → close() (release port + normalize agent).
  *
- * Jalankan:  netsocket-rx-aesgcm [port]
- * (default port 2600 — pasangkan dengan `netsocket-tx-aesgcm`)
+ * Run:  netsocket-rx-aesgcm [port]
+ * (default port 2600 — pair with `netsocket-tx-aesgcm`)
  */
 
 const KEY_HEX =
@@ -40,7 +40,7 @@ export const main = Program(async (args: string[]) => {
     std.println(
       `${yellow}[RX-aesgcm] ${pkt.src}:${pkt.port} (local ${pkt.localPort}) -> ${pkt.data}${reset}`,
     );
-    // Balas balik (request-response) kalau perlu:
+    // Reply back (request-response) if needed:
     //   await sock.reply(pkt, "pong");
   };
 
@@ -48,13 +48,13 @@ export const main = Program(async (args: string[]) => {
     std.println(`${red}[RX-aesgcm] error: ${err.message}${reset}`);
   };
 
-  // 1) Buka socket — plain dulu.
+  // 1) Open the socket — plain first.
   await sock.open();
   await std.println(
     `${green}[RX-aesgcm] Listening (PLAIN) on port ${sock.port}...${reset}`,
   );
 
-  // 2) Alamat node sendiri (biar tahu target untuk netsocket-tx-aesgcm).
+  // 2) Our own node address (so we know the target for netsocket-tx-aesgcm).
   try {
     const ns = await sock.netstat();
     const iface =
@@ -66,16 +66,16 @@ export const main = Program(async (args: string[]) => {
       );
     }
   } catch (_e) {
-    /* netstat opsional — gagal tidak masalah */
+    /* netstat is optional — failing is not a problem */
   }
 
-  // 3) Switch ke mode aman dengan AGENT KUSTOM aes-gcm (eksplisit).
+  // 3) Switch to secure mode with the CUSTOM aes-gcm agent (explicit).
   await sock.upgradeSecurity(KEY_HEX, { agent: "aes-gcm" });
   await std.println(
-    `${green}[RX-aesgcm] AES-256-GCM ACTIVE (isSecured=${sock.isSecured}, agent=${sock.agent}). Menunggu data...${reset}`,
+    `${green}[RX-aesgcm] AES-256-GCM ACTIVE (isSecured=${sock.isSecured}, agent=${sock.agent}). Waiting for data...${reset}`,
   );
 
-  // 4) Jaga proses tetap hidup sampai socket ditutup.
+  // 4) Keep the process alive until the socket closes.
   await sock.waitClosed();
   await std.println(`${cyan}[RX-aesgcm] Socket closed. Bye!${reset}`);
 });
