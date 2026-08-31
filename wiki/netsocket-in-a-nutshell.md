@@ -257,6 +257,9 @@ sock.onData = async (pkt) => {
   const op = text.charAt(0);
   const body = text.slice(1);
 
+  // Handshake sudah selesai — abaikan paket handshake yang terulang.
+  if (secured && (op === OP.REQ_KEY || op === OP.SECRET_KEY)) return;
+
   if (op === OP.REQ_KEY) {
     // Kirim public key: opcode + PEM
     await sock.reply(pkt, OP.PUBKEY + keys.publicKey);
@@ -267,8 +270,10 @@ sock.onData = async (pkt) => {
     await sock.upgradeSecurity(sessionKey.toString("hex"));
     secured = true;
     std.println("[server] session key diterima, koneksi aman!");
-  } else if (secured) {
-    std.println(`[secure] ${body}`);   // data sudah terenkripsi
+  } else if (op === OP.MSG && secured) {
+    // Data sudah terenkripsi (ChaCha20) — baca & balas lewat channel yang sama.
+    std.println(`[secure] ${body}`);
+    await sock.reply(pkt, OP.MSG + `echo: ${body}`);
   }
 };
 await sock.open();
