@@ -15,6 +15,9 @@ import { Program, std, NetSocket } from "@tsix/Application";
  * pakai port 0 (ephemeral), key terpasang ke port yang salah dan payload
  * terkirim plaintext (receiver secured akan gagal decrypt).
  *
+ * ⚠️ Mode terenkripsi: aktifkan baris `await sock.upgradeSecurity();` di
+ * bawah, dan lakukan hal yang sama di receiver dengan key yang sama.
+ *
  * Jalankan:  netsocket-tx [address] [port] [count]
  * (default address "mactsix", port 2500, 3 pesan — pasangkan dengan `netsocket-rx`)
  */
@@ -41,10 +44,11 @@ export const main = Program(async (args: string[]) => {
     `${green}[TX] Socket ready (local port ${sock.port}, PLAIN)${reset}`,
   );
 
-  // Switch ke mode aman secara eksplisit.
+  // Switch ke mode aman SECARA EKSPLISIT. Aktifkan baris di bawah untuk
+  // mode terenkripsi (dan lakukan hal yang sama di receiver dengan key sama):
   //   await sock.upgradeSecurity();
   await std.println(
-    `${green}[TX] ChaCha20-Poly1305 ACTIVE (isSecured=${sock.isSecured})${reset}`,
+    `${green}[TX] Mode: ${sock.isSecured ? "ChaCha20-Poly1305 ACTIVE" : "PLAIN (tanpa enkripsi)"} (isSecured=${sock.isSecured})${reset}`,
   );
 
   for (let i = 1; i <= count; i++) {
