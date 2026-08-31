@@ -170,33 +170,34 @@ Pola ini dipakai di **TeleChat** dan **tpkgd**: RSA (asimetris) dipakai **sekali
 mengirim session key ChaCha20 (simetris) dengan aman. Setelah itu semua data memakai
 ChaCha20 (lebih cepat).
 
-> **Irit data dengan opcode, bukan string.** Jenis paket ditandai **opcode numerik 1 byte**
+> **Irit data dengan opcode, bukan string panjang.** Jenis paket ditandai **opcode**
 > di awal payload (`onData` tidak membawa field `flag`, jadi opcode ditaruh di payload).
+> Pakai **satu karakter** (`"1"`, `"2"`, `"3"`) — bukan Buffer biner, karena protocol
+> JSON default akan mengubah Buffer jadi JSON (`{"type":"Buffer",...}`) sehingga byte
+> biner tidak sampai apa adanya. Karakter string lolos utuh.
 
 ```
-Opcode (1 byte, di awal payload):
-  0x01 = REQUEST_KEY   (client → server, minta public key)
-  0x02 = PUBKEY        (server → client, diikuti public key PEM)
-  0x03 = SECRETKEY     (client → server, diikuti session key ter-enkripsi RSA)
+Opcode (char pertama payload):
+  "1" = REQUEST_KEY   (client → server, minta public key)
+  "2" = PUBKEY        (server → client, diikuti public key PEM)
+  "3" = SECRETKEY     (client → server, diikuti session key ter-enkripsi RSA)
+  "4" = MSG           (dua arah, terenkripsi setelah handshake)
 ```
 
-```
-Opcode (1 byte, di awal payload):
-  0x01 = REQUEST_KEY   (client → server, minta public key)
-  0x02 = PUBKEY        (server → client, diikuti public key PEM)
-  0x03 = SECRETKEY     (client → server, diikuti session key ter-enkripsi RSA)
-```
+> ⚠️ JANGAN pakai `binary: true` untuk handshake ini — protocol Binary **bypass
+> enkripsi saat TX** (dirancang untuk OTA/raw transfer). Karena kita butuh ChaCha20
+> setelah handshake, gunakan protocol JSON default.
 
 ```
 Client                                   Server
   │  generateKeyPair() (RSA)              │
   │  open() (plain)                       │
-  │  ── [0x01] ────────────────────────▶  │
+  │  ── "1" ───────────────────────────▶  │
   │                                       │  generateKeyPair() (RSA)
-  │  ◀── [0x02][publicKey] ─────────────  │
+  │  ◀── "2"+publicKey ─────────────────  │
   │  generateSessionKey() (32 byte)       │
   │  encryptWithPublicKey(serverPub, sk)  │
-  │  ── [0x03][encSessionKey] ──────────▶ │  decryptWithPrivateKey(priv, enc) → sessionKey
+  │  ── "3"+encSessionKey ──────────────▶ │  decryptWithPrivateKey(priv, enc) → sessionKey
   │                                       │  upgradeSecurity(sessionKey)
   │  upgradeSecurity(sessionKey)          │
   │  ◀═══ data terenkripsi ChaCha20 ═══▶  │
@@ -204,32 +205,37 @@ Client                                   Server
 
 ### Client side
 ```ts
-import { SecurityAgent, NetSocket } from "@tsix/Application";
+import { Program, std, NetSocket } from "@tsix/Application";
+import { SecurityAgent } from "@common/SecurityAgent";
 
-// Opcode handshake (1 byte)
-const OP = { REQ_KEY: 0x01, PUBKEY: 0x02, SECRET_KEY: 0x03 };
+// Opcode (char pertama payload)
+const OP = { REQ_KEY: "1", PUBKEY: "2", SECRET_KEY: "3", MSG: "4" };
+
+let handshaked = false; // true setelah upgradeSecurity() — channel terenkripsi
 
 const sock = new NetSocket({ port: 2501 });
 sock.onData = (pkt) => {
-  const buf = Buffer.isBuffer(pkt.data) ? pkt.data : Buffer.from(String(pkt.data), "utf8");
-  const op = buf[0];                      // byte pertama = opcode
-  const body = buf.subarray(1);           // sisanya = data
+  const text = String(pkt.data);
+  const op = text.charAt(0);              // char pertama = opcode
+  const body = text.slice(1);             // sisanya = data
 
-  if (op === OP.PUBKEY) {
+  if (op === OP.PUBKEY && !handshaked) {
     // 1) Server kirim public key
-    const serverPub = body.toString("utf8");
+    const serverPub = body;
     const sessionKey = SecurityAgent.generateSessionKey();          // 32 byte acak
     const enc = SecurityAgent.encryptWithPublicKey(serverPub, sessionKey);
 
     // 2) Kirim session key ter-enkripsi RSA (payload: opcode + hex)
-    const payload = Buffer.concat([Buffer.from([OP.SECRET_KEY]), Buffer.from(enc, "utf8")]);
-    void sock.sendTo("localhost", 2500, payload);
+    void sock.sendTo("localhost", 2500, OP.SECRET_KEY + enc);
 
-    // 3) Switch ke ChaCha20
-    void sock.upgradeSecurity(sessionKey.toString("hex"));
-  } else {
-    // Setelah secure, semua paket berikutnya terenkripsi (data apa pun)
-    std.println(`[secure] ${body.toString()}`);
+    // 3) Switch ke ChaCha20, lalu kirim pesan terenkripsi
+    void sock.upgradeSecurity(sessionKey.toString("hex")).then(async () => {
+      handshaked = true;
+      await sock.sendTo("localhost", 2500, OP.MSG + "hello, secure channel!");
+    });
+  } else if (op === OP.MSG && handshaked) {
+    // Balasan terenkripsi dari server
+    std.println(`[secure] ${body}`);
   }
 };
 await sock.open();
@@ -238,40 +244,49 @@ await sock.waitClosed();
 
 ### Server side
 ```ts
-import { SecurityAgent, NetSocket } from "@tsix/Application";
+import { Program, std, NetSocket } from "@tsix/Application";
+import { SecurityAgent } from "@common/SecurityAgent";
 
-const OP = { REQ_KEY: 0x01, PUBKEY: 0x02, SECRET_KEY: 0x03 };
+const OP = { REQ_KEY: "1", PUBKEY: "2", SECRET_KEY: "3", MSG: "4" };
 const keys = SecurityAgent.generateKeyPair();   // RSA key pair server
 let secured = false;
 
 const sock = new NetSocket({ port: 2500 });
 sock.onData = async (pkt) => {
-  const buf = Buffer.isBuffer(pkt.data) ? pkt.data : Buffer.from(String(pkt.data), "utf8");
-  const op = buf[0];
-  const body = buf.subarray(1);
+  const text = String(pkt.data);
+  const op = text.charAt(0);
+  const body = text.slice(1);
 
   if (op === OP.REQ_KEY) {
     // Kirim public key: opcode + PEM
-    const payload = Buffer.concat([Buffer.from([OP.PUBKEY]), Buffer.from(keys.publicKey, "utf8")]);
-    await sock.reply(pkt, payload);
+    await sock.reply(pkt, OP.PUBKEY + keys.publicKey);
   } else if (op === OP.SECRET_KEY) {
     // Terima session key ter-enkripsi → decrypt → aktifkan ChaCha20
-    const enc = body.toString("utf8");
+    const enc = body;
     const sessionKey = SecurityAgent.decryptWithPrivateKey(keys.privateKey, enc);
     await sock.upgradeSecurity(sessionKey.toString("hex"));
     secured = true;
     std.println("[server] session key diterima, koneksi aman!");
   } else if (secured) {
-    std.println(`[secure] ${body.toString()}`);   // data sudah terenkripsi
+    std.println(`[secure] ${body}`);   // data sudah terenkripsi
   }
 };
 await sock.open();
 await sock.waitClosed();
 ```
 
-> **Catatan binary vs plain:** kalau payload memakai opcode biner (Buffer), pastikan kedua
-> sisi tidak merusak byte ≥ 0x80. Untuk handshake di atas, pakai `Buffer` (bukan string
-> plaintext) — aman selama payloadnya ASCII (PEM & hex adalah ASCII).
+> **Catatan protocol:** pakai protocol JSON default (jangan `binary: true`) untuk
+> handshake ini — protocol Binary **bypass enkripsi saat TX** (untuk OTA/raw transfer),
+> sedangkan kita butuh ChaCha20 setelah handshake. Opcode sebagai **string char**
+> (`"1"`/`"2"`/`"3"`) lolos utuh di JSON protocol (Buffer biner malah diubah jadi
+> `{"type":"Buffer",...}`).
+
+> **Setelah handshake — ngobrol dua arah terenkripsi.** Begitu kedua sisi
+> `upgradeSecurity(sessionKey)`, semua `sendTo`/`reply` berikutnya otomatis terenkripsi
+> ChaCha20 (driver memakai session key per port). Contoh nyata di
+> `netsocket-rsacha-client.ts` / `netsocket-rsacha-server.ts`: client kirim
+> `"hello N from client"` → server terima (decrypt) → balas `"echo: ..."` → client
+> tampilkan. Selama keduanya memakai session key yang sama, pesan terbaca dua arah.
 
 ### Kenapa RSA + ChaCha20 (bukan cuma RSA)?
 - **RSA (asimetris)**: aman untuk pertukaran kunci, tapi lambat untuk data besar.

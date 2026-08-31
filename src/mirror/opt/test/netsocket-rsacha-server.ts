@@ -10,14 +10,20 @@ import { SecurityAgent } from "@common/SecurityAgent";
  * Flow:
  *   1. generate our RSA key pair once at startup
  *   2. open() the socket (PLAIN first)
- *   3. receive [0x01] REQUEST_KEY -> send [0x02][ourPubKey]
- *   4. receive [0x03][encKey] -> decrypt with our private key -> session key
+ *   3. receive "1" REQUEST_KEY  -> send "2" + our public key (PEM)
+ *   4. receive "3" + encKey     -> decrypt with our private key -> session key
  *   5. upgradeSecurity(sessionKey) -> now all data is ChaCha20-Poly1305
  *
- * Opcodes (1 byte at the start of each payload):
- *   0x01 = REQUEST_KEY   (client -> server)
- *   0x02 = PUBKEY        (server -> client, followed by PEM)
- *   0x03 = SECRETKEY     (client -> server, followed by RSA-encrypted key hex)
+ * Opcodes (first char of the payload string):
+ *   "1" = REQUEST_KEY   (client -> server)
+ *   "2" = PUBKEY        (server -> client, followed by PEM)
+ *   "3" = SECRETKEY     (client -> server, followed by RSA-encrypted key hex)
+ *   "4" = MSG           (either direction, encrypted after handshake)
+ *
+ * NOTE: We use the default JSON protocol (NOT binary) because binary mode
+ * bypasses encryption on TX — we need ChaCha20 after the handshake.
+ * The opcode is a string char (e.g. "1"), not a binary byte, so it survives
+ * the JSON protocol untouched.
  *
  * NOTE: set onData BEFORE open() — otherwise the recv loop never starts.
  *
@@ -30,7 +36,7 @@ const PORT = 2600;
 export const main = Program(async (args: string[]) => {
     const port = parseInt(args[0] || String(PORT), 10);
 
-    const OP = { REQ_KEY: 0x01, PUBKEY: 0x02, SECRET_KEY: 0x03 };
+    const OP = { REQ_KEY: "1", PUBKEY: "2", SECRET_KEY: "3", MSG: "4" };
 
     // Our RSA key pair — generated once, private key never leaves this side.
     const keys = SecurityAgent.generateKeyPair();
@@ -40,32 +46,34 @@ export const main = Program(async (args: string[]) => {
 
     // Handle inbound packets (set BEFORE open()).
     sock.onData = async (pkt) => {
-        const buf = Buffer.isBuffer(pkt.data)
-            ? pkt.data
-            : Buffer.from(String(pkt.data), "utf8");
-        const op = buf[0];
-        const body = buf.subarray(1);
+        const text = String(pkt.data);
+        const op = text.charAt(0);
+        const body = text.slice(1);
+
+        // Handshake already done — ignore any repeated handshake packet.
+        if (secured && (op === OP.REQ_KEY || op === OP.SECRET_KEY)) return;
 
         if (op === OP.REQ_KEY) {
-            // Client wants our public key → send [0x02][PEM].
-            const payload = Buffer.concat([
-                Buffer.from([OP.PUBKEY]),
-                Buffer.from(keys.publicKey, "utf8"),
-            ]);
-            await sock.reply(pkt, payload);
+            // Client wants our public key → send "2" + PEM.
+            await sock.reply(pkt, OP.PUBKEY + keys.publicKey);
             std.println("[server] sent public key to client");
         } else if (op === OP.SECRET_KEY) {
             // Client sent the encrypted session key → decrypt it.
-            const encHex = body.toString("utf8");
+            const encHex = body;
             const sessionKey = SecurityAgent.decryptWithPrivateKey(keys.privateKey, encHex);
 
             // Activate ChaCha20 with the client's session key.
             await sock.upgradeSecurity(sessionKey.toString("hex"));
             secured = true;
             std.println("[server] 🔒 secure channel (ChaCha20) active");
-        } else if (secured) {
-            // All data after the handshake is encrypted.
-            std.println(`[server] ← ${pkt.src}:${pkt.port} : ${body.toString()}`);
+        } else if (op === OP.MSG && secured) {
+            // All data after the handshake is encrypted (ChaCha20).
+            std.println(`[server] ← (encrypted) ${body}`);
+
+            // Reply back through the same encrypted channel so the client can
+            // see that both sides actually share the same session key.
+            await sock.reply(pkt, OP.MSG + `echo: ${body}`);
+            std.println(`[server] → (encrypted) echo: ${body}`);
         }
     };
 
