@@ -101,75 +101,83 @@ export const main = Program(async (args: string[]) => {
     const node = (id: string, tag: string, props: Record<string, any>, children: any[] = []): any =>
         ({ id, tag, props, children });
 
-    /** Rebuild daftar device (dikelompokkan per grup tenant). */
+    // ── Serializer render: pastikan setContent tidak pernah tumpang tindih ──
+    // (dua event IPC bisa datang hampir bersamaan; dua setContent paralel
+    //  bisa interleave clear+mount → menghasilkan duplikasi di DOM).
+    let renderChain: Promise<void> = Promise.resolve();
     const renderDeviceList = async () => {
-        const screen = form.screen;
-        if (!screen) return;
+        // Antar render berikutnya di belakang render yang sedang berjalan.
+        const run = renderChain.then(async () => {
+            const screen = form.screen;
+            if (!screen) return;
 
-        const visible = Array.from(devices.values())
-            .filter((d) => !tenantFilter || d.tenant === tenantFilter);
+            const visible = Array.from(devices.values())
+                .filter((d) => !tenantFilter || d.tenant === tenantFilter);
 
-        if (visible.length === 0) {
-            await screen.setContent("device-list",
-                node("device-empty", "span", {
-                    text: "⏳ Menunggu data dari daemon Lantana...",
-                    style: { fontSize: "12px", color: "var(--text-dim, #999)" },
-                }),
-            );
-            return;
-        }
-
-        // Kelompokkan per grup (deviceGroupMap), fallback "Ungrouped"
-        const grouped = new Map<string, DeviceStatusInfo[]>();
-        for (const d of visible) {
-            const g = d.group || "Ungrouped";
-            if (!grouped.has(g)) grouped.set(g, []);
-            grouped.get(g)!.push(d);
-        }
-
-        const rows: any[] = [];
-        for (const [g, list] of grouped.entries()) {
-            rows.push(node(`grp-${g}`, "div", {
-                text: `▸ ${g}  (${list.length} device)`,
-                style: { fontWeight: "700", fontSize: "12px", color: "var(--accent, #4caf50)", marginTop: "6px" },
-            }));
-
-            for (const d of list) {
-                const k = dkey(d.tenant, d.nodeId);
-                const ageStr = d.dataAgeMs >= 0 ? `${(d.dataAgeMs / 1000).toFixed(1)}s` : "—";
-
-                // Nilai sensor diambil langsung dari sensorMap (bukan cuma daftar ID).
-                // Format: 01=39 °C 02=14 % ... — fallback ke daftar ID bila belum ada data.
-                const sensObj = sensorMap.get(k) || {};
-                const sensKeys = Object.keys(sensObj);
-                const sensorText = sensKeys.length > 0
-                    ? sensKeys.map((sk) => {
-                        const s = sensObj[sk];
-                        return `${s.id}=${s.value}${s.unit ? " " + s.unit : ""}`;
-                    }).join("  ")
-                    : `sensors: ${d.sensorIds.join(", ") || "—"}`;
-
-                rows.push(node(`dev-${k}`, "div", {
-                    style: {
-                        display: "flex", justifyContent: "space-between", alignItems: "center",
-                        background: "var(--surface, #16213e)", borderRadius: "8px", padding: "10px 14px",
-                        border: `1px solid ${statusColor(d.status)}44`,
-                    },
-                }, [
-                    node(`devl-${k}`, "div", { style: { display: "flex", flexDirection: "column", gap: "2px" } }, [
-                        node(`devt-${k}`, "span", { text: `${d.label} (${d.nodeId})`, style: { fontWeight: "600", fontSize: "13px" } }),
-                        node(`devm-${k}`, "span", { text: `tenant: ${d.tenant} · cat: ${d.category}${d.group ? " · grp: " + d.group : ""}`, style: { fontSize: "11px", color: "var(--text-dim, #999)" } }),
-                        node(`devs-${k}`, "span", { text: sensorText, style: { fontSize: "11px", color: "var(--text-dim, #999)" } }),
-                    ]),
-                    node(`devr-${k}`, "div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" } }, [
-                        node(`devst-${k}`, "span", { text: d.status, style: { color: statusColor(d.status), fontWeight: "700", fontSize: "12px" } }),
-                        node(`deva-${k}`, "span", { text: `${ageStr} ago`, style: { fontSize: "11px", color: "var(--text-muted, #777)" } }),
-                    ]),
-                ]));
+            if (visible.length === 0) {
+                await screen.setContent("device-list",
+                    node("device-empty", "span", {
+                        text: "⏳ Menunggu data dari daemon Lantana...",
+                        style: { fontSize: "12px", color: "var(--text-dim, #999)" },
+                    }),
+                );
+                return;
             }
-        }
 
-        await screen.setContent("device-list", ...rows);
+            // Kelompokkan per grup (deviceGroupMap), fallback "Ungrouped"
+            const grouped = new Map<string, DeviceStatusInfo[]>();
+            for (const d of visible) {
+                const g = d.group || "Ungrouped";
+                if (!grouped.has(g)) grouped.set(g, []);
+                grouped.get(g)!.push(d);
+            }
+
+            const rows: any[] = [];
+            for (const [g, list] of grouped.entries()) {
+                rows.push(node(`grp-${g}`, "div", {
+                    text: `▸ ${g}  (${list.length} device)`,
+                    style: { fontWeight: "700", fontSize: "12px", color: "var(--accent, #4caf50)", marginTop: "6px" },
+                }));
+
+                for (const d of list) {
+                    const k = dkey(d.tenant, d.nodeId);
+                    const ageStr = d.dataAgeMs >= 0 ? `${(d.dataAgeMs / 1000).toFixed(1)}s` : "—";
+
+                    // Nilai sensor diambil langsung dari sensorMap (bukan cuma daftar ID).
+                    // Format: 01=39 °C 02=14 % ... — fallback ke daftar ID bila belum ada data.
+                    const sensObj = sensorMap.get(k) || {};
+                    const sensKeys = Object.keys(sensObj);
+                    const sensorText = sensKeys.length > 0
+                        ? sensKeys.map((sk) => {
+                            const s = sensObj[sk];
+                            return `${s.id}=${s.value}${s.unit ? " " + s.unit : ""}`;
+                        }).join("  ")
+                        : `sensors: ${d.sensorIds.join(", ") || "—"}`;
+
+                    rows.push(node(`dev-${k}`, "div", {
+                        style: {
+                            display: "flex", justifyContent: "space-between", alignItems: "center",
+                            background: "var(--surface, #16213e)", borderRadius: "8px", padding: "10px 14px",
+                            border: `1px solid ${statusColor(d.status)}44`,
+                        },
+                    }, [
+                        node(`devl-${k}`, "div", { style: { display: "flex", flexDirection: "column", gap: "2px" } }, [
+                            node(`devt-${k}`, "span", { text: `${d.label} (${d.nodeId})`, style: { fontWeight: "600", fontSize: "13px" } }),
+                            node(`devm-${k}`, "span", { text: `tenant: ${d.tenant} · cat: ${d.category}${d.group ? " · grp: " + d.group : ""}`, style: { fontSize: "11px", color: "var(--text-dim, #999)" } }),
+                            node(`devs-${k}`, "span", { text: sensorText, style: { fontSize: "11px", color: "var(--text-dim, #999)" } }),
+                        ]),
+                        node(`devr-${k}`, "div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" } }, [
+                            node(`devst-${k}`, "span", { text: d.status, style: { color: statusColor(d.status), fontWeight: "700", fontSize: "12px" } }),
+                            node(`deva-${k}`, "span", { text: `${ageStr} ago`, style: { fontSize: "11px", color: "var(--text-muted, #777)" } }),
+                        ]),
+                    ]));
+                }
+            }
+
+            await screen.setContent("device-list", ...rows);
+        });
+        renderChain = run;
+        return run;
     };
 
     // ── Handler IPC ──

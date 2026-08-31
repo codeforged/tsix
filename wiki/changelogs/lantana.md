@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-08-31 (lanjutan 2)
+
+### Fix duplikasi daftar device di dashboard (race render)
+- **File:** `src/mirror/opt/lantana/lantana-dashboard.ts`
+- **Masalah:** kadang device list tampil dobel — `▸ client-a (1 device)` dua kali dan kartu device dua kali. Penyebabnya dua panggilan `renderDeviceList()` yang datang hampir bersamaan (event `LANTANA_SENSOR_DATA` + `LANTANA_DEVICE_STATUS` / snapshot) jalan **paralel**: dua `setContent` (clear + mount) bisa interleave → node tercampur → duplikat.
+- **Perubahan:** `renderDeviceList` kini **diserialisasi** dengan promise-chain (mutex) — render berikutnya antri di belakang render yang sedang berjalan, sehingga `setContent` tidak pernah tumpang tindih.
+- **Dampak:** daftar device selalu render satu set utuh (tidak dobel), nilai sensor tetap tampil (`01=55 °C 02=80 % ...`).
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-31 (lanjutan)
 
 ### Dashboard di-porting ke Cashew + fix tampil nilai sensor
