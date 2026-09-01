@@ -120,8 +120,10 @@ private:
 
   void connectMQTT();
   void sendPong(const char *dstAddress, int dstPort, uint8_t flag);
+  void sendPongBinfeo(const char *dstAddress, int dstPort, uint8_t flag);
+  void sendPongRaw(const char *dstAddress, int dstPort, uint8_t flag);
   bool publishBinary(const char *topicPrefix, uint8_t magic, const char *dstAddress,
-                     int dstPort, const uint8_t *payload, size_t length);
+                     int dstPort, uint8_t flag, const uint8_t *payload, size_t length);
 };
 
 #endif // TSIXLIB_H

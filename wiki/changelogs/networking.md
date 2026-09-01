@@ -40,6 +40,24 @@
   - Proyek **4 varian**: `minimum`, `minimum-binfeo`, `lantana`, `ota` — tiap varian bisa build utk ESP32 & ESP8266 (8 env).
 - **Dampak:** firmware ESP cukup pakai satu library utk komunikasi terenkripsi (JSON/Binfeo) + OTA; logika tidak lagi tersebar di 3 proyek terpisah.
 
+### `tsixlib` — PING/BROADCAST jalan di semua kanal (fix)
+
+- **File:** `platformio/TSIX-All-in-One/lib/tsixlib/tsixlib.h`, `tsixlib.cpp`
+- **Perubahan:** `handleV11` (biner OTA) & `handleV12` (Binfeo) sekarang auto-respond **PING_REQUEST** (flag 1, port 65535) dan **BROADCAST_PING** (flag 3, port 65534) — sebelumnya hanya `handleV1` (JSON) yang melakukannya. Sebab: server merutekan ping ke sebuah address memakai protocol yang terakhir ia lihat dari address itu (`protocolRegistry`), jadi device Binfeo menerima ping di `mqtnl@1.2/`. `publishBinary()` kini menerima param `flag` + helper `sendPongBinfeo()`/`sendPongRaw()`.
+- **Dampak:** `nmap` & `ping` (kebutuhan dasar MQTNL) tetap jalan di device JSON, Binfeo, maupun OTA.
+
+### `tsixlib` — kredensial dipisah ke `secrets.h` (tidak di-commit)
+
+- **File:** `platformio/TSIX-All-in-One/include/secrets.h` (git-ignored), `include/secrets.sample.h`, `src/variants/*.cpp`, `.gitignore`
+- **Perubahan:** WiFi SSID/password, MQTT server/port, dan `apiKey` tidak lagi inline di varian — dipindah ke `include/secrets.h` yang **di-gitignore**. Template `secrets.sample.h` di-commit; varian `#include "secrets.h"` memakai `TSIX_WIFI_SSID`/`TSIX_MQTT_SERVER`/`TSIX_API_KEY`.
+- **Dampak:** kredensial asli tidak pernah masuk git; clone baru cukup `cp secrets.sample.h secrets.h`.
+
+### Firmware lama diganti TSIX-All-in-One
+
+- **File:** hapus `platformio/ESP-OTA-MQTNL`, `platformio/ESP32-MQTNL-Sender-minimum`, `platformio/ESP32-MQTNL-SensorData-Sender`
+- **Perubahan:** 3 proyek PlatformIO lama (`noslib` + `tsixOTA`) dihapus; sejak sekarang hanya **`TSIX-All-in-One`** (tsixlib + 4 varian) yang dipakai & dipelihara.
+- **Dampak:** satu proyek utk semua kebutuhan ESP (JSON/Binfeo/OTA), tidak ada duplikasi.
+
 - **Oleh:** Copilot
 
 ## 2026-08-31

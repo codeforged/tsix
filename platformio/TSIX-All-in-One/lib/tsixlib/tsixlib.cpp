@@ -232,7 +232,7 @@ bool TSIX::sendEncrypted(const char *dstAddress, int dstPort, const char *payloa
 // ============================================================
 bool TSIX::sendRaw(const char *dstAddress, int dstPort, const uint8_t *payload, size_t length)
 {
-  return publishBinary("mqtnl@1.1/", TSIX_MAGIC_RAW, dstAddress, dstPort, payload, length);
+  return publishBinary("mqtnl@1.1/", TSIX_MAGIC_RAW, dstAddress, dstPort, TSIX_FLAG_DATA, payload, length);
 }
 
 bool TSIX::sendBinfeo(const char *dstAddress, int dstPort, const uint8_t *payload, size_t length)
@@ -262,13 +262,13 @@ bool TSIX::sendBinfeo(const char *dstAddress, int dstPort, const uint8_t *payloa
     memcpy(body + TSIX_NONCE_SIZE + TSIX_TAG_SIZE, cipher, length);
   free(cipher);
 
-  bool ok = publishBinary("mqtnl@1.2/", TSIX_MAGIC_BINFEO, dstAddress, dstPort, body, bodyLen);
+  bool ok = publishBinary("mqtnl@1.2/", TSIX_MAGIC_BINFEO, dstAddress, dstPort, TSIX_FLAG_DATA, body, bodyLen);
   free(body);
   return ok;
 }
 
 bool TSIX::publishBinary(const char *topicPrefix, uint8_t magic, const char *dstAddress,
-                         int dstPort, const uint8_t *payload, size_t length)
+                         int dstPort, uint8_t flag, const uint8_t *payload, size_t length)
 {
   if (!mqttClient.connected())
     return false;
@@ -302,12 +302,26 @@ bool TSIX::publishBinary(const char *topicPrefix, uint8_t magic, const char *dst
   mqttClient.write((uint8_t)((ds >> 8) & 0xFF));
   mqttClient.write((uint8_t)((ds >> 16) & 0xFF));
   mqttClient.write((uint8_t)((ds >> 24) & 0xFF));
-  mqttClient.write(TSIX_FLAG_DATA);           // flag
+  mqttClient.write(flag);                      // flag (DATA / PING_REPLY / dll)
   mqttClient.write(0x00);                     // forwarded
   if (length)
     mqttClient.write(payload, length);        // payload
 
   return mqttClient.endPublish();
+}
+
+void TSIX::sendPongBinfeo(const char *dstAddress, int dstPort, uint8_t flag)
+{
+  if (!mqttClient.connected())
+    return;
+  publishBinary("mqtnl@1.2/", TSIX_MAGIC_BINFEO, dstAddress, dstPort, flag, nullptr, 0);
+}
+
+void TSIX::sendPongRaw(const char *dstAddress, int dstPort, uint8_t flag)
+{
+  if (!mqttClient.connected())
+    return;
+  publishBinary("mqtnl@1.1/", TSIX_MAGIC_RAW, dstAddress, dstPort, flag, nullptr, 0);
 }
 
 // ============================================================
@@ -461,13 +475,27 @@ void TSIX::handleV11(const char *topic, byte *payload, unsigned int length)
   }
   uint16_t dstPort = payload[offset] | (payload[offset + 1] << 8);
   offset += 2;
-  offset += 4; // packetCount(2) + packetIndex(2)
+  offset += 2; // packetCount(2)
+  offset += 2; // packetIndex(2)
   offset += 4; // dataSize(4)
+  if (offset + 2 > length)
+    return;
+  uint8_t pktFlag = payload[offset]; // flag
   offset += 2; // flag(1) + forwarded(1)
 
-  if (offset > length)
-    return;
   size_t dataLen = length - offset;
+
+  // PING / BROADCAST_SCAN → balas otomatis (kebutuhan dasar MQTNL, jangan diganggu)
+  if (pktFlag == TSIX_FLAG_PING_REQUEST && dstPort == TSIX_PING_PORT)
+  {
+    sendPongRaw(srcAddress, srcPort, TSIX_FLAG_PING_REPLY);
+    return;
+  }
+  if (pktFlag == TSIX_FLAG_BROADCAST_PING && dstPort == TSIX_BROADCAST_PORT)
+  {
+    sendPongRaw(srcAddress, srcPort, TSIX_FLAG_BROADCAST_REPLY);
+    return;
+  }
 
   // Hanya proses kalau paket untuk node ini (atau broadcast "*")
   if (dstAddress[0] && strcmp(dstAddress, id.c_str()) != 0 && strcmp(dstAddress, "*") != 0)
@@ -507,12 +535,27 @@ void TSIX::handleV12(const char *topic, byte *payload, unsigned int length)
   }
   uint16_t dstPort = payload[offset] | (payload[offset + 1] << 8);
   offset += 2;
-  offset += 4; // packetCount(2) + packetIndex(2)
+  offset += 2; // packetCount(2)
+  offset += 2; // packetIndex(2)
   offset += 4; // dataSize(4)
-  offset += 2; // flag(1) + forwarded(1)
-  if (offset > length)
+  if (offset + 2 > length)
     return;
+  uint8_t pktFlag = payload[offset]; // flag
+  offset += 2; // flag(1) + forwarded(1)
+
   size_t dataLen = length - offset;
+
+  // PING / BROADCAST_SCAN → balas otomatis (kebutuhan dasar MQTNL, jangan diganggu)
+  if (pktFlag == TSIX_FLAG_PING_REQUEST && dstPort == TSIX_PING_PORT)
+  {
+    sendPongBinfeo(srcAddress, srcPort, TSIX_FLAG_PING_REPLY);
+    return;
+  }
+  if (pktFlag == TSIX_FLAG_BROADCAST_PING && dstPort == TSIX_BROADCAST_PORT)
+  {
+    sendPongBinfeo(srcAddress, srcPort, TSIX_FLAG_BROADCAST_REPLY);
+    return;
+  }
 
   if (dstAddress[0] && strcmp(dstAddress, id.c_str()) != 0 && strcmp(dstAddress, "*") != 0)
     return;

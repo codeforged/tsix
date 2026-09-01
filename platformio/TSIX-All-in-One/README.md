@@ -16,6 +16,22 @@ lib/
   tsixlib/            ← library MQTNL terpadu (tsixlib.h/.cpp)
 ```
 
+## Kredensial (secrets.h)
+
+Semua kredensial (WiFi SSID/password, MQTT server/port, API key tenant) ada di
+`include/secrets.h` — file ini **TIDAK ikut di-commit** (di-gitignore). Buat dari
+template lalu isi:
+
+```sh
+cp include/secrets.sample.h include/secrets.h
+```
+
+Semua varian otomatis memakainya via `#include "secrets.h"` (`TSIX_WIFI_SSID`,
+`TSIX_MQTT_SERVER`, `TSIX_API_KEY`, dst).
+
+> ⚠️ Jangan pernah commit `include/secrets.h` (isinya kredensial asli).
+> `secrets.sample.h` yang berisi placeholder itulah yang boleh di-commit.
+
 ## Varian & env
 
 | Varian                      | build flag                   | env (ESP32)            | env (ESP8266)            |

@@ -16,18 +16,14 @@
 // ─────────────────────────────────────────────────────────────
 #include <Arduino.h>
 #include <tsixlib.h>
+#include "secrets.h"   // WiFi/MQTT/API key — di include/secrets.h (TIDAK di-commit)
 #if defined(ESP8266)
 #include <Updater.h>
 #else
 #include <Update.h>
 #endif
 
-// ── Konfigurasi ──
-#define WIFI_SSID     "Your SSID"
-#define WIFI_PASSWORD "Your Password"
-#define MQTT_SERVER   "192.168.1.204"
-#define MQTT_PORT     1883
-
+// ── Konfigurasi (network di secrets.h) ──
 #define NODE_ID       "ota-device-01"
 #define NODE_PORT     100
 #define OTA_HOST      "tsix"          // node TSIX tempat ota-server/otad
@@ -42,10 +38,9 @@
 #define OTA_CHUNK     2048            // ukuran chunk (1280-2048 aman utk ESP8266)
 #define OTA_DELAY_MS  5000            // auto-trigger setelah boot
 
-const char apiKey[] =
-  "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619";
+const char apiKey[] = TSIX_API_KEY;
 
-TSIX tsix(NODE_ID, NODE_PORT, apiKey, MQTT_SERVER, MQTT_PORT);
+TSIX tsix(NODE_ID, NODE_PORT, apiKey, TSIX_MQTT_SERVER, TSIX_MQTT_PORT);
 
 // ── State OTA ──
 enum OtaState { OTA_IDLE, OTA_REQUEST_INFO, OTA_FETCHING, OTA_DONE, OTA_ERROR };
@@ -186,7 +181,7 @@ void setup()
   Serial.begin(115200);
   delay(200);
 
-  if (!tsix.connectWiFi(WIFI_SSID, WIFI_PASSWORD))
+  if (!tsix.connectWiFi(TSIX_WIFI_SSID, TSIX_WIFI_PASSWORD))
   {
     Serial.println("[setup] WiFi GAGAL");
     return;

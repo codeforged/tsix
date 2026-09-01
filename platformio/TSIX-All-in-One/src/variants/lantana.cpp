@@ -7,12 +7,7 @@
 // ─────────────────────────────────────────────────────────────
 #include <Arduino.h>
 #include <tsixlib.h>
-
-// ── Konfigurasi WiFi / MQTT ──
-#define WIFI_SSID     "Your SSID"
-#define WIFI_PASSWORD "Your Password"
-#define MQTT_SERVER   "192.168.1.204"
-#define MQTT_PORT     1883
+#include "secrets.h"   // WiFi/MQTT/API key — di include/secrets.h (TIDAK di-commit)
 
 // ── Konfigurasi Lantana ──
 #define NODE_ID       "esp8266-dev-01"   // identitas device di Device Bank
@@ -29,11 +24,10 @@
 #define RELAY2_PIN 17
 #endif
 
-// API key tenant (hex) = kunci ChaCha20-Poly1305
-const char apiKey[] =
-  "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619";
+// API key tenant = kunci ChaCha20-Poly1305 (dari secrets.h)
+const char apiKey[] = TSIX_API_KEY;
 
-TSIX tsix(NODE_ID, NODE_PORT, apiKey, MQTT_SERVER, MQTT_PORT);
+TSIX tsix(NODE_ID, NODE_PORT, apiKey, TSIX_MQTT_SERVER, TSIX_MQTT_PORT);
 
 const char *sensorIds[] = {"01", "02", "03", "04"};
 int sensorVals[4] = {0, 0, 0, 0};
@@ -72,7 +66,7 @@ void setup()
   digitalWrite(RELAY1_PIN, LOW);
   digitalWrite(RELAY2_PIN, LOW);
 
-  if (!tsix.connectWiFi(WIFI_SSID, WIFI_PASSWORD))
+  if (!tsix.connectWiFi(TSIX_WIFI_SSID, TSIX_WIFI_PASSWORD))
   {
     Serial.println("[setup] WiFi GAGAL");
     return;

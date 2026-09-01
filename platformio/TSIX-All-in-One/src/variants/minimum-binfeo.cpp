@@ -8,23 +8,18 @@
 // ─────────────────────────────────────────────────────────────
 #include <Arduino.h>
 #include <tsixlib.h>
+#include "secrets.h"   // WiFi/MQTT/API key — di include/secrets.h (TIDAK di-commit)
 
-// ── Konfigurasi ──
-#define WIFI_SSID     "BabamGo"
-#define WIFI_PASSWORD "bismillah"
-#define MQTT_SERVER   "192.168.1.204"
-#define MQTT_PORT     1883
-
+// ── Konfigurasi (network di secrets.h) ──
 #define NODE_ID       "esp-binfeo-01"  // identitas device di Device Bank
 #define NODE_PORT     100              // port virtual MQTNL node ini
 #define DST_HOST      "mactsix"        // node TSIX tujuan
 #define DST_PORT      2700             // port tujuan (Binfeo)
 
-// API key tenant (hex 64 char) = kunci ChaCha20-Poly1305
-const char apiKey[] =
-  "5555cca25cb99006aa2243fc09f859575612ec49c27c8885882618317e56a114";
+// API key tenant = kunci ChaCha20-Poly1305 (dari secrets.h)
+const char apiKey[] = TSIX_API_KEY;
 
-TSIX tsix(NODE_ID, NODE_PORT, apiKey, MQTT_SERVER, MQTT_PORT);
+TSIX tsix(NODE_ID, NODE_PORT, apiKey, TSIX_MQTT_SERVER, TSIX_MQTT_PORT);
 
 // ── Callback pesan Binfeo masuk (sudah didekripsi, byte mentah) ──
 void onBinfeo(const char *srcAddress, int srcPort, const uint8_t *data, size_t len)
@@ -40,7 +35,7 @@ void setup()
   Serial.begin(115200);
   delay(200);
 
-  if (!tsix.connectWiFi(WIFI_SSID, WIFI_PASSWORD))
+  if (!tsix.connectWiFi(TSIX_WIFI_SSID, TSIX_WIFI_PASSWORD))
   {
     Serial.println("[setup] WiFi GAGAL");
     return;
