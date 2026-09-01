@@ -6,6 +6,22 @@
 
 ---
 
+## 2026-09-02
+
+### `forward` — hilangkan dependensi `@common/Config` (fix ENOENT)
+
+- **File:** `src/mirror/usr/bin/forward.ts`
+- **Perubahan:** buang `import { Config }` + `Config.get()`/`defaultBroker` (nilainya tidak pernah dipakai). `Config.load()` membaca `sysconfig.json` dari host filesystem relatif `__dirname` worker → ENOENT di node remote (`/home/<user>/sysconfig.json`).
+- **Dampak:** `forward -s <broker_a> -d <broker_b>` jalan di node mana pun tanpa perlu file config host.
+
+### `PacketForwarder` — anti-duplikasi (fix karakter berlipat di tssh)
+
+- **File:** `src/mirror/lib/PacketForwarder.ts`
+- **Perubahan:** `nextHop()` kini hanya meneruskan paket **origin-lokal (`forwarded == 0`)**, ditandai `forwarded = 1`. Paket yang sudah pernah di-bridge (`forwarded >= 1`) di-drop — tidak ada "bounce" A↔B. `MAX_FORWARD` dihapus.
+- **Dampak:** payload tidak lagi sampai duplikat ke tujuan (sebelumnya: `tssh` ke node di broker lain karakter berlipat & login gagal; `ping` tampak sukses karena reply duplikat mengisi seq berikutnya). Berlaku utk JSON v1.0, Binary OTA v1.1, Binfeo v1.2.
+
+- **Oleh:** Copilot
+
 ## 2026-09-01
 
 ### Protocol biner TERSANDI — Binfeo (bukan OTA)
