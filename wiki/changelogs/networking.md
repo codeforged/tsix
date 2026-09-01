@@ -57,6 +57,39 @@
 - **File:** hapus `platformio/ESP-OTA-MQTNL`, `platformio/ESP32-MQTNL-Sender-minimum`, `platformio/ESP32-MQTNL-SensorData-Sender`
 - **Perubahan:** 3 proyek PlatformIO lama (`noslib` + `tsixOTA`) dihapus; sejak sekarang hanya **`TSIX-All-in-One`** (tsixlib + 4 varian) yang dipakai & dipelihara.
 - **Dampak:** satu proyek utk semua kebutuhan ESP (JSON/Binfeo/OTA), tidak ada duplikasi.
+- **Oleh:** Copilot
+
+### `PacketForwarder` — bridge mendukung 3 protokol MQTNL (v1.0/v1.1/v1.2)
+
+- **File:** `src/mirror/lib/PacketForwarder.ts`, `src/mirror/lib/PacketForwarder.js`, `src/mirror/usr/bin/forward.ts`
+- **Perubahan:**
+  - Sebelumnya forwarder hanya subscribe `mqtnl@1.0/#` dan `JSON.parse` semua payload → trafik biner OTA (v1.1) dan Binfeo terenkripsi (v1.2) tidak dijembatani (atau rusak bila di-re-encode).
+  - Kini subscribe **ketiga prefix** (`mqtnl@1.0/#`, `mqtnl@1.1/#`, `mqtnl@1.2/#`) dan meneruskan payload **byte-exact** (tanpa re-encode) → byte biner/terenkripsi tidak berubah sama sekali.
+  - Loop prevention version-aware: counter `forwarded` di-increment per hop — JSON: elemen array ke-8; Binary/Binfeo: byte di offset `17 + srcLen + dstLen` (di-patch pada salinan buffer). Paket di-drop saat `forwarded >= 3` (anti-loop).
+  - Helper `pack()`/`unpack()` lama dihapus → diganti `nextHop()`/`subscribeAll()`.
+  - `forward.ts`: perbaikan error strict-mode `TS18046` (`catch (e: unknown)` → `e.message` aman).
+  - Catatan: runtime memakai sidecar `.js` (hasil `esbuild.transformSync` seperti `scripts/sync-vfs.ts`), jadi `.js` ikut di-regenerate agar sinkron dengan `.ts`.
+- **Dampak:** broker bridge kini relevan untuk seluruh stack MQTNL (JSON / Binfeo / OTA), bukan hanya v1.0 — OTA & komunikasi biner terenkripsi ikut terjembatani.
+
+### `tsixlib` — state machine OTA dipindah ke class `TSIXOTA`
+
+- **File:** `platformio/TSIX-All-in-One/lib/tsixlib/tsixota.h`, `tsixota.cpp`, `tsixlib.h`, `src/variants/ota.cpp`
+- **Perubahan:** logika OTA (`ota.info` / `ota.read` / chunk `0x55`, `Update.*`) yang tadinya menumpuk di `src/variants/ota.cpp` dipindah ke library tsixlib sebagai class **`TSIXOTA`**: `begin(Config)`, `start()`, `loop()`, callback `onProgress/onComplete/onError`, helper `isRunning()/done()/total()`. `tsixlib.h` meng-`#include "tsixota.h"` (include guard aman dari circular). Varian `ota.cpp` diringkas jadi config + wiring; default `deviceClass` otomatis (`esp32` / `TestDevice`).
+- **Dampak:** semua varian/device bisa pakai OTA tanpa duplikasi kode ~150 baris.
+
+### `platformio` — fix env `ota-esp32c3` + env baru `ota-esp32`
+
+- **File:** `platformio/TSIX-All-in-One/platformio.ini`
+- **Perubahan:**
+  - `ota-esp32c3` (ESP32-C3): tambah `build_src_filter = +<*> -<variants/*>` — sebelumnya hilang karena env tidak `extends = common` → memperbaiki error link **"multiple definition"** (`setup`/`loop`/`tsix`) akibat semua `variants/*.cpp` ikut dikompilasi terpisah dari dispatcher `main.cpp`.
+  - Env baru **`ota-esp32`** (ESP32 biasa, board `esp32dev`) dengan `extends = common` + `-DAPP_VARIANT_OTA`.
+- **Dampak:** varian OTA bisa build & upload di ESP32-C3 maupun ESP32 biasa tanpa error link.
+
+### Komentar varian diterjemahkan ke EN + host Lantana diganti
+
+- **File:** `platformio/TSIX-All-in-One/include/secrets.sample.h`, `src/variants/lantana.cpp`, `minimum.cpp`, `minimum-binfeo.cpp`
+- **Perubahan:** komentar header varian diterjemahkan ID→EN; placeholder `secrets.sample.h` memakai nilai generik; host Lantana `wintsix` → `tsix`.
+- **Dampak:** konsistensi bahasa dokumentasi kode; tidak ada perubahan logika.
 
 - **Oleh:** Copilot
 
