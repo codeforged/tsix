@@ -1,180 +1,43 @@
 // ─────────────────────────────────────────────────────────────
-// VARIAN: ota-mqtnl — Firmware update via MQTNL binary OTA (v1.1)
+// VARIANT: ota-mqtnl — Firmware update via MQTNL binary OTA (v1.1)
 //
-// Protocol (sesuai otad / ota-server TSIX):
-//   1. sendRaw request (kanal biner mqtnl@1.1/):
+// Varian ini hanya wiring konfigurasi; state machine OTA ada di library
+// tsixlib (class TSIXOTA — lihat lib/tsixlib/tsixota.h).
+//
+// Protocol (matches otad / ota-server TSIX):
+//   1. sendRaw request (binary channel mqtnl@1.1/):
 //        {cmd:"ota.info", path, mac, dc, ak}
-//      → resp (JSON di kanal biner): {cmd:"ota.info_res", version, size}
+//      → resp (JSON inside binary channel): {cmd:"ota.info_res", version, size}
 //   2. Update.begin(size)
 //   3. sendRaw request: {cmd:"ota.read", offset, len, path, mac, dc, ak}
-//      → resp chunk biner: [0x55][OFFSET:4 LE][DATA...]
-//      → Update.write → offset += len → ulangi sampai selesai
-//   4. Update.end(true) → reboot
+//      → resp binary chunk: [0x55][OFFSET:4 LE][DATA...]
+//      → Update.write → offset += len → repeat until complete
+//   4. Update.end(true) → onComplete → reboot
 //
-// Trigger: otomatis OTA_DELAY_MS setelah boot, atau ketik "ota" di serial.
+// Trigger: automated autoStartDelay after boot, or type "ota" in serial.
 // Build: -DAPP_VARIANT_OTA (env ota-esp32 / ota-esp8266)
 // ─────────────────────────────────────────────────────────────
 #include <Arduino.h>
 #include <tsixlib.h>
-#include "secrets.h"   // WiFi/MQTT/API key — di include/secrets.h (TIDAK di-commit)
-#if defined(ESP8266)
-#include <Updater.h>
-#else
-#include <Update.h>
-#endif
+#include "secrets.h"   // WiFi/MQTT/API key — in include/secrets.h (NOT committed)
 
-// ── Konfigurasi (network di secrets.h) ──
+// ── Configuration (network in secrets.h) ──
 #define NODE_ID       "ota-device-01"
 #define NODE_PORT     100
-#define OTA_HOST      "tsix"          // node TSIX tempat ota-server/otad
-#define OTA_PORT      4000            // port OTA di node tersebut
-#define OTA_PATH      "/etc/esp-ota/firmwares/app.bin"  // path firmware di VFS
-#define OTA_AK        "123456"        // activation key (dari portal)
-#if defined(ESP8266)
-#define OTA_DEVICE_CLASS "esp8266"
-#else
-#define OTA_DEVICE_CLASS "esp32"
-#endif
-#define OTA_CHUNK     2048            // ukuran chunk (1280-2048 aman utk ESP8266)
-#define OTA_DELAY_MS  5000            // auto-trigger setelah boot
+#define OTA_HOST      "tsix"          // TSIX node running ota-server/otad
+#define OTA_PORT      4000            // OTA port on that node
+// #define OTA_PATH      "/test/firmwareESP32C3.bin"  // firmware path in VFS
+#define OTA_PATH      "/test/firmwareESP32.bin"  // firmware path in VFS
+#define OTA_AK        "123456"        // activation key (from portal)
+#define OTA_CHUNK     2048*2            // chunk size (1280-2048 is safe for ESP8266)
+#define OTA_DELAY_MS  5000            // auto-trigger after boot
 
 const char apiKey[] = TSIX_API_KEY;
 
 TSIX tsix(NODE_ID, NODE_PORT, apiKey, TSIX_MQTT_SERVER, TSIX_MQTT_PORT);
 
-// ── State OTA ──
-enum OtaState { OTA_IDLE, OTA_REQUEST_INFO, OTA_FETCHING, OTA_DONE, OTA_ERROR };
-OtaState otaState = OTA_IDLE;
-uint32_t otaSize = 0;
-uint32_t otaOffset = 0;
-bool otaStarted = false;
-
-static long jsonGetInt(const char *json, const char *key)
-{
-  char needle[24];
-  snprintf(needle, sizeof(needle), "\"%s\":", key);
-  const char *p = strstr(json, needle);
-  if (!p) return -1;
-  return atol(p + strlen(needle));
-}
-
-static void otaSendInfo()
-{
-  char req[192];
-  snprintf(req, sizeof(req),
-           "{\"cmd\":\"ota.info\",\"path\":\"%s\",\"mac\":\"\",\"dc\":\"%s\",\"ak\":\"%s\"}",
-           OTA_PATH, OTA_DEVICE_CLASS, OTA_AK);
-  Serial.printf("[OTA] req ota.info -> %s:%d (%s)\n", OTA_HOST, OTA_PORT, OTA_PATH);
-  tsix.sendRaw(OTA_HOST, OTA_PORT, req);
-}
-
-static void otaSendRead()
-{
-  char req[192];
-  snprintf(req, sizeof(req),
-           "{\"cmd\":\"ota.read\",\"offset\":%lu,\"len\":%d,\"path\":\"%s\",\"mac\":\"\",\"dc\":\"%s\",\"ak\":\"%s\"}",
-           (unsigned long)otaOffset, OTA_CHUNK, OTA_PATH, OTA_DEVICE_CLASS, OTA_AK);
-  tsix.sendRaw(OTA_HOST, OTA_PORT, req);
-}
-
-static void otaStart()
-{
-  if (otaStarted) return;
-  otaStarted = true;
-  otaState = OTA_REQUEST_INFO;
-  otaSize = 0;
-  otaOffset = 0;
-  otaSendInfo();
-}
-
-static void otaHandleJson(const char *json)
-{
-  if (strstr(json, "ota.error"))
-  {
-    Serial.printf("[OTA] ERROR: %s\n", json);
-    otaState = OTA_ERROR;
-  }
-  else if (strstr(json, "ota.info_res"))
-  {
-    long size = jsonGetInt(json, "size");
-    if (size <= 0)
-    {
-      Serial.println("[OTA] size invalid");
-      otaState = OTA_ERROR;
-      return;
-    }
-    otaSize = (uint32_t)size;
-    if (!Update.begin(otaSize))
-    {
-      Serial.println("[OTA] Not enough space!");
-      otaState = OTA_ERROR;
-      return;
-    }
-    Serial.printf("[OTA] info_res size=%lu, mulai fetch...\n", (unsigned long)otaSize);
-    otaState = OTA_FETCHING;
-    otaOffset = 0;
-    otaSendRead();
-  }
-}
-
-// ── Callback kanal biner (v1.1) — menerima chunk OTA ──
-void onRawMessage(const char *srcAddress, int srcPort, const uint8_t *payload, size_t length)
-{
-  if (otaState != OTA_REQUEST_INFO && otaState != OTA_FETCHING)
-    return;
-
-  if (length >= 5 && payload[0] == 0x55)
-  {
-    // chunk biner: [0x55][OFFSET:4 LE][DATA...]
-    if (otaState != OTA_FETCHING) return;
-    uint32_t offset = (uint32_t)payload[1] | ((uint32_t)payload[2] << 8) |
-                      ((uint32_t)payload[3] << 16) | ((uint32_t)payload[4] << 24);
-    if (offset != otaOffset)
-    {
-      Serial.printf("[OTA] skip stale chunk (offset %lu != %lu)\n",
-                    (unsigned long)offset, (unsigned long)otaOffset);
-      return;
-    }
-    size_t dataLen = length - 5;
-    if (Update.write((uint8_t *)(payload + 5), dataLen) != dataLen)
-    {
-      Serial.println("[OTA] write error!");
-      otaState = OTA_ERROR;
-      return;
-    }
-    otaOffset += dataLen;
-    Serial.printf("[OTA] %lu/%lu (%d%%)\n", (unsigned long)otaOffset, (unsigned long)otaSize,
-                  (int)((otaOffset * 100) / otaSize));
-    if (otaOffset >= otaSize)
-    {
-      if (Update.end(true))
-      {
-        Serial.println("[OTA] SUCCESS — reboot...");
-        delay(1000);
-        ESP.restart();
-      }
-      else
-      {
-        Serial.println("[OTA] Update.end() failed");
-        otaState = OTA_ERROR;
-      }
-    }
-    else
-    {
-      otaSendRead();
-    }
-  }
-  else
-  {
-    // respon JSON (ota.info_res / ota.error)
-    char *json = (char *)malloc(length + 1);
-    if (!json) return;
-    memcpy(json, payload, length);
-    json[length] = '\0';
-    otaHandleJson(json);
-    free(json);
-  }
-}
+// ── State machine OTA dari library tsixlib (TSIXOTA) ──
+TSIXOTA ota(&tsix);
 
 void setup()
 {
@@ -183,28 +46,48 @@ void setup()
 
   if (!tsix.connectWiFi(TSIX_WIFI_SSID, TSIX_WIFI_PASSWORD))
   {
-    Serial.println("[setup] WiFi GAGAL");
+    Serial.println("[setup] WiFi FAILED");
     return;
   }
 
   tsix.begin();
-  tsix.onRawMessage(onRawMessage);
-  Serial.printf("[setup] OTA device siap (class=%s, path=%s)\n", OTA_DEVICE_CLASS, OTA_PATH);
-  Serial.println("      ketik 'ota' di serial untuk update manual.");
+
+  TSIXOTA::Config cfg;
+  cfg.host = OTA_HOST;
+  cfg.port = OTA_PORT;
+  cfg.path = OTA_PATH;
+  cfg.activationKey = OTA_AK;
+  cfg.chunk = OTA_CHUNK;
+  cfg.autoStartDelay = OTA_DELAY_MS;
+  ota.begin(cfg);
+
+  ota.onProgress([](uint32_t done, uint32_t total) {
+    Serial.printf("[OTA] %lu/%lu (%d%%)\n", (unsigned long)done, (unsigned long)total,
+                  (int)((done * 100) / total));
+  });
+  ota.onComplete([]() {
+    Serial.println("[OTA] SUCCESS — rebooting...");
+    delay(1000);
+    ESP.restart();
+  });
+  ota.onError([](const char *msg) {
+    Serial.printf("[OTA] ERROR: %s\n", msg);
+  });
+
+  Serial.println("[setup] OTA device ready");
+  Serial.println("      type 'ota' in serial for manual update.");
 }
 
 void loop()
 {
   tsix.loop();
+  ota.loop(); // auto-start setelah OTA_DELAY_MS
 
   if (Serial.available())
   {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
     if (cmd == "ota")
-      otaStart();
+      ota.start();
   }
-
-  if (!otaStarted && millis() > OTA_DELAY_MS)
-    otaStart();
 }

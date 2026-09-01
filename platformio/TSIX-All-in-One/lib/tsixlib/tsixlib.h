@@ -126,4 +126,6 @@ private:
                      int dstPort, uint8_t flag, const uint8_t *payload, size_t length);
 };
 
+#include "tsixota.h" // class TSIXOTA — state machine OTA (kanal biner v1.1)
+
 #endif // TSIXLIB_H
