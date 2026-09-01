@@ -221,7 +221,8 @@ export default class main {
                 lastLines = output.split("\n").length;
 
             } catch (e) {
-                await lib.std.print(`Error reading stats: ${e.message}\n`);
+                const msg = e instanceof Error ? e.message : String(e);
+                await lib.std.print(`Error reading stats: ${msg}\n`);
             }
 
             await new Promise(r => setTimeout(r, 1000));
