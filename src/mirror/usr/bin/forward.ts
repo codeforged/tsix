@@ -8,9 +8,9 @@ import { PacketForwarder } from "@tsix/PacketForwarder";
  *
  * Syntax:
  *   forward -s <broker_a> -d <broker_b>    # Bridge two brokers
- *   forward -start                          # Resume bridge
- *   forward -stop                           # Stop bridge
- *   forward -top                            # Monitor real-time stats
+ *   forward --start                         # Cek status bridge
+ *   forward --stop                          # Stop bridge (PID file + SIGTERM)
+ *   forward --top                           # Monitor real-time stats
  */
 
 // Global forwarder instance
@@ -22,84 +22,69 @@ export default class main {
       await this.showSyntax(lib);
       return;
     }
-    // Parse arguments
-    const hasStart = args.includes("-start");
-    const hasStop = args.includes("-stop");
-    const hasTop = args.includes("-top");
+    // Parse arguments (--start/--stop/--top; backward-compat -start/-stop/-top)
+    const hasStart = args.includes("--start") || args.includes("-start");
+    const hasStop = args.includes("--stop") || args.includes("-stop");
+    const hasTop = args.includes("--top") || args.includes("-top");
     const sourceIdx = args.indexOf("-s");
     const destIdx = args.indexOf("-d");
 
     const statsFile = "/tmp/forward.stats";
+    const pidFile = "/tmp/forward.pid";
 
-    // --- MONITOR COMMAND (-top) ---
+    // Helper: baca PID daemon bridge dari file (0 kalau tidak ada).
+    const readBridgePid = async (): Promise<number> => {
+      try {
+        const raw = (await lib.fs.readFile(pidFile)) || "";
+        const pid = parseInt(String(raw).trim(), 10);
+        return Number.isFinite(pid) && pid > 0 ? pid : 0;
+      } catch (e) {
+        return 0;
+      }
+    };
+
+    // --- MONITOR COMMAND (--top) ---
     if (hasTop) {
       await this.runMonitor(lib, statsFile);
       return;
     }
 
-    // --- STOP COMMAND ---
+    // --- STOP COMMAND (--stop) — berhentikan daemon via PID file + SIGTERM ---
+    // Bridge berjalan sebagai daemon terpisah, jadi --stop di proses baru TIDAK
+    // bisa memakai `globalForwarder` (state per-proses). Gunakan /tmp/forward.pid.
     if (hasStop) {
-      if (!globalForwarder) {
+      const pid = await readBridgePid();
+      if (!pid) {
         await lib.std.print("No bridge is running.\n");
         await lib.shell.exit(1);
         return;
       }
 
-      const stats = globalForwarder.getStats();
-      await lib.std.print(
-        `Stopping broker bridge (${stats.brokerA} <-> ${stats.brokerB})...\n`,
-      );
-
-      const success = await globalForwarder.stopForward();
-      if (success) {
-        await lib.std.print(
-          `✅ Bridge stopped. Stats: A->B: ${stats.packetsAtoB}, B->A: ${stats.packetsBtoA}\n`,
-        );
-        globalForwarder = null;
-        try {
-          await lib.fs.unlink(statsFile);
-        } catch (e) {}
-      } else {
-        await lib.std.print("❌ Failed to stop bridge.\n");
-        await lib.shell.exit(1);
-      }
-
+      await lib.std.print(`Stopping broker bridge (PID ${pid})...\n`);
+      try {
+        await lib.shell.kill(pid, 15); // SIGTERM → daemon stopForward + exit
+        await lib.fs.unlink(pidFile);
+        await lib.fs.unlink(statsFile);
+      } catch (e) {}
+      await lib.std.print("✅ Bridge stopped.\n");
       await lib.shell.exit(0);
       return;
     }
 
-    // --- START COMMAND (Resume) ---
+    // --- START COMMAND (--start) — cek status daemon via PID file ---
     if (hasStart) {
-      if (!globalForwarder) {
+      const pid = await readBridgePid();
+      if (pid) {
         await lib.std.print(
-          "No bridge configured. Use: forward -s <broker1> -d <broker2>\n",
-        );
-        await lib.shell.exit(1);
-        return;
-      }
-
-      const stats = globalForwarder.getStats();
-      if (stats.isRunning) {
-        await lib.std.print(
-          `Bridge is already running (${stats.brokerA} <-> ${stats.brokerB})\n`,
+          `Bridge is already running (PID ${pid}). Use --stop to stop it.\n`,
         );
         await lib.shell.exit(0);
-        return;
-      }
-
-      await lib.std.print(
-        `Resuming broker bridge (${stats.brokerA} <-> ${stats.brokerB})...\n`,
-      );
-      const success = await globalForwarder.startForward();
-
-      if (success) {
-        await lib.std.print("✅ Bridge resumed.\n");
       } else {
-        await lib.std.print("❌ Failed to resume bridge.\n");
+        await lib.std.print(
+          "No bridge running. Start with: forward -s <broker1> -d <broker2>\n",
+        );
         await lib.shell.exit(1);
       }
-
-      await lib.shell.exit(0);
       return;
     }
 
@@ -114,10 +99,11 @@ export default class main {
         return;
       }
 
-      if (globalForwarder) {
-        const stats = globalForwarder.getStats();
+      // Cegah duplikasi: kalau daemon bridge sudah ada (PID file), tolak start baru.
+      const existingPid = await readBridgePid();
+      if (existingPid) {
         await lib.std.print(
-          `A broker bridge is already running between ${stats.brokerA} and ${stats.brokerB}\n`,
+          `A broker bridge is already running (PID ${existingPid}). Use --stop first.\n`,
         );
         await lib.shell.exit(1);
         return;
@@ -139,7 +125,7 @@ export default class main {
             `✅ Broker Bridge is ACTIVE between ${stats.brokerA} and ${stats.brokerB}\n`,
           );
           await lib.std.print(
-            "Running in background. Use 'forward -top' to monitor.\n",
+            "Running in background. Use 'forward --top' to monitor, 'forward --stop' to stop.\n",
           );
 
           if (await lib.shell.daemonize("Broker Bridge")) {
@@ -148,6 +134,21 @@ export default class main {
               "forward",
             );
           }
+
+          // Daemon: tulis PID file + tangani SIGTERM supaya `forward --stop`
+          // (dari proses lain) bisa mematikan bridge ini.
+          try {
+            await lib.fs.writeFile(pidFile, String(lib.getPid()));
+          } catch (e) {}
+          await lib.shell.onSignal("SIGTERM", async () => {
+            try {
+              if (globalForwarder) await globalForwarder.stopForward();
+            } catch (e) {}
+            try {
+              await lib.fs.unlink(pidFile);
+            } catch (e) {}
+            await lib.shell.exit(0);
+          });
 
           // Infinite loop to keep daemon alive and update dynamic stats
           while (true) {
@@ -272,10 +273,10 @@ export default class main {
 
   private async showSyntax(lib: UserLib) {
     await lib.std.print("Syntax: forward -s <broker_a> -d <broker_b>\n");
-    await lib.std.print("        forward -start    # Resume bridge\n");
-    await lib.std.print("        forward -stop     # Stop bridge\n");
+    await lib.std.print("        forward --start   # Cek status bridge\n");
+    await lib.std.print("        forward --stop    # Stop bridge\n");
     await lib.std.print(
-      "        forward -top      # Monitor real-time stats\n",
+      "        forward --top     # Monitor real-time stats\n",
     );
     await lib.std.print("\nExample: forward -s localhost -d 192.168.0.109\n");
     await lib.shell.exit(1);

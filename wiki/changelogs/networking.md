@@ -22,6 +22,20 @@
 
 - **Oleh:** Copilot
 
+## 2026-09-03
+
+### `forward` — flag `--start`/`--stop`/`--top` + fix `--stop` benar-benar mematikan bridge
+
+- **File:** `src/mirror/usr/bin/forward.ts`
+- **Perubahan:**
+  - Flag diubah ke **double dash**: `--start`, `--stop`, `--top` (backward-compat `-start`/`-stop`/`-top` tetap diterima). Teks syntax/help ikut diperbarui.
+  - **Fix `--stop`:** sebelumnya hanya mengecek `globalForwarder` (state per-proses) → di proses baru selalu null → bridge daemon tidak berhenti (masih bisa `ping`/`tssh` ke node di broker lain). Kini daemon menulis **PID file `/tmp/forward.pid`** (via `lib.getPid()`) dan mendaftarkan **handler `SIGTERM`** (`lib.shell.onSignal`) yang memanggil `stopForward()` lalu `exit(0)`. Perintah `--stop` membaca PID file → `lib.shell.kill(pid, 15)` (SIGTERM) → hapus PID/stats file → "✅ Bridge stopped."
+  - `--start` kini cek status lewat PID file (bukan state lokal yang selalu null).
+  - **Cegah duplikasi bridge:** saat `-s/-d` baru, dicek dulu apakah PID file sudah ada — kalau ya, ditolak sampai `--stop`.
+- **Rantai kernel terverifikasi:** `kill(pid, 15)` → `SyscallCode.SIGNAL {pid, sig}` → `Scheduler.kill(pid, 15)` → event `"signal"/"SIGTERM"` → `UserLib.signalListeners` → handler daemon.
+
+- **Oleh:** Copilot
+
 ## 2026-09-01
 
 ### Protocol biner TERSANDI — Binfeo (bukan OTA)
