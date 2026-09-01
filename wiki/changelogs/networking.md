@@ -27,6 +27,19 @@
 - **Perubahan:** protocol per-port dari OTA Binary → **Binfeo** (`ioctl 0x1002 { port, protocol: "Binfeo" }`). Enkripsi payload tetap di app level (per-session key) karena `tsshd` multiplex banyak session di SATU port — security driver per-port (1 key/port) tidak cukup.
 - **Dampak:** shell TSSH tidak lagi memakai protocol OTA (semantiknya "bypass enkripsi"); wire memakai `mqtnl@1.2/` / magic `0x66`.
 
+### `tsixlib` + proyek PlatformIO `TSIX-All-in-One` (ESP8266/ESP32)
+
+- **File:** `platformio/TSIX-All-in-One/` (lib/tsixlib, src/main.cpp + 4 varian, platformio.ini, README)
+- **Perubahan:**
+  - Library ESP **`tsixlib`** menggantikan `noslib` + `TSIXSocket` lama: 1 class `TSIX` = WiFi + MQTT + 3 kanal MQTNL:
+    - `sendEncrypted()` → JSON v1.0 (`mqtnl@1.0/`, magic `0x5B`), ChaCha20-Poly1305 (hex)
+    - `sendBinfeo()` → **Binfeo** v1.2 (`mqtnl@1.2/`, magic `0x66`), biner TERSANDI (byte utuh, ≥0x80 tidak rusak)
+    - `sendRaw()` → biner OTA v1.1 (`mqtnl@1.1/`, magic `0x42`), plain
+  - Perbaikan bug `noslib`: buffer dinamis (heap) bukan fixed 256, hapus VLA di stack, pong PING/SCAN benar, parsing aman (bounds), `setBufferSize(6144)` untuk OTA.
+  - Auto-respond PING & BROADCAST_SCAN; subscribe ketiga prefix (`<id>` + `*`).
+  - Proyek **4 varian**: `minimum`, `minimum-binfeo`, `lantana`, `ota` — tiap varian bisa build utk ESP32 & ESP8266 (8 env).
+- **Dampak:** firmware ESP cukup pakai satu library utk komunikasi terenkripsi (JSON/Binfeo) + OTA; logika tidak lagi tersebar di 3 proyek terpisah.
+
 - **Oleh:** Copilot
 
 ## 2026-08-31

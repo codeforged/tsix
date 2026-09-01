@@ -1,0 +1,112 @@
+// ─────────────────────────────────────────────────────────────
+// VARIAN: mqtnl lantana-sender
+// Kirim data sensor (format Lantana) + terima perintah relay dari
+// TSIX, lewat kanal JSON MQTNL v1.0 terenkripsi (mqtnl@1.0/).
+// Sama seperti `ESP32-MQTNL-SensorData-Sender`, pakai `tsixlib`.
+// Build: -DAPP_VARIANT_LANTANA (env lantana-esp32 / -esp8266)
+// ─────────────────────────────────────────────────────────────
+#include <Arduino.h>
+#include <tsixlib.h>
+
+// ── Konfigurasi WiFi / MQTT ──
+#define WIFI_SSID     "Your SSID"
+#define WIFI_PASSWORD "Your Password"
+#define MQTT_SERVER   "192.168.1.204"
+#define MQTT_PORT     1883
+
+// ── Konfigurasi Lantana ──
+#define NODE_ID       "esp8266-dev-01"   // identitas device di Device Bank
+#define NODE_PORT     100                // port virtual node ini
+#define LANTANA_HOST  "wintsix"          // node TSIX tempat daemon Lantana
+#define LANTANA_PORT  1001               // port MQTN Lantana
+
+// Relay pins (sesuaikan board)
+#ifdef ESP8266
+#define RELAY1_PIN D1
+#define RELAY2_PIN D2
+#else
+#define RELAY1_PIN 16
+#define RELAY2_PIN 17
+#endif
+
+// API key tenant (hex) = kunci ChaCha20-Poly1305
+const char apiKey[] =
+  "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619";
+
+TSIX tsix(NODE_ID, NODE_PORT, apiKey, MQTT_SERVER, MQTT_PORT);
+
+const char *sensorIds[] = {"01", "02", "03", "04"};
+int sensorVals[4] = {0, 0, 0, 0};
+const int sensorCount = 4;
+uint32_t lastSent = 0;
+
+bool relay1State = false;
+bool relay2State = false;
+
+// ── Callback pesan terenkripsi dari TSIX ──
+void onMessageReceived(const char *srcAddress, int srcPort, const char *payload)
+{
+  Serial.printf("[RX] %s:%d -> %s\n", srcAddress, srcPort, payload);
+
+  if (strncmp(payload, "RELAY_1:", 8) == 0)
+  {
+    relay1State = (strcmp(payload + 8, "ON") == 0);
+    digitalWrite(RELAY1_PIN, relay1State ? HIGH : LOW);
+    Serial.printf("Relay 1: %s\n", relay1State ? "ON" : "OFF");
+  }
+  else if (strncmp(payload, "RELAY_2:", 8) == 0)
+  {
+    relay2State = (strcmp(payload + 8, "ON") == 0);
+    digitalWrite(RELAY2_PIN, relay2State ? HIGH : LOW);
+    Serial.printf("Relay 2: %s\n", relay2State ? "ON" : "OFF");
+  }
+}
+
+void setup()
+{
+  Serial.begin(115200);
+  delay(200);
+
+  pinMode(RELAY1_PIN, OUTPUT);
+  pinMode(RELAY2_PIN, OUTPUT);
+  digitalWrite(RELAY1_PIN, LOW);
+  digitalWrite(RELAY2_PIN, LOW);
+
+  if (!tsix.connectWiFi(WIFI_SSID, WIFI_PASSWORD))
+  {
+    Serial.println("[setup] WiFi GAGAL");
+    return;
+  }
+
+  tsix.begin();
+  tsix.onEncryptedMessage(onMessageReceived);
+  Serial.println("[setup] System ready!");
+}
+
+void loop()
+{
+  tsix.loop();
+
+  if (millis() - lastSent >= 5000)
+  {
+    for (int i = 0; i < sensorCount; i++)
+    {
+      int delta = random(-10, 11);
+      sensorVals[i] = constrain(sensorVals[i] + delta, 1, 100);
+    }
+
+    // Payload protokol Lantana (plaintext ber-nodeId):
+    //   LANTANA|<nodeId>|<sensorId:value;sensorId:value;...>
+    char data[128];
+    snprintf(data, sizeof(data), "LANTANA|%s|%s:%d;%s:%d;%s:%d;%s:%d",
+             NODE_ID,
+             sensorIds[0], sensorVals[0],
+             sensorIds[1], sensorVals[1],
+             sensorIds[2], sensorVals[2],
+             sensorIds[3], sensorVals[3]);
+
+    bool ok = tsix.sendEncrypted(LANTANA_HOST, LANTANA_PORT, data);
+    Serial.printf("[loop] %s (%s)\n", data, ok ? "OK" : "FAILED");
+    lastSent = millis();
+  }
+}
