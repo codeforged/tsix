@@ -302,7 +302,7 @@ export const main = Program(async (args: string[]) => {
         if (chunk && chunk !== "FD NOT FOUND" && chunk !== "") {
           await termWrite(String(chunk));
         }
-        await new Promise((r) => setTimeout(r, 5));
+        await new Promise((r) => setTimeout(r, 50));
       } catch (e) {
         break;
       }

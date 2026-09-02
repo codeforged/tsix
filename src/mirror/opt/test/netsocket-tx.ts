@@ -28,7 +28,7 @@ import { Program, std, NetSocket } from "@tsix/Application";
  */
 
 const KEY_HEX =
-  "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619";
+  "5555cca25cb99006aa2243fc09f859575612ec49c27c8885882618317e56a114";
 
 const green = "\x1b[92m";
 const yellow = "\x1b[93m";
@@ -72,7 +72,9 @@ export const main = Program(async (args: string[]) => {
       ts: Date.now(),
     });
     const ok = await sock.sendTo(targetAddr, targetPort, msg);
-    std.println(`${ok ? green : red}[TX] -> ${targetAddr}:${targetPort} ${ok ? "OK" : "FAILED"}${reset}  ${cyan}${msg}${reset}`);
+    std.println(
+      `${ok ? green : red}[TX] -> ${targetAddr}:${targetPort} ${ok ? "OK" : "FAILED"}${reset}  ${cyan}${msg}${reset}`,
+    );
   }, 2000);
 
   await sock.waitClosed();
