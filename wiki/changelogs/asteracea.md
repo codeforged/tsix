@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-09-02
+
+### Shift-click multi-instance dan perilaku taskbar seperti window manager
+
+- **File:** `src/mirror/opt/asteracea/asteracea.ts`, `src/common/GUITypes.ts`, `src/mirror/opt/dome/dome.ts`, `src/mirror/opt/dome/dome-client-dom.js`, `src/mirror/opt/dome/dome-client-windows.js`
+- **Perubahan:**
+  - Shift-click pada pinned launcher atau launcher box selalu menjalankan instance aplikasi baru.
+  - Instance baru memiliki state dan tombol taskbar sendiri, termasuk tooltip nama aplikasi.
+  - Klik tombol taskbar pada window yang tidak fokus kini memfokuskan window terlebih dahulu.
+  - Klik tombol taskbar pada window yang sudah fokus baru meminimalkan window.
+  - Event klik meneruskan modifier `shiftKey` dari browser melalui DOME ke Asteracea.
+  - DOME menyediakan relay `FOCUS_WINDOW` agar Asteracea dapat memfokuskan window target secara langsung.
+- **Dampak:** Launcher dan taskbar memiliki perilaku multi-window yang konsisten dengan window manager OS; instance aplikasi tidak saling menimpa dan taskbar tetap informatif.
+- **Deploy:** Re-sync file yang berubah ke VFS, restart DOME + Asteracea, lalu hard-refresh browser.
+- **Oleh:** Copilot · **Laporan/validasi:** kakang
+
+---
+
 ## 2026-08-29
 
 ### Taskbar always-on-top (tidak lagi kalah sama window aplikasi)

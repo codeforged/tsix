@@ -100,6 +100,7 @@ class AppStateManager {
   private apps: Map<string, AppInstance> = new Map();
   private byPid: Map<number, string> = new Map();
   private byWid: Map<string, string> = new Map();
+  private focusedWid = "";
 
   add(appId: string, pid: number, entry: AppEntry): AppInstance {
     const inst: AppInstance = {
@@ -123,6 +124,14 @@ class AppStateManager {
     this.byWid.set(wid, appId);
   }
 
+  setFocusedWid(wid: string): void {
+    this.focusedWid = wid;
+  }
+
+  isFocused(wid: string): boolean {
+    return this.focusedWid === wid;
+  }
+
   transitionTo(appId: string, newState: AppState): void {
     const inst = this.apps.get(appId);
     if (inst) inst.state = newState;
@@ -133,6 +142,7 @@ class AppStateManager {
     if (inst) {
       this.byPid.delete(inst.pid);
       if (inst.wid) this.byWid.delete(inst.wid);
+      if (this.focusedWid === inst.wid) this.focusedWid = "";
       this.apps.delete(appId);
     }
     return inst;
@@ -2139,9 +2149,9 @@ export const main = Program(async (args: string[]) => {
       ),
       "tb-pinned",
     );
-    win.onClick(btnId, async () => {
+    win.onClick(btnId, async (ev: any) => {
       try {
-        await openApp(win, app, bus, appState, pendingErrors);
+        await openApp(win, app, bus, appState, pendingErrors, !!ev.shiftKey);
       } catch (e: any) {
         await std.log(
           `[asteracea] Launcher error: ${e?.message || e}`,
@@ -2309,6 +2319,13 @@ export const main = Program(async (args: string[]) => {
         return;
       }
 
+      if (payload.type === "FOCUS") {
+        if (payload.wid && appState.getByWid(payload.wid)) {
+          appState.setFocusedWid(payload.wid);
+        }
+        return;
+      }
+
       // --- DDC TRUST GATE — app minta izin jalankan NJ di browser ---
       if (payload.type === "DDC_TRUST") {
         const fromPid = payloadWrapper?.fromPid || payload.fromPid || 0;
@@ -2420,7 +2437,7 @@ export const main = Program(async (args: string[]) => {
           }
           // Pinned apps punya TB button dengan id pl-${appId}, bukan tb-${appId}-${pid}
           const targetId = inst.entry.pinnedLauncher
-            ? `pl-${inst.appId}`
+            ? `pl-${inst.entry.id}`
             : inst.taskbarId;
           await win.updateProps(targetId, { "data-wid": payload.wid } as any);
         } else {
@@ -2446,13 +2463,13 @@ export const main = Program(async (args: string[]) => {
       if (payload.type === "GUI_WINDOW_MINIMIZED") {
         appState.transitionTo(inst.appId, "MINIMIZED");
         const tbId = inst.entry.pinnedLauncher
-          ? `pl-${inst.appId}`
+          ? `pl-${inst.entry.id}`
           : inst.taskbarId;
         await win.updateProps(tbId, { style: S.tbBtn } as any);
       } else if (payload.type === "GUI_WINDOW_RESTORED") {
         appState.transitionTo(inst.appId, "RUNNING");
         const tbId = inst.entry.pinnedLauncher
-          ? `pl-${inst.appId}`
+          ? `pl-${inst.entry.id}`
           : inst.taskbarId;
         await win.updateProps(tbId, {
           style: { ...S.tbBtn, ...S.tbBtnActive },
@@ -2465,7 +2482,7 @@ export const main = Program(async (args: string[]) => {
         // Sinkronkan state WM agar klik taskbar berikutnya jadi minimize toggle.
         appState.transitionTo(inst.appId, "RUNNING");
         const tbId = inst.entry.pinnedLauncher
-          ? `pl-${inst.appId}`
+          ? `pl-${inst.entry.id}`
           : inst.taskbarId;
         await win.updateProps(tbId, {
           style: { ...S.tbBtn, ...S.tbBtnActive },
@@ -2481,10 +2498,10 @@ export const main = Program(async (args: string[]) => {
         appState.removeByAppId(inst.appId);
         if (inst.entry.pinnedLauncher) {
           // Pinned: sembunyiin badge + reset style, jangan unmount button-nya
-          await win.updateProps(`pl-${inst.appId}-badge`, {
+          await win.updateProps(`pl-${inst.entry.id}-badge`, {
             style: { display: "none" },
           } as any);
-          await win.updateProps(`pl-${inst.appId}`, { style: S.tbBtn } as any);
+          await win.updateProps(`pl-${inst.entry.id}`, { style: S.tbBtn } as any);
         } else {
           await win.unmount(inst.taskbarId);
         }
@@ -2808,10 +2825,17 @@ async function refreshMenus(
       ),
       "tb-pinned",
     );
-    win.onClick(btnId, async () => {
+    win.onClick(btnId, async (ev: any) => {
       if (bus && appState) {
         try {
-          await openApp(win, app, bus, appState, pendingErrors || new Map());
+          await openApp(
+            win,
+            app,
+            bus,
+            appState,
+            pendingErrors || new Map(),
+            !!ev.shiftKey,
+          );
         } catch (e: any) {
           await std.log(
             `[asteracea] Launcher error: ${e?.message || e}`,
@@ -2936,12 +2960,19 @@ async function buildLauncherGrid(
 
   // Click handlers — tetap per app (sama seperti sebelumnya)
   for (const app of filtered) {
-    win.onClick(`lg-${app.id}`, async () => {
+    win.onClick(`lg-${app.id}`, async (ev: any) => {
       try {
         if (onAppPicked) onAppPicked();
         await toggleLauncher(win, false);
         if (appState && pendingErrors)
-          await openApp(win, app, bus!, appState, pendingErrors);
+          await openApp(
+            win,
+            app,
+            bus!,
+            appState,
+            pendingErrors,
+            !!ev.shiftKey,
+          );
       } catch (e: any) {
         await std.log(`[asteracea] Launcher error: ${e.message}`, "asteracea");
       }
@@ -2960,10 +2991,11 @@ async function openApp(
   bus: MessageBus,
   appState: AppStateManager,
   pendingErrors: Map<number, string>,
+  forceNew = false,
 ) {
   // If already running — restore/minimize toggle
   const existing = appState.getByAppId(app.id);
-  if (existing) {
+  if (existing && !forceNew) {
     // Toggle minimize/restore
     if (existing.state === "MINIMIZED") {
       appState.transitionTo(existing.appId, "RUNNING");
@@ -2976,12 +3008,15 @@ async function openApp(
         });
       }
       const tbId = existing.entry.pinnedLauncher
-        ? `pl-${existing.appId}`
+        ? `pl-${existing.entry.id}`
         : existing.taskbarId;
       await win.updateProps(tbId, {
         style: { ...S.tbBtn, ...S.tbBtnActive },
       } as any);
-    } else if (existing.state === "RUNNING") {
+    } else if (
+      existing.state === "RUNNING" &&
+      appState.isFocused(existing.wid)
+    ) {
       appState.transitionTo(existing.appId, "MINIMIZED");
       if (existing.wid && existing.pid) {
         await shell.send(existing.pid, {
@@ -2992,9 +3027,21 @@ async function openApp(
         });
       }
       const tbId = existing.entry.pinnedLauncher
-        ? `pl-${existing.appId}`
+        ? `pl-${existing.entry.id}`
         : existing.taskbarId;
       await win.updateProps(tbId, { style: S.tbBtn } as any);
+    } else if (existing.state === "RUNNING" && existing.wid) {
+      await shell.send("da8711c2-5ca9-4f00-ad13-f1226f95594c", {
+        type: "FOCUS_WINDOW",
+        wid: existing.wid,
+      });
+      appState.setFocusedWid(existing.wid);
+      const tbId = existing.entry.pinnedLauncher
+        ? `pl-${existing.entry.id}`
+        : existing.taskbarId;
+      await win.updateProps(tbId, {
+        style: { ...S.tbBtn, ...S.tbBtnActive },
+      } as any);
     }
     return;
   }
@@ -3035,11 +3082,15 @@ async function openApp(
   );
 
   // Track as running
-  const inst = appState.add(app.id, proc.pid, app);
+  const stateAppId = forceNew ? `${app.id}#${proc.pid}` : app.id;
+  // A forced instance needs its own taskbar button, even when the app is pinned.
+  const launchEntry =
+    forceNew && app.pinnedLauncher ? { ...app, pinnedLauncher: false } : app;
+  const inst = appState.add(stateAppId, proc.pid, launchEntry);
   const btnId = inst.taskbarId;
 
   // Mount taskbar button — reuse PL id if pinned, else create new TB
-  const isPinned = app.pinnedLauncher;
+  const isPinned = launchEntry.pinnedLauncher;
   const containerId = isPinned ? "tb-pinned" : "tb-running";
   if (!isPinned) {
     await win.mount(
@@ -3048,6 +3099,7 @@ async function openApp(
           id: btnId,
           onClickId: btnId,
           style: { ...S.tbBtn, ...S.tbBtnActive } as any,
+          title: app.label,
         },
         span({ style: { fontSize: "14px" } }, text(app.icon)),
         badge({ id: `${btnId}-badge`, color: "#4caf50", size: 6 }),
@@ -3084,10 +3136,10 @@ async function openApp(
   // Pinned apps: style di-update ke pl-${app.id}, bukan inst.taskbarId
   const tbStyleId = isPinned ? `pl-${app.id}` : btnId;
   win.onClick(btnId, async () => {
-    const i = appState.getByAppId(app.id);
+    const i = appState.getByPid(inst.pid);
     if (!i || !i.wid || !i.pid) return;
     if (i.state === "MINIMIZED") {
-      appState.transitionTo(app.id, "RUNNING");
+      appState.transitionTo(i.appId, "RUNNING");
       await shell.send(i.pid, {
         type: "GUI_EVENT",
         wid: i.wid,
@@ -3097,8 +3149,8 @@ async function openApp(
       await win.updateProps(tbStyleId, {
         style: { ...S.tbBtn, ...S.tbBtnActive },
       } as any);
-    } else {
-      appState.transitionTo(app.id, "MINIMIZED");
+    } else if (appState.isFocused(i.wid)) {
+      appState.transitionTo(i.appId, "MINIMIZED");
       await shell.send(i.pid, {
         type: "GUI_EVENT",
         wid: i.wid,
@@ -3106,6 +3158,15 @@ async function openApp(
         eventType: "minimize_window",
       });
       await win.updateProps(tbStyleId, { style: S.tbBtn } as any);
+    } else {
+      await shell.send("da8711c2-5ca9-4f00-ad13-f1226f95594c", {
+        type: "FOCUS_WINDOW",
+        wid: i.wid,
+      });
+      appState.setFocusedWid(i.wid);
+      await win.updateProps(tbStyleId, {
+        style: { ...S.tbBtn, ...S.tbBtnActive },
+      } as any);
     }
   });
 
@@ -3129,8 +3190,8 @@ async function openApp(
     }
 
     // Hapus TB dari taskbar jika masih ada
-    if (appState.getByAppId(app.id)) {
-      appState.removeByAppId(app.id);
+    if (appState.getByPid(proc.pid)) {
+      appState.removeByPid(proc.pid);
       if (isPinned) {
         try {
           await win.updateProps(`pl-${app.id}-badge`, {
@@ -3202,6 +3263,7 @@ async function registerForeignApp(
     pinnedLauncher: false,
     dcmLauncher: false,
     maximizeOnStart: false,
+    group: "",
   };
 
   const inst = appState.add(appId, pid, entry);

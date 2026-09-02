@@ -118,6 +118,9 @@ export interface IBrowserEvent {
   | "cm_change";
   /** Payload tambahan (misal: isi text input). */
   value?: string | number;
+
+  /** Modifier keyboard yang aktif saat event terjadi. */
+  shiftKey?: boolean;
 }
 
 /**
@@ -139,6 +142,9 @@ export interface IGUIEventIPC {
 
   /** Payload tambahan. */
   value?: any;
+
+  /** Modifier keyboard yang aktif saat event terjadi. */
+  shiftKey?: boolean;
 }
 
 // ============================================================

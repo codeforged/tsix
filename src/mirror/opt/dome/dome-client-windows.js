@@ -759,6 +759,10 @@
     focusWindow(msg.wid);
   }
 
+  function handleFocusWindow(msg) {
+    focusWindow(msg.wid);
+  }
+
   // Ekspor helper yang mungkin dipakai modul lain
   TSIX.focusWindow = focusWindow;
   TSIX.getTaskbarBtnTarget = getTaskbarBtnTarget;
@@ -770,4 +774,5 @@
   TSIX.register("MAXIMIZE_WINDOW", handleMaximizeWindow);
   TSIX.register("UNMAXIMIZE_WINDOW", handleUnmaximizeWindow);
   TSIX.register("FOCUS", handleFocus);
+  TSIX.register("FOCUS_WINDOW", handleFocusWindow);
 })();

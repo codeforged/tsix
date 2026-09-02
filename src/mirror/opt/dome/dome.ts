@@ -528,6 +528,7 @@ export const main = Program(async (args: string[]) => {
                     rows: (event as any).rows,
                   })
                 : event.value,
+                shiftKey: event.shiftKey,
           };
           await shell.send(entry.pid, guiEvent);
         } catch (e) {
@@ -546,6 +547,10 @@ export const main = Program(async (args: string[]) => {
       // Sender PID dari kernel (SEND_MSG) — buat attribusi traffic per-app
       currentSrcPid = (msg as any)?.fromPid || 0;
       const payload = msg?.data;
+      if (payload?.type === "FOCUS_WINDOW" && payload.wid) {
+        broadcastToAll({ type: "FOCUS", wid: payload.wid }, true);
+        return;
+      }
       if (payload?.type === "TERM_OUTPUT") {
         broadcastToAll({
           type: "TERM_OUTPUT",

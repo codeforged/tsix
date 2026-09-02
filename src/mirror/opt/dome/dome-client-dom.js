@@ -196,6 +196,7 @@
               wid: wid,
               targetId: node.id,
               eventType: "click",
+              shiftKey: e.shiftKey,
             });
           });
         } else if (key === "onContextMenuId") {
@@ -522,6 +523,7 @@
             wid: wid,
             targetId: targetId,
             eventType: "click",
+            shiftKey: e.shiftKey,
           });
         });
       } else if (key === "onContextMenuId") {
