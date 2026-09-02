@@ -20,15 +20,16 @@
  */
 
 import { Program, std, db } from "@tsix/Application";
-import { TForm, TButton, TLabel, TDataGrid, HStack, TTabulatorGrid } from "@tsix/cashew";
+import { TForm, TButton, TLabel, TDataGrid, HStack, TTabulatorGrid,
+       TTimer} from "@tsix/cashew";
 
 export const appMode = "gui";
 
 const DB_CFG = {
-    host: "192.168.1.204",
-    user: "tsix_admin",
-    password: "thequickbrownfox",
-    database: "antigonon_iot",
+    host: "Database Host",
+    user: "Database User",
+    password: "Database Password",
+    database: "Database Name",
 };
 
 export const main = Program(async (args: string[]) => {
@@ -57,6 +58,7 @@ export const main = Program(async (args: string[]) => {
 
     const toolbar = HStack(btnRefresh, status);
     form.add(toolbar);
+  	toolbar.add(btnRefresh);
 
     // ── DataGrid ──
     const grid = new TTabulatorGrid("sensor", [
@@ -88,9 +90,9 @@ export const main = Program(async (args: string[]) => {
 
             status.caption = "⏳ query...";
             const rows = await db.query(
-                "SELECT id, node_id, sensor_id, value, timestamp FROM sensor_data ORDER BY id DESC LIMIT 100",
+                "SELECT id, node_id, sensor_id, value, timestamp FROM sensor_data ORDER BY id DESC LIMIT 10",
             );
-
+            try { await db.disconnect(); } catch (_) { /* ignore */ }
             if (rows && rows.error) {
                 status.caption = "❌ " + rows.error;
                 return;
@@ -105,6 +107,25 @@ export const main = Program(async (args: string[]) => {
         }
     }
 
+    async function reloadData(): Promise<void> {
+        const ok = await db.connect(DB_CFG);
+            if (!ok) {
+                status.caption = "❌ connect gagal";
+                return;
+            }
+        const rows = await db.query(
+            "SELECT id, node_id, sensor_id, value, timestamp FROM sensor_data ORDER BY id DESC LIMIT 10",
+        );
+        try { await db.disconnect(); } catch (_) { /* ignore */ }
+        if (rows && rows.error) {
+            status.caption = "❌ " + rows.error;
+            return;
+        }
+
+        const arr = Array.isArray(rows) ? rows : [];
+        await grid.setData(arr);   // ← async method, bisa di-await
+    }
+
     // ── Event: klik row → select + tampilkan getRecord() ──
     // idx = row-key STABIL (bukan nomor baris) → getRecord(idx) & selectedIndex
     // tetap benar walau user sort berulang kali.
@@ -113,12 +134,19 @@ export const main = Program(async (args: string[]) => {
         const sel = grid.selectedIndex;          // ← cursor (kunci stabil, tahan sort)
         detail.caption =
             `▶ rowKey=${sel}\n` +
-            `  id=${r?.id} | node=${r?.node_id} | sensor=${r?.sensor_id} | ` +
+            `  id=${r?.id} | node=${r?.node_id} | sensor=${r?.sensor_id } | ` +
             `value=${r?.value} | ${r?.timestamp}`;
     };
 
     // ── Event: tombol refresh ──
     btnRefresh.onClick = () => { void loadData(); };
+
+		// ── TTimer untuk auto refresh ──
+    const timerRefresh = new TTimer({ interval: 5000, enabled: true });
+	timerRefresh.onTimer = () => {
+      void reloadData();
+    }
+    form.add(timerRefresh);
 
     // ── Load awal setelah form siap (bind selesai) ──
     form.onSetup = async () => {
@@ -126,5 +154,5 @@ export const main = Program(async (args: string[]) => {
     };
 
     await form.run();
-    try { await db.disconnect(); } catch (_) { /* ignore */ }
+    // try { await db.disconnect(); } catch (_) { /* ignore */ }
 });

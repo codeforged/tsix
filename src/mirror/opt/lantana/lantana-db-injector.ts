@@ -33,16 +33,16 @@ export const main = Program(async (args: string[]) => {
         };
     }
 
-    await std.log(`[${TAG}] Menghubungkan ke DB...`, TAG);
+    await std.println(`[${TAG}] Menghubungkan ke DB...`, TAG);
     if (dbCfg) {
         const ok = await db.connect(dbCfg);
         if (!ok) {
-            await std.log(`[${TAG}] Gagal konek DB (pastikan mysqld jalan & kredensial benar)`, TAG);
+            await std.println(`[${TAG}] Gagal konek DB (pastikan mysqld jalan & kredensial benar)`, TAG);
             return;
         }
-        await std.log(`[${TAG}] Terhubung ke ${dbCfg.host}/${dbCfg.database}`, TAG);
+        await std.println(`[${TAG}] Terhubung ke ${dbCfg.host}/${dbCfg.database}`, TAG);
     } else {
-        await std.log(`[${TAG}] Mode kering (tanpa --db) — data hanya dicetak, tidak di-INSERT.`, TAG);
+        await std.println(`[${TAG}] Mode kering (tanpa --db) — data hanya dicetak, tidak di-INSERT.`, TAG);
     }
 
     // Register sebagai consumer di distributor
@@ -82,7 +82,7 @@ export const main = Program(async (args: string[]) => {
         }
     });
 
-    await std.log(`[${TAG}] Siap. Tenant filter: ${tenantFilter || "*"}.`, TAG);
+    await std.println(`[${TAG}] Siap. Tenant filter: ${tenantFilter || "*"}.`, TAG);
 
     // Stay alive
     while (true) {
@@ -104,11 +104,12 @@ async function handleSensorData(data: any, dbCfg: any): Promise<void> {
             }
             const sql = `INSERT INTO sensor_data (tenant, node_id, sensor_id, sensor_category, value, timestamp) VALUES ('${tenant}', '${nodeId}', '${s.id}', '${s.category}', ${s.value}, '${ts}')`;
             const res = await db.query(sql);
+          	// std.println(sql);
             if (res && res.error) {
-                await std.log(`[${TAG}] DB error: ${res.error}`, TAG);
+                await std.println(`[${TAG}] DB error: ${res.error}`, TAG);
             }
         }
     } catch (e: any) {
-        await std.log(`[${TAG}] Gagal proses data: ${e?.message}`, TAG);
+        await std.println(`[${TAG}] Gagal proses data: ${e?.message}`, TAG);
     }
 }
