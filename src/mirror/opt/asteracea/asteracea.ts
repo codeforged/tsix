@@ -2304,6 +2304,36 @@ export const main = Program(async (args: string[]) => {
   // ================================================================
   const lib = (global as any)._tsixLib as any;
   if (lib?.onEvent) {
+    let altSwitching = false;
+    let altSwitchStartWid = "";
+    let altSwitchSelectedWid = "";
+    let altSwitchLastMarkWid = "";
+    let altSwitchPair: [string, string] | null = null;
+
+    const focusFromSwitcher = async (instance: AppInstance) => {
+      if (!instance.wid || !instance.pid) return;
+      if (instance.state === "MINIMIZED") {
+        appState.transitionTo(instance.appId, "RUNNING");
+        await shell.send(instance.pid, {
+          type: "GUI_EVENT",
+          wid: instance.wid,
+          targetId: "__window__",
+          eventType: "restore_window",
+        });
+      }
+      await shell.send("da8711c2-5ca9-4f00-ad13-f1226f95594c", {
+        type: "FOCUS_WINDOW",
+        wid: instance.wid,
+      });
+      appState.setFocusedWid(instance.wid);
+      const taskbarId = instance.entry.pinnedLauncher
+        ? `pl-${instance.entry.id}`
+        : instance.taskbarId;
+      await win.updateProps(taskbarId, {
+        style: { ...S.tbBtn, ...S.tbBtnActive },
+      } as any);
+    };
+
     lib.onEvent("ipc_message", async (msg: any) => {
       // msg.data = { fromPid, fromUser, data: actualPayload }
       const payloadWrapper = msg?.data;
@@ -2318,14 +2348,49 @@ export const main = Program(async (args: string[]) => {
           const currentIndex = windows.findIndex((instance) =>
             appState.isFocused(instance.wid),
           );
-          const next = windows[(currentIndex + 1) % windows.length];
+          if (!altSwitching) {
+            altSwitching = true;
+            altSwitchStartWid = currentIndex >= 0 ? windows[currentIndex].wid : "";
+          }
+
+          let next: AppInstance;
+          const currentWid = currentIndex >= 0 ? windows[currentIndex].wid : "";
+          if (
+            !altSwitchSelectedWid &&
+            altSwitchPair &&
+            (currentWid === altSwitchPair[0] || currentWid === altSwitchPair[1])
+          ) {
+            const pairTarget =
+              currentWid === altSwitchPair[0]
+                ? altSwitchPair[1]
+                : altSwitchPair[0];
+            next =
+              windows.find((instance) => instance.wid === pairTarget) ||
+              windows[(currentIndex + 1 + windows.length) % windows.length];
+          } else {
+            next = windows[(currentIndex + 1 + windows.length) % windows.length];
+          }
           try {
-            await shell.send("da8711c2-5ca9-4f00-ad13-f1226f95594c", {
-              type: "FOCUS_WINDOW",
-              wid: next.wid,
-            });
-            appState.setFocusedWid(next.wid);
+            await focusFromSwitcher(next);
+            altSwitchSelectedWid = next.wid;
           } catch (_) {}
+        }
+        return;
+      }
+
+      if (payload.type === "WM_ALT_RELEASE") {
+        if (altSwitching) {
+          if (altSwitchStartWid && altSwitchSelectedWid) {
+            if (altSwitchStartWid !== altSwitchSelectedWid) {
+              if (altSwitchLastMarkWid) {
+                altSwitchPair = [altSwitchLastMarkWid, altSwitchSelectedWid];
+              }
+              altSwitchLastMarkWid = altSwitchSelectedWid;
+            }
+          }
+          altSwitching = false;
+          altSwitchStartWid = "";
+          altSwitchSelectedWid = "";
         }
         return;
       }

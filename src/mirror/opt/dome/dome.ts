@@ -398,6 +398,14 @@ export const main = Program(async (args: string[]) => {
             } catch (_) {}
             return;
           }
+          if (event.eventType === "wm_alt_release") {
+            try {
+              await shell.send("3ec3ffe9-e0a6-411f-b7e3-c9ff0b00556c", {
+                type: "WM_ALT_RELEASE",
+              });
+            } catch (_) {}
+            return;
+          }
           const entry = windows.get(event.wid);
           if (!entry) return;
 

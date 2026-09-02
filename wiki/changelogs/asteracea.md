@@ -4,12 +4,24 @@
 
 ---
 
+## 2026-09-03
+
+### Alt+S menjadi MRU window switcher
+
+- **File:** `src/mirror/opt/asteracea/asteracea.ts`, `src/mirror/opt/dome/dome.ts`, `src/mirror/opt/dome/dome-client-dom.js`
+- **Perubahan:** Selama tombol Alt ditahan, setiap tekan `S` berpindah ke window berikutnya. Saat Alt dilepas, window terakhir disimpan sebagai mark; dua mark terakhir kemudian menjadi pasangan yang di-toggle pada shortcut berikutnya, seperti perilaku window switcher OS.
+- **Dampak:** Perpindahan window lebih natural untuk alur A-B-C, lalu toggle cepat B-C tanpa kembali berputar ke semua aplikasi.
+- **Deploy:** Re-sync file yang berubah ke VFS, restart DOME + Asteracea, lalu hard-refresh browser.
+- **Oleh:** Copilot · **Laporan/validasi:** kakang
+
+---
+
 ## 2026-09-02
 
 ### Shortcut Alt+S untuk berpindah fokus antar-window
 
 - **File:** `src/mirror/opt/asteracea/asteracea.ts`, `src/mirror/opt/dome/dome.ts`, `src/mirror/opt/dome/dome-client-dom.js`, `src/mirror/opt/dome/dome-client-windows.js`
-- **Perubahan:** Tambahkan shortcut global `Alt+S` untuk memfokuskan window aplikasi berikutnya secara bergantian. DOME menyinkronkan perubahan fokus ke Asteracea dan meneruskan perintah fokus ke window target.
+- **Perubahan:** Tambahkan shortcut global `Alt+S` dengan mode MRU. Selama Alt ditahan, setiap `S` mem-preview window berikutnya; saat Alt dilepas, window terakhir menjadi mark. Setelah dua mark terbentuk, shortcut berikutnya melakukan toggle hanya di antara dua window tersebut. DOME juga menyinkronkan perubahan fokus ke Asteracea dan meneruskan perintah fokus ke window target.
 - **Dampak:** User dapat berpindah fokus antar-window dengan shortcut keyboard tanpa perlu mengklik taskbar, dengan perilaku yang mirip window switching pada desktop OS.
 - **Deploy:** Re-sync file yang berubah ke VFS, restart DOME + Asteracea, lalu hard-refresh browser.
 - **Oleh:** Copilot · **Laporan/validasi:** kakang

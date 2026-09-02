@@ -698,6 +698,10 @@
     kbDocSend(e, true);
   });
   document.addEventListener("keyup", function (e) {
+    if (e.key === "Alt" || e.code === "AltLeft" || e.code === "AltRight") {
+      TSIX.send({ eventType: "wm_alt_release" });
+      return;
+    }
     kbDocSend(e, false);
   });
   // Penanda versi — cek di devtools untuk memastikan browser pakai client
