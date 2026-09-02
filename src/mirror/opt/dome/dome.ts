@@ -390,6 +390,14 @@ export const main = Program(async (args: string[]) => {
         currentSrcPid = 0;
         try {
           const event: IBrowserEvent = JSON.parse(rawData.toString());
+          if (event.eventType === "wm_alt_s") {
+            try {
+              await shell.send("3ec3ffe9-e0a6-411f-b7e3-c9ff0b00556c", {
+                type: "WM_ALT_S",
+              });
+            } catch (_) {}
+            return;
+          }
           const entry = windows.get(event.wid);
           if (!entry) return;
 
@@ -513,6 +521,12 @@ export const main = Program(async (args: string[]) => {
             });
 
             broadcastToAll({ type: "FOCUS", wid: entry.wid }, true);
+            try {
+              await shell.send("3ec3ffe9-e0a6-411f-b7e3-c9ff0b00556c", {
+                type: "FOCUS",
+                wid: entry.wid,
+              });
+            } catch (_) {}
           }
 
           // Forward event to owner worker

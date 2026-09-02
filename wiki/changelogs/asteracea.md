@@ -6,6 +6,14 @@
 
 ## 2026-09-02
 
+### Shortcut Alt+S untuk berpindah fokus antar-window
+
+- **File:** `src/mirror/opt/asteracea/asteracea.ts`, `src/mirror/opt/dome/dome.ts`, `src/mirror/opt/dome/dome-client-dom.js`, `src/mirror/opt/dome/dome-client-windows.js`
+- **Perubahan:** Tambahkan shortcut global `Alt+S` untuk memfokuskan window aplikasi berikutnya secara bergantian. DOME menyinkronkan perubahan fokus ke Asteracea dan meneruskan perintah fokus ke window target.
+- **Dampak:** User dapat berpindah fokus antar-window dengan shortcut keyboard tanpa perlu mengklik taskbar, dengan perilaku yang mirip window switching pada desktop OS.
+- **Deploy:** Re-sync file yang berubah ke VFS, restart DOME + Asteracea, lalu hard-refresh browser.
+- **Oleh:** Copilot · **Laporan/validasi:** kakang
+
 ### Shift-click multi-instance dan perilaku taskbar seperti window manager
 
 - **File:** `src/mirror/opt/asteracea/asteracea.ts`, `src/common/GUITypes.ts`, `src/mirror/opt/dome/dome.ts`, `src/mirror/opt/dome/dome-client-dom.js`, `src/mirror/opt/dome/dome-client-windows.js`

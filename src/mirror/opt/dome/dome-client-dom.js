@@ -690,6 +690,11 @@
     });
   }
   document.addEventListener("keydown", function (e) {
+    if (e.altKey && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      TSIX.send({ eventType: "wm_alt_s" });
+      return;
+    }
     kbDocSend(e, true);
   });
   document.addEventListener("keyup", function (e) {

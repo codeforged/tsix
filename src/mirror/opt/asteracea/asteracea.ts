@@ -2310,6 +2310,26 @@ export const main = Program(async (args: string[]) => {
       const payload = payloadWrapper?.data || payloadWrapper || msg;
       if (!payload) return;
 
+      if (payload.type === "WM_ALT_S") {
+        const windows = Array.from(appState.getAllRunning().values()).filter(
+          (instance) => instance.wid && instance.state !== "CLOSED",
+        );
+        if (windows.length > 0) {
+          const currentIndex = windows.findIndex((instance) =>
+            appState.isFocused(instance.wid),
+          );
+          const next = windows[(currentIndex + 1) % windows.length];
+          try {
+            await shell.send("da8711c2-5ca9-4f00-ad13-f1226f95594c", {
+              type: "FOCUS_WINDOW",
+              wid: next.wid,
+            });
+            appState.setFocusedWid(next.wid);
+          } catch (_) {}
+        }
+        return;
+      }
+
       // --- DESKTOP NOTIFICATION ---
       if (payload.type === "DESKTOP_NOTIF") {
         await pushNotification(
