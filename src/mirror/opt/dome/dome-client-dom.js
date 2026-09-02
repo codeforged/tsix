@@ -690,7 +690,7 @@
     });
   }
   document.addEventListener("keydown", function (e) {
-    if (e.altKey && e.key.toLowerCase() === "s") {
+    if (e.altKey && (e.key.toLowerCase() === "s" || e.key == "ß")) {
       e.preventDefault();
       TSIX.send({ eventType: "wm_alt_s" });
       return;
