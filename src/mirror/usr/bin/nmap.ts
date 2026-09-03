@@ -1,5 +1,5 @@
 import { IProgram, OSContext } from "../../lib/IProgram";
-import { NetworkLib } from "../../lib/NetworkLib";
+import { NetworkLib, SMQTNL_IOCTL } from "../../lib/NetworkLib";
 import { PacketFlags } from "@common/PacketFlags";
 
 /** 
@@ -54,13 +54,17 @@ export class main implements IProgram {
                 await std.print(`Starting TSIX Node Discovery on \x1B[33m${target}\x1B[0m...\n`);
 
                 const fd = await net.socket();
-                await net.bind(fd, 49152 + Math.floor(Math.random() * 1000));
+                const localPort = await net.bind(fd, 49152 + Math.floor(Math.random() * 1000));
+                await net.ioctl(fd, SMQTNL_IOCTL.SET_BINARY_MODE, {
+                    port: localPort,
+                    protocol: "Binfeo",
+                });
 
                 const scanStart = Date.now();
                 const isBroadcast = target === "*";
                 const port = isBroadcast ? 65534 : 200; // Use 65534 for broadcast (NOS standard), 200 for specific
                 const flag = isBroadcast ? PacketFlags.FLAG_BROADCAST_PING : PacketFlags.FLAG_PING_REQUEST;
-                await net.sendTo(fd, target, port, isBroadcast ? "TSIX_DISCOVERY" : "PROBE", flag);
+                await net.sendTo(fd, target, port, isBroadcast ? "TSIX_DISCOVERY" : "PROBE", flag, localPort);
 
                 const found: Set<string> = new Set();
                 const start = Date.now();
@@ -96,7 +100,11 @@ export class main implements IProgram {
                 await std.print(`Scanning ports on \x1B[33m${target}\x1B[0m...\n`);
 
                 const fd = await net.socket();
-                await net.bind(fd, 54321 + Math.floor(Math.random() * 100));
+                const localPort = await net.bind(fd, 54321 + Math.floor(Math.random() * 100));
+                await net.ioctl(fd, SMQTNL_IOCTL.SET_BINARY_MODE, {
+                    port: localPort,
+                    protocol: "Binfeo",
+                });
 
                 // Default ports to scan
                 let ports = [21, 22, 23, 80, 443, 1883, 3306, 8080, 65535];
@@ -121,7 +129,7 @@ export class main implements IProgram {
                     if (verbose) await std.print(`Checking ${target}:${port}... `);
 
                     const start = Date.now();
-                    await net.sendTo(fd, target, port, "PROBE", PacketFlags.FLAG_PING_REQUEST);
+                    await net.sendTo(fd, target, port, "PROBE", PacketFlags.FLAG_PING_REQUEST, localPort);
 
                     const reply = await net.recvFrom(fd, 1000);
                     if (reply) {

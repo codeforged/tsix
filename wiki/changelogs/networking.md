@@ -6,6 +6,16 @@
 
 ---
 
+## 2026-09-03
+
+### `nmap` — discovery dan port scan memakai Binfeo
+
+- **File:** `src/mirror/usr/bin/nmap.ts`, `src/mirror/lib/NetworkLib.js`
+- **Masalah:** `nmap` memakai `NetworkLib` low-level tanpa mengaktifkan protocol per-port. Akibatnya `sendTo()` memakai `srcPort = 0` dan driver memilih protocol global default, yaitu JSON, sehingga trafik yang diharapkan Binfeo muncul sebagai `JSON` di Bitshark.
+- **Perubahan:** kedua mode scan kini menyimpan port hasil `bind()`, mengaktifkan `SMQTNL_IOCTL.SET_BINARY_MODE` dengan protocol `Binfeo`, dan meneruskan port tersebut sebagai `srcPort` saat mengirim probe/discovery.
+- **Dampak:** paket TX `nmap` memakai Binfeo (`mqtnl@1.2/`, magic `0x66`) tanpa mengubah protocol global aplikasi lain. Sidecar `NetworkLib.js` ikut diregenerasi agar perubahan berlaku pada runtime.
+- **Oleh:** Copilot · **Verifikasi:** pengguna mengonfirmasi sudah solved; tes Binfeo/driver `14/14` lulus.
+
 ## 2026-09-02
 
 ### `forward` — hilangkan dependensi `@common/Config` (fix ENOENT)
