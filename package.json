@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "Membangun IoT dari FW, listener, data distribution + analytic sampai ke dashboard dengan mudah",
   "license": "MIT",
-  "main": "dist/index.js",
   "scripts": {
     "start": "node --enable-source-maps -r esbuild-register -r tsconfig-paths/register src/main.ts",
     "vfs:pull": "node -r esbuild-register -r tsconfig-paths/register scripts/vfs-pull.ts",
@@ -11,7 +10,7 @@
     "bkfs:create": "node -r esbuild-register -r tsconfig-paths/register scripts/create-bkfs.ts",
     "install": "node -r esbuild-register -r tsconfig-paths/register scripts/install.ts",
     "course:serve": "node -r esbuild-register -r tsconfig-paths/register wiki/course/course-server.ts",
-    "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

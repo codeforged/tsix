@@ -198,24 +198,22 @@ sequenceDiagram
 ### Quick Start
 
 ```bash
-git clone https://github.com/yourusername/tsix.git
+git clone https://github.com/codeforged/tsix.git
 cd tsix
 npm install
-npm run bootstrap    # Build + setup initial filesystem
-npm run start        # Start TSIX shell
+npm run install    # interaktif: buat image baru (.db + src/sysconfig.json)
+npm start          # boot TSIX shell — langsung dari src/main.ts (TypeScript)
 ```
 
-### Bootstrap Steps
+> TSIX berjalan langsung dari **source TypeScript** (`src/main.ts`) via
+> esbuild-register — **tidak ada langkah kompilasi / direktori `dist`**.
+> Cek error tipe cukup: `npm run typecheck`.
+
+### Bootstrap (opsional — sync VFS)
 
 ```bash
-# Build TypeScript sources
-npm run build
-
-# Initialize VFS + mount host folders
-npm run init
-
-# Start kernel
-npm run kernel
+npm run vfs:bootstrap   # bulk-sync src/mirror ke database yang terkonfigurasi
+npm run bkfs:create     # buat database kosong (path dari src/sysconfig.json)
 ```
 
 ### GUI Mode
