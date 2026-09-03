@@ -58,6 +58,10 @@ jsix.log
 
 # --- OS / editor ---
 .DS_Store
+
+# --- Catatan lokal (bukan bagian repo) ---
+# docs/jayalaras-iot = catatan NOS lokal (referensi migrasi), jangan di-commit.
+docs/jayalaras-iot/
 Thumbs.db
 .vscode/
 .idea/
