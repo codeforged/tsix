@@ -63,6 +63,7 @@ export class SimpleMQTNLDriver implements IDevice {
   private logger: Logger;
   private security: ISecurityAgent;
   private onMessageHandlers: Map<number, (data: any) => void> = new Map();
+  private portProcess: Map<number, string> = new Map(); // port -> nama proses/script pemilik
   private portSecurity: Map<number, ISecurityAgent> = new Map();
 
   // Instance config
@@ -89,7 +90,7 @@ export class SimpleMQTNLDriver implements IDevice {
   // [PER-PORT PROTOCOL MODE] Port → nama protocol per-port (mis. "Binary" utk
   // OTA, "Binfeo" utk biner TERSANDI komunikasi normal). Dipakai supaya aplikasi
   // TIDAK mengubah activeProtocol GLOBAL (yang membuat aplikasi lain seperti
-  // ping/nmap ikut binary). Default: kosong → semua port memakai activeProtocol (JSON).
+  // ping/scanif ikut binary). Default: kosong → semua port memakai activeProtocol (JSON).
   private portProtocols: Map<number, string> = new Map();
 
   // Sniffer (bitshark): callback menangkap paket
@@ -170,7 +171,7 @@ export class SimpleMQTNLDriver implements IDevice {
     }
   }
 
-  private handleIncomingMessage(topic: string, message: Buffer) {
+  private handleIncomingMessage(topic: string, message: Buffer | string) {
     try {
       let packet: any;
 
@@ -384,6 +385,25 @@ export class SimpleMQTNLDriver implements IDevice {
         return;
       }
 
+      // [PORT PROBE] scanif -p: PING_REQUEST yang ditujukan ke port SERVICE
+      // (bukan 65535/65534) diperlakukan sebagai probe port. Kernel membalas
+      // PING_REPLY otomatis HANYA jika dstPort sedang di-bind (ada
+      // handler/daemon) → artinya port "terbuka", mirip SYN-ACK di TCP.
+      // Tanpa ini daemon tidak pernah membalas probe acak sehingga scan port
+      // selalu tampak kosong/closed.
+      if (
+        flag === PacketFlags.FLAG_PING_REQUEST &&
+        dstPort !== 65535 &&
+        dstPort !== 65534 &&
+        this.onMessageHandlers.has(dstPort)
+      ) {
+        this.logger.info(
+          `[PORT PROBE] ${packet.header.srcAddress} -> port ${dstPort}: OPEN`,
+        );
+        this.reply(packet, "", PacketFlags.FLAG_PING_REPLY);
+        return; // Probe dijawab kernel — jangan diteruskan ke daemon
+      }
+
       // --- USERLAND DISPATCH ---
       const handler = this.onMessageHandlers.get(packet.header.dstPort);
       if (handler) {
@@ -432,6 +452,15 @@ export class SimpleMQTNLDriver implements IDevice {
   }
 
   /**
+   * bindProcess(): Catat nama proses/script yang meng-bind port ini (dipanggil
+   * kernel saat syscall BIND). Dipakai netstat lokal (`scanif -l`) untuk
+   * menampilkan pemilik tiap port, mirip `netstat -ltnp`.
+   */
+  public bindProcess(port: number, procName: string) {
+    this.portProcess.set(port, procName);
+  }
+
+  /**
    * onSniff(): Daftarkan callback sniffer untuk interface ini (dipanggil kernel).
    */
   public onSniff(cb: (sniff: any) => void) {
@@ -451,6 +480,7 @@ export class SimpleMQTNLDriver implements IDevice {
 
   public unregisterHandler(port: number) {
     this.onMessageHandlers.delete(port);
+    this.portProcess.delete(port);
     this.unregisterPortSecurity(port); // Prevent security settings from persisting
     this.logger.debug(`Handler for port ${port} unregistered.`);
   }
@@ -542,8 +572,8 @@ export class SimpleMQTNLDriver implements IDevice {
     if (!protocol) {
       const perPortName = this.portProtocols.get(srcPort);
       protocol = perPortName
-        ? this.protocols.find((p) => p.getName() === perPortName) ??
-          this.activeProtocol
+        ? (this.protocols.find((p) => p.getName() === perPortName) ??
+          this.activeProtocol)
         : this.activeProtocol;
     }
     const protocolName = protocol.getName();
@@ -678,6 +708,16 @@ export class SimpleMQTNLDriver implements IDevice {
         txBytes: this.txBytes,
         uptime: Date.now() - this.startTime,
         binds: this.onMessageHandlers.size,
+        // Daftar port yang sedang di-bind (listening) di interface ini beserta
+        // nama proses/script pemiliknya (dipakai `scanif -l`, mirip
+        // `netstat -ltnp`). Kernel tahu persis port mana yang punya
+        // handler/daemon (beda dengan scan remote yang harus mencoba satu2).
+        boundPorts: [...this.onMessageHandlers.keys()]
+          .sort((a, b) => a - b)
+          .map((p) => ({
+            port: p,
+            proc: this.portProcess.get(p) || "",
+          })),
       },
     };
   }

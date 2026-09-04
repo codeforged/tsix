@@ -25,7 +25,7 @@ export default class TSSHClient {
     const fd = await lib.net.socket();
     await lib.net.bind(fd, localPort);
     // Binfeo PER-PORT (port lokal klien), bukan global — supaya aplikasi
-    // lain (ping/nmap) tetap memakai JSON v1.0 di port mereka. Binfeo =
+    // lain (ping/scanif) tetap memakai JSON v1.0 di port mereka. Binfeo =
     // protocol biner TERSANDI utk komunikasi normal (bukan OTA Binary).
     await lib.net.ioctl(fd, 0x1002, { port: localPort, protocol: "Binfeo" });
 

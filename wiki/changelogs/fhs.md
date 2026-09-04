@@ -14,7 +14,7 @@
 ### Sweep `/bin` → `/sbin`, `/usr/bin`, `/opt` (FHS)
 - **Perubahan:**
   - **`/sbin`** (13) — daemon: airtermd, apply-update, crond, iot-listener, otad, reboot, scpd, shutdown, tpkg, tpkgd, tpkg-setup, userlib-update, vfs-pull.
-  - **`/usr/bin`** (19) — tool: airterm, bkfs, bitshark, crontab, debug_tpkg, esp-send, forward, ifconfig, img2b64, ipc-listen, ipc-send, listen_net, nettop, nmap, ota-gen-ak, ping_net, scp, ssh-keygen, sys-diag, tbuild, uuid-gen.
+  - **`/usr/bin`** (19) — tool: airterm, bkfs, bitshark, crontab, debug_tpkg, esp-send, forward, ifconfig, img2b64, ipc-listen, ipc-send, listen_net, nettop, scanif, ota-gen-ak, ping_net, scp, ssh-keygen, sys-diag, tbuild, uuid-gen.
   - **`/opt/<app>`** (7) — aplikasi GUI: eucalyptus, file-cruiser, iot-dashboard, pixelspace-traffic, pixelterm, set-theme, taskmgr.
   - **`/bin`** (48) — coreutils + init/login/tsh/atto.
   - **`/opt/test`** (32) — script test/demo (cashew-demo*, gui-demo, gui-test, gui-hello-world, hello-*, mqtnl-*-demo, test-*, dll.) dipindah dari `/bin`.

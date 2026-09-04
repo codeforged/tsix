@@ -169,7 +169,7 @@ Konfigurasi interface di `src/sysconfig.json`:
 | ------------------------ | ------------------------------------------------------------------------------------------- |
 | `ifconfig`               | Menampilkan status interface (IP, MAC, Rx/Tx stats)                                         |
 | `ping <node>`            | Cek konektivitas ke node lain                                                               |
-| `nmap`                   | Scan port terbuka di node remote                                                            |
+| `scanif`                 | Broadcast ping (default, cari interface online) & scan port terbuka (`-p <ports> <node>`)   |
 | `nettop`                 | Monitor traffic real-time (like `htop` for network)                                         |
 | `airterm <node>`         | Remote terminal ke node lain (SSH-like via MQTNL)                                           |
 | `scp <src> <node>:<dst>` | Secure file copy antar-node                                                                 |
@@ -194,6 +194,16 @@ ifconfig
 
 # Monitor jaringan real-time
 nettop
+
+# Discovery interface online (broadcast ping)
+scanif
+
+# Scan port: node sendiri / node remote
+scanif -p 24,2222 localhost
+scanif -p 1-1024 tsix-node-2
+
+# Lihat port yang sedang di-bind per interface lokal + pemiliknya (netstat -ltnp)
+scanif -l
 ```
 
 ---

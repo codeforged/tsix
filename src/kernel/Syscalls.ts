@@ -1559,6 +1559,8 @@ export class SyscallDispatcher {
         targetDriver.registerHandler(actualPort, (data) => {
           socket.push(data);
         });
+        // Catat nama proses/script pemilik port (dipakai netstat / scanif -l)
+        targetDriver.bindProcess(actualPort, pcb.name || "unknown");
 
         // Return port ASLI yang ter-bind (angka), bukan sekadar `true`.
         // Krusial untuk bind port 0 (ephemeral): userland harus tahu port mana

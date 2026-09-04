@@ -61,7 +61,7 @@ export default class TSSHDaemon {
     const socket = await lib.net.socket();
     await lib.net.bind(socket, port);
     // Aktifkan protocol Binfeo PER-PORT (bukan global) supaya aplikasi lain
-    // (ping, nmap, dsb) tetap memakai JSON v1.0 di port mereka. Binfeo =
+    // (ping, scanif, dsb) tetap memakai JSON v1.0 di port mereka. Binfeo =
     // biner TERSANDI utk komunikasi normal (bukan OTA Binary yg bypass security).
     await lib.net.ioctl(socket, 0x1002, { port, protocol: "Binfeo" });
 

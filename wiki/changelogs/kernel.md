@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-09-04
+
+### Auto-reply port probe + pelacakan pemilik port bind (`scanif -p` / `-l`)
+- **File:** `src/kernel/devices/SimpleMQTNLDriver.ts`, `src/kernel/Syscalls.ts`
+- **Perubahan:**
+  - `handleIncomingMessage()`: `PING_REQUEST` (flag 1) ke port service ≠ 65535/65534 **yang sedang di-bind** (ada handler di `onMessageHandlers`) kini dijawab `PING_REPLY` otomatis di level kernel — probe tidak diteruskan ke daemon. Ini yang membuat port scan remote (`scanif -p`) mendeteksi port terbuka, mirip SYN-ACK TCP. Port 65535/65534 tetap: ping & broadcast ping.
+  - Parameter `handleIncomingMessage(topic, message)` di-widen `Buffer` → `Buffer | string` (runtime sudah menangani keduanya; memperbaiki error tipe laten pada jalur loopback).
+  - Pelacakan pemilik port: map `portProcess: Map<port, namaProses>` + method `bindProcess(port, name)`; syscall `BIND` mencatat `pcb.name`; `unregisterHandler` membersihkannya.
+  - `getStats().params.boundPorts` kini `[{ port, proc }]` (sebelumnya hanya angka) → tersedia via `NETSTAT` untuk `scanif -l`.
+- **Dampak:** `NETSTAT`/netstat lokal bisa menampilkan port bind per interface beserta nama script/daemon pemilik; auto-responder port-probe hanya aktif untuk port yang benar-benar di-bind.
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-28
 
 ### Jumlah TTY konsol kini configurable — `sysconfig shell.ttyCount/loginCount`

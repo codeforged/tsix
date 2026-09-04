@@ -6,6 +6,20 @@
 
 ---
 
+## 2026-09-04
+
+### `scanif` — pengganti `nmap` (rename, hapus `-sn`) + fix & perluasan port scan
+
+- **File:** `src/mirror/usr/bin/scanif.ts` (baru, ex `nmap.ts`), `src/kernel/devices/SimpleMQTNLDriver.ts`, `src/kernel/Syscalls.ts`, `src/mirror/etc/tpkg/packages.json`, `wiki/Networking-MQTNL.md`
+- **Perubahan:**
+  - **Rename `nmap` → `scanif`** (nama file, teks help/usage, manifest tpkg, komentar, docs).
+  - **Flag `-sn` dihapus** — tidak relevan lagi: `scanif` (tanpa flag) langsung broadcast ping ke `"*"` (discovery interface online). Help hanya lewat `-h/--help`. Parsing arg memisahkan nilai `-p` dari target → daftar port tidak lagi salah dianggap target (hilang blok scan kosong `Scanning ports on 24,2222...`).
+  - **Self-interface ikut tampil di hasil discovery:** broadcast tidak di-loopback ke pengirim, jadi `scanif` menambahkan sendiri interface lokal yang `Connected` (via `net.netstat()`) ke daftar `Found node` berlabel `local interface` (RTT 0ms).
+  - **Fix port scan (`-p`):** daemon tidak membalas probe acak, jadi kini kernel `SimpleMQTNLDriver` auto-balas `PING_REPLY` atas `PING_REQUEST` ke port service **yang sedang di-bind** (mirip SYN-ACK TCP). `scanif -p 24,2222 <node>` menampilkan port yang benar-benar terbuka. (Rincian kernel di changelog kernel.)
+  - **Mode `-l` baru:** daftar port yang sedang di-bind per interface lokal (mirip `netstat -ltnp`) beserta nama proses/script pemilik — data dari kernel (`getStats().boundPorts` = `[{port, proc}]`).
+- **Dampak:** `scanif` (broadcast), `scanif -p 1-1024 <node>` (scan remote), `scanif -l` (lihat port bind lokal + pemiliknya).
+- **Oleh:** Copilot
+
 ## 2026-09-03
 
 ### `nmap` — discovery dan port scan memakai Binfeo
