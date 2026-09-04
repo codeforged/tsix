@@ -60,7 +60,7 @@ const IOCTL_READ_ALL = 0x3004;
 const MODE_OUTPUT = 0;
 
 /** Device MCP23017 relay — coba urut sampai ketemu. */
-const RELAY_DEV_CANDIDATES = ["/dev/relays", "/dev/mcp0", "/dev/mcp23017"];
+const RELAY_DEV_CANDIDATES = ["/dev/mcp-bulb"];
 
 /** File denah rumah (background) — sama seperti index.html. */
 const LAYOUT_PATH = "/opt/smartbulb/layoutrumah.png";
