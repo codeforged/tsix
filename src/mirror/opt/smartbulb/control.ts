@@ -65,6 +65,10 @@ const RELAY_DEV_CANDIDATES = ["/dev/relays", "/dev/mcp0", "/dev/mcp23017"];
 /** File denah rumah (background) — sama seperti index.html. */
 const LAYOUT_PATH = "/opt/smartbulb/layoutrumah.png";
 
+/** Ikon lampu ON/OFF (PNG dari VFS). Fallback ke lingkaran + emoji bila absen. */
+const BULB_ON_PATH = "/opt/smartbulb/bulbon.png";
+const BULB_OFF_PATH = "/opt/smartbulb/bulboff.png";
+
 /**
  * Definisi lampu — koordinat mengikuti tata letak index.html (0..432, 0..600).
  * `port` = port logika relay (konvensi NOS), di-map ke pin fisik via portToPin().
@@ -121,9 +125,7 @@ async function pngSize(path: string): Promise<{ w: number; h: number } | null> {
   try {
     const raw: any = await fs.readFile(path);
     if (!raw) return null;
-    const buf = Buffer.isBuffer(raw)
-      ? raw
-      : Buffer.from(String(raw), "latin1");
+    const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(String(raw), "latin1");
     // Signature PNG: 0x89 'P' 'N' 'G'
     if (buf.length < 24 || buf.readUInt32BE(0) !== 0x89504e47) return null;
     const w = buf.readUInt32BE(16);
@@ -148,12 +150,14 @@ export const main = Program(async (args: string[]) => {
   let hwMode = args.includes("--hw");
   const devIdx = args.indexOf("--hw");
   let forcedDev: string | null = null;
-  if (devIdx !== -1 && devIdx + 1 < args.length && !args[devIdx + 1].startsWith("--")) {
+  if (
+    devIdx !== -1 &&
+    devIdx + 1 < args.length &&
+    !args[devIdx + 1].startsWith("--")
+  ) {
     forcedDev = args[devIdx + 1];
   }
-  const candidates = forcedDev
-    ? [forcedDev]
-    : RELAY_DEV_CANDIDATES;
+  const candidates = forcedDev ? [forcedDev] : RELAY_DEV_CANDIDATES;
 
   // ── Denah: baca dimensi gambar → hitung skala agar muat di window ──
   const dim = await pngSize(LAYOUT_PATH);
@@ -290,6 +294,41 @@ export const main = Program(async (args: string[]) => {
   let hwDevName = "";
   let running = true;
 
+  // Ikon lampu bulbon/bulboff.png — cache data URI, dipakai sbg background tombol.
+  let bulbImgOn = "";
+  let bulbImgOff = "";
+  let bulbImgOk = false;
+  const loadBulbImages = async (): Promise<void> => {
+    try {
+      const readB64 = async (p: string): Promise<string> => {
+        const raw: any = await fs.readFile(p);
+        if (!raw) return "";
+        const buf = Buffer.isBuffer(raw)
+          ? raw
+          : Buffer.from(String(raw), "latin1");
+        return `data:image/png;base64,${buf.toString("base64")}`;
+      };
+      const [on, off] = await Promise.all([
+        readB64(BULB_ON_PATH),
+        readB64(BULB_OFF_PATH),
+      ]);
+      if (on && off) {
+        bulbImgOn = on;
+        bulbImgOff = off;
+        bulbImgOk = true;
+        await std.log(
+          `[smartbulb] Ikon lampu dimuat: bulbon (${Math.round(on.length / 1024)}KB), bulboff (${Math.round(off.length / 1024)}KB)`,
+        );
+      }
+    } catch (_) {
+      bulbImgOk = false;
+    }
+  };
+
+  // Muat ikon lampu bulbon/bulboff.png SEBELUM membuat lampu (biar tahu pakai
+  // TImage gambar atau fallback emoji). Bila gagal → fallback otomatis.
+  await loadBulbImages();
+
   // ── IPC ke service /opt/smartbulb/service.js (identity jayalaras.service) ──
   const lib = (global as any)._tsixLib;
   const SERVICE_ID = "jayalaras.service";
@@ -309,28 +348,48 @@ export const main = Program(async (args: string[]) => {
     const base: Record<string, any> = {
       width: "40px",
       height: "40px",
-      borderRadius: "50%",
       padding: "0",
-      fontSize: "20px",
       lineHeight: "1",
       cursor: "pointer",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      border: "2px solid",
-    }; 
-    if (on) {
+    };
+    if (bulbImgOk) {
+      // Pakai gambar bulbon.png / bulboff.png sebagai latar tombol.
       return {
         ...base,
+        borderRadius: "0",
+        border: "none",
+        backgroundImage: `url(${on ? bulbImgOn : bulbImgOff})`,
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat",
+        backgroundSize: "contain",
+        fontSize: "0", // sembunyikan emoji — visual sudah dari gambar
+        filter: on ? "drop-shadow(0 0 6px rgba(255, 213, 79, 0.9))" : "none",
+        opacity: on ? "1" : "0.8",
+      };
+    }
+    // Fallback (tanpa bulbon/off.png): lingkaran glow + emoji 💡
+    const emojiBase = {
+      ...base,
+      borderRadius: "50%",
+      border: "2px solid",
+      fontSize: "20px",
+      backgroundImage: "none",
+    };
+    if (on) {
+      return {
+        ...emojiBase,
         background:
           "radial-gradient(circle at 50% 40%, #fff3b0 0%, #ffe082 35%, #ffb300 90%)",
         borderColor: "#ffd54f",
-        color: "#facc00",
-        boxShadow: "0 0 18px 4px rgba(255, 196, 0, 0.55)",
+        color: "#effb13",
+        boxShadow: "0 0 18px 4px rgba(247, 255, 3, 0.93)",
       };
     }
     return {
-      ...base,
+      ...emojiBase,
       background: "var(--button-bg, #0f3460)",
       borderColor: "var(--border, #475569)",
       color: "#9aa5b1",
@@ -342,47 +401,55 @@ export const main = Program(async (args: string[]) => {
   // Posisi lampu di atas denah (kiri-atas = koordinat asli gambar, index.html)
   const bulbStyleAt = (l: LightDef, on: boolean) => ({
     position: "absolute",
-    left: `${bulbL[l.idx]-12}px`,
-    top: `${bulbT[l.idx]-10}px`,
+    left: `${bulbL[l.idx]}px`,
+    top: `${bulbT[l.idx]}px`,
     ...bulbStyle(on),
   });
 
-  const capStyleAt = (l: LightDef, on: boolean): Record<string, any> => ({
-    position: "absolute",
-    left: `${bulbL[l.idx] - 35}px`,
-    top: `${bulbT[l.idx] + 42}px`,
-    width: "110px",
-    textAlign: "center",
-    fontSize: "10px",
-    lineHeight: "1.1",
-    fontWeight: on ? "700" : "500",
-    color: on ? "var(--accent, #ffd54f)" : "var(--text-muted, #8fa0b5)",
-    pointerEvents: "none",
-  });
-
-  // ── Lampu: tombol + label nama ──
-  const bulbs: TButton[] = [];
-  const bulbLabels: TLabel[] = [];
+  // ── Lampu: TImage (bulbon/off.png, bisa diklik) — tanpa label nama ──
+  // Nama ruangan sudah ada di denah/background, jadi label bawah lampu dihapus.
+  // Kalau bulbon/off.png ada → lampu = <img> asli (TImage.onClick); kalau
+  // tidak → fallback tombol emoji (tetap bisa diklik).
+  const useBulbImg = bulbImgOk;
+  const bulbs: (TImage | TButton)[] = [];
   for (const l of LIGHTS) {
-    const btn = new TButton(`bulb-${l.idx}`, {
-      caption: "💡",
-      style: bulbStyleAt(l, false),
-    });
-    const cap = new TLabel(`bulb-cap-${l.idx}`, {
-      caption: l.name,
-      style: capStyleAt(l, false),
-    });
-    bulbs.push(btn);
-    bulbLabels.push(cap);
-    stage.add(btn);
-    stage.add(cap);
+    let widget: TImage | TButton;
+    if (useBulbImg) {
+      const img = new TImage(`bulb-${l.idx}`, {
+        width: 40,
+        height: 40,
+        fit: "contain",
+        style: {
+          position: "absolute",
+          left: `${bulbL[l.idx] - 15}px`,
+          top: `${bulbT[l.idx] - 15}px`,
+          width: "40px",
+          height: "40px",
+          objectFit: "contain",
+          cursor: "pointer",
+          userSelect: "none",
+        },
+      });
+      img.src = bulbImgOff; // state awal: semua lampu mati
+      widget = img;
+    } else {
+      const btn = new TButton(`bulb-${l.idx}`, {
+        caption: "💡",
+        style: bulbStyleAt(l, false),
+      });
+      widget = btn;
+    }
+    bulbs.push(widget);
+    stage.add(widget);
   }
   form.add(scroller);
 
   // ── Footer: tombol global ──
   const btnAllOn = new TButton("btn-allon", { caption: "🌕 Semua ON" });
   const btnAllOff = new TButton("btn-alloff", { caption: "🌑 Semua OFF" });
-  const btnMode = new TButton("btn-mode", { caption: hwMode ? "🔄 Hubungkan HW" : "🎛️ Mode HW" });
+  const btnMode = new TButton("btn-mode", {
+    caption: hwMode ? "🔄 Hubungkan HW" : "🎛️ Mode HW",
+  });
   form.add(
     HStack({ padding: "2px 0 4px" }, btnAllOn, btnAllOff, Spacer(), btnMode),
   );
@@ -399,10 +466,14 @@ export const main = Program(async (args: string[]) => {
 
   const refreshBulb = async (l: LightDef) => {
     const on = onState[l.idx];
-    const btn = bulbs[l.idx];
-    btn.style = bulbStyleAt(l, on);
-    await upd(`bulb-${l.idx}`, { style: btn.style });
-    await upd(`bulb-cap-${l.idx}`, { style: capStyleAt(l, on) });
+    const w = bulbs[l.idx];
+    if (w instanceof TImage) {
+      // Ganti gambar bulbon/bulboff langsung (src update via screen)
+      w.src = on ? bulbImgOn : bulbImgOff;
+    } else if (w instanceof TButton) {
+      w.style = bulbStyleAt(l, on);
+      await upd(`bulb-${l.idx}`, { style: w.style });
+    }
   };
 
   const refreshAll = async () => {
@@ -421,7 +492,9 @@ export const main = Program(async (args: string[]) => {
     try {
       const pin = portToPin(port);
       const value = on ? 0 : 1; // relay active-low
-      return (await fs.ioctl(hwFd, IOCTL_DIGITAL_WRITE, { pin, value })) === true;
+      return (
+        (await fs.ioctl(hwFd, IOCTL_DIGITAL_WRITE, { pin, value })) === true
+      );
     } catch (_) {
       return false;
     }

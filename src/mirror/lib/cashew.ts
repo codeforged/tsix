@@ -3229,6 +3229,8 @@ export interface TImageOptions {
 }
 
 export class TImage extends TComponent {
+  /** Callback saat gambar diklik (mendaftarkan onClickId + screen.on). */
+  public onClick: (() => void) | null = null;
   private _screen: Screen | null = null;
   private _src: string = "";
   private _alt: string = "";
@@ -3260,8 +3262,7 @@ export class TImage extends TComponent {
         : {}),
       ...(o.height != null
         ? {
-            height:
-              typeof o.height === "number" ? o.height + "px" : o.height,
+            height: typeof o.height === "number" ? o.height + "px" : o.height,
           }
         : {}),
       ...(o.style || {}),
@@ -3355,6 +3356,9 @@ export class TImage extends TComponent {
   /** Saat di-bind ke screen (dipanggil TForm.run saat mount) — auto-load file. */
   bindEventHandler(screen: Screen): void {
     this._screen = screen;
+    if (this.onClick) {
+      screen.on(this.id, "click", this.onClick);
+    }
     if (this._file && !this._fileLoaded) {
       this._fileLoaded = true;
       void this.loadFile(this._file).catch(() => {});
@@ -3362,15 +3366,21 @@ export class TImage extends TComponent {
   }
 
   build(): IDOMNode {
+    const nodeProps: Record<string, any> = {
+      ...this.props,
+      src: this._src || undefined,
+      alt: this._alt,
+    };
+    const nodeStyle: Record<string, any> = { ...this.style };
+    if (this.onClick) {
+      // Listener klik mount-time: onClickId → DOME attach listener di <img>.
+      nodeProps.onClickId = this.id;
+      nodeStyle.cursor = "pointer";
+    }
     return {
       id: this.id,
       tag: "img",
-      props: {
-        ...this.props,
-        src: this._src || undefined,
-        alt: this._alt,
-        style: { ...this.style },
-      },
+      props: { ...nodeProps, style: nodeStyle },
       children: [],
     };
   }

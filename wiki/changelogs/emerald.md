@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-09-04
+
+### `image()` siap diklik — `onClickId` + cursor pointer untuk `<img>`
+
+- **File:** `src/mirror/lib/emerald.ts`
+- **Perubahan:** helper `image()` (pembuat `<img>` virtual) kini memberi **cursor `pointer` + `userSelect: none`** otomatis bila `onClickId` diset. DOME client sudah memasang listener klik untuk `onClickId` di `<img>` juga.
+- **Contoh:** `image({ src, onClickId: "x" })` lalu bind `app.on("x", "click", cb)`.
+- **Oleh:** Copilot
+
 ## 2026-08-30
 
 ### Widget menerima prop `style`; radial gauge unit terpisah (`rg-unit`) + update runtime

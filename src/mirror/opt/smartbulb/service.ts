@@ -39,13 +39,8 @@ const MODE_OUTPUT = 0;
 const MODE_INPUT_PULLUP = 2;
 
 /** Device MCP23017 relay & saklar — coba urut sampai ketemu. */
-const RELAY_DEV_CANDIDATES = ["/dev/relays", "/dev/mcp0", "/dev/mcp23017"];
-const SWITCH_DEV_CANDIDATES = [
-  "/dev/switches",
-  "/dev/mcpSw",
-  "/dev/mcp1",
-  "/dev/mcp23017sw",
-];
+const RELAY_DEV_CANDIDATES = ["/dev/mcp-bulb"];
+const SWITCH_DEV_CANDIDATES = ["/dev/mcp-sw"];
 
 /** Identity IPC yang dipakai GUI untuk terhubung ke service ini. */
 const SERVICE_ID = "jayalaras.service";

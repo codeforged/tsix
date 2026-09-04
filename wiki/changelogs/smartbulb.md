@@ -7,6 +7,20 @@
 
 ## 2026-09-04
 
+### `control` — lampu pakai `bulbon/off.png` (TImage klik), label ruangan dihapus
+
+- **File:** `src/mirror/opt/smartbulb/control.ts`
+- **Perubahan:**
+  - Ikon lampu ON/OFF kini memakai **`bulbon.png` / `bulboff.png`** dari `/opt/smartbulb` (dimuat byte-safe dari VFS → data URI). Tiap lampu = **`TImage` yang bisa diklik** (pakai `TImage.onClick` baru di Cashew): `src` ditukar bulbon ↔ bulboff saat toggle. Fallback tombol emoji otomatis bila PNG tidak tersedia.
+  - **Label nama ruangan di bawah lampu dihapus** — denah/background sudah menampilkan nama ruangan (`capStyleAt`/`bulbLabels`/`bulb-cap-*` dibuang).
+- **Oleh:** Copilot
+
+### `service` — kandidat device MCP23017 mengikuti nama baru (`mcp-bulb` / `mcp-sw`)
+
+- **File:** `src/mirror/opt/smartbulb/service.ts`
+- **Perubahan:** daftar kandidat relay & saklar dirapikan ke nama driver MCP23017 terbaru: relay `/dev/mcp-bulb`; saklar `/dev/mcp-sw` (menggantikan `/dev/relays,/dev/mcp0,/dev/mcp23017` dan `/dev/switches,/dev/mcpSw,/dev/mcp1,...`).
+- **Oleh:** kakang
+
 ### `control` — GUI Cashew pengontrol lampu (denah rumah)
 
 - **File:** `src/mirror/opt/smartbulb/control.ts`

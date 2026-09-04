@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-09-04
+
+### `TImage` kini punya `onClick` — gambar bisa diklik (ikon, bulbon/off, dsb)
+
+- **File:** `src/mirror/lib/cashew.ts`
+- **Perubahan:**
+  - `TImage` menambah properti `onClick` (pola sama seperti `TButton`): saat ada handler & `build()` dipanggil → otomatis `props.onClickId = this.id` (listener **mount-time**, hindari bug `cloneNode` DOME) + `style.cursor = "pointer"`; `bindEventHandler` mendaftarkan `screen.on(this.id, "click", onClick)`.
+  - DOME client memasang listener klik untuk `onClickId` di elemen apa pun — termasuk `<img>` — jadi gambar yang bisa diklik tinggal `img.onClick = ...`.
+- **Contoh:**
+  ```ts
+  const lamp = new TImage("bulb-0", { file: "/opt/bulbon.png", width: 40, height: 40 });
+  lamp.onClick = () => std.log("lampu diklik!");
+  form.add(lamp);
+  ```
+- **Oleh:** Copilot
+
 ## 2026-08-30
 
 ### TFlowPanel default full-width di grid (`gridColumn: "1 / -1"`)

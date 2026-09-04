@@ -122,6 +122,16 @@ export function image(props: Record<string, any> = {}): IDOMNode {
     if (mergedProps.mime) delete mergedProps.mime;
   }
 
+  // Gambar yang bisa diklik (punya onClickId) — cursor pointer default.
+  // DOME client memasang listener klik via onClickId (berlaku utk <img> juga).
+  if (mergedProps.onClickId) {
+    mergedProps.style = {
+      cursor: "pointer",
+      userSelect: "none",
+      ...(mergedProps.style || {}),
+    };
+  }
+
   return {
     id,
     tag: "img",

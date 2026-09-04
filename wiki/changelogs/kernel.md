@@ -7,6 +7,7 @@
 ## 2026-09-04
 
 ### Auto-reply port probe + pelacakan pemilik port bind (`scanif -p` / `-l`)
+
 - **File:** `src/kernel/devices/SimpleMQTNLDriver.ts`, `src/kernel/Syscalls.ts`
 - **Perubahan:**
   - `handleIncomingMessage()`: `PING_REQUEST` (flag 1) ke port service ≠ 65535/65534 **yang sedang di-bind** (ada handler di `onMessageHandlers`) kini dijawab `PING_REPLY` otomatis di level kernel — probe tidak diteruskan ke daemon. Ini yang membuat port scan remote (`scanif -p`) mendeteksi port terbuka, mirip SYN-ACK TCP. Port 65535/65534 tetap: ping & broadcast ping.
@@ -16,11 +17,23 @@
 - **Dampak:** `NETSTAT`/netstat lokal bisa menampilkan port bind per interface beserta nama script/daemon pemilik; auto-responder port-probe hanya aktif untuk port yang benar-benar di-bind.
 - **Oleh:** Copilot
 
+### `MCP23017Device` — rapi ulang + konfigurasi chip JayaLaras (`mcp-sw` @0x24), default `disabled`
+
+- **File:** `src/kernel/devices/aux-devices/MCP23017Device.ts`
+- **Perubahan:**
+  - Reformat konsisten (indent 2-space, komentar register dirapikan).
+  - `HARDWARE_CONFIGS` disesuaikan hardware JayaLaras → satu chip: `{ bus: 1, address: 0x24, name: "mcp-sw" }` (menggantikan default `0x20 "mcp23017"`).
+  - Nama default device konstruktor: `mcp23017` → `mcp-bulb`.
+  - Properti `disabled` default `false` → **`true`** (chip tidak ikut di-load saat boot sampai dikonfigurasi).
+- **Dampak:** chip saklar `mcp-sw` siap dipakai `smartbulb/service` & `control --hw`; menambah chip lain cukup edit `HARDWARE_CONFIGS`.
+- **Oleh:** kakang + Copilot
+
 ---
 
 ## 2026-08-28
 
 ### Jumlah TTY konsol kini configurable — `sysconfig shell.ttyCount/loginCount`
+
 - **File:** `src/kernel/Kernel.ts`, `src/common/Config.ts`, `src/sysconfig.json`, `src/mirror/bin/init.ts`, `scripts/install.ts`
 - **Masalah:** Jumlah konsol virtual & login hardcode (`new TTYManager(16)`, loop `i<=6`, login TTY2-6) → tidak bisa dikecilkan untuk hemat RAM.
 - **Perubahan:**
@@ -32,6 +45,7 @@
 - **Oleh:** Copilot · **Laporan/konsep:** kakang
 
 ### `openvt` + FLUSH_INPUT (ioctl cmd 5) — isi TTY kosong tanpa input basi
+
 - **File:** `src/mirror/bin/openvt.ts` (baru), `src/kernel/tty/TTY.ts`, `src/kernel/devices/TTYDevice.ts`, `src/kernel/devices/PTYSlaveDevice.ts`
 - **Masalah:** TTY kosong (di luar loginCount) tidak bisa diisi tanpa edit kode; dan saat di-spawn, TTY idle menyimpan **input basi** (enter/karakter yang ditekan saat TTY tidak aktif) → proses baru (mis. login) langsung "memakan" enter basi → loop "Invalid username/password".
 - **Perubahan:**
@@ -46,6 +60,7 @@
 ## 2026-08-18
 
 ### Error load-path aplikasi tampil di pixelterm & popup desktop (GUI_WINDOW_ERROR)
+
 - **File:** `src/userland/WorkerEntry.ts`
 - **Masalah:** Saat app gagal di-transpile/dimuat (mis. `./app.ts` dengan error TS), `console.error` di worker hanya menulis ke **host stderr** — tidak terlihat di pixelterm (yang hanya membaca buffer TTY) maupun di desktop. Pesan akhir `-bash: ...: Application not found (Path: VFS-Only)` juga menyesatkan karena app sebenarnya ketemu, cuma gagal load.
 - **Perubahan:**
@@ -61,6 +76,7 @@
 ## 2026-08-15
 
 ### /dev/ttyN kini world-accessible (0o666) — pixelterm non-root bisa resize TTY
+
 - **File:** `src/kernel/devices/TTYDevice.ts`, `src/mirror/opt/pixelterm/pixelterm.ts`
 - **Masalah:** Device `/dev/ttyN` default `mode = 0o600` (root-only, dari `device.mode ?? 0o600` di syscall OPEN) → pixelterm yang dijalankan **non-root** gagal `fs.open("/dev/ttyN", "w+")` untuk TIOCSWINSZ → TTY tidak ke-resize, `getScreenInfo()` app (mis. atto) tetap 80x24 & tanpa SIGWINCH (hanya IPC RESIZE fallback yang tidak konsisten).
 - **Perubahan:**
@@ -74,6 +90,7 @@
 ## 2026-08-12
 
 ### Saved UID — login manager (WM) bisa re-elevate ke root utk switch user
+
 - **File:** `src/kernel/Scheduler.ts`, `src/kernel/Syscalls.ts`, `src/mirror/bin/login.ts`
 - **Masalah:** Setelah WM login sebagai user non-root, proses drop privilege permanen → kernel menolak `setgroups`/`setgid`/`setuid` untuk non-root, dan `/etc/shadow` (0640 root) tidak lagi terbaca → logout lalu login ulang sebagai root gagal. TSIX belum punya mekanisme **Saved UID** seperti Unix (`seteuid`/`setresuid`).
 - **Perubahan:**
@@ -88,12 +105,14 @@
 ## 2026-08-10
 
 ### Sudo group di-seed default (gaya Ubuntu)
+
 - **File:** `src/kernel/Kernel.ts` (ensureDefaultGroups), `src/mirror/etc/group`
 - **Perubahan:** Group `sudo` (GID 27) & `users` (GID 100) ada di seed default. `ensureDefaultGroups()` menjadi safety net: menambah `users`/`sudo` saat boot kalau belum ada.
 - **Dampak:** Image fresh langsung punya group `sudo`; cukup `usermod -aG sudo <user>`.
 - **Oleh:** Copilot
 
 ### Safe mode (`--safe-mode`)
+
 - **File:** `src/kernel/Kernel.ts`
 - **Perubahan:** `boot()` mendeteksi `process.argv.includes("--safe-mode")` → `safeMode=true` + log boot "MODE: Safe Mode". `runInit()` mengirim env `TSIX_SAFE_MODE=1` ke proses init (PID 1).
 - **Dampak:** Dasar untuk menonaktifkan startup scripts saat troubleshooting (dikonsumsi init, lihat changelog `init.md`).
@@ -104,6 +123,7 @@
 ## 2026-08-03
 
 ### PING RTT fix — recvFrom jadi event-driven (bukan polling 100ms)
+
 - **File:** `src/kernel/devices/SocketDevice.ts`, `src/kernel/Syscalls.ts`, `src/mirror/lib/NetworkLib.ts`
 - **Masalah:** `ping` menunjukkan RTT ~102ms padahal di bitshark (sniffer) hanya ~5ms. Akar masalah: `SocketDevice.read()` non-blocking (`buffer.shift() || null`), sedangkan `NetworkLib.recvFrom()` polling buta tiap 100ms → balasan yang sudah sampai di buffer ~5ms baru "terlihat" di tick polling berikutnya → RTT terukur ikut +~100ms.
 - **Perubahan:**
@@ -113,6 +133,7 @@
 - **Dampak:** RTT yang diukur aplikasi (ping, nmap) akurat mengikuti waktu nyata paket tiba. Daemon yang `recv` dalam loop (`tsd`, `otad`, `tpkgd`, `scpd`, `airtermd`) ikut lebih responsif (tidak ada jeda 100ms). Batas timeout keseluruhan tetap dihormati.
 
 ### MQTNL local loopback (localhost) — bypass broker untuk traffic lokal
+
 - **File:** `src/kernel/devices/SimpleMQTNLDriver.ts`
 - **Perubahan:**
   - Registry statis `SimpleMQTNLDriver.instances` + `findLocal(address)` (cocokkan `localAddress` atau nama device).
@@ -128,6 +149,7 @@
 ## 2026-08-02
 
 ### Network Sniffer subsystem (syscall 72/73) — dasar Bitshark
+
 - **File:** `src/common/SyscallCode.ts`, `src/kernel/Syscalls.ts`, `src/kernel/devices/SimpleMQTNLDriver.ts`, `src/mirror/lib/UserLib.ts`
 - **Perubahan:**
   - **Syscall baru:**
@@ -152,6 +174,7 @@
 ## 2026-07-31
 
 ### mysqld — single-instance guard fix (stale pidfile + PID reuse)
+
 - **File:** `src/mirror/etc/mysqld/mysqld.ts`
 - **Perubahan:**
   - **Masalah:** `ps` menunjukkan `mysqld EXITED` di boot kedua+. Akar masalah: pidfile `/etc/mysqld/mysqld.pid` persisten di BKFS, dan PID di-reuse antar reboot → guard single-instance melihat dirinya sendiri (`isAlive(11)` = true karena proses baru dapat PID yang sama) → langsung `return` tanpa register sebagai DB service → app DB gagal (`/dev/mysql tidak tersedia`).
@@ -161,6 +184,7 @@
 - **Oleh:** Copilot
 
 ### crond — auto-daemonize + keep-alive fix
+
 - **File:** `src/mirror/bin/crond.ts`
 - **Perubahan:**
   - **Daemonize by default:** `crond` kini auto-daemonize (`shell.daemonize("Cron Daemon")`) kecuali `--foreground`/`-f`. Sebelumnya hanya di-daemonize dengan flag `--detach`, padahal `rc.local` menjalankannya tanpa flag.
@@ -171,6 +195,7 @@
 - **Oleh:** Copilot
 
 ### CPU usage measurement — diimplementasi lalu di-roll back
+
 - **File:** `src/common/SyscallCode.ts`, `src/kernel/Scheduler.ts`, `src/kernel/Syscalls.ts`, `src/mirror/lib/UserLib.ts`, `src/main.ts`, `src/mirror/bin/taskmgr.ts`, `src/mirror/bin/ps.ts`
 - **Perubahan:** Ditambahkan syscall `CPU_REPORT`, sampling CPU per-proses (Scheduler), auto-report worker, kolom CPU% di Task Manager & `ps`. **Di-roll back seluruhnya** karena metrik tidak realistis — TSIX berbasis interpreter (semua worker thread dari satu proses host), jadi `process.cpuUsage()` proses-wide & `eventLoopUtilization()` tidak bisa membedakan beban per-proses secara akurat.
 - **Oleh:** Copilot
