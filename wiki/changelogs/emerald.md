@@ -34,7 +34,7 @@
   - Ekspor **`dom(target, ...ids)`** dan alias **`$`** — `target` boleh `Window` atau `Screen` (di-resolve ke `.win`). Mode **lazy**: pencarian di-resolve saat pemanggilan (app-side, tanpa query ke browser).
 - **Contoh:**
   ```ts
-  const $ = dom(win);            // alias $ = dom
+  const $ = dom(win); // alias $ = dom
   $.eq(0).text("halo").style({ color: "red" });
   dom(win, "btn-1").next().html("<b>x</b>");
   ```

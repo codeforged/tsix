@@ -183,7 +183,7 @@ export const main = Program(async (args: string[]) => {
 
   // ── Form ──
   const form = new TForm({
-    title: "💡 Smart Bulb — JayaLaras",
+    title: "Smart Bulb — JayaLaras",
     icon: "💡",
     width: Math.min(1000, stageW + 80),
     height: useImage ? Math.min(960, stageH + 190) : 900,

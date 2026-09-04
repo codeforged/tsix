@@ -14,7 +14,11 @@
   - DOME client memasang listener klik untuk `onClickId` di elemen apa pun — termasuk `<img>` — jadi gambar yang bisa diklik tinggal `img.onClick = ...`.
 - **Contoh:**
   ```ts
-  const lamp = new TImage("bulb-0", { file: "/opt/bulbon.png", width: 40, height: 40 });
+  const lamp = new TImage("bulb-0", {
+    file: "/opt/bulbon.png",
+    width: 40,
+    height: 40,
+  });
   lamp.onClick = () => std.log("lampu diklik!");
   form.add(lamp);
   ```
@@ -39,10 +43,28 @@
   - Helper baru `splitConfig(config, knownProps)` — memisahkan opsi objek literal menjadi **props komponen** (key di `knownProps`, diterapkan via setter) dan **css** (gabungan `style:{}` nested + key lain).
   - Komponen sederhana (`TPanel`, `TLabel`, `TButton`, `TEdit`, `TMemo`, `TCheckBox`, `TComboBox`, `TStatusBar`, `TProgressBar`) kini menerima **props + `style:{}`**, misalnya:
     ```ts
-    new TButton({ caption: "OK", enabled: false, style: { background: "#222" } });
-    new TEdit({ text: "halo", placeholder: "Ketik...", style: { width: "200px" } });
-    new TComboBox({ items: ["A", "B"], selectedIndex: 0, style: { width: "140px" } });
-    new TProgressBar({ value: 50, min: 0, max: 100, unit: "%", style: { height: "24px" } });
+    new TButton({
+      caption: "OK",
+      enabled: false,
+      style: { background: "#222" },
+    });
+    new TEdit({
+      text: "halo",
+      placeholder: "Ketik...",
+      style: { width: "200px" },
+    });
+    new TComboBox({
+      items: ["A", "B"],
+      selectedIndex: 0,
+      style: { width: "140px" },
+    });
+    new TProgressBar({
+      value: 50,
+      min: 0,
+      max: 100,
+      unit: "%",
+      style: { height: "24px" },
+    });
     new TStatusBar({ leftText: "Siap", style: { padding: "8px 12px" } });
     ```
   - **Backward-compat penuh:** flat style (`new TButton("btn", { background: "#222" })`) dan setter (`btn.caption = "OK"`) tetap bekerja — key yang bukan prop komponen dianggap CSS.
@@ -65,8 +87,11 @@
   - **Cashew:** wrapper widget menyinkronkan `style` dari opsi objek literal ke `this.style` — konsisten dengan komponen Cashew lain (`comp.style` kini merefleksikan opsi yang dikirim).
 - **Contoh:**
   ```ts
-  const gauge = new TRadialGauge({ value: 72, style: { width: "220px", background: "#111" } });
-  const card  = new TSensorCard({ label: "Temp", style: { minWidth: "220px" } });
+  const gauge = new TRadialGauge({
+    value: 72,
+    style: { width: "220px", background: "#111" },
+  });
+  const card = new TSensorCard({ label: "Temp", style: { minWidth: "220px" } });
   ```
 - **Dampak:** User bisa mengkustomisasi kartu luar widget IoT langsung dari opsi objek literal (atau lewat `comp.style`).
 - **Oleh:** Copilot
