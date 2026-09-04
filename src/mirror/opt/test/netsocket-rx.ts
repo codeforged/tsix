@@ -34,7 +34,7 @@ const reset = "\x1b[0m";
 export const main = Program(async (args: string[]) => {
   const port = parseInt(args[0] || "2500", 10);
 
-  const sock = new NetSocket({ port, key: KEY_HEX });
+  const sock = new NetSocket({ port, key: KEY_HEX, protocol: "JSON" });
 
   // Event-driven: onData is called by the internal loop (started at open()).
   sock.onData = (pkt) => {

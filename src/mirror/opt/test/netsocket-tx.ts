@@ -41,7 +41,7 @@ export const main = Program(async (args: string[]) => {
   const targetPort = parseInt(args[1] || "2500", 10);
   const myPort = 0; // 0 = minta port random yang available (kernel yang pilih)
 
-  const sock = new NetSocket({ port: myPort, key: KEY_HEX });
+  const sock = new NetSocket({ port: myPort, key: KEY_HEX, protocol: "JSON" });
 
   // Set onData BEFORE open() — the event-driven recv loop only starts when
   // onData is already attached at open() time. If set afterwards, TX will

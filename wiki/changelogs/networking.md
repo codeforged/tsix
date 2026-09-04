@@ -8,6 +8,17 @@
 
 ## 2026-09-04
 
+### NetSocket pin wire protocol per-port — `binary`/`protocol` deterministik
+
+- **File:** `src/mirror/lib/NetworkLib.ts`, `src/kernel/devices/SimpleMQTNLDriver.ts`, `src/mirror/opt/test/netsocket-rx.ts`, `src/mirror/opt/test/netsocket-tx.ts`
+- **Masalah:** protocol wire keluar ditentukan `protocolRegistry` (protocol "terakhir dipakai" peer) yang **menang atas** opsi `binary`/`protocol`. Di node tunggal (loopback ke `localhost`/diri sendiri), begitu ada satu trafik Binfeo ke alamat itu (mis. `scanif -p ... localhost`, `netsocket-binfeo-*`), socket JSON (`binary:false`) ikut terkirim sebagai Binfeo.
+- **Perubahan:**
+  - `NetSocket.open()` kini **selalu memin wire protocol per-port** (ioctl 0x1002): opsi `protocol` (mis. `"Binfeo"`) → nama itu; `binary:true` → `"Binary"`; default → `"JSON"`.
+  - `SimpleMQTNLDriver.send()` prioritas diubah: **override per-port eksplisit menang** atas `protocolRegistry`; `protocolRegistry` jadi fallback (utk port tanpa override, supaya balasan tetap mengikuti protocol peer); `activeProtocol` fallback terakhir.
+  - Contoh `netsocket-rx.ts`/`netsocket-tx.ts` kini eksplisit `protocol: "JSON"`.
+- **Dampak:** `binary:false`/`protocol:"JSON"` benar-benar menghasilkan wire JSON walau sudah ada trafik Binfeo sebelumnya. App berbasis `NetSocket` yang ingin mengikuti protocol peer harus eksplisit `protocol: "Binfeo"`.
+- **Oleh:** Copilot · **Verifikasi:** pengguna mengonfirmasi — setelah `scanif`, `netsocket-rx/tx` tetap JSON.
+
 ### `scanif` — pengganti `nmap` (rename, hapus `-sn`) + fix & perluasan port scan
 
 - **File:** `src/mirror/usr/bin/scanif.ts` (baru, ex `nmap.ts`), `src/kernel/devices/SimpleMQTNLDriver.ts`, `src/kernel/Syscalls.ts`, `src/mirror/etc/tpkg/packages.json`, `wiki/Networking-MQTNL.md`

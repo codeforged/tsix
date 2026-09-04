@@ -566,16 +566,23 @@ export class SimpleMQTNLDriver implements IDevice {
     }
 
     // --- PROTOCOL SELECTION ---
-    // Look up registered protocol for this destination; fallback ke per-port
-    // protocol (portProtocols) lalu global default (activeProtocol).
-    let protocol = this.protocolRegistry.get(address);
-    if (!protocol) {
-      const perPortName = this.portProtocols.get(srcPort);
-      protocol = perPortName
-        ? (this.protocols.find((p) => p.getName() === perPortName) ??
-          this.activeProtocol)
-        : this.activeProtocol;
-    }
+    // Prioritas:
+    //   1. Override per-port EKSPLISIT (portProtocols — dipasang NetSocket
+    //      lewat opsi `binary`/`protocol`, juga tssh/scanif/dll) → wire
+    //      protocol deterministik, TIDAK bisa di-override protocolRegistry
+    //      (protocol "terakhir dipakai" peer). Tanpa ini, sekali ada trafik
+    //      Binfeo ke suatu alamat, socket JSON ikut ter-broadcast sbg Binfeo.
+    //   2. Tanpa override: protocolRegistry (protocol terakhir dipakai peer)
+    //      — supaya balasan mengikuti protocol peer (mis. routing ping/server).
+    //   3. Fallback terakhir: activeProtocol global (default JSON).
+    const perPortName = this.portProtocols.get(srcPort);
+    const explicitProto = perPortName
+      ? this.protocols.find((p) => p.getName() === perPortName)
+      : undefined;
+    const protocol =
+      explicitProto ??
+      this.protocolRegistry.get(address) ??
+      this.activeProtocol;
     const protocolName = protocol.getName();
     const useRaw = protocolName === "Binary"; // OTA: bypass enkripsi
     const isBinfeo = protocolName === "Binfeo"; // biner TERSANDI

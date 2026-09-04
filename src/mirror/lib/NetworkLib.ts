@@ -432,14 +432,17 @@ export class NetSocket {
     // bisa mulai plain dulu lalu switch ke ChaCha20-Poly1305 (mis. setelah
     // handshake / pertukaran session key).
 
-    // Protocol biner per-port (dulu magic ioctl 0x1002) — pakai port asli.
-    // `protocol` (mis. "Binfeo") mengalahkan `binary` (→ "Binary").
-    if (this.binary || this.protocol) {
-      await lib.ioctl(fd, SMQTNL_IOCTL.SET_BINARY_MODE, {
-        port: actualPort,
-        ...(this.protocol ? { protocol: this.protocol } : {}),
-      });
-    }
+    // Wire protocol PER-PORT dipin eksplisit (ioctl 0x1002) — supaya pilihan
+    // `binary`/`protocol` deterministik dan TIDAK ikut di-override
+    // `protocolRegistry` (protocol "terakhir dipakai" peer). Resolusi nama:
+    //   - opsi `protocol` ("Binfeo" | "Binary" | "JSON" | ...) → nama itu
+    //   - selain itu, `binary: true` → "Binary" (OTA plain/bypass enkripsi)
+    //   - default (`binary: false` / kosong) → "JSON" (text JSON, bisa dienkripsi)
+    const wireProto = this.protocol || (this.binary ? "Binary" : "JSON");
+    await lib.ioctl(fd, SMQTNL_IOCTL.SET_BINARY_MODE, {
+      port: actualPort,
+      protocol: wireProto,
+    });
 
     this.opened = true;
     this.boundPort = actualPort;

@@ -225,6 +225,16 @@ await tx.close();
 
 Contoh lengkap: `netsocket-binfeo-rx.ts` / `netsocket-binfeo-tx.ts`.
 
+> 📌 **Wire protocol dipin per-port (deterministik).** Sejak 2026-09-04,
+> `NetSocket.open()` **selalu** memasang protocol per-port via ioctl `0x1002`:
+> opsi `protocol` (`"Binfeo"`/`"Binary"`/`"JSON"`) → nama itu; `binary:true` →
+> `"Binary"`; default → **`"JSON"`**. Driver kini mengutamakan override per-port
+> ini di atas `protocolRegistry` (protocol "terakhir dipakai" peer). Efeknya:
+> `binary:false` / `protocol:"JSON"` benar-benar menghasilkan wire JSON — tidak
+> lagi "ikut Binfeo" hanya karena sebelumnya ada trafik Binfeo ke alamat yang sama
+> (mis. setelah `scanif -p ... localhost`). Kalau memang mau biner tersandi,
+> set eksplisit `protocol: "Binfeo"`.
+
 ---
 
 ## 8. Contoh 4 — RSA handshake untuk berbagi secret key ChaCha20
