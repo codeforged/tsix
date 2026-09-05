@@ -2,7 +2,7 @@
 
 > **NetSocket** adalah komponen high-level untuk networking MQTNL di TSIX (ala Cashew).
 > Membungkus `NetworkLib` (syscall-level) jadi API yang bersih: `instantiate → open()
-> → events (onData/onError/onClose) → close()`. Tanpa magic number, tanpa urus fd
+→ events (onData/onError/onClose) → close()`. Tanpa magic number, tanpa urus fd
 > manual, auto-release port + normalisasi security agent saat close.
 
 ```
@@ -14,13 +14,13 @@ NetworkLib (syscall: socket/bind/sendto/recv/ioctl)
 
 ## 1. Konsep inti
 
-| Konsep | Penjelasan |
-|---|---|
+| Konsep                                              | Penjelasan                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Port lokal (pilih sendiri atau `0` = ephemeral)** | NetSocket bisa bind port tertentu ATAU minta port random dengan `port: 0`. Setelah `open()`, `sock.port` berisi **port ASLI** hasil pilihan kernel — dan `upgradeSecurity()` otomatis memasang session key ke port asli itu. Penting karena MQTNL mengenkripsi **per srcPort**. |
-| **Biner TERSANDI (Binfeo)** | Protocol biner yang BISA dienkripsi utk komunikasi normal (bukan OTA). Pilih via `protocol: "Binfeo"` — driver enkripsi payload (Buffer utuh, byte ≥ 0x80 tidak rusak). |
-| **Plain dulu, upgrade belakangan** | `open()` membuat socket plain. Enkripsi (ChaCha20-Poly1305) diaktifkan **eksplisit** via `upgradeSecurity()`. Bisa mulai plain → handshake → switch secure. |
-| **Event-driven vs manual** | Bisa terima data via `onData` (loop internal) ATAU loop `recv()` manual. Keduanya eksklusif. |
-| **Auto-cleanup** | Ctrl+C → `close()` otomatis (release port + normalisasi security agent). |
+| **Biner TERSANDI (Binfeo)**                         | Protocol biner yang BISA dienkripsi utk komunikasi normal (bukan OTA). Pilih via `protocol: "Binfeo"` — driver enkripsi payload (Buffer utuh, byte ≥ 0x80 tidak rusak).                                                                                                         |
+| **Plain dulu, upgrade belakangan**                  | `open()` membuat socket plain. Enkripsi (ChaCha20-Poly1305) diaktifkan **eksplisit** via `upgradeSecurity()`. Bisa mulai plain → handshake → switch secure.                                                                                                                     |
+| **Event-driven vs manual**                          | Bisa terima data via `onData` (loop internal) ATAU loop `recv()` manual. Keduanya eksklusif.                                                                                                                                                                                    |
+| **Auto-cleanup**                                    | Ctrl+C → `close()` otomatis (release port + normalisasi security agent).                                                                                                                                                                                                        |
 
 ---
 
@@ -57,10 +57,10 @@ port targetnya. Cukup pakai `port: 0`: kernel memilih port random yang available
 lalu `open()` mengisi `sock.port` dengan **port asli** hasil pilihan kernel:
 
 ```ts
-const sock = new NetSocket({ port: 0, key: KEY_HEX });  // 0 = port random
+const sock = new NetSocket({ port: 0, key: KEY_HEX }); // 0 = port random
 await sock.open();
-std.println(`local port = ${sock.port}`);               // port ASLI (mis. 13562)
-await sock.upgradeSecurity();                           // key menempel ke port asli itu
+std.println(`local port = ${sock.port}`); // port ASLI (mis. 13562)
+await sock.upgradeSecurity(); // key menempel ke port asli itu
 ```
 
 Ini aman untuk mode terenkripsi: karena MQTNL encrypts **per srcPort**, session key
@@ -98,6 +98,7 @@ close()                         → release port + normalisasi security agent
 ## 4. Contoh 1 — Paling sederhana: ping-pong plain (event-driven)
 
 **RX** (`netsocket-rx`):
+
 ```ts
 import { Program, std, NetSocket } from "@tsix/Application";
 
@@ -107,26 +108,28 @@ export const main = Program(async (args: string[]) => {
   // onData SEBELUM open()
   sock.onData = (pkt) => {
     std.println(`[RX] ${pkt.src}:${pkt.port} -> ${pkt.data}`);
-    sock.reply(pkt, "pong");            // balas balik ke pengirim
+    sock.reply(pkt, "pong"); // balas balik ke pengirim
   };
   sock.onError = (err) => std.println(`[RX] error: ${err.message}`);
 
   await sock.open();
-  await sock.waitClosed();              // jaga hidup sampai ditutup (Ctrl+C)
+  await sock.waitClosed(); // jaga hidup sampai ditutup (Ctrl+C)
 });
 ```
 
 **TX** (`netsocket-tx`):
+
 ```ts
 import { Program, std, NetSocket } from "@tsix/Application";
 
 export const main = Program(async (args: string[]) => {
-  const sock = new NetSocket({ port: 0 });   // 0 = port random (ephemeral)
+  const sock = new NetSocket({ port: 0 }); // 0 = port random (ephemeral)
 
   // onData SEBELUM open() — biar TX bisa menerima pong balik
-  sock.onData = (pkt) => std.println(`[TX] ← ${pkt.src}:${pkt.port} -> ${pkt.data}`);
+  sock.onData = (pkt) =>
+    std.println(`[TX] ← ${pkt.src}:${pkt.port} -> ${pkt.data}`);
 
-  await sock.open();                          // sock.port = port asli dari kernel
+  await sock.open(); // sock.port = port asli dari kernel
   await sock.sendTo("localhost", 2500, "halo!");
   await sock.waitClosed();
   await sock.close();
@@ -141,6 +144,7 @@ export const main = Program(async (args: string[]) => {
 ## 5. Contoh 2 — Dua pola menerima data
 
 ### Pola A: event-driven (disarankan)
+
 ```ts
 sock.onData = (pkt) => { ... };   // dipanggil loop internal
 sock.onError = (err) => { ... };
@@ -149,6 +153,7 @@ await sock.waitClosed();
 ```
 
 ### Pola B: manual loop (gaya lama)
+
 ```ts
 await sock.open();                // jangan set onData!
 while (sock.isOpen) {
@@ -193,11 +198,11 @@ selalu **bypass enkripsi** supaya panjang byte persis, Binfeo (`mqtnl@1.2/`, mag
 `0x66`) dikirim **terenkripsi oleh driver** — payload biner tetap utuh sampai
 receiver (byte ≥ 0x80 tidak rusak), dan RX menerimanya sebagai `Buffer`.
 
-| Protocol | Nama | Magic | Topic | Enkripsi driver |
-|---|---|---|---|---|
-| JSON (default) | `"JSON"` | `0x5B` `'['` | `mqtnl@1.0/` | string hex |
-| Biner OTA | `"Binary"` | `0x42` `'B'` | `mqtnl@1.1/` | **tidak** (bypass, utk OTA) |
-| **Biner tersandi** | `"Binfeo"` | `0x66` `'f'` | `mqtnl@1.2/` | **ya** (raw Buffer) |
+| Protocol           | Nama       | Magic        | Topic        | Enkripsi driver             |
+| ------------------ | ---------- | ------------ | ------------ | --------------------------- |
+| JSON (default)     | `"JSON"`   | `0x5B` `'['` | `mqtnl@1.0/` | string hex                  |
+| Biner OTA          | `"Binary"` | `0x42` `'B'` | `mqtnl@1.1/` | **tidak** (bypass, utk OTA) |
+| **Biner tersandi** | `"Binfeo"` | `0x66` `'f'` | `mqtnl@1.2/` | **ya** (raw Buffer)         |
 
 Pilih lewat opsi `protocol` di `NetSocket` (mengalahkan `binary: true`):
 
@@ -209,17 +214,21 @@ const KEY_HEX =
 const rx = new NetSocket({ port: 2700, key: KEY_HEX, protocol: "Binfeo" });
 rx.onData = (pkt) => {
   const buf = Buffer.isBuffer(pkt.data) ? pkt.data : Buffer.from(pkt.data);
-  std.println(`[RX] ${buf.toString("hex")}`);   // byte persis sama
+  std.println(`[RX] ${buf.toString("hex")}`); // byte persis sama
 };
 await rx.open();
-await rx.upgradeSecurity();       // key menempel ke port rx
+await rx.upgradeSecurity(); // key menempel ke port rx
 await rx.waitClosed();
 
 // TX — port ephemeral (0), kirim Buffer; driver enkripsi otomatis
 const tx = new NetSocket({ port: 0, key: KEY_HEX, protocol: "Binfeo" });
-await tx.open();                  // sock.port = port asli dari kernel
-await tx.upgradeSecurity();       // key menempel ke port asli itu
-await tx.sendTo("localhost", 2700, Buffer.from([0xde, 0xad, 0xbe, 0xef, 0x00, 0x80, 0xff]));
+await tx.open(); // sock.port = port asli dari kernel
+await tx.upgradeSecurity(); // key menempel ke port asli itu
+await tx.sendTo(
+  "localhost",
+  2700,
+  Buffer.from([0xde, 0xad, 0xbe, 0xef, 0x00, 0x80, 0xff]),
+);
 await tx.close();
 ```
 
@@ -277,6 +286,7 @@ Client                                   Server
 ```
 
 ### Client side
+
 ```ts
 import { Program, std, NetSocket } from "@tsix/Application";
 import { SecurityAgent } from "@common/SecurityAgent";
@@ -286,16 +296,16 @@ const OP = { REQ_KEY: "1", PUBKEY: "2", SECRET_KEY: "3", MSG: "4" };
 
 let handshaked = false; // true setelah upgradeSecurity() — channel terenkripsi
 
-const sock = new NetSocket({ port: 0 });   // client: port random (ephemeral) — tidak peduli port lokal
+const sock = new NetSocket({ port: 0 }); // client: port random (ephemeral) — tidak peduli port lokal
 sock.onData = (pkt) => {
   const text = String(pkt.data);
-  const op = text.charAt(0);              // char pertama = opcode
-  const body = text.slice(1);             // sisanya = data
+  const op = text.charAt(0); // char pertama = opcode
+  const body = text.slice(1); // sisanya = data
 
   if (op === OP.PUBKEY && !handshaked) {
     // 1) Server kirim public key
     const serverPub = body;
-    const sessionKey = SecurityAgent.generateSessionKey();          // 32 byte acak
+    const sessionKey = SecurityAgent.generateSessionKey(); // 32 byte acak
     const enc = SecurityAgent.encryptWithPublicKey(serverPub, sessionKey);
 
     // 2) Kirim session key ter-enkripsi RSA (payload: opcode + hex)
@@ -316,12 +326,13 @@ await sock.waitClosed();
 ```
 
 ### Server side
+
 ```ts
 import { Program, std, NetSocket } from "@tsix/Application";
 import { SecurityAgent } from "@common/SecurityAgent";
 
 const OP = { REQ_KEY: "1", PUBKEY: "2", SECRET_KEY: "3", MSG: "4" };
-const keys = SecurityAgent.generateKeyPair();   // RSA key pair server
+const keys = SecurityAgent.generateKeyPair(); // RSA key pair server
 let secured = false;
 
 const sock = new NetSocket({ port: 2500 });
@@ -339,7 +350,10 @@ sock.onData = async (pkt) => {
   } else if (op === OP.SECRET_KEY) {
     // Terima session key ter-enkripsi → decrypt → aktifkan ChaCha20
     const enc = body;
-    const sessionKey = SecurityAgent.decryptWithPrivateKey(keys.privateKey, enc);
+    const sessionKey = SecurityAgent.decryptWithPrivateKey(
+      keys.privateKey,
+      enc,
+    );
     await sock.upgradeSecurity(sessionKey.toString("hex"));
     secured = true;
     std.println("[server] session key diterima, koneksi aman!");
@@ -367,6 +381,7 @@ await sock.waitClosed();
 > tampilkan. Selama keduanya memakai session key yang sama, pesan terbaca dua arah.
 
 ### Kenapa RSA + ChaCha20 (bukan cuma RSA)?
+
 - **RSA (asimetris)**: aman untuk pertukaran kunci, tapi lambat untuk data besar.
 - **ChaCha20 (simetris)**: cepat untuk data berukuran apa pun.
 - Kombinasi: **RSA sekali untuk kirim session key → ChaCha20 untuk semua data** = aman + cepat.
@@ -379,32 +394,34 @@ await sock.waitClosed();
 
 ## 9. API ringkas
 
-| Method | Kegunaan |
-|---|---|
+| Method                                                      | Kegunaan                                                                 |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `new NetSocket({ port, key?, binary?, protocol?, iface? })` | Konfigurasi (port wajib) — `protocol` mis. `"Binfeo"` utk biner tersandi |
-| `open()` / `listen()` | Socket + bind (plain), start recv-loop kalau `onData` ada |
-| `upgradeSecurity(key?, { agent? })` | Switch ke enkripsi (default ChaCha20, bisa `aes-gcm`) |
-| `sendTo(addr, port, data, flag?, srcPort?)` | Kirim data dari socket ini |
-| `reply(pkt, data)` | Balas ke pengirim paket (shortcut sendTo ke pkt.src:pkt.port) |
-| `recv()` | Baca satu paket manual (hanya kalau onData TIDAK diisi) |
-| `waitClosed()` | Promise yang resolve saat socket ditutup |
-| `close()` | Release port + normalisasi security agent (idempotent) |
-| `netstat()` | Info interface MQTNL + statistik |
+| `open()` / `listen()`                                       | Socket + bind (plain), start recv-loop kalau `onData` ada                |
+| `upgradeSecurity(key?, { agent? })`                         | Switch ke enkripsi (default ChaCha20, bisa `aes-gcm`)                    |
+| `sendTo(addr, port, data, flag?, srcPort?)`                 | Kirim data dari socket ini                                               |
+| `reply(pkt, data)`                                          | Balas ke pengirim paket (shortcut sendTo ke pkt.src:pkt.port)            |
+| `recv()`                                                    | Baca satu paket manual (hanya kalau onData TIDAK diisi)                  |
+| `waitClosed()`                                              | Promise yang resolve saat socket ditutup                                 |
+| `close()`                                                   | Release port + normalisasi security agent (idempotent)                   |
+| `netstat()`                                                 | Info interface MQTNL + statistik                                         |
 
 ### Property
-| Property | Arti |
-|---|---|
-| `port` | Port lokal yang ter-bind — untuk `port: 0`, berisi port ASLI hasil pilihan kernel (null sebelum open) |
-| `isOpen` | True selama socket terbuka |
-| `isSecured` | True setelah `upgradeSecurity()` |
-| `agent` | Nama agent enkripsi aktif (`chacha20` default) |
+
+| Property    | Arti                                                                                                  |
+| ----------- | ----------------------------------------------------------------------------------------------------- |
+| `port`      | Port lokal yang ter-bind — untuk `port: 0`, berisi port ASLI hasil pilihan kernel (null sebelum open) |
+| `isOpen`    | True selama socket terbuka                                                                            |
+| `isSecured` | True setelah `upgradeSecurity()`                                                                      |
+| `agent`     | Nama agent enkripsi aktif (`chacha20` default)                                                        |
 
 ### Event
-| Event | Dipanggil saat |
-|---|---|
-| `onData(pkt)` | Ada paket masuk (mode event) |
-| `onError(err)` | Terjadi error |
-| `onClose()` | Socket ditutup |
+
+| Event          | Dipanggil saat               |
+| -------------- | ---------------------------- |
+| `onData(pkt)`  | Ada paket masuk (mode event) |
+| `onError(err)` | Terjadi error                |
+| `onClose()`    | Socket ditutup               |
 
 ---
 
