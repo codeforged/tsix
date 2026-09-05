@@ -1,8 +1,8 @@
 export { IProgram, OSContext } from "./IProgram";
 import { IProgram, OSContext } from "./IProgram";
-import { NetworkLib, NetSocket } from "./NetworkLib";
+import { NetworkLib, NetSocket, RsaChaSocket } from "./NetworkLib";
 import { UserLib, StdLib, FsLib, ShellLib, KeyboardLib } from "./UserLib";
-export { NetworkLib, NetSocket } from "./NetworkLib";
+export { NetworkLib, NetSocket, RsaChaSocket } from "./NetworkLib";
 export type { NetPacket } from "./NetworkLib";
 export type { KeyEvent } from "./UserLib";
 import { DbLib } from "./DbLib";

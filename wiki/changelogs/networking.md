@@ -6,6 +6,20 @@
 
 ---
 
+## 2026-09-05
+
+### `RsaChaSocket` — helper handshake RSA + ChaCha20 dengan verifikasi fingerprint
+
+- **File:** `src/mirror/lib/NetworkLib.ts`, `src/mirror/lib/NetworkLib.js`, `src/mirror/lib/Application.ts`, `src/mirror/lib/Application.js`, `src/mirror/opt/test/netsocket-rsacha-server.ts`, `src/mirror/opt/test/netsocket-rsacha-client.ts`
+- **Perubahan:**
+  - Tambah `RsaChaSocket` untuk membungkus socket, RSA-OAEP key exchange, session key ChaCha20-Poly1305, lifecycle, dan event message.
+  - Server otomatis mengirim public key beserta fingerprint SHA-256; client memvalidasi fingerprint terhadap public key sebelum mengirim session key.
+  - Client mendukung `trustedFingerprint` untuk pinning otomatis atau `verifyFingerprint` untuk konfirmasi interaktif `yes/no` sebelum koneksi establish.
+  - Server dapat menerima `keyPair` sendiri agar fingerprint stabil setelah restart; getter `fingerprint` tersedia untuk logging.
+  - Contoh RSA-ChaCha server/client diringkas agar hanya menangani konfigurasi socket dan pesan aplikasi.
+- **Dampak:** aplikasi tidak perlu lagi mengelola opcode handshake, RSA keypair, enkripsi session key, atau loop `recv()` secara manual; koneksi dengan fingerprint tidak cocok otomatis ditolak.
+- **Oleh:** Copilot · **Verifikasi:** typecheck terfokus untuk helper dan contoh lulus; sidecar runtime diregenerasi.
+
 ## 2026-09-04
 
 ### NetSocket pin wire protocol per-port — `binary`/`protocol` deterministik

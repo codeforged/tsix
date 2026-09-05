@@ -1,5 +1,6 @@
 import { SyscallCode } from "../../common/SyscallCode";
 import { PacketFlags } from "../../common/PacketFlags";
+import { SecurityAgent } from "../../common/SecurityAgent";
 import { OSContext } from "./IProgram";
 
 /**
@@ -675,6 +676,268 @@ export class NetSocket {
       } catch (_e) {
         /* abaikan */
       }
+    }
+  }
+}
+
+/** Peran socket dalam handshake RSA + ChaCha20. */
+export type RsaChaRole = "server" | "client";
+
+export interface RsaChaSocketOptions extends NetSocketOptions {
+  /** Server menunggu client; client otomatis menghubungi peer ini. */
+  role: RsaChaRole;
+  /** Tujuan handshake dan pengiriman data untuk role `client`. */
+  peer?: { address: string; port: number };
+  /**
+   * Fingerprint public key server yang dipercaya (16 karakter SHA-256 uppercase).
+   * Jika diisi pada client, koneksi dibatalkan sebelum key exchange saat tidak cocok.
+   */
+  trustedFingerprint?: string;
+  /** Callback verifikasi interaktif sebelum key exchange (mis. prompt yes/no). */
+  verifyFingerprint?: (fingerprint: string) => boolean | Promise<boolean>;
+  /** RSA key pair server yang stabil agar fingerprint tidak berubah saat restart. */
+  keyPair?: { publicKey: string; privateKey: string };
+}
+
+/**
+ * Event-driven socket dengan handshake RSA-OAEP + ChaCha20-Poly1305 bawaan.
+ *
+ * Server:
+ *   const sock = new RsaChaSocket({ role: "server", port: 2600 });
+ *   sock.onMessage = (message, packet) => sock.reply(packet, `echo: ${message}`);
+ *   await sock.open();
+ *
+ * Client:
+ *   const sock = new RsaChaSocket({
+ *     role: "client", port: 2601, peer: { address: "localhost", port: 2600 },
+ *     trustedFingerprint: "A1B2C3D4E5F60718",
+ *   });
+ *   sock.onMessage = (message) => std.println(message);
+ *   await sock.open(); // selesai setelah channel aman aktif
+ *   await sock.send("hello");
+ */
+export class RsaChaSocket {
+  public onMessage: ((message: string, packet: NetPacket) => void) | null = null;
+  public onReady: (() => void) | null = null;
+  public onError: ((err: Error) => void) | null = null;
+  public onClose: (() => void) | null = null;
+
+  private readonly role: RsaChaRole;
+  private readonly peer?: { address: string; port: number };
+  private readonly socket: NetSocket;
+  private readonly keyPair: { publicKey: string; privateKey: string } | null;
+  private readonly trustedFingerprint?: string;
+  private readonly verifyFingerprint?: (fingerprint: string) => boolean | Promise<boolean>;
+  private readonly serverFingerprint: string | null;
+  private ready = false;
+  private readyResolve!: () => void;
+  private readyReject!: (err: Error) => void;
+  private readonly readyPromise: Promise<void>;
+
+  private static readonly REQUEST_KEY = "1";
+  private static readonly PUBLIC_KEY = "2";
+  private static readonly SECRET_KEY = "3";
+  private static readonly MESSAGE = "4";
+
+  constructor(opts: RsaChaSocketOptions) {
+    if (opts.role !== "server" && opts.role !== "client") {
+      throw new Error("RsaChaSocket: role harus 'server' atau 'client'");
+    }
+    if (opts.role === "client" && (!opts.peer || !opts.peer.address)) {
+      throw new Error(
+        "RsaChaSocket: opsi peer { address, port } wajib untuk client",
+      );
+    }
+
+    this.role = opts.role;
+    this.peer = opts.peer;
+    this.socket = new NetSocket(opts);
+    this.keyPair = this.role === "server"
+      ? opts.keyPair ?? SecurityAgent.generateKeyPair()
+      : null;
+    this.trustedFingerprint = opts.trustedFingerprint?.replace(/^SHA256:/i, "").toUpperCase();
+    this.verifyFingerprint = opts.verifyFingerprint;
+    this.serverFingerprint = this.keyPair
+      ? SecurityAgent.getFingerprint(this.keyPair.publicKey)
+      : null;
+    this.readyPromise = new Promise<void>((resolve, reject) => {
+      this.readyResolve = resolve;
+      this.readyReject = reject;
+    });
+
+    this.socket.onData = (packet) => {
+      void this.handlePacket(packet);
+    };
+    this.socket.onError = (err) => this.emitError(err);
+    this.socket.onClose = () => {
+      if (!this.ready) this.readyReject(new Error("RsaChaSocket: socket ditutup sebelum handshake selesai"));
+      this.onClose?.();
+    };
+  }
+
+  get port(): number | null {
+    return this.socket.port;
+  }
+
+  get isOpen(): boolean {
+    return this.socket.isOpen;
+  }
+
+  get isSecured(): boolean {
+    return this.ready;
+  }
+
+  /** Fingerprint SHA-256 public key server (16 karakter uppercase). */
+  get fingerprint(): string | null {
+    return this.serverFingerprint;
+  }
+
+  /** Buka socket dan jalankan handshake otomatis. Client menunggu sampai ready. */
+  public async open(): Promise<this> {
+    await this.socket.open();
+    if (this.role === "client") {
+      await this.socket.sendTo(
+        this.peer!.address,
+        this.peer!.port,
+        RsaChaSocket.REQUEST_KEY,
+      );
+      await this.waitReady();
+    }
+    return this;
+  }
+
+  /** Alias semantik untuk server. */
+  public async listen(): Promise<this> {
+    return await this.open();
+  }
+
+  /** Tunggu sampai RSA selesai dan ChaCha20 aktif. */
+  public async waitReady(): Promise<void> {
+    await this.readyPromise;
+  }
+
+  /** Kirim pesan aman ke peer client. */
+  public async send(message: string, flag: PacketFlags = PacketFlags.FLAG_DATA): Promise<boolean> {
+    if (!this.peer) {
+      throw new Error("RsaChaSocket: send() membutuhkan peer; gunakan sendTo() atau reply() di server");
+    }
+    await this.waitReady();
+    return await this.socket.sendTo(this.peer.address, this.peer.port, RsaChaSocket.MESSAGE + message, flag);
+  }
+
+  /** Kirim pesan aman ke address:port tertentu, terutama untuk server. */
+  public async sendTo(
+    address: string,
+    port: number,
+    message: string,
+    flag: PacketFlags = PacketFlags.FLAG_DATA,
+  ): Promise<boolean> {
+    await this.waitReady();
+    return await this.socket.sendTo(address, port, RsaChaSocket.MESSAGE + message, flag);
+  }
+
+  /** Balas pesan aman ke pengirim packet. */
+  public async reply(
+    packet: NetPacket,
+    message: string,
+    flag: PacketFlags = PacketFlags.FLAG_DATA,
+  ): Promise<boolean> {
+    await this.waitReady();
+    return await this.socket.reply(packet, RsaChaSocket.MESSAGE + message, flag);
+  }
+
+  public async close(): Promise<void> {
+    await this.socket.close();
+  }
+
+  public async waitClosed(): Promise<void> {
+    await this.socket.waitClosed();
+  }
+
+  private async handlePacket(packet: NetPacket): Promise<void> {
+    const text = String(packet.data);
+    const opcode = text.charAt(0);
+    const body = text.slice(1);
+
+    try {
+      if (this.role === "server" && !this.ready && opcode === RsaChaSocket.REQUEST_KEY) {
+        await this.socket.reply(
+          packet,
+          RsaChaSocket.PUBLIC_KEY + this.keyPair!.publicKey + "::" + this.serverFingerprint,
+        );
+        return;
+      }
+
+      if (this.role === "server" && !this.ready && opcode === RsaChaSocket.SECRET_KEY) {
+        const sessionKey = SecurityAgent.decryptWithPrivateKey(this.keyPair!.privateKey, body);
+        await this.socket.upgradeSecurity(sessionKey.toString("hex"));
+        this.markReady();
+        return;
+      }
+
+      if (this.role === "client" && !this.ready && opcode === RsaChaSocket.PUBLIC_KEY) {
+        const [serverPublicKey, fingerprint] = body.split("::");
+        const normalizedFingerprint = fingerprint?.trim().toUpperCase();
+        if (!normalizedFingerprint) {
+          throw new Error("RsaChaSocket: server tidak mengirim fingerprint");
+        }
+        const calculatedFingerprint = SecurityAgent.getFingerprint(serverPublicKey);
+        if (calculatedFingerprint !== normalizedFingerprint) {
+          throw new Error("RsaChaSocket: fingerprint tidak cocok dengan public key server");
+        }
+        if (
+          this.trustedFingerprint &&
+          this.trustedFingerprint !== normalizedFingerprint
+        ) {
+          throw new Error(
+            `RsaChaSocket: fingerprint server tidak cocok (expected ${this.trustedFingerprint}, received ${normalizedFingerprint})`,
+          );
+        }
+        if (
+          !this.trustedFingerprint &&
+          this.verifyFingerprint &&
+          !(await this.verifyFingerprint(normalizedFingerprint))
+        ) {
+          throw new Error("RsaChaSocket: koneksi ditolak oleh user");
+        }
+
+        const sessionKey = SecurityAgent.generateSessionKey();
+        const encryptedKey = SecurityAgent.encryptWithPublicKey(serverPublicKey, sessionKey);
+        await this.socket.sendTo(
+          this.peer!.address,
+          this.peer!.port,
+          RsaChaSocket.SECRET_KEY + encryptedKey,
+        );
+        await this.socket.upgradeSecurity(sessionKey.toString("hex"));
+        this.markReady();
+        return;
+      }
+
+      if (this.ready && opcode === RsaChaSocket.MESSAGE) {
+        await this.onMessage?.(body, packet);
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      if (!this.ready) {
+        this.readyReject(error);
+        await this.socket.close();
+      }
+      this.emitError(error);
+    }
+  }
+
+  private markReady(): void {
+    if (this.ready) return;
+    this.ready = true;
+    this.readyResolve();
+    this.onReady?.();
+  }
+
+  private emitError(err: Error): void {
+    try {
+      this.onError?.(err);
+    } catch (_e) {
+      // User handlers must not break the receive loop.
     }
   }
 }
