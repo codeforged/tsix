@@ -143,10 +143,9 @@ export class main implements IProgram {
         fd,
         49152 + Math.floor(Math.random() * 1000),
       );
-      await net.ioctl(fd, SMQTNL_IOCTL.SET_BINARY_MODE, {
-        port: localPort,
-        protocol: "Binfeo",
-      });
+      // Discovery memakai JSON v1.0 agar kompatibel dengan node lama
+      // (mis. Felica) yang belum subscribe/menangani Binfeo v1.2.
+      // Node baru tetap wajib mendukung JSON untuk ping/discovery dasar.
 
       const scanStart = Date.now();
       const port = 65534; // Broadcast ping port (NOS standard)
@@ -171,10 +170,17 @@ export class main implements IProgram {
           {
             found.add(reply.src);
             let identity = reply.data || "Unknown";
-            try {
-              JSON.parse(identity);
-            } catch {
-              if (identity !== "Unknown") identity = "encrypted device";
+            if (Buffer.isBuffer(identity)) identity = identity.toString("utf8");
+            if (typeof identity === "object") {
+              try {
+                identity = JSON.stringify(identity);
+              } catch {
+                identity = "Unknown";
+              }
+            }
+            identity = String(identity);
+            if (identity.length > 18) {
+              identity = `${identity.slice(0, 18)}...`;
             }
             await std.print(
               `Found node: \x1B[1;32m${reply.src.padEnd(15)}\x1B[0m | Identity: ${identity} | RTT: ${rtt}ms\n`,

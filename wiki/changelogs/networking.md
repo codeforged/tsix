@@ -6,6 +6,18 @@
 
 ---
 
+## 2026-09-06
+
+### `scanif` — kompatibilitas discovery NOS/Felica dan identity ringkas
+
+- **File:** `src/mirror/usr/bin/scanif.ts`
+- **Perubahan:**
+  - Discovery broadcast kembali memakai MQTNL v1.0 JSON, bukan Binfeo v1.2, agar node NOS lama seperti Felica yang belum mengenal `mqtnl@1.1/2` tetap terdeteksi.
+  - Reply identity berupa `Buffer` atau object dinormalisasi ke teks sebelum ditampilkan.
+  - Identity dipotong menjadi maksimal 18 karakter dengan `...` agar hash panjang atau JSON device tidak memenuhi output satu baris.
+- **Dampak:** `scanif` menemukan node TSIX dan NOS/Felica secara konsisten melalui jalur JSON kompatibel; informasi identity tetap terlihat dalam format ringkas.
+- **Oleh:** Copilot · **Verifikasi:** typecheck dan transpile syntax `scanif.ts` lulus; pengguna mengonfirmasi Felica terdeteksi.
+
 ## 2026-09-05
 
 ### `RsaChaSocket` — helper handshake RSA + ChaCha20 dengan verifikasi fingerprint
