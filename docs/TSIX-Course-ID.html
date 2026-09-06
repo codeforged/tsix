@@ -58,7 +58,7 @@
   </div>
   <div class="meta">
     System design &amp; architecture: Andriansah<br>
-    Dibuat: 2026-08-12<br>
+    Dibuat: 2026-09-05<br>
     Platform: TSIX (educational OS-like runtime on Node.js/TypeScript)
   </div>
 </div>
@@ -143,13 +143,17 @@
 │  └───────────────────────────────┴────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
 </code></pre>
-<p><strong>Tiga prinsip inti:</strong></p>
+<p><strong>Lima prinsip inti:</strong></p>
 <ol>
-<li><p><strong>&quot;Syscall = satu-satunya pintu&quot;</strong> — Worker thread tidak pernah menyentuh resource langsung. Bahkan <code>print</code> pun syscall. Ini menjaga batas ring benar-benar berarti.</p>
+<li><p><strong>&quot;Everything is a File&quot;</strong> — file dan device sama-sama <code>IDevice</code>; <code>read/write</code> polimorfik. Buka file biasa → <code>FileSystemDevice</code>; buka <code>/dev/tty1</code> → <code>TTYDevice</code>; bahkan pipe, socket, dan display adalah device.</p>
 </li>
-<li><p><strong>&quot;Everything is a File&quot;</strong> — file dan device sama-sama <code>IDevice</code>; <code>read/write</code> polimorfik. Buka file biasa → <code>FileSystemDevice</code>; buka <code>/dev/tty1</code> → <code>TTYDevice</code>.</p>
+<li><p><strong>&quot;Distributed by Design&quot;</strong> — IPC bawaan via syscall <code>SEND_MSG</code> + identity-based messaging. Proses berkomunikasi lewat identitas (UUID), bukan alamat memori.</p>
 </li>
-<li><p><strong>&quot;Direct Memory Execution&quot;</strong> — framework (<code>/lib</code>) di-pre-compile ke memori saat boot, dikirim ke worker via <code>workerData</code>, dieksekusi tanpa hit filesystem. <code>@tsix/*</code> terasa instan.</p>
+<li><p><strong>&quot;Small, Sharp Tools&quot;</strong> — 80+ utilitas yang saling terhubung lewat pipe &amp; redirection; satu alat mengerjakan satu hal dengan baik, lalu dikombinasikan.</p>
+</li>
+<li><p><strong>&quot;Security via Simplicity&quot;</strong> — model permission UID/GID, isolasi proses (Worker Thread), dan privilege root yang sederhana namun tegas.</p>
+</li>
+<li><p><strong>&quot;Unix Fidelity dulu, pragmatis belakangan&quot;</strong> — meniru perilaku &amp; arsitektur Unix/Linux sedekat mungkin; penyimpangan hanya jika runtime Node.js/V8 tidak mampu, dan wajib didokumentasikan.</p>
 </li>
 </ol>
 <p><strong>Kunci: kernel tidak pernah menjalankan app.</strong> Semua userland (termasuk PID 1 / init) berjalan di Worker Thread. Batas Ring 1/2 vs Ring 4 adalah batas <em>thread + IPC</em>, diperkuat <code>PermissionManager</code> berbasis uid/gid/mode.</p>
@@ -745,15 +749,15 @@ userlib-update.ts          sinkronkan /lib → src/.tsix_sdk/lib (agar Node.js h
     <span class="m-part">Fondasi</span>
   </div>
   <div class="module-body"><h1>Filosofi &amp; Gambaran Besar</h1>
-<p><strong>RFC-TSIX-EDU-002</strong> | Modul pertama kurikulum TSIX. Membangun peta mental: apa itu TSIX, mengapa dirancang begini, dan tiga prinsip inti yang menjadi fondasi seluruh sistem.</p>
+<p><strong>RFC-TSIX-EDU-002</strong> | Modul pertama kurikulum TSIX. Membangun peta mental: apa itu TSIX, mengapa dirancang begini, dan lima prinsip inti yang menjadi fondasi seluruh sistem.</p>
 <blockquote>
-<p>Sebelum menulis kode, pahami dulu <strong>filosofinya</strong>. TSIX bukan sekadar &quot;emulator OS&quot; — ia adalah <strong>abstraksi OS yang dibangun di atas runtime Node.js yang sudah ada</strong>. Modul ini menjelaskan <em>kenapa</em> ia dirancang demikian, dan empat prinsip yang konsisten di semua subsistem.</p>
+<p>Sebelum menulis kode, pahami dulu <strong>filosofinya</strong>. TSIX bukan sekadar &quot;emulator OS&quot; — ia adalah <strong>abstraksi OS yang dibangun di atas runtime Node.js yang sudah ada</strong>. Modul ini menjelaskan <em>kenapa</em> ia dirancang demikian, dan lima prinsip yang konsisten di semua subsistem.</p>
 </blockquote>
 <hr>
 <h2>Tujuan Pembelajaran</h2>
 <ul>
 <li><input disabled="" type="checkbox"> Menjelaskan apa itu TSIX dan apa bedanya dengan VM/emulator</li>
-<li><input disabled="" type="checkbox"> Menyebutkan tiga prinsip inti arsitektur TSIX</li>
+<li><input disabled="" type="checkbox"> Menyebutkan lima prinsip inti arsitektur TSIX</li>
 <li><input disabled="" type="checkbox"> Menjelaskan alasan kernel, driver, dan FS disatukan dalam satu thread</li>
 <li><input disabled="" type="checkbox"> Mengenali lapisan Ring 0–4 dan isinya secara garis besar</li>
 <li><input disabled="" type="checkbox"> Menjelaskan mengapa kernel tidak pernah menjalankan aplikasi</li>
@@ -807,22 +811,22 @@ userlib-update.ts          sinkronkan /lib → src/.tsix_sdk/lib (agar Node.js h
 </tbody></table>
 <p><strong>Hasilnya:</strong> yang paling sering crash adalah aplikasi user — dan itu sudah terisolasi. Kernel + driver + FS jarang crash, dan kalaupun crash, sistem mati (tapi jarang).</p>
 <hr>
-<h2>Empat Prinsip Inti</h2>
-<h3>1. &quot;Syscall = satu-satunya pintu&quot;</h3>
-<p>Worker thread <strong>tidak pernah menyentuh resource langsung</strong>. Bahkan <code>print</code> pun melalui syscall. Ini menjaga batas ring benar-benar berarti — tidak ada jalan pintas.</p>
-<pre><code>App → UserLib.dispatch(code, args) → postMessage → Kernel → dispatch → kembali
-</code></pre>
-<h3>2. &quot;Everything is a File&quot;</h3>
+<h2>Lima Prinsip Inti</h2>
+<h3>1. &quot;Everything is a File&quot;</h3>
 <p>File dan device sama-sama <code>IDevice</code>; <code>read/write</code> polimorfik.</p>
 <ul>
 <li>Buka file biasa → <code>FileSystemDevice</code></li>
 <li>Buka <code>/dev/tty1</code> → <code>TTYDevice</code></li>
 <li>Buka <code>/dev/smqtnl0</code> → <code>SimpleMQTNLDriver</code></li>
 </ul>
-<p>Bahkan pipe dan socket adalah device. Satu kontrak, banyak implementasi.</p>
-<h3>3. &quot;Direct Memory Execution&quot; (DME)</h3>
-<p>Framework (<code>/lib</code>) di-pre-compile ke memori saat boot, dikirim ke worker via <code>workerData</code>, dieksekusi <strong>tanpa hit filesystem</strong>. <code>@tsix/*</code> terasa instan — tidak ada kompilasi ulang per proses.</p>
-<h3>4. &quot;Fidelity Unix dulu, pragmatis belakangan&quot;</h3>
+<p>Bahkan pipe, socket, dan display adalah device. Satu kontrak, banyak implementasi.</p>
+<h3>2. &quot;Distributed by Design&quot;</h3>
+<p>IPC bawaan via syscall <code>SEND_MSG</code> + identity-based messaging. Proses berkomunikasi lewat identitas (UUID), bukan alamat memori — sesuai sifat terdistribusi platform.</p>
+<h3>3. &quot;Small, Sharp Tools&quot;</h3>
+<p>80+ utilitas yang saling terhubung lewat pipe &amp; redirection — tradisi Unix: satu alat mengerjakan satu hal dengan baik, lalu dikombinasikan.</p>
+<h3>4. &quot;Security via Simplicity&quot;</h3>
+<p>Model permission UID/GID, isolasi proses (Worker Thread), dan privilege root yang sederhana namun tegas — keamanan lahir dari desain yang jelas, bukan dari kerumitan.</p>
+<h3>5. &quot;Unix Fidelity dulu, pragmatis belakangan&quot;</h3>
 <p>TSIX meniru perilaku &amp; arsitektur Unix/Linux sedekat mungkin — semantik syscall, permission UID/GID, kredensial (saved UID), format file (<code>/etc/shadow</code>, <code>passwd</code>), hierarchy filesystem — sebagai <strong>north star</strong> desain. Bukan karena &quot;harus persis&quot;, tapi karena perilaku yang <strong>teramati</strong> harus konsisten: non-root tidak bisa baca <code>/etc/shadow</code>, proses non-root tidak bisa <code>setuid</code> sembarangan, dan seterusnya.</p>
 <p>Penyimpangan dari Unix <strong>boleh</strong>, tapi hanya jika runtime Node.js/V8 memang tidak mampu — bukan karena alasan &quot;lebih gampang&quot;. Setiap penyimpangan <strong>wajib dicatat</strong> (di changelog dan/atau komentar kode) dengan alasan teknis yang jelas, supaya tidak disalahartikan sebagai bug.</p>
 <blockquote>
@@ -5440,7 +5444,7 @@ Pemetaan <code>@tsix/X</code> → <code>/lib/X.ts</code> selalu menambahkan ekst
 </ol>
 <blockquote>
 <p>[!TIP]
-DME adalah salah satu dari <strong>tiga prinsip inti</strong> TSIX (syscall = satu-satunya pintu, everything-is-a-file, direct memory execution). Lihat <code>wiki/course/00-overview.md</code> §1 dan §6.2.</p>
+DME adalah <strong>teknik arsitektur</strong> yang mempercepat eksekusi framework (<code>/lib</code>) — ia melengkapi, bukan menggantikan, lima prinsip inti TSIX. Untuk daftar prinsip inti, lihat <code>wiki/course/00-overview.md</code> §1 dan §6.2.</p>
 </blockquote>
 <h3>Dua jalur eksekusi app</h3>
 <table>
@@ -6750,7 +6754,7 @@ export default Program(async (args) =&gt; {
 <li><input disabled="" type="checkbox"> Menjelaskan alur socket: bind → sendto → recvfrom</li>
 <li><input disabled="" type="checkbox"> Menjelaskan peran PortManager dan releasePortsByPid</li>
 <li><input disabled="" type="checkbox"> Menjelaskan mengapa tidak ada listen/accept (emulasi polling)</li>
-<li><input disabled="" type="checkbox"> Menyebutkan syscall networking (30–34)</li>
+<li><input disabled="" type="checkbox"> Menyebutkan syscall networking (30–34) + SECAGENT_LIST (39)</li>
 </ul>
 <hr>
 <h2>Konsep Inti</h2>
@@ -6816,8 +6820,11 @@ export default Program(async (args) =&gt; {
   → recvfrom() → buffer.shift()
 </code></pre>
 <h3>Syscall</h3>
-<pre><code>SOCKET=30, BIND=31, SENDTO=32, RECVFROM=33, NETSTAT=34
+<pre><code>SOCKET=30, BIND=31, SENDTO=32, RECVFROM=33, NETSTAT=34, SECAGENT_LIST=39
 </code></pre>
+<blockquote>
+<p><code>SECAGENT_LIST</code> (39) dipakai tool <code>secagent</code> untuk menampilkan agent enkripsi yang terdaftar di kernel.</p>
+</blockquote>
 <p>Tidak ada <code>listen/accept</code> di level syscall. UserLib meng-emulasi: <code>listen()</code> = <code>socket()</code> + <code>bind()</code>; <code>accept()</code> = polling <code>recv()</code> sampai ada paket pertama.</p>
 <hr>
 <h2>Alur / Cara Kerja</h2>
@@ -6850,7 +6857,7 @@ export default Program(async (args) =&gt; {
 <li><strong>Fragmentasi</strong> — <code>send()</code> memecah payload menjadi chunk 32KB bila perlu, lalu membungkus tiap chunk dalam paket ber-header 9 field.</li>
 <li><strong>Publish</strong> — driver publish tiap chunk ke topic <code>mqtnl@1.0/esp32S3</code> (<code>qos: 0</code>, <code>retain: false</code>).</li>
 <li><strong>Broker &amp; filter</strong> — semua node subscribe <code>mqtnl@1.x/#</code> menerima paket. Tiap driver menyaring: paket hanya diproses bila <code>dstAddress</code> sama dengan <code>localAddress</code> (atau <code>&quot;*&quot;</code>). Paket lain di-drop. Paket yang dikirim sendiri (src = local) juga diabaikan.</li>
-<li><strong>Reassembly &amp; dekripsi</strong> — driver tujuan merakit chunk (sesi per <code>srcAddr:srcPort → dstAddr:dstPort</code>, TTL 30s), lalu mendekripsi payload via <code>SecurityAgent</code> (port dapat di-upgrade ke ChaCha20-Poly1305 via ioctl <code>0x1001</code>).</li>
+<li><strong>Reassembly &amp; dekripsi</strong> — driver tujuan merakit chunk (sesi per <code>srcAddr:srcPort → dstAddr:dstPort</code>, TTL 30s), lalu mendekripsi payload via agent yang terpasang di port (default <code>SecurityAgent</code>/&quot;chacha20&quot;; bisa di-upgrade ke agent lain via <code>upgradeSecurity(key, { agent })</code>, mis. <code>&quot;aes-gcm&quot;</code>).</li>
 <li><strong>Dispatch</strong> — driver memanggil handler pada <code>dstPort</code> → <code>socket.push({ src, port, localPort, data, isBinary, ts })</code> → data masuk buffer socket.</li>
 <li><strong>RECVFROM</strong> — App B memanggil <code>recv(fd)</code>. Kernel membaca buffer (<code>read()</code> = <code>buffer.shift()</code>). Jika kosong, kernel menunggu event-driven (<code>waitForData</code>) sampai data di-push.</li>
 </ol>
@@ -6880,15 +6887,31 @@ export default Program(async (args) =&gt; {
 </tr>
 <tr>
 <td><code>src/mirror/lib/NetworkLib.ts</code></td>
-<td>API <code>lib.net</code> (legacy, OSContext-based)</td>
+<td>API <code>lib.net</code> + komponen <code>NetSocket</code> (single source of truth)</td>
 </tr>
 <tr>
 <td><code>src/mirror/lib/UserLib.ts</code></td>
-<td><code>lib.net</code> inline (baru, <code>this.dispatch</code>)</td>
+<td>Import &amp; re-export <code>NetworkLib</code> dari <code>./NetworkLib</code></td>
+</tr>
+<tr>
+<td><code>src/mirror/lib/Application.ts</code></td>
+<td>Proxy <code>net</code> + export <code>NetSocket</code>/<code>NetPacket</code></td>
+</tr>
+<tr>
+<td><code>src/common/ISecurityAgent.ts</code></td>
+<td>Kontrak agent enkripsi (pluggable)</td>
+</tr>
+<tr>
+<td><code>src/common/AesGcmAgent.ts</code></td>
+<td>Contoh agent kustom AES-256-GCM</td>
 </tr>
 <tr>
 <td><code>src/kernel/Syscalls.ts</code></td>
-<td>Implementasi syscall SOCKET–NETSTAT (30–34)</td>
+<td>Implementasi syscall SOCKET–NETSTAT (30–34) + SECAGENT_LIST (39)</td>
+</tr>
+<tr>
+<td><code>src/mirror/sbin/secagent.ts</code></td>
+<td>Tool daftar agent yang terdaftar</td>
 </tr>
 <tr>
 <td><code>src/sysconfig.json</code></td>
@@ -6896,7 +6919,7 @@ export default Program(async (args) =&gt; {
 </tr>
 </tbody></table>
 <blockquote>
-<p>[!WARNING] <strong>Dual NetworkLib.</strong> Ada dua implementasi <code>lib.net</code>: inline di <code>UserLib.ts</code> (baru) dan <code>NetworkLib.ts</code> (legacy, OSContext-based). Keduanya menuju syscall yang sama.</p>
+<p>[!NOTE] <strong>Satu <code>NetworkLib</code>.</strong> Class <code>NetworkLib</code> kini tunggal di <code>NetworkLib.ts</code> dan menerima <code>dispatch</code> ATAU <code>OSContext</code> (kompatibel pemakai lama). Untuk aplikasi baru, disarankan <code>NetSocket</code> — API high-level yang membungkus lifecycle + events + security.</p>
 </blockquote>
 <h3>Interface network default (<code>sysconfig.json</code>)</h3>
 <p>Saat boot, kernel membaca <code>cfg.network.interfaces</code> dan membuat satu <code>SimpleMQTNLDriver</code> per entri (<code>Kernel.ts</code> → &quot;Initialize Network Interfaces&quot;). Tiap interface punya <strong>deviceName</strong> (nama <code>/dev</code>), <strong>address</strong> (nama node), dan <strong>broker</strong>:</p>
@@ -6926,12 +6949,12 @@ export default Program(async (args) =&gt; {
 <hr>
 <h2>Snippet (level kode)</h2>
 <p>Semua snippet di bawah <strong>disalin dari sumber</strong> — &quot;kode adalah kebenaran&quot;. Bagian yang dipangkas ditandai <code>// ...</code>.</p>
-<h3>NetworkLib — pemakaian dari sisi app (<code>UserLib.ts</code>)</h3>
-<p><code>lib.net</code> adalah instance <code>NetworkLib</code> pada <code>UserLib</code> (aplikasi baru) dan pada <code>NetworkLib.ts</code> (aplikasi legacy berbasis <code>OSContext</code>). Socket dikembalikan sebagai <strong>fd</strong> (angka), bukan objek:</p>
+<h3>NetworkLib — pemakaian dari sisi app (<code>NetworkLib.ts</code>)</h3>
+<p><code>lib.net</code> adalah instance <code>NetworkLib</code> (single source of truth di <code>NetworkLib.ts</code>). Konstruktornya menerima <code>dispatch</code> (dipakai <code>UserLib</code>) ATAU <code>OSContext</code> (dipakai <code>ping.ts</code>/<code>network-traffic.ts</code>). Socket dikembalikan sebagai <strong>fd</strong> (angka), bukan objek:</p>
 <pre><code class="language-ts">export class NetworkLib {
-  constructor(
-    private dispatch: (code: SyscallCode, args: any) =&gt; Promise&lt;any&gt;,
-  ) { }
+  // Menerima `dispatch` (UserLib) ATAU `OSContext` (app legacy) — disatukan
+  // jadi satu source of truth (resolveDispatch memilih dispatch yang benar).
+  constructor(source: DispatchFn | OSContext) { /* resolveDispatch(source) */ }
 
   public async socket(): Promise&lt;number&gt; {
     return await this.dispatch(SyscallCode.SOCKET, null);
@@ -7000,6 +7023,21 @@ const data = await lib.net.recv(fd);                // baca data
 
 // Client mengirim ke node &quot;esp32S3&quot;, port 5000
 await lib.net.sendto(fd, &quot;esp32S3&quot;, 5000, JSON.stringify({ cmd: &quot;ping&quot; }));
+</code></pre>
+<h3>NetSocket — API high-level ala Cashew (<code>NetworkLib.ts</code>)</h3>
+<p><code>NetSocket</code> membungkus syscall + security + lifecycle jadi komponen: instantiate → event → open → close. Security tidak otomatis — switch eksplisit via <code>upgradeSecurity(key, { agent })</code>:</p>
+<pre><code class="language-ts">const sock = new NetSocket({ port: 8080, key: KEY_HEX });
+
+sock.onData = (pkt) =&gt; std.println(`[${pkt.src}:${pkt.port}] ${pkt.data}`);
+sock.onError = (err) =&gt; std.println(`ERR: ${err.message}`);
+
+await sock.open();                                         // socket + bind (plain dulu)
+await sock.upgradeSecurity(KEY_HEX);                       // switch ke chacha20 (default)
+await sock.upgradeSecurity(KEY_HEX, { agent: &quot;aes-gcm&quot; }); // atau agent kustom
+await sock.sendTo(&quot;esp32S3&quot;, 5000, JSON.stringify({ cmd: &quot;ping&quot; }));
+
+await sock.waitClosed();                                   // jaga proses tetap hidup
+await sock.close();                                        // release port + normalisasi agent
 </code></pre>
 <h3>PortManager — bind &amp; release (<code>PortManager.ts</code>)</h3>
 <pre><code class="language-ts">public allocatePort(port: number, pid?: number): boolean {

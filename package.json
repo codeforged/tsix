@@ -24,6 +24,7 @@
     "better-sqlite3": "^12.6.2",
     "esbuild": "^0.27.2",
     "esbuild-register": "^3.6.0",
+    "marked": "^18.0.11",
     "mqtt": "^5.14.1",
     "mysql2": "^3.16.2",
     "node-hid": "^3.4.0",
