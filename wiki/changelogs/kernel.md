@@ -6,6 +6,17 @@
 
 ## 2026-09-07
 
+### Device HTTP & WebSocket di kernel land (`/dev/httpd`, `/dev/wsd`)
+
+- **File:** `src/kernel/devices/aux-devices/HttpServerDevice.ts`, `src/kernel/devices/aux-devices/WebSocketDevice.ts`
+- **Perubahan:**
+  - **`HttpServerDevice` (`/dev/httpd`)** — server HTTP di kernel land. ioctl `LISTEN {port, ownerPid}`, `RESPOND {reqId,status,contentType,body,...}`, `STATUS`. Request dipush ke userland via channel `http_event` (`HTTP_REQUEST`/`LISTENING`/`LISTEN_ERROR`); belum dijawab dalam 30 dtk → auto 404.
+  - **`WebSocketDevice` (`/dev/wsd`)** — server WS di kernel land dengan 2 mode: **standalone** (`WSD_LISTEN {port}`) atau **attach ke HTTP server milik owner** (`WSD_ATTACH`) sehingga HTTP+WS bisa satu port. Event channel `ws_event` (`WS_CONNECT`/`WS_MESSAGE`/`WS_CLOSE`/...); perintah `WS_SEND`/`WS_BROADCAST`/`WS_CLOSE`/`STATUS`.
+  - SATU device menampung banyak server, dipisah per `ownerPid` → beberapa daemon (mis. DOME & web-gateway) bisa listen di port berbeda sekaligus.
+- **Tujuan:** menutup lubang keamanan userland yang memakai `hostRequire("http"/"ws")` (escape hatch berdasarkan nama proses). Userland kini cukup `fs.open` + `fs.ioctl` + `lib.onEvent`.
+- **Dokumen:** `wiki/webserver.md`, `wiki/websocket.md`. Contoh pemakaian: `src/mirror/opt/test/webd-demo.ts`.
+- **Oleh:** Copilot + kakang
+
 ### `MCP23017Device` — konfigurasi hardware dua chip (relay + saklar)
 
 - **File:** `src/kernel/devices/aux-devices/MCP23017Device.ts`

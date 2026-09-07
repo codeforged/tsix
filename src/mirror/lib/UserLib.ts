@@ -5,6 +5,17 @@ import { v4 as uuidv4 } from "uuid";
 import { DbLib } from "./DbLib";
 import { NetworkLib } from "./NetworkLib";
 
+// ── ioctl device HTTP & WebSocket (harus sinkron dgn kernel aux-devices) ──
+const HTTPD_LISTEN = 0x5101;
+const HTTPD_RESPOND = 0x5102;
+const HTTPD_STATUS = 0x5103;
+const WSD_LISTEN = 0x5201;
+const WSD_ATTACH = 0x5202;
+const WSD_SEND = 0x5203;
+const WSD_BROADCAST = 0x5204;
+const WSD_CLOSE = 0x5205;
+const WSD_STATUS = 0x5206;
+
 /**
  * USER LIBRARY (lib) - WORKER VERSION
  *
@@ -26,6 +37,7 @@ export class UserLib {
   public db: DbLib;
   public pty: PtyLib;
   public keyboard: KeyboardLib;
+  public web: WebLib;
 
   constructor(pid: number) {
     this.pid = pid;
@@ -81,6 +93,7 @@ export class UserLib {
     this.db = new DbLib(this.dispatch.bind(this));
     this.pty = new PtyLib(this.dispatch.bind(this));
     this.keyboard = new KeyboardLib(this.std);
+    this.web = new WebLib(this);
 
     // Inject parent reference
     (this.std as any)._lib = this;
@@ -90,6 +103,7 @@ export class UserLib {
     (this.db as any)._lib = this;
     (this.pty as any)._lib = this;
     (this.keyboard as any)._lib = this;
+    (this.web as any)._lib = this;
   }
 
   /**
@@ -1112,6 +1126,258 @@ export class FsLib {
 
     onProgress(100);
     return true;
+  }
+}
+
+/**
+ * WEB LIBRARY (web) — HTTP & WebSocket server yang programmer-friendly
+ *
+ * Membungkus device kernel `/dev/httpd` (HttpServerDevice) & `/dev/wsd`
+ * (WebSocketDevice) jadi API manusiawi — TANPA ioctl mentah & TANPA
+ * hostRequire("http"/"ws") (menutup escape hatch sandbox userland).
+ *
+ * Event (dengarkan via on()):
+ *   "request"    → { reqId, method, url, headers }   (request HTTP masuk)
+ *   "connection" → { clientId }                      (client WS connect)
+ *   "message"    → { clientId, data, binary }        (pesan WS masuk)
+ *   "close"      → { clientId }                      (client WS disconnect)
+ *   "listening"  → { port, source }                  (server siap)
+ *   "error"      → { message, source }               (gagal listen / dll)
+ *
+ * Usage (di dalam daemon TSIX):
+ *   const server = lib.web;                       // atau (global as any)._tsixLib.web
+ *   server.on("request", async (req) => {
+ *     await server.respond(req.reqId, 200, "text/html", "<h1>hi</h1>");
+ *   });
+ *   server.on("message", async (m) => {
+ *     await server.send(m.clientId, { type: "echo", back: m.data });
+ *   });
+ *   const r = await server.start(8080, "both");   // http + ws SATU port
+ *   if (!r.ok) ...
+ *
+ * Mode start(): "http" (HTTP aja), "ws" (WS standalone aja),
+ *               "both" (HTTP + WS attach di port sama, default).
+ */
+export class WebLib {
+  private httpFd: number | null = null;
+  private wsFd: number | null = null;
+  private dispatched = false;
+  private handlers = new Map<string, Set<(data: any) => void>>();
+
+  constructor(private lib: UserLib) {}
+
+  private get fs() {
+    return this.lib.fs;
+  }
+  private get pid() {
+    return this.lib.getPid();
+  }
+
+  /** Daftarkan handler event (request/connection/message/close/listening/error). */
+  public on(type: string, fn: (data: any) => void): this {
+    if (!this.handlers.has(type)) this.handlers.set(type, new Set());
+    this.handlers.get(type)!.add(fn);
+    this.ensureDispatch();
+    return this;
+  }
+
+  private fire(type: string, data: any): void {
+    const set = this.handlers.get(type);
+    if (!set) return;
+    for (const fn of set) {
+      try {
+        void fn(data);
+      } catch (_) {
+        /* handler error tidak mematikan listener lain */
+      }
+    }
+  }
+
+  /** Pasang dispatcher dari raw channel kernel → event userland sekali saja. */
+  private ensureDispatch(): void {
+    if (this.dispatched) return;
+    this.dispatched = true;
+    this.lib.onEvent("http_event", (p: any) => {
+      if (!p) return;
+      if (p.type === "HTTP_REQUEST") this.fire("request", p);
+      else if (p.type === "LISTENING")
+        this.fire("listening", { ...p, source: "http" });
+      else if (p.type === "LISTEN_ERROR")
+        this.fire("error", { ...p, source: "http" });
+    });
+    this.lib.onEvent("ws_event", (p: any) => {
+      if (!p) return;
+      if (p.type === "WS_CONNECT") this.fire("connection", p);
+      else if (p.type === "WS_MESSAGE") this.fire("message", p);
+      else if (p.type === "WS_CLOSE") this.fire("close", p);
+      else if (p.type === "LISTENING")
+        this.fire("listening", { ...p, source: "ws" });
+      else if (p.type === "LISTEN_ERROR")
+        this.fire("error", { ...p, source: "ws" });
+    });
+  }
+
+  // ── buka device ──
+  private async openHttp(): Promise<number | null> {
+    if (this.httpFd !== null) return this.httpFd;
+    try {
+      const f = await this.fs.open("/dev/httpd", "r+");
+      if (typeof f === "number" && f >= 0) {
+        this.httpFd = f;
+        return f;
+      }
+    } catch (_) {
+      /* fallthrough */
+    }
+    return null;
+  }
+  private async openWs(): Promise<number | null> {
+    if (this.wsFd !== null) return this.wsFd;
+    try {
+      const f = await this.fs.open("/dev/wsd", "r+");
+      if (typeof f === "number" && f >= 0) {
+        this.wsFd = f;
+        return f;
+      }
+    } catch (_) {
+      /* fallthrough */
+    }
+    return null;
+  }
+
+  private ioHttp(cmd: number, arg: any) {
+    return this.fs.ioctl(this.httpFd as number, cmd, {
+      ownerPid: this.pid,
+      ...arg,
+    });
+  }
+  private ioWs(cmd: number, arg: any) {
+    return this.fs.ioctl(this.wsFd as number, cmd, {
+      ownerPid: this.pid,
+      ...arg,
+    });
+  }
+
+  /** Tunggu event LISTENING/LISTEN_ERROR di satu channel (one-shot). */
+  private waitChannel(
+    channel: string,
+    timeoutMs: number = 5000,
+  ): Promise<{ ok: boolean; error?: string }> {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (r: { ok: boolean; error?: string }) => {
+        if (done) return;
+        done = true;
+        this.lib.offEvent(channel, h);
+        resolve(r);
+      };
+      const h = (p: any) => {
+        if (!p) return;
+        if (p.type === "LISTENING") finish({ ok: true });
+        else if (p.type === "LISTEN_ERROR")
+          finish({ ok: false, error: p.message || "listen failed" });
+      };
+      this.lib.onEvent(channel, h);
+      setTimeout(
+        () => finish({ ok: false, error: `timeout ${timeoutMs}ms (${channel})` }),
+        timeoutMs,
+      );
+    });
+  }
+
+  /**
+   * start(): mulai server.
+   * mode: "both" (HTTP+WS satu port, default) | "http" | "ws"
+   */
+  public async start(
+    port: number,
+    mode: "both" | "http" | "ws" = "both",
+  ): Promise<{ ok: boolean; error?: string; port: number }> {
+    this.ensureDispatch();
+    const wantsHttp = mode === "http" || mode === "both";
+    const wantsWs = mode === "ws" || mode === "both";
+
+    if (wantsHttp) {
+      const fd = await this.openHttp();
+      if (fd === null)
+        return { ok: false, error: "/dev/httpd tidak tersedia", port };
+      const ready = this.waitChannel("http_event");
+      await this.ioHttp(HTTPD_LISTEN, { port });
+      const r = await ready;
+      if (!r.ok) return { ok: false, error: r.error, port };
+    }
+    if (wantsWs) {
+      const fd = await this.openWs();
+      if (fd === null)
+        return { ok: false, error: "/dev/wsd tidak tersedia", port };
+      if (wantsHttp) {
+        const ready = this.waitChannel("ws_event");
+        await this.ioWs(WSD_ATTACH, {});
+        const r = await ready;
+        if (!r.ok) return { ok: false, error: r.error, port };
+      } else {
+        const ready = this.waitChannel("ws_event");
+        await this.ioWs(WSD_LISTEN, { port });
+        const r = await ready;
+        if (!r.ok) return { ok: false, error: r.error, port };
+      }
+    }
+    return { ok: true, port };
+  }
+
+  /** Balas satu request HTTP. body string (utf8); binary pakai encoding di sini? */
+  public async respond(
+    reqId: number,
+    status: number,
+    contentType: string,
+    body?: string | null,
+    extraHeaders?: Record<string, string>,
+  ): Promise<any> {
+    if (this.httpFd === null) return null;
+    return this.ioHttp(HTTPD_RESPOND, {
+      reqId,
+      status,
+      contentType,
+      body: body ?? "",
+      extraHeaders,
+    });
+  }
+
+  /** Kirim pesan ke satu client WS (objek otomatis di-JSON-kan). */
+  public async send(clientId: string, data: any): Promise<any> {
+    if (this.wsFd === null) return false;
+    const payload = typeof data === "string" ? data : JSON.stringify(data);
+    return this.ioWs(WSD_SEND, { clientId, data: payload });
+  }
+
+  /** Broadcast pesan ke semua client WS. */
+  public async broadcast(data: any): Promise<any> {
+    if (this.wsFd === null) return 0;
+    const payload = typeof data === "string" ? data : JSON.stringify(data);
+    return this.ioWs(WSD_BROADCAST, { data: payload });
+  }
+
+  /** Tutup satu client WS. */
+  public async closeClient(clientId: string): Promise<any> {
+    if (this.wsFd === null) return false;
+    return this.ioWs(WSD_CLOSE, { clientId });
+  }
+
+  /** Status server (http & ws). */
+  public async status(): Promise<{
+    http?: any;
+    ws?: any;
+    wsClients?: number;
+  }> {
+    let http: any = null;
+    let ws: any = null;
+    if (this.httpFd !== null) {
+      http = await this.ioHttp(HTTPD_STATUS, {});
+    }
+    if (this.wsFd !== null) {
+      ws = await this.ioWs(WSD_STATUS, {});
+    }
+    return { http, ws, wsClients: ws?.clients ?? 0 };
   }
 }
 

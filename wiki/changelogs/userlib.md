@@ -6,6 +6,21 @@
 
 ---
 
+## 2026-09-07
+
+### WebLib — sub-library `web` (HTTP & WebSocket server yang friendly)
+
+- **File:** `src/mirror/lib/UserLib.ts`, `src/mirror/lib/UserLib.js`
+- **Perubahan:**
+  - Tambah class **`WebLib`** — membungkus device kernel `/dev/httpd` (HttpServerDevice) & `/dev/wsd` (WebSocketDevice) jadi API manusiawi, tanpa ioctl mentah & tanpa `hostRequire("http"/"ws")`.
+  - Di-expose sebagai sub-library baru **`lib.web`**.
+  - API: `start(port, mode)` (`"both"` | `"http"` | `"ws"`), event `on("request"|"connection"|"message"|"close"|"listening"|"error")`, `respond(reqId,status,ct,body)`, `send(clientId,data)`, `broadcast(data)`, `closeClient(id)`, `status()`.
+  - Objek data di-`send`/`broadcast` otomatis di-`JSON.stringify`.
+- **Dampak:** daemon server (web-gateway, dome nanti) bisa migrasi dari `hostRequire` ke `lib.web` — userland tetap tidak menyentuh network host langsung.
+- **Deploy:** sidecar `UserLib.js` di-regenerasi (wajib di-sync + restart daemon lama).
+- **Detail:** `wiki/webserver.md`, `wiki/websocket.md`, `wiki/changelogs/kernel.md`.
+- **Oleh:** Copilot
+
 ## 2026-08-30
 
 ### KeyboardLib — sub-library `keyboard` baru (decoder keyboard CLI)
