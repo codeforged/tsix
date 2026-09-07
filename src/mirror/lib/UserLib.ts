@@ -1325,13 +1325,14 @@ export class WebLib {
     return { ok: true, port };
   }
 
-  /** Balas satu request HTTP. body string (utf8); binary pakai encoding di sini? */
+  /** Balas satu request HTTP; encoding opsional untuk asset binary latin1. */
   public async respond(
     reqId: number,
     status: number,
     contentType: string,
     body?: string | null,
     extraHeaders?: Record<string, string>,
+    encoding?: "utf8" | "latin1" | "base64",
   ): Promise<any> {
     if (this.httpFd === null) return null;
     return this.ioHttp(HTTPD_RESPOND, {
@@ -1340,6 +1341,7 @@ export class WebLib {
       contentType,
       body: body ?? "",
       extraHeaders,
+      encoding,
     });
   }
 

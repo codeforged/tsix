@@ -1042,15 +1042,16 @@ class WebLib {
     }
     return { ok: true, port };
   }
-  /** Balas satu request HTTP. body string (utf8); binary pakai encoding di sini? */
-  async respond(reqId, status, contentType, body, extraHeaders) {
+  /** Balas satu request HTTP; encoding opsional untuk asset binary latin1. */
+  async respond(reqId, status, contentType, body, extraHeaders, encoding) {
     if (this.httpFd === null) return null;
     return this.ioHttp(HTTPD_RESPOND, {
       reqId,
       status,
       contentType,
       body: body ?? "",
-      extraHeaders
+      extraHeaders,
+      encoding
     });
   }
   /** Kirim pesan ke satu client WS (objek otomatis di-JSON-kan). */
