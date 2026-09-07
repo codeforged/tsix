@@ -20,3 +20,10 @@
 
 #@reboot /bin/echo.ts hello
 #* * * * * /root/hello-world.ts
+
+# Smart Bulb — jadwal lampu otomatis (JayaLaras). Jalan tiap 5 menit via
+# /opt/smartbulb/scheduler.js (client IPC ke jayalaras.service):
+#   1) 18:00-04:00 ON  teras depan, teras belakang
+#   2) 06:00-17:00 OFF teras depan, teras belakang
+#   3) 23:00-03:00 OFF kamar anak, ruang tengah depan & belakang
+*/5 * * * * /opt/smartbulb/scheduler.js

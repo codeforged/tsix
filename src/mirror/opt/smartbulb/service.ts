@@ -140,6 +140,11 @@ export default class SmartBulbService {
             pin,
             mode: MODE_OUTPUT,
           });
+          // Relay active-low: OFF = HIGH (1). WAJIB ditulis eksplisit — tanpa
+          // ini pin mengikuti latch hasil boot chip (GPIOA/B = 0x00 = LOW) →
+          // relay ikut nyala. Ini penyebab "lampu menyala sendiri" setelah
+          // TSIX restart padahal semua touch switch OFF.
+          await fs.ioctl(relayFd, IOCTL_DIGITAL_WRITE, { pin, value: 1 });
         } catch (_) {
           /* ignore */
         }
@@ -156,6 +161,19 @@ export default class SmartBulbService {
         } catch (_) {
           /* ignore */
         }
+      }
+    }
+    // Seed status saklar dari pembacaan pertama — supaya poll pertama TIDAK
+    // menganggap semua saklar "berubah" (mencegah lampu ke-toggle acak saat
+    // boot). Setelah ini, mapping hanya bereaksi pada perubahan sungguhan.
+    if (swFd !== null) {
+      try {
+        const rawInit = (await fs.ioctl(swFd, IOCTL_READ_ALL, {})) as any;
+        if (typeof rawInit === "number") {
+          for (let i = 0; i < 16; i++) swStates[i] = (rawInit >> i) & 0x01;
+        }
+      } catch (_) {
+        /* ignore */
       }
     }
 
@@ -175,15 +193,47 @@ export default class SmartBulbService {
       return relayWriteQueue;
     }
 
+    // ── Auto-OFF lampu WC (kamar/utama): bila nyala & lupa dipadamkan,
+    //    padam paksa setelah 15 menit. Timer di-restart tiap kali dinyalakan
+    //    lagi, dan dibatalkan bila dimatikan manual lebih dulu. ──
+    const WC_PORTS = new Set<number>([10, 11]); // 10 = WC Kamar, 11 = WC Utama
+    const WC_AUTO_OFF_MS = 15 * 60 * 1000; // 15 menit
+    const wcAutoOffTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+    function disarmWcAutoOff(port: number) {
+      const t = wcAutoOffTimers.get(port);
+      if (t) {
+        clearTimeout(t);
+        wcAutoOffTimers.delete(port);
+      }
+    }
+    function armWcAutoOff(port: number) {
+      if (!WC_PORTS.has(port)) return;
+      disarmWcAutoOff(port);
+      const t = setTimeout(() => {
+        wcAutoOffTimers.delete(port);
+        if (portStates[port] === 1) {
+          void std.log(
+            `[service] 💡 Auto-OFF WC port ${port} — 15 menit, lupa dipadamkan`,
+          );
+          turnOff(port);
+          pushState();
+        }
+      }, WC_AUTO_OFF_MS);
+      wcAutoOffTimers.set(port, t);
+    }
+
     function turnOff(io: number) {
       if (io < 0 || io > 15) return;
       portStates[io] = 0;
       void writeRelayPort(io, false);
+      disarmWcAutoOff(io);
     }
     function turnOn(io: number) {
       if (io < 0 || io > 15) return;
       portStates[io] = 1;
       void writeRelayPort(io, true);
+      armWcAutoOff(io);
     }
 
     /** setPortValue(port, value) — API yg dipakai control/web (NOS: manual=0). */

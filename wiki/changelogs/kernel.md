@@ -6,6 +6,15 @@
 
 ## 2026-09-07
 
+### `MCP23017Device` — konfigurasi hardware dua chip (relay + saklar)
+
+- **File:** `src/kernel/devices/aux-devices/MCP23017Device.ts`
+- **Perubahan:**
+  - `HARDWARE_CONFIGS` kini dua chip: relay **`mcp-bulb` @0x20** + saklar **`mcp-sw` @0x24** (bus 1) → `/dev/mcp-bulb` & `/dev/mcp-sw` tersedia utk `smartbulb/service`.
+  - Default nama device konstruktor digenerikkan: `"mcp-bulb"` → `"MCP23017"` (nama nyata dari `HARDWARE_CONFIGS`/parameter konstruktor).
+- **Dampak:** service smartbulb dapat membuka chip relay produksi tanpa registrasi manual tambahan; `disabled: false` tetap sehingga konfigurasi ini auto-init saat boot.
+- **Oleh:** kakang
+
 ### MCP23017 kembali auto-initialized untuk deployment smartbulb
 
 - **File:** `src/kernel/devices/aux-devices/MCP23017Device.ts`

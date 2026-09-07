@@ -7,6 +7,49 @@
 
 ## 2026-09-07
 
+### `service` — reset relay OFF & seed saklar saat start (fix "lampu nyala sendiri" setelah reboot)
+
+- **File:** `src/mirror/opt/smartbulb/service.ts`
+- **Perubahan:**
+  - Saat inisialisasi output relay, setiap pin `OUTPUT` kini langsung ditulis **OFF (HIGH)**. Sebelumnya hanya `SET_PIN_MODE` tanpa menulis → pin mengikuti latch boot chip (`GPIOA/B = 0x00` = LOW = relay ON karena active-low) → sebagian lampu menyala sendiri setelah TSIX restart.
+  - `swStates` di-*seed* dari pembacaan saklar pertama sebelum polling → poll pertama tidak menganggap semua saklar "berubah" (mencegah lampu ke-toggle acak saat boot).
+- **Dampak:** setelah restart, semua relay deterministik OFF (konsisten dgn touch switch OFF); hanya lampu yang di-ON scheduler sesuai jam yang menyala.
+- **Oleh:** Copilot + kakang
+
+### `service` — auto-OFF lampu WC (kamar & utama) setelah 15 menit
+
+- **File:** `src/mirror/opt/smartbulb/service.ts`
+- **Perubahan:**
+  - Saat port WC (**10** = WC Kamar, **11** = WC Utama) dinyalakan → timer **15 menit**; bila masih nyala saat timer habis → padam paksa + `pushState()`.
+  - Timer di-*restart* tiap kali dinyalakan lagi; dibatalkan bila dimatikan manual lebih dulu. Berlaku untuk semua jalur nyala (saklar fisik, web/control, `setgpio`).
+- **Dampak:** mengatasi kebiasaan lupa memadamkan lampu WC setelah keluar dari WC.
+- **Oleh:** Copilot + kakang
+
+### `scheduler` — jadwal lampu otomatis (one-shot client IPC, via crond)
+
+- **File:** `src/mirror/opt/smartbulb/scheduler.ts`, `src/mirror/etc/crontab`
+- **Perubahan:**
+  - `scheduler.ts` = **one-shot job** (bukan daemon): dipanggil `crond` tiap 5 menit (`*/5 * * * * /opt/smartbulb/scheduler.js`), cek jam → perbaiki lampu yang melanggar → keluar.
+  - Client IPC ke `jayalaras.service`: `REGISTER` → `GET` state → `SET` hanya port yang melanggar → `UNREGISTER` (idempoten, minim tulis I2C).
+  - Aturan (waktu lokal):
+    1. 18:00–04:00 → **ON** teras depan (9), teras belakang (12)
+    2. 06:00–17:00 → **OFF** teras depan (9), teras belakang (12)
+    3. 23:00–03:00 → **OFF** kamar anak (2), ruang tengah depan (3) & belakang (8)
+  - Jam di luar aturan tidak disentuh → kontrol manual/switch/web tetap dihormati (mis. nyala siang hari saat mendung).
+- **Dampak:** lampu yang menyala di luar jam jadwal (mis. lupa dipadamkan) dibereskan ≤5 menit; `crond` auto-reload crontab tiap 30 detik.
+- **Oleh:** Copilot + kakang
+
+### `setgpio` — CLI client IPC (migrasi utilitas NOS, 2020)
+
+- **File:** `src/mirror/opt/smartbulb/setgpio.ts`, `wiki/smartbulb.md`
+- **Perubahan:**
+  - `setgpio` adalah **client IPC** (setingkat `control.ts`) ke `jayalaras.service`, bukan akses MCP23017 langsung: `REGISTER` → `SET`/`GET` → `UNREGISTER`.
+  - Syntax ala NOS: `setgpio <port>=<1|0> [port=...]`, `--status` (tabel status), `--bits` (state mentah `value <16-bit>` legacy), `--help`.
+  - Menampilkan `ports[]` state logika lampu (output `getAllPortStatus()` NOS); urusan active-low & mapping port→pin ditangani service.
+  - Menolak dengan pesan jelas bila `jayalaras.service` tidak berjalan (bukan simulasi).
+  - `wiki/smartbulb.md`: dokumentasi CLI, diagram arsitektur, pola deployment & hak akses.
+- **Oleh:** Copilot + kakang
+
 ### Compatibility gateway WebSocket untuk UI legacy JayaLaras
 
 - **File:** `src/mirror/opt/smartbulb/web-gateway.ts`, `wiki/smartbulb.md`, `docs/smartbulb/`

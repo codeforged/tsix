@@ -15,7 +15,10 @@ import { openSync } from "i2c-bus";
 
 // Platform-specific hardware configuration
 // Modify this for your hardware setup
-const HARDWARE_CONFIGS = [{ bus: 1, address: 0x24, name: "mcp-sw" }];
+const HARDWARE_CONFIGS = [
+  { bus: 1, address: 0x20, name: "mcp-bulb" },
+  { bus: 1, address: 0x24, name: "mcp-sw" }
+];
 
 // MCP23017 Register Addresses
 const IODIRA = 0x00; // Direction register A (pins 0-7)
@@ -44,7 +47,7 @@ export class MCP23017Device implements IDevice {
   private initialized: boolean = false;
 
   constructor(i2cBusNumber?: number, address?: number, deviceName?: string) {
-    this.name = deviceName || "mcp-bulb";
+    this.name = deviceName || "MCP23017";
     this.i2cBusNumber = i2cBusNumber;
     this.address = address || 0x20;
   }
