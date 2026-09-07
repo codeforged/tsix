@@ -14,15 +14,17 @@ MCP23017 relay + TTP223/switch
        jayalaras.service
               |
        IPC internal TSIX
-              |
-              v
-     /opt/smartbulb/control.js
-       GUI Cashew + denah rumah
+          |         |
+          v         v
+    control.js   setgpio.js
+   GUI + denah  CLI kontrol/tes
 ```
 
 - `service.js` adalah pemilik hardware dan logika saklar.
-- GUI tidak mengakses MCP23017 ketika service tersedia; GUI mengirim perintah IPC dan menerima state push.
-- Setiap perubahan saklar fisik atau output relay dipublikasikan sebagai `SMARTBULB_STATE` ke subscriber GUI.
+- Client (`control.js` GUI & `setgpio.js` CLI) tidak mengakses MCP23017 ketika
+  service tersedia; keduanya mengirim perintah IPC dan menerima state push.
+- Setiap perubahan saklar fisik atau output relay dipublikasikan sebagai
+  `SMARTBULB_STATE` ke subscriber (GUI/CLI/gateway).
 
 Prefix `value ` wajib dipertahankan karena `docs/smartbulb/local.html` memeriksa
 prefix tersebut sebelum memanggil `updateLightDisplay()`. Dengan begitu halaman
@@ -95,7 +97,7 @@ Saat start, service:
 4. Mengatur seluruh pin switch sebagai `INPUT_PULLUP`.
 5. Mendaftarkan identity IPC `jayalaras.service`.
 6. Memulai polling switch setiap 300 ms.
-7. Menunggu IPC command dari GUI atau gateway internal.
+7. Menunggu IPC command dari client (`control` GUI, `setgpio` CLI, `web-gateway`).
 8. Menutup file descriptor hardware ketika menerima `SIGTERM`.
 
 Mode simulasi tetap tersedia bila device tidak ditemukan dan `--hw` tidak dipakai. Dengan `--hw`, service berhenti jika relay tidak tersedia.
@@ -119,16 +121,18 @@ Mode hardware wajib:
 `0660`), service produksi dijalankan sebagai **root** atau user yang menjadi
 anggota group pemilik device.
 
-`control.js` dan `web-gateway.js` tidak perlu root saat berjalan melalui IPC.
-Keduanya hanya gagal berfungsi jika `jayalaras.service` belum hidup atau tidak
-berhasil mendaftarkan identity-nya. Mode `control --hw` berbeda: mode itu
-membuka `/dev/mcp-bulb` langsung dan karenanya mengikuti permission device.
+`control.js`, `setgpio.js`, dan `web-gateway.js` tidak perlu root saat berjalan
+melalui IPC. Ketiganya hanya gagal berfungsi jika `jayalaras.service` belum
+hidup atau tidak berhasil mendaftarkan identity-nya. Mode `control --hw`
+berbeda: mode itu membuka `/dev/mcp-bulb` langsung dan karenanya mengikuti
+permission device.
 
 Pola deployment yang disarankan:
 
 ```text
 service.js       root / hardware owner
-control.js       user biasa / IPC client
+control.js       user biasa / IPC client (GUI Cashew)
+setgpio.js       user biasa / IPC client (CLI)
 web-gateway.js   user biasa / IPC + HTTP/WebSocket client
 ```
 
@@ -204,7 +208,7 @@ jayalaras.service
 
 ### Command dari client
 
-Register GUI sebagai subscriber:
+Daftarkan client sebagai subscriber (GUI/CLI/gateway):
 
 ```json
 { "type": "REGISTER" }
@@ -308,7 +312,54 @@ Mode `--hw` dipakai sebagai fallback ketika `jayalaras.service` tidak tersedia. 
 
 Saat dibuka, GUI mengirim `REGISTER`. Saat ditutup, GUI mengirim `UNREGISTER`. Event `SMARTBULB_STATE` dari service langsung mengubah gambar lampu.
 
-## 7. Deployment
+## 7. CLI `setgpio.ts`
+
+Source: `src/mirror/opt/smartbulb/setgpio.ts`
+
+Runtime: `/opt/smartbulb/setgpio.js`
+
+Migrasi utilitas `setgpio` NOS (2020). `setgpio` adalah **client IPC** —
+setingkat `control.ts` — yang mengirim perintah ke `jayalaras.service` dan
+menampilkan hasilnya sebagai teks, tanpa menyentuh MCP23017 langsung. Cocok
+untuk tes cepat, scripting, atau kontrol manual dari shell.
+
+```text
+setgpio ──IPC──▶ jayalaras.service ──▶ MCP23017 relay/switch
+```
+
+State yang ditampilkan (`ports[]`) adalah state **logika** lampu, sama dengan
+output `getAllPortStatus()` NOS — urusan active-low & mapping port→pin sudah
+ditangani service.
+
+### Menjalankan
+
+```bash
+/opt/smartbulb/setgpio.js              # status lampu (via service)
+/opt/smartbulb/setgpio.js 8=1          # nyalakan ruang tengah belakang
+/opt/smartbulb/setgpio.js 9=0          # matikan teras depan
+/opt/smartbulb/setgpio.js 8=1 12=0 --status --bits
+```
+
+- `--status` : tampilkan tabel status setelah men-set.
+- `--bits`   : tampilkan juga state mentah `value <16-bit>` (format legacy
+  `jayalarasiot/portstates`, kompatibel `local.html`).
+- **Tidak ada `--dev`** — CLI selalu lewat service, bukan langsung ke device.
+
+CLI melakukan `REGISTER` → `SET`/`GET` → `UNREGISTER` ke `jayalaras.service`.
+Bila service belum berjalan, `setgpio` menolak dengan pesan jelas (bukan
+simulasi). Pastikan service aktif dulu:
+
+```bash
+/opt/smartbulb/service.js --hw
+```
+
+### Hak akses
+
+`setgpio.js` tidak perlu root — cukup bisa mengirim IPC (lihat pola deployment
+bagian 3). Berbeda dengan mode `control --hw` yang membuka `/dev/mcp-bulb`
+langsung.
+
+## 8. Deployment
 
 Dari host repository, sinkronkan file TypeScript ke VFS:
 
@@ -318,6 +369,9 @@ node -r esbuild-register -r tsconfig-paths/register \
 
 node -r esbuild-register -r tsconfig-paths/register \
   scripts/sync-vfs.ts src/mirror/opt/smartbulb/control.ts
+
+node -r esbuild-register -r tsconfig-paths/register \
+  scripts/sync-vfs.ts src/mirror/opt/smartbulb/setgpio.ts
 ```
 
 Sinkronkan asset PNG dengan mekanisme VFS/bkfs yang digunakan perangkat:
@@ -342,7 +396,7 @@ Setelah perubahan library atau daemon:
 yang benar-benar unattended, tambahkan startup entry setelah device/kernel
 siap, atau gunakan supervisor TSIX yang me-restart daemon jika proses berhenti.
 
-## 8. Operasi 24/7
+## 9. Operasi 24/7
 
 Checklist operasional:
 
@@ -357,7 +411,7 @@ Checklist operasional:
 - Pertahankan polling non-overlap dan antrean I2C.
 - Uji perilaku setelah reboot, kehilangan GUI, kehilangan broker, dan cabut-pasang client.
 
-## 9. Akses Web untuk Keluarga
+## 10. Akses Web untuk Keluarga
 
 ### Rekomendasi
 
@@ -544,7 +598,7 @@ Urutan produksi yang disarankan:
 
 DOME/WebSocket internal TSIX tetap dipakai untuk GUI desktop Cashew, tetapi sebaiknya tidak dijadikan API web publik karena DOME adalah windowing/desktop relay, bukan boundary keamanan smart-home.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ### GUI tidak berubah setelah switch disentuh
 
@@ -572,10 +626,11 @@ DOME/WebSocket internal TSIX tetap dipakai untuk GUI desktop Cashew, tetapi seba
 - Periksa I2C bus/address dan permission device.
 - Pastikan `MCP23017Device` sudah diinisialisasi oleh kernel.
 
-## 11. Referensi Source
+## 12. Referensi Source
 
 - `src/mirror/opt/smartbulb/service.ts`
 - `src/mirror/opt/smartbulb/control.ts`
+- `src/mirror/opt/smartbulb/setgpio.ts`
 - `src/kernel/devices/aux-devices/MCP23017Device.ts`
 - `src/mirror/lib/cashew.ts`
 - `src/mirror/etc/rc.local.ts`
