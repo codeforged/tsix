@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-09-07
+
+### MCP23017 kembali auto-initialized untuk deployment smartbulb
+
+- **File:** `src/kernel/devices/aux-devices/MCP23017Device.ts`
+- **Perubahan:** `disabled` dikembalikan ke `false` agar konfigurasi hardware MCP23017 yang sudah didaftarkan dapat diinisialisasi otomatis saat boot. Permission device tetap `uid=0`, `gid=0`, mode `0660`; service smartbulb produksi dijalankan root atau user group pemilik device.
+- **Dampak:** `/dev/mcp-bulb` dan `/dev/mcp-sw` siap dipakai service setelah kernel memuat konfigurasi hardware; client GUI/web tetap memakai IPC dan tidak perlu akses device langsung.
+- **Oleh:** kakang
+
 ## 2026-09-04
 
 ### Auto-reply port probe + pelacakan pemilik port bind (`scanif -p` / `-l`)

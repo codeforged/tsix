@@ -1,0 +1,189 @@
+<!doctype html>
+<html>
+  <head>
+    <meta
+      name="viewport"
+      content="user-scalable=no, initial-scale=0.7, maximum-scale=0.7, minimum-scale=0.5, width=device-width, height=device-height"
+    />
+    <title>JayaLaras IoT Control</title>
+    <style type="text/css">
+      .bulb {
+        position: absolute;
+        width: 30px;
+        cursor: pointer;
+      }
+    </style>
+    <script type="text/javascript" src="jquery-3.6.0.min.js"></script>
+    <script type="text/javascript" src="cygRFC.js"></script>
+    <script type="text/javascript">
+      bulbCount = 11;
+      bulbChildCount = 1;
+      bulbs = [];
+      bulbChilds = [];
+      $(this).ready(function () {
+        hideLight();
+        //ws = new WebSocket("ws://localhost:8080");
+
+        function connect() {
+          //ws = new WebSocket("ws://13.75.105.40:65100");
+          //ws = new WebSocket("ws://192.168.100.3:45452");
+          //   ws = new WebSocket("ws://192.168.0.106:45452");
+          //ws = new WebSocket("ws://192.168.0.107:45452");
+          ws = new WebSocket("ws://192.168.1.204:45452");
+          ws.onclose = function (e) {
+            hideLight();
+            console.log(
+              "Socket is closed. Reconnect will be attempted in 1 second.",
+              e.reason,
+            );
+            setTimeout(function () {
+              connect();
+            }, 1000);
+          };
+
+          ws.onerror = function (err) {
+            console.error(
+              "Socket encountered error: ",
+              err.message,
+              "Closing socket",
+            );
+            ws.close();
+          };
+
+          FC = new cygRFC(ws);
+
+          FC.MQTTonNewMsg = function (topic, data) {
+            if (
+              topic == "jayalarasiot/portstates" &&
+              data.substr(0, 5) == "value"
+            ) {
+              var portStates = data.substr(6);
+              console.log(
+                "** New message, topic: " + topic + " message: " + portStates,
+              );
+              updateLightDisplay(portStates);
+            }
+          };
+
+          ws.onopen = function () {
+            callRFC("MQTTsendMsg", ["jayalarasiot/portstates", "get"]);
+            showLight();
+          };
+        }
+
+        connect();
+        /************************************************************************************************/
+
+        for (var i = 0; i < bulbCount; i++) {
+          var html =
+            '<img class="bulb" id="bulb_' + i + '" src="bulboff.png"/>';
+          $("#layout").append(html);
+          bulbs.push({
+            id: i,
+            state: 0,
+            port: 0,
+          });
+        }
+
+        for (var i = 0; i < bulbCount; i++) {
+          $("#bulb_" + i).click(function () {
+            var id = parseInt($(this).attr("bid"));
+            var port = bulbs[id].port;
+            var val = bulbs[id].state ? 0 : 1;
+            setLight(id, val);
+            callRFC("MQTTsendMsg", [
+              "jayalarasiot/portstates",
+              "set " + port + ":" + val,
+            ]);
+            //console.log(bulbs[id].port,val);
+            console.log("set " + port + ":" + val);
+          });
+        }
+
+        hideLight();
+        setPos(0, 320, 355, 8); // ruang tengah belakang
+        setPos(1, 175, 355, 3); // ruang tengah depan
+        setPos(2, 175, 175, 4); // ruang kerja
+        setPos(3, 185, 530, 2); // kamar anak
+        setPos(4, 380, 180, 7); // dapur
+        setPos(5, 432, 600, 10); // wc kamar
+        setPos(6, 265, 135, 11); // wc utama
+        setPos(7, 355, 530, 15); // kamar utama
+        setPos(8, 380, 50, 12); // teras belakang
+        setPos(9, 70, 280, 9); // teras depan
+        setPos(10, 420, 355, 5); // Taman
+
+        // setPos("#bulb_0", 175, 355); // ruang tengah depan
+        // setPos("#bulb_1", 320, 355); // ruang tengah belakang
+        // setPos("#bulb_2", 380, 180); // dapur
+        // setPos("#bulb_3", 185, 530); // kamar kakang
+        // setPos("#bulb_4", 355, 530); // kamar utama
+        // setPos("#bulb_5", 432, 600); // wc kamar
+        // setPos("#bulb_6", 265, 135); // wc utama
+        // setPos("#bulb_7", 175, 175); // ruang kerja
+        // setPos("#bulb_8", 425, 365); // taman
+        // setPos("#bulb_9", 70, 255); // teras
+      });
+
+      function showLight() {
+        $(".bulb").show();
+      }
+      function hideLight() {
+        $(".bulb").hide();
+      }
+
+      function getPortStates(cmd) {
+        FC.remoteCall(
+          { name: "MQTTsendMsg", params: ["jayalarasiot/portstates", cmd] },
+          function (data) {
+            console.log("Reply: " + data);
+          },
+        );
+        return "sent";
+      }
+
+      function callRFC(name, params = [], callBack = {}) {
+        FC.remoteCall({ name: name, params: params }, callBack);
+      }
+
+      function setPos(id, x, y, port) {
+        $("#bulb_" + id).css("left", x + "px");
+        $("#bulb_" + id).css("top", y + "px");
+        $("#bulb_" + id).attr("bid", id);
+
+        bulbs[id].port = port;
+      }
+
+      function updateLightDisplay(data) {
+        for (var i = 0; i < data.length; i++) {
+          var id = getIdByPort(i);
+          if (id != null) {
+            setLight(id, parseInt(data[i]));
+            //console.log(id, parseInt(data[i]));
+          }
+        }
+      }
+      function getIdByPort(port) {
+        var id = null;
+        for (var i = 0; i < bulbCount; i++) {
+          if (bulbs[i].port == port) {
+            id = i;
+            break;
+          }
+        }
+        return id;
+      }
+      function setLight(id, onoff) {
+        bulbs[id].state = onoff;
+
+        if (onoff == 0) $("#bulb_" + id).attr("src", "bulboff.png");
+        else if (onoff == 1) $("#bulb_" + id).attr("src", "bulbon.png");
+      }
+    </script>
+  </head>
+  <body>
+    <div id="layout">
+      <img src="layoutrumah.png" />
+    </div>
+  </body>
+</html>

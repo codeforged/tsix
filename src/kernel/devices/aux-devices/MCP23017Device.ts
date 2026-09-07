@@ -35,7 +35,7 @@ export class MCP23017Device implements IDevice {
   uid: number = 0;
   gid: number = 0;
   mode: number = 0o660;
-  disabled: boolean = true; // Set to true to skip loading during boot
+  disabled: boolean = false; // Set to true to skip loading during boot
 
   private i2cBus: any = null;
   private i2cBusNumber?: number;

@@ -5,6 +5,31 @@
 
 ---
 
+## 2026-09-07
+
+### Compatibility gateway WebSocket untuk UI legacy JayaLaras
+
+- **File:** `src/mirror/opt/smartbulb/web-gateway.ts`, `wiki/smartbulb.md`, `docs/smartbulb/`
+- **Perubahan:**
+  - Tambah daemon HTTP + WebSocket pada port `45452` yang mempertahankan RPC legacy `getAllPortStatus`, `setLight`, dan `MQTTsendMsg`.
+  - Menyajikan asset `index.html`/`local.html` legacy dari `/opt/smartbulb` tanpa perlu mengubah JavaScript 2021.
+  - Menerjemahkan RPC legacy ke IPC `jayalaras.service` dan meneruskan `SMARTBULB_STATE` sebagai envelope MQTT `value <16-bit states>` agar `local.html` auto-update saat switch fisik berubah.
+  - Gateway berjalan sebagai compatibility bridge LAN. Pemakaian `hostRequire("http")`, `hostRequire("ws")`, `path`, dan `url` didokumentasikan sebagai utang arsitektur sementara; transport HTTP/WebSocket final sebaiknya masuk kernel land → dispatcher → `UserLib`.
+- **Dampak:** UI web legacy dapat tetap dipakai setelah NOS pensiun; service tetap single owner untuk MCP23017.
+- **Keamanan:** gateway belum memiliki autentikasi; bind hanya ke LAN/VPN dan jangan expose port `45452` langsung ke internet.
+- **Oleh:** Copilot
+
+### Service smartbulb menjadi daemon app TSIX + hardening 24/7
+
+- **File:** `src/mirror/opt/smartbulb/service.ts`, `src/mirror/opt/smartbulb/control.ts`, `src/kernel/devices/aux-devices/MCP23017Device.ts`, asset PNG smartbulb
+- **Perubahan:**
+  - `service.ts` mengikuti pola `tsshd`: `export default class`, `execute(lib, args)`, `daemonize`, event IPC langsung, dan cleanup fd saat `SIGTERM`.
+  - Penulisan relay diserialisasi agar operasi I2C tidak saling balap; polling switch tidak overlap; subscriber IPC mati dibersihkan otomatis.
+  - `control.ts` hanya refresh UI hardware jika state berubah.
+  - `MCP23017Device.disabled` dikembalikan ke `false` untuk auto-registration hardware deployment.
+- **Dampak:** service menjadi hardware owner tunggal; `control` dan web gateway cukup memakai IPC. Untuk konfigurasi device default `uid=0/gid=0/mode=0660`, service hardware dijalankan root atau user group pemilik device; client IPC tidak perlu root.
+- **Oleh:** Copilot + kakang
+
 ## 2026-09-04
 
 ### `control` — lampu pakai `bulbon/off.png` (TImage klik), label ruangan dihapus

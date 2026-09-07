@@ -13,7 +13,7 @@
  * Mode:
  *   control                    → SIMULASI (state di memori — aman dicoba tanpa chip)
  *   control --hw               → coba pakai MCP23017 relay (auto-detect device)
- *   control --hw /dev/relays   → paksa device tertentu
+ *   control --hw /dev/mcp-bulb → paksa device tertentu
  *   (SERVICE)                  → bila /opt/smartbulb/service.js jalan, GUI
  *                                otomatis connect via IPC (jayalaras.service);
  *                                service pemilik hardware + logika saklar.
@@ -72,8 +72,8 @@ const BULB_OFF_PATH = "/opt/smartbulb/bulboff.png";
 /**
  * Definisi lampu — koordinat mengikuti tata letak index.html (0..432, 0..600).
  * `port` = port logika relay (konvensi NOS), di-map ke pin fisik via portToPin().
- * `parent` (opsional): lampu ikut satu relay dengan lampu lain (mis. paviliun
- * menempel di teras, port 9) — toggle parent akan menyalakan keduanya.
+ * Mapping ini mengikuti setPos() dari UI JayaLaras lama, termasuk lampu
+ * exhaust ruang kerja di port 13.
  */
 interface LightDef {
   idx: number; // id UI (cocok dgn bulb_N di index.html)
@@ -81,20 +81,20 @@ interface LightDef {
   x: number;
   y: number;
   port: number; // port logika relay (NOS)
-  parent?: number; // id lampu lain yang berbagi relay
 }
 const LIGHTS: LightDef[] = [
-  { idx: 0, name: "Ruang Tengah Depan", x: 175, y: 355, port: 15 },
-  { idx: 1, name: "Ruang Tengah Belakang", x: 320, y: 355, port: 8 },
-  { idx: 2, name: "Dapur", x: 380, y: 180, port: 7 },
-  { idx: 3, name: "Kamar Kakang", x: 185, y: 530, port: 3 },
-  { idx: 4, name: "Kamar Utama", x: 355, y: 530, port: 4 },
-  { idx: 5, name: "WC Kamar", x: 432, y: 600, port: 5 },
-  { idx: 6, name: "WC Utama", x: 265, y: 135, port: 6 },
-  { idx: 7, name: "Ruang Kerja", x: 175, y: 175, port: 10 },
-  { idx: 8, name: "Taman", x: 425, y: 365, port: 12 },
-  { idx: 9, name: "Teras", x: 70, y: 255, port: 9 },
-  { idx: 10, name: "Paviliun", x: 380, y: 40, port: 9, parent: 9 },
+  { idx: 0, name: "Ruang Tengah Belakang", x: 320, y: 355, port: 8 },
+  { idx: 1, name: "Ruang Tengah Depan", x: 175, y: 355, port: 3 },
+  { idx: 2, name: "Ruang Kerja", x: 175, y: 175, port: 4 },
+  { idx: 3, name: "Kamar Anak", x: 185, y: 530, port: 2 },
+  { idx: 4, name: "Dapur", x: 380, y: 180, port: 7 },
+  { idx: 5, name: "WC Kamar", x: 432, y: 600, port: 10 },
+  { idx: 6, name: "WC Utama", x: 265, y: 135, port: 11 },
+  { idx: 7, name: "Kamar Utama", x: 355, y: 530, port: 15 },
+  { idx: 8, name: "Teras Belakang", x: 380, y: 50, port: 12 },
+  { idx: 9, name: "Teras Depan", x: 70, y: 280, port: 9 },
+  { idx: 10, name: "Taman", x: 420, y: 355, port: 5 },
+  { idx: 11, name: "Exhaust Ruang Kerja", x: 220, y: 110, port: 13 },
 ];
 const LIGHT = (idx: number) => LIGHTS.find((l) => l.idx === idx)!;
 
@@ -346,8 +346,8 @@ export const main = Program(async (args: string[]) => {
   // ── Style lampu ──
   const bulbStyle = (on: boolean): Record<string, any> => {
     const base: Record<string, any> = {
-      width: "40px",
-      height: "40px",
+      width: "30px",
+      height: "30px",
       padding: "0",
       lineHeight: "1",
       cursor: "pointer",
@@ -375,7 +375,7 @@ export const main = Program(async (args: string[]) => {
       ...base,
       borderRadius: "50%",
       border: "2px solid",
-      fontSize: "20px",
+      fontSize: "16px",
       backgroundImage: "none",
     };
     if (on) {
@@ -416,15 +416,15 @@ export const main = Program(async (args: string[]) => {
     let widget: TImage | TButton;
     if (useBulbImg) {
       const img = new TImage(`bulb-${l.idx}`, {
-        width: 40,
-        height: 40,
+        width: 30,
+        height: 30,
         fit: "contain",
         style: {
           position: "absolute",
-          left: `${bulbL[l.idx] - 15}px`,
-          top: `${bulbT[l.idx] - 15}px`,
-          width: "40px",
-          height: "40px",
+          left: `${bulbL[l.idx] - 8}px`,
+          top: `${bulbT[l.idx] - 8}px`,
+          width: "30px",
+          height: "30px",
           objectFit: "contain",
           cursor: "pointer",
           userSelect: "none",
@@ -511,13 +511,8 @@ export const main = Program(async (args: string[]) => {
 
   const toggle = async (idx: number) => {
     const l = LIGHT(idx);
-    const targets = [l.idx];
-    if (l.parent !== undefined) targets.push(l.parent);
-
-    for (const t of targets) onState[t] = !onState[t];
-
-    const primary = targets[0];
-    const newOn = onState[primary];
+    const newOn = !onState[l.idx];
+    onState[l.idx] = newOn;
     // Kalau service jalan → biarkan service yang menulis hardware.
     let okHw: boolean | null = null;
     if (ipcOk) {
@@ -547,7 +542,7 @@ export const main = Program(async (args: string[]) => {
     } else if (hwFd !== null) {
       for (let i = 0; i < LIGHTS.length; i++) {
         const l = LIGHT(i);
-        if (l.parent === undefined) await hwWrite(l.port, val); // tulis sekali per relay
+        await hwWrite(l.port, val);
       }
     }
     await refreshAll();
@@ -560,21 +555,17 @@ export const main = Program(async (args: string[]) => {
     if (!running || hwFd === null) return;
     const raw = await hwReadAll();
     if (raw === null) return;
+    let changed = false;
     for (const l of LIGHTS) {
-      if (l.parent !== undefined) continue; // ikut parent
       const pin = portToPin(l.port);
       const bit = (raw >> pin) & 0x01;
       const want = bit === 0; // LOW = ON (active-low)
       if (onState[l.idx] !== want) {
         onState[l.idx] = want;
-        if (l.parent !== undefined) continue;
+        changed = true;
       }
     }
-    // sinkronkan anak (parent) dgn induknya
-    for (const l of LIGHTS) {
-      if (l.parent !== undefined) onState[l.idx] = onState[l.parent!];
-    }
-    await refreshAll();
+    if (changed) await refreshAll();
   };
 
   const timer = new TTimer("tmr-hw", 1500, false);
@@ -595,7 +586,7 @@ export const main = Program(async (args: string[]) => {
           // Pastikan pin output + tulis sesuai state awal (default semua off)
           const pins = new Set<number>();
           for (const l of LIGHTS) {
-            if (l.parent === undefined) pins.add(portToPin(l.port));
+            pins.add(portToPin(l.port));
           }
           for (const pin of pins) {
             await fs.ioctl(fd, IOCTL_SET_PIN_MODE, { pin, mode: MODE_OUTPUT });
@@ -603,12 +594,7 @@ export const main = Program(async (args: string[]) => {
           const raw = await hwReadAll();
           if (raw !== null) {
             for (const l of LIGHTS) {
-              if (l.parent === undefined) {
-                onState[l.idx] = ((raw >> portToPin(l.port)) & 0x01) === 0;
-              }
-            }
-            for (const l of LIGHTS) {
-              if (l.parent !== undefined) onState[l.idx] = onState[l.parent!];
+              onState[l.idx] = ((raw >> portToPin(l.port)) & 0x01) === 0;
             }
             await refreshAll();
           }
