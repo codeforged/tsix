@@ -145,7 +145,7 @@ const restrictHostAPI = (appName: string) => {
         appName.toLowerCase().includes("tbuild") ||
         appName.toLowerCase().includes("vfs") ||
         appName.toLowerCase().includes("mysqld");
-    const allowedModules = ["http", "ws", "path", "fs", "url", "esbuild", "crypto", "os", "bcryptjs", "mysql2", "mysql2/promise"];
+    const allowedModules = ["path", "fs", "url", "esbuild", "crypto", "os", "bcryptjs", "mysql2", "mysql2/promise"];
 
     const privilegedRequire = (mod: string) => {
         // Framework aliases are ALWAYS allowed, even in sandbox

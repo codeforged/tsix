@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-09-07
+
+### DOME memakai `lib.web` untuk HTTP + WebSocket kernel land
+
+- **File:** `src/mirror/opt/dome/dome.ts`
+- **Perubahan:**
+  - Mengganti `hostRequire("http")`/`hostRequire("ws")`, `http.createServer`, dan `ws.Server` dengan `lib.web` (`on`, `respond`, `send`, `broadcast`, `start`).
+  - HTTP tetap menyajikan `dome-client.html` dan modul client dari VFS; WebSocket tetap mempertahankan replay window, event browser, focus, theme, terminal, chart, Tabulator, DDC, dan relay IPC yang sudah ada.
+  - Traffic counter dan registry `wsClientId` tetap dikelola DOME; transport socket kini dimiliki kernel melalui `/dev/httpd` + `/dev/wsd`.
+- **Dampak:** DOME tetap stabil setelah pengujian runtime, tetapi userland tidak lagi memegang socket host HTTP/WebSocket secara langsung.
+- **Deploy:** sync `dome.ts` ke VFS lalu restart DOME; browser client tidak perlu diubah.
+- **Oleh:** Copilot + kakang
+
 ## 2026-08-30
 
 ### Relay `CM_SET_DIAGNOSTICS` + marker lint CodeMirror (gutter `euc-lint`)

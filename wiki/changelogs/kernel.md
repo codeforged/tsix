@@ -17,6 +17,13 @@
 - **Dokumen:** `wiki/webserver.md`, `wiki/websocket.md`. Contoh pemakaian: `src/mirror/opt/test/webd-demo.ts`.
 - **Oleh:** Copilot + kakang
 
+### Sandbox mencabut akses host langsung `http`/`ws`
+
+- **File:** `src/userland/WorkerEntry.ts`, `src/userland/WorkerEntry.js`
+- **Perubahan:** Menghapus modul `http` dan `ws` dari privileged `allowedModules` setelah DOME dan web-gateway selesai memakai `lib.web`.
+- **Dampak:** Script userland tidak lagi dapat memperoleh modul network host melalui `require("http")`/`require("ws")` hanya karena nama prosesnya mengandung `dome`, `server`, atau `daemon`; akses HTTP/WebSocket wajib lewat device kernel dan `lib.web`.
+- **Oleh:** Copilot + kakang
+
 ### `MCP23017Device` — konfigurasi hardware dua chip (relay + saklar)
 
 - **File:** `src/kernel/devices/aux-devices/MCP23017Device.ts`

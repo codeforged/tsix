@@ -2,12 +2,10 @@
 import {
   GUIAction,
   IGUIPayload,
-  IBrowserEvent,
   IGUIEventIPC,
   IWindowEntry,
 } from "@common/GUITypes";
 import { SyscallCode } from "@common/SyscallCode";
-import { v4 as uuidv4 } from "uuid";
 
 // Capture REAL Node.js require at module top level (before sandbox locks it)
 // Module._compile wraps code with (exports, require, module, ...) â€”
@@ -117,18 +115,6 @@ export const main = Program(async (args: string[]) => {
 
     await std.log("[dome] Starting DOME Engine...", "dome");
 
-    // --- PRIVILEGE CHECK ---
-    if (typeof _hostRequire !== "function") {
-      await std.log("[dome] FATAL: require not available", "dome");
-      await std.println("[dome] FATAL: require not available.");
-      return;
-    }
-    await std.log("[dome] Privilege check OK", "dome");
-
-    const http = _hostRequire("http");
-    const ws = _hostRequire("ws");
-    await std.log("[dome] Modules loaded (http, ws)", "dome");
-
     // Detach from TTY
     await std.log("[dome] Daemonizing...", "dome");
     if (await shell.daemonize("PixelSpace DOME Engine")) {
@@ -156,7 +142,7 @@ export const main = Program(async (args: string[]) => {
     // WINDOW REGISTRY (gued's own copy)
     // ============================================================
     const windows = new Map<string, GuedWindowEntry>();
-    const wsClients = new Map<string, any>();
+    const wsClients = new Set<string>();
     const windowStates = new Map<string, any[]>(); // wid â†’ replay payloads
     let lastThemeColors: Record<string, string> | null = null;
     let nextZIndex = 100;
@@ -289,49 +275,59 @@ export const main = Program(async (args: string[]) => {
     }
 
     // ============================================================
-    // HTTP SERVER
+    // HTTP + WEBSOCKET SERVER (kernel-backed via lib.web)
     // ============================================================
-    const server = http.createServer((req: any, res: any) => {
-      const url = (req.url || "/").split("?")[0];
+    const web = lib?.web;
+    if (!web) {
+      await std.log("[dome] FATAL: lib.web tidak tersedia", "dome");
+      await std.println("[dome] FATAL: lib.web tidak tersedia.");
+      return;
+    }
+
+    web.on("request", async (request: any) => {
+      const url = (request.url || "/").split("?")[0];
       const asset = staticAssets.get(url);
       if (asset) {
-        res.writeHead(200, { "Content-Type": asset.type });
-        res.end(asset.content);
+        await web.respond(
+          request.reqId,
+          200,
+          asset.type,
+          asset.content,
+          undefined,
+          "utf8",
+        );
         return;
       }
-      res.writeHead(200, { "Content-Type": "text/html" });
-      res.end(htmlContent);
+      await web.respond(
+        request.reqId,
+        200,
+        "text/html; charset=utf-8",
+        htmlContent,
+      );
     });
 
-    // ============================================================
-    // WEBSOCKET SERVER
-    // ============================================================
-    const wss = new ws.Server({ server });
-
-    wss.on("connection", async (socket: any) => {
-      const wsClientId = uuidv4().substring(0, 8);
-      wsClients.set(wsClientId, socket);
+    web.on("connection", async (connection: any) => {
+      const wsClientId = connection.clientId;
+      wsClients.add(wsClientId);
       await std.log(`[dome] Browser connected: ${wsClientId}`, "dome");
 
       // --- Replay all existing windows to new client ---
-      windows.forEach((entry) => {
-        socket.send(
-          JSON.stringify({
-            type: "CREATE_WINDOW",
-            wid: entry.wid,
-            pid: entry.pid,
-            title: entry.title,
-            fullscreen: entry.fullscreen || false,
-            width: entry.winWidth ?? entry.width,
-            height: entry.winHeight ?? entry.height,
-            resizable: entry.resizable,
-            frameless: entry.frameless || false,
-            posX: entry.winLeft,
-            posY: entry.winTop,
-            posW: entry.winWidth,
-            posH: entry.winHeight,
-          }),
-        );
+      for (const entry of windows.values()) {
+        await web.send(wsClientId, {
+          type: "CREATE_WINDOW",
+          wid: entry.wid,
+          pid: entry.pid,
+          title: entry.title,
+          fullscreen: entry.fullscreen || false,
+          width: entry.winWidth ?? entry.width,
+          height: entry.winHeight ?? entry.height,
+          resizable: entry.resizable,
+          frameless: entry.frameless || false,
+          posX: entry.winLeft,
+          posY: entry.winTop,
+          posW: entry.winWidth,
+          posH: entry.winHeight,
+        });
         // Replay stored mount/update payloads
         const states = windowStates.get(entry.wid) || [];
         std.log(
@@ -360,36 +356,37 @@ export const main = Program(async (args: string[]) => {
           std.log(`[dome]   wm-root present: ${hasWmRoot}`, "dome");
         }
         for (const s of states) {
-          socket.send(JSON.stringify(s));
+          await web.send(wsClientId, s);
         }
         // Restore maximized state if needed
         if (entry.isMaximized) {
-          socket.send(
-            JSON.stringify({ type: "MAXIMIZE_WINDOW", wid: entry.wid }),
-          );
+          await web.send(wsClientId, {
+            type: "MAXIMIZE_WINDOW",
+            wid: entry.wid,
+          });
         }
-      });
+      }
 
       // --- Replay theme to new client ---
       if (lastThemeColors) {
-        socket.send(
-          JSON.stringify({
-            type: "WINDOW_THEME",
-            wid: "",
-            colors: lastThemeColors,
-          }),
-        );
+        await web.send(wsClientId, {
+          type: "WINDOW_THEME",
+          wid: "",
+          colors: lastThemeColors,
+        });
       }
+    });
 
-      // --- HANDLE EVENTS FROM BROWSER ---
-      socket.on("message", async (rawData: string) => {
+    web.on("message", async (message: any) => {
+        const wsClientId = message.clientId;
+        const rawData = message.data;
         // Traffic: count incoming
         wsTraffic.rxBytes += Buffer.byteLength(rawData, "utf8");
         wsTraffic.rxPkts++;
         // Pesan dari browser → bukan traffic "app" (browser-driven)
         currentSrcPid = 0;
         try {
-          const event: IBrowserEvent = JSON.parse(rawData.toString());
+          const event: any = JSON.parse(rawData.toString());
           if (event.eventType === "wm_alt_s") {
             try {
               await shell.send("3ec3ffe9-e0a6-411f-b7e3-c9ff0b00556c", {
@@ -556,12 +553,14 @@ export const main = Program(async (args: string[]) => {
         } catch (e) {
           /* ignore malformed messages */
         }
-      });
+    });
 
-      socket.on("close", async () => {
-        wsClients.delete(wsClientId);
-        await std.log(`[dome] Browser disconnected: ${wsClientId}`, "dome");
-      });
+    web.on("close", async (connection: any) => {
+      wsClients.delete(connection.clientId);
+      await std.log(
+        `[dome] Browser disconnected: ${connection.clientId}`,
+        "dome",
+      );
     });
 
     // TERM_OUTPUT relay: worker â†’ DOME â†’ browser (via SEND_MSG, not GUI_REQ)
@@ -1011,18 +1010,22 @@ export const main = Program(async (args: string[]) => {
         t.txPkts += totalPkts;
         appTraffic.set(currentSrcPid, t);
       }
-      wsClients.forEach((client) => {
-        if (client.readyState === 1) {
-          // WebSocket.OPEN
-          client.send(json);
-        }
-      });
+      void web.broadcast(json);
     };
 
     // ============================================================
     // STARTUP
     // ============================================================
-    server.listen(PORT, async () => {
+    const started = await web.start(PORT, "both");
+    if (!started.ok) {
+      await std.log(
+        `[dome] FATAL: gagal listen port ${PORT}: ${started.error}`,
+        "dome",
+      );
+      await std.println(`[dome] FATAL: gagal listen port ${PORT}.`);
+      return;
+    }
+    {
       await std.println(
         `[dome] PixelSpace Display Server listening on http://localhost:${PORT}`,
       );
@@ -1046,7 +1049,7 @@ export const main = Program(async (args: string[]) => {
           "dome",
         );
       }
-    });
+    }
 
     // Stay alive forever
     while (true) {
