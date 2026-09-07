@@ -449,6 +449,9 @@ export const main = Program(async (args: string[]) => {
   const btnAllOff = new TButton("btn-alloff", { caption: "🌑 Semua OFF" });
   const btnMode = new TButton("btn-mode", {
     caption: hwMode ? "🔄 Hubungkan HW" : "🎛️ Mode HW",
+    style: {
+      display: "none"
+    }
   });
   form.add(
     HStack({ padding: "2px 0 4px" }, btnAllOn, btnAllOff, Spacer(), btnMode),
@@ -636,6 +639,10 @@ export const main = Program(async (args: string[]) => {
     void upd("mode", { text: modeLabel.caption });
     void connectHw().catch(() => {});
   };
+  
+  setTimeout(() => {
+    btnMode.onClick();
+  }, 500);
 
   // Muat denah — baca file VFS lalu konversi ke data URI (byte-safe: Buffer
   // atau latin1 string → base64). Dipanggil beberapa kali dengan jeda: sama
