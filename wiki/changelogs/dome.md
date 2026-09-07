@@ -6,6 +6,13 @@
 
 ## 2026-09-07
 
+### Port DOME dipindahkan ke konfigurasi `/etc/dome/dome.json`
+
+- **File:** `src/mirror/opt/dome/dome.ts`, `src/mirror/etc/dome/dome.json`
+- **Perubahan:** DOME membaca `{ "port": 8080 }` dari config saat startup; jika file tidak ada atau invalid, port default `8080` tetap digunakan.
+- **Dampak:** Perubahan port tidak lagi memerlukan edit script DOME.
+- **Oleh:** Copilot + kakang
+
 ### DOME memakai `lib.web` untuk HTTP + WebSocket kernel land
 
 - **File:** `src/mirror/opt/dome/dome.ts`

@@ -38,14 +38,16 @@ const IOCTL_READ_ALL = 0x3004;
 const MODE_OUTPUT = 0;
 const MODE_INPUT_PULLUP = 2;
 
-/** Device MCP23017 relay & saklar — coba urut sampai ketemu. */
-const RELAY_DEV_CANDIDATES = ["/dev/mcp-bulb"];
-const SWITCH_DEV_CANDIDATES = ["/dev/mcp-sw"];
-
-/** Identity IPC yang dipakai GUI untuk terhubung ke service ini. */
-const SERVICE_ID = "jayalaras.service";
-/** Interval poll saklar (NOS pakai 500ms). */
-const POLL_MS = 300;
+const CONFIG_PATH = "/etc/smartbulb/config.json";
+const DEFAULT_CONFIG = {
+  service: {
+    identity: "jayalaras.service",
+    relayDevices: ["/dev/mcp-bulb"],
+    switchDevices: ["/dev/mcp-sw"],
+    pollMs: 300,
+    wcAutoOffMinutes: 15,
+  },
+};
 
 /** Port logika NOS → pin fisik relay (genap → bank A, ganjil → bank B). */
 function portToPin(port: number): number {
@@ -66,6 +68,40 @@ export default class SmartBulbService {
   async execute(lib: UserLib, args: string[]) {
     const { std, fs, shell } = lib;
 
+    let config: any = DEFAULT_CONFIG;
+    try {
+      const rawConfig = await fs.readFile(CONFIG_PATH);
+      if (rawConfig) {
+        const parsed = JSON.parse(String(rawConfig));
+        config = {
+          ...DEFAULT_CONFIG,
+          ...parsed,
+          service: { ...DEFAULT_CONFIG.service, ...(parsed.service || {}) },
+        };
+      }
+    } catch (_) {
+      await std.log(
+        `[service] Config tidak ditemukan/invalid (${CONFIG_PATH}), memakai default`,
+      );
+    }
+    const serviceConfig = config.service;
+    const relayDevices = Array.isArray(serviceConfig.relayDevices)
+      ? serviceConfig.relayDevices
+      : DEFAULT_CONFIG.service.relayDevices;
+    const switchDevices = Array.isArray(serviceConfig.switchDevices)
+      ? serviceConfig.switchDevices
+      : DEFAULT_CONFIG.service.switchDevices;
+    const serviceId = String(serviceConfig.identity || DEFAULT_CONFIG.service.identity);
+    const pollMs = Number.isFinite(Number(serviceConfig.pollMs))
+      ? Math.max(50, Number(serviceConfig.pollMs))
+      : DEFAULT_CONFIG.service.pollMs;
+    const wcAutoOffMs =
+      (Number.isFinite(Number(serviceConfig.wcAutoOffMinutes))
+        ? Math.max(0, Number(serviceConfig.wcAutoOffMinutes))
+        : DEFAULT_CONFIG.service.wcAutoOffMinutes) *
+      60 *
+      1000;
+
     if (args.includes("--help") || args.includes("-h")) {
       await std.print("Usage: service [--hw]\nJayaLaras Smart Home Service.\n");
       return;
@@ -82,7 +118,7 @@ export default class SmartBulbService {
     let swFd: number | null = null;
     let relayDev = "";
     let swDev = "";
-    for (const dev of RELAY_DEV_CANDIDATES) {
+    for (const dev of relayDevices) {
       try {
         const fd = await fs.open(dev, "w+");
         if (fd !== null) {
@@ -94,7 +130,7 @@ export default class SmartBulbService {
         /* coba berikutnya */
       }
     }
-    for (const dev of SWITCH_DEV_CANDIDATES) {
+    for (const dev of switchDevices) {
       try {
         const fd = await fs.open(dev, "w+");
         if (fd !== null) {
@@ -197,7 +233,6 @@ export default class SmartBulbService {
     //    padam paksa setelah 15 menit. Timer di-restart tiap kali dinyalakan
     //    lagi, dan dibatalkan bila dimatikan manual lebih dulu. ──
     const WC_PORTS = new Set<number>([10, 11]); // 10 = WC Kamar, 11 = WC Utama
-    const WC_AUTO_OFF_MS = 15 * 60 * 1000; // 15 menit
     const wcAutoOffTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
     function disarmWcAutoOff(port: number) {
@@ -219,7 +254,7 @@ export default class SmartBulbService {
           turnOff(port);
           pushState();
         }
-      }, WC_AUTO_OFF_MS);
+      }, wcAutoOffMs);
       wcAutoOffTimers.set(port, t);
     }
 
@@ -373,8 +408,8 @@ export default class SmartBulbService {
 
     // ── Identity + listener IPC ──
     try {
-      await shell.registerIdentity(SERVICE_ID);
-      await std.log(`[service] Identity terdaftar: ${SERVICE_ID}`);
+      await shell.registerIdentity(serviceId);
+      await std.log(`[service] Identity terdaftar: ${serviceId}`);
     } catch (e: any) {
       await std.log(`[service] Identity gagal: ${e?.message || e}`);
     }
@@ -431,11 +466,11 @@ export default class SmartBulbService {
         .finally(() => {
           pollInFlight = false;
         });
-    }, POLL_MS);
+    }, pollMs);
 
     await std.log(
       `[service] Siap. ${swFd !== null ? "Poll saklar aktif" : "Tanpa saklar fisik (sim)"}. ` +
-        `Kirim perintah via IPC ke "${SERVICE_ID}".`,
+        `Kirim perintah via IPC ke "${serviceId}".`,
     );
 
     // Tetap hidup sebagai daemon.

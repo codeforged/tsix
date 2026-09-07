@@ -138,6 +138,37 @@ web-gateway.js   user biasa / IPC + HTTP/WebSocket client
 
 Mode simulasi cocok untuk menguji GUI tanpa Raspberry Pi atau MCP23017.
 
+### Konfigurasi service
+
+Konfigurasi deployment smartbulb berada di `/etc/smartbulb/config.json`:
+
+```json
+{
+  "webGateway": {
+    "port": 45452,
+    "staticRoot": "/opt/smartbulb"
+  },
+  "service": {
+    "identity": "jayalaras.service",
+    "relayDevices": ["/dev/mcp-bulb"],
+    "switchDevices": ["/dev/mcp-sw"],
+    "pollMs": 300,
+    "wcAutoOffMinutes": 15
+  }
+}
+```
+
+- `webGateway.port` dan `webGateway.staticRoot` mengatur gateway legacy.
+- `service.relayDevices` dan `service.switchDevices` mengatur urutan kandidat
+  device MCP23017.
+- `service.pollMs` mengatur interval polling saklar; minimum runtime 50 ms.
+- `service.wcAutoOffMinutes` mengatur timeout auto-OFF WC.
+
+Jika file tidak ada atau JSON invalid, service dan gateway memakai default
+yang sama seperti konfigurasi bawaan. Mapping port/logika NOS dan aturan
+otomasi scheduler tetap berada di source agar kontrak hardware tidak berubah
+secara tidak sengaja.
+
 ### Polling switch
 
 Setiap siklus polling:
@@ -382,6 +413,15 @@ Sinkronkan asset PNG dengan mekanisme VFS/bkfs yang digunakan perangkat:
 /opt/smartbulb/bulboff.png
 ```
 
+Sinkronkan konfigurasi runtime:
+
+```text
+/etc/smartbulb/config.json
+```
+
+Edit port gateway atau timeout WC di file tersebut, lalu restart daemon yang
+bersangkutan. Tidak perlu mengubah `web-gateway.ts` atau `service.ts`.
+
 Setelah perubahan library atau daemon:
 
 1. Stop daemon lama.
@@ -499,11 +539,12 @@ Runtime:
 /opt/smartbulb/web-gateway.js
 ```
 
-Gateway mengikuti pola daemon app TSIX dan membuka HTTP + WebSocket pada port
-`45452` secara default:
+Gateway mengikuti pola daemon app TSIX dan membaca port dari
+`/etc/smartbulb/config.json` (default `45452`):
 
 ```bash
-/opt/smartbulb/web-gateway.js 45452
+/opt/smartbulb/web-gateway.js       # memakai config
+/opt/smartbulb/web-gateway.js 45452 # override sekali jalan
 ```
 
 > **Arsitektur sementara:** `web-gateway.ts` saat ini memakai `hostRequire()`

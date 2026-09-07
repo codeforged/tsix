@@ -1,8 +1,9 @@
 import { UserLib } from "@tsix/UserLib";
 
 const SERVICE_ID = "jayalaras.service";
+const CONFIG_PATH = "/etc/smartbulb/config.json";
 const DEFAULT_PORT = 45452;
-const STATIC_ROOT = "/opt/smartbulb";
+const DEFAULT_STATIC_ROOT = "/opt/smartbulb";
 
 // Legacy setLight(id, value) compatibility. index.html lama mengirim bulb id
 // sebagai argumen; gateway menerjemahkan id tersebut ke port logika relay NOS.
@@ -53,8 +54,24 @@ export default class SmartBulbWebGateway {
       return;
     }
 
-    const requestedPort = Number.parseInt(args[0] || String(DEFAULT_PORT), 10);
+    let config: any = {
+      webGateway: { port: DEFAULT_PORT, staticRoot: DEFAULT_STATIC_ROOT },
+    };
+    try {
+      const rawConfig = await fs.readFile(CONFIG_PATH);
+      if (rawConfig) config = { ...config, ...JSON.parse(String(rawConfig)) };
+    } catch (_) {
+      await std.log(
+        `[smartbulb-web] Config tidak ditemukan/invalid (${CONFIG_PATH}), memakai default`,
+      );
+    }
+    const webConfig = config.webGateway || {};
+    const requestedPort = Number.parseInt(
+      args[0] || String(webConfig.port || DEFAULT_PORT),
+      10,
+    );
     const port = Number.isFinite(requestedPort) ? requestedPort : DEFAULT_PORT;
+    const staticRoot = String(webConfig.staticRoot || DEFAULT_STATIC_ROOT);
 
     await shell.daemonize("JayaLaras Smart Bulb Web Gateway");
 
@@ -192,7 +209,7 @@ export default class SmartBulbWebGateway {
       }
 
       try {
-        const raw: any = await fs.readFile(`${STATIC_ROOT}/${relative}`);
+        const raw: any = await fs.readFile(`${staticRoot}/${relative}`);
         if (raw === null || raw === undefined) throw new Error("not found");
         const ext = fileExtension(relative);
         const contentType = MIME[ext] || "application/octet-stream";

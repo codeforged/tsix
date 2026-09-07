@@ -7,6 +7,13 @@
 
 ## 2026-09-07
 
+### Konfigurasi runtime smartbulb dipusatkan di `/etc/smartbulb/config.json`
+
+- **File:** `src/mirror/etc/smartbulb/config.json`, `src/mirror/opt/smartbulb/service.ts`, `src/mirror/opt/smartbulb/web-gateway.ts`
+- **Perubahan:** Port gateway, static root, identity service, kandidat device relay/saklar, interval polling, dan timeout auto-OFF WC sekarang dibaca dari JSON; fallback default tetap sama bila config belum tersedia.
+- **Dampak:** Operator dapat mengubah deployment/runtime tanpa mengedit source. Mapping logika NOS dan aturan scheduler sengaja tetap di source sebagai kontrak perilaku.
+- **Oleh:** Copilot + kakang
+
 ### `service` — reset relay OFF & seed saklar saat start (fix "lampu nyala sendiri" setelah reboot)
 
 - **File:** `src/mirror/opt/smartbulb/service.ts`

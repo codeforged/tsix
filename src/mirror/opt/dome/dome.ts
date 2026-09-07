@@ -121,7 +121,21 @@ export const main = Program(async (args: string[]) => {
       await std.log("[dome] Daemonized successfully", "dome");
     }
 
-    const PORT = 8080;
+    const DOME_CONFIG_PATH = "/etc/dome/dome.json";
+    let domeConfig: { port?: number } = { port: 8080 };
+    try {
+      const rawConfig = await fs.readFile(DOME_CONFIG_PATH);
+      if (rawConfig) domeConfig = { ...domeConfig, ...JSON.parse(String(rawConfig)) };
+    } catch (_) {
+      await std.log(
+        `[dome] Config tidak ditemukan/invalid (${DOME_CONFIG_PATH}), memakai port default 8080`,
+        "dome",
+      );
+    }
+    const PORT =
+      Number.isInteger(domeConfig.port) && domeConfig.port! > 0 && domeConfig.port! <= 65535
+        ? domeConfig.port!
+        : 8080;
     const myPid = shell.getPid();
     await std.log(`[dome] PID=${myPid}, starting on port ${PORT}`, "dome");
 

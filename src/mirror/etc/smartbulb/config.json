@@ -1,0 +1,13 @@
+{
+  "webGateway": {
+    "port": 45452,
+    "staticRoot": "/opt/smartbulb"
+  },
+  "service": {
+    "identity": "jayalaras.service",
+    "relayDevices": ["/dev/mcp-bulb"],
+    "switchDevices": ["/dev/mcp-sw"],
+    "pollMs": 300,
+    "wcAutoOffMinutes": 15
+  }
+}
