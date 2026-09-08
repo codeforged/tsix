@@ -4,6 +4,30 @@
 
 ---
 
+## 2026-09-08
+
+### State input selalu sinkron — `TEdit`/`TMemo`/`TComboBox` terbaca LIVE tanpa wajib pasang callback
+
+- **File:** `src/mirror/lib/cashew.ts`
+- **Latar:** Di `regresi.ts` (kalkulator regresi + DDC plot), tombol "Hitung & Plot" terasa hanya jalan sekali & edit data di `TMemo` tidak memengaruhi plot. Ternyata handler tetap dipanggil tiap klik, tapi nilai input **tidak pernah disinkronkan** ke sisi worker (komponen hanya meng-update state bila app memasang `onInput`/`onChange` dulu) → tiap klik menghitung dataset default yang sama → output & plot identik (terkesan mati).
+- **Perubahan:**
+  - `TEdit.bindEventHandler`: **selalu** daftar listener `input` → menulis ketikan ke `props.value` (`.text` jadi live), lalu panggil `onInput` bila ada.
+  - `TMemo`: tambah `public onInput` (opsional), pasang `props.onInputId = this.id` di constructor (listener **mount-time** di DOME — textarea kini mengirim event ketikan), dan `bindEventHandler` **selalu** menyinkronkan ketikan ke `props.text` (`.text` jadi live).
+  - `TComboBox.bindEventHandler`: **selalu** daftar listener `input` → `selectedIndex` tersinkron otomatis, lalu panggil `onChange` bila ada.
+- **Dampak:** Membaca `edt.text`, `memo.text`, atau `cmb.selectedIndex` kapan pun (mis. di dalam `onClick`) mengembalikan nilai terbaru dari user. Callback (`onInput`/`onChange`) tetap dipanggil bila dipasang — tidak ada perubahan perilaku bagi app lama yang memakainya.
+- **Contoh:**
+  ```ts
+  const memo = new TMemo("memo-data");
+  memo.text = "1, 5\n2, 8\n3, 9";
+  form.add(memo);
+
+  btnCalc.onClick = () => {
+    const baris = memo.text.split("\n"); // selalu data terbaru
+    // hitung & plot ulang...
+  };
+  ```
+- **Oleh:** Copilot
+
 ## 2026-09-04
 
 ### `TImage` kini punya `onClick` — gambar bisa diklik (ikon, bulbon/off, dsb)

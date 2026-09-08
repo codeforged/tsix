@@ -219,8 +219,14 @@ btn.onClick = () => {
 ```typescript
 const edt = new TEdit("edt-email");
 edt.placeholder = "Masukkan email...";
-edt.onInput = (val) => console.log(val);
+edt.onInput = (val) => console.log(val); // opsional — reaksi real-time
+form.add(edt);
+
+// .text selalu LIVE — terbaca nilai ketikan terbaru tanpa perlu onInput:
+btn.onClick = () => std.log("Isi:", edt.text);
 ```
+
+> **Catatan:** Ketikan user otomatis disinkronkan ke `props.value` oleh `TForm.run()` → membaca `edt.text` kapan pun selalu mengembalikan nilai **terbaru** (tidak basi). `onInput` hanya untuk reaksi real-time (opsional).
 
 ### TMemo — Textarea Multiline
 
@@ -228,7 +234,16 @@ edt.onInput = (val) => console.log(val);
 const memo = new TMemo("memo-catatan");
 memo.text = "Baris 1\nBaris 2";
 memo.rows = 5;
+form.add(memo);
+
+// .text selalu LIVE — hasil edit user langsung terbaca saat tombol diklik:
+btnCalc.onClick = () => {
+  const baris = memo.text.split("\n"); // pakai data terbaru
+  // ...
+};
 ```
+
+> **Catatan:** `TMemo` memasang `onInputId` mount-time + auto-sync → `memo.text` selalu nilai live. `memo.onInput = (val) => ...` opsional untuk reaksi per ketikan.
 
 ### TCheckBox — Checkbox
 
@@ -260,8 +275,15 @@ rb2.caption = "Hijau";
 const cmb = new TComboBox("cmb-mode");
 cmb.items = ["Auto", "Manual", "Scheduled"];
 cmb.selectedIndex = 0;
-cmb.onChange = (idx, item) => console.log(item);
+cmb.onChange = (idx, item) => console.log(item); // opsional
+form.add(cmb);
+
+// selectedIndex selalu LIVE — ter-update otomatis saat user ganti pilihan:
+btn.onClick = () =>
+  std.log("Mode:", cmb.selectedIndex, cmb.items[cmb.selectedIndex]);
 ```
+
+> **Catatan:** Pilihan user otomatis disinkronkan ke `selectedIndex` oleh `TForm.run()` → `cmb.selectedIndex` selalu nilai terbaru. `onChange` opsional untuk reaksi real-time.
 
 ### TListBox — Daftar Pilihan
 
@@ -689,6 +711,8 @@ form.add(edtEmail);
 
 await form.run(); // auto-bind + auto-refresh semua komponen
 ```
+
+> **State input selalu sinkron:** Komponen input (`TEdit`, `TMemo`, `TComboBox`) **otomatis** menulis ketikan/pilihan user ke propertinya (`text`/`value`/`selectedIndex`) saat `TForm.run()` me-bind event — **tanpa perlu** memasang `onInput`/`onChange` dulu. Jadi app bisa membaca `edt.text`, `memo.text`, atau `cmb.selectedIndex` kapan pun (mis. di dalam `onClick`) dan selalu mendapat nilai terbaru. Callback (`onInput`/`onChange`) hanyalah pelengkap untuk reaksi real-time.
 
 `onSetup` hanya untuk inisialisasi **data/state tambahan** setelah mount (misal `grid.setData(...)` atau `chart.initChart()`):
 

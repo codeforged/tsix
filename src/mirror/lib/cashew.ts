@@ -730,11 +730,15 @@ export class TEdit extends TComponent {
   /** Binding event handler — panggil setelah mount */
   bindEventHandler(screen: Screen): void {
     this._screen = screen;
-    if (this.onInput) {
-      screen.on(this.id, "input", (ev: any) => {
-        this.onInput!(ev?.value || "");
-      });
-    }
+    // Selalu ikuti ketikan user: props.value di-sinkronkan langsung agar
+    // `.text` selalu terbaca nilai TERBARU, lalu panggil onInput bila app
+    // memasangnya. Tanpa ini, membaca .text setelah user mengetik akan
+    // mengembalikan nilai awal yang basi (stale).
+    screen.on(this.id, "input", (ev: any) => {
+      const v = ev?.value ?? "";
+      this.props.value = v;
+      if (this.onInput) this.onInput(v);
+    });
   }
 }
 
@@ -743,6 +747,8 @@ export class TEdit extends TComponent {
 // ================================================================
 
 export class TMemo extends TComponent {
+  /** Callback saat isi memo berubah (opsional — state tetap tersinkron). */
+  public onInput: ((value: string) => void) | null = null;
   private _screen: Screen | null = null;
 
   constructor(
@@ -752,6 +758,7 @@ export class TMemo extends TComponent {
     const { id, config } = splitFirstArg(idOrStyle, extraStyle);
     super(id);
     this.tag = "textarea";
+    this.props.onInputId = this.id; // mount-time listener di DOME
     this.props.rows = 5;
     const { props, css } = splitConfig(config, ["text", "rows"]);
     if (props.text !== undefined) this.text = props.text;
@@ -795,8 +802,16 @@ export class TMemo extends TComponent {
     await this._screen.update(this.id, { scrollTop: 0 });
   }
 
+  /** Binding event handler — panggil setelah mount.
+   *  Sinkronkan ketikan user ke props.text agar `.text` selalu nilai live,
+   *  lalu panggil onInput bila app memasangnya. */
   bindEventHandler(screen: Screen): void {
     this._screen = screen;
+    screen.on(this.id, "input", (ev: any) => {
+      const v = ev?.value ?? "";
+      this.props.text = v;
+      if (this.onInput) this.onInput(v);
+    });
   }
 }
 
@@ -1126,15 +1141,15 @@ export class TComboBox extends TComponent {
 
   bindEventHandler(screen: Screen): void {
     this._screen = screen;
-    if (this.onChange) {
-      screen.on(this.id, "input", (ev: any) => {
-        const idx = parseInt(ev?.value || "0", 10);
-        if (!isNaN(idx)) {
-          this.selectedIndex = idx;
-          this.onChange!(idx, this.items[idx] || "");
-        }
-      });
-    }
+    // Selalu ikuti perubahan pilihan: selectedIndex tersinkron otomatis agar
+    // nilai yang dibaca app tidak basi, lalu panggil onChange bila dipasang.
+    screen.on(this.id, "input", (ev: any) => {
+      const idx = parseInt(ev?.value ?? "", 10);
+      if (!isNaN(idx)) {
+        this.selectedIndex = idx;
+        if (this.onChange) this.onChange(idx, this.items[idx] || "");
+      }
+    });
   }
 
   build(): IDOMNode {
