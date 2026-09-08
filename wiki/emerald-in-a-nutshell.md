@@ -2,7 +2,7 @@
 
 **Tuntunan Lengkap Membuat Aplikasi GUI Berbasis TSIX Menggunakan Emerald Widget Toolkit**
 
-> Versi 1.4 | 2026-08-15
+> Versi 1.5 | 2026-09-08
 
 ---
 
@@ -23,6 +23,7 @@
 13. [Studi Kasus: Aplikasi Lengkap](#13-studi-kasus-aplikasi-lengkap)
 14. [Referensi Cepat API](#14-referensi-cepat-api)
 15. [Best Practices & Anti-Patterns](#15-best-practices--anti-patterns)
+16. [Menyelaraskan Warna dengan Tema Aktif Asteracea](#16-menyelaraskan-warna-dengan-tema-aktif-asteracea)
 
 ---
 
@@ -1681,6 +1682,118 @@ interface IGUIEventIPC {
 
 6. **Jangan gunakan `disabled: true` — gunakan `disabled: "1"`.**
    Browser DOM menggunakan string untuk attribute `disabled`.
+
+---
+
+## 16. Menyelaraskan Warna dengan Tema Aktif Asteracea
+
+Asteracea punya tema **dark (Dracula Emerald)** dan **light (Solarized Light)** yang bisa
+di-switch runtime (`theme.switchTo()`). Supaya UI aplikasi ikut tema aktif, ada **dua cara**
+bergantung jenis elemen — keduanya dipakai berdampingan.
+
+### 16.1 Widget DOM — pakai CSS variables (otomatis ikut theme)
+
+Browser host memasang CSS variables di `:root` saat `WINDOW_THEME` diterima (lihat
+`dome-client-ui.js`). Widget DOM Emerald/Cashew yang memakai `var(--...)` **otomatis**
+ikut light ↔ dark saat theme di-switch — tanpa perlu re-render atau kode tambahan.
+
+```typescript
+div({
+  id: "card",
+  style: {
+    background: "var(--surface, #16213e)",
+    border: "1px solid var(--border, rgba(255,255,255,0.12))",
+    color: "var(--text, #e0e0e0)",
+  },
+});
+button({
+  id: "btn-ok", text: "OK", onClickId: "btn-ok",
+  style: { background: "var(--button-bg, #0f3460)", color: "var(--accent, #4caf50)" },
+});
+```
+
+**Pemetaan warna theme → CSS variable:**
+
+| `theme.colors.*`   | CSS variable               | Contoh pakai                    |
+| :----------------- | :------------------------- | :------------------------------ |
+| `bg`               | `var(--bg, ...)`           | background window/form          |
+| `surface`          | `var(--surface, ...)`      | panel / card                    |
+| `buttonBg`         | `var(--surface2, ...)` / `var(--button-bg, ...)` | tombol |
+| `text`             | `var(--text, ...)`         | teks utama                      |
+| `textDim`          | `var(--text-dim, ...)`     | teks redup                      |
+| `textMuted`        | `var(--text-muted, ...)`   | teks samar                      |
+| `accent`           | `var(--accent, ...)`       | aksen / tombol aktif            |
+| `accentBg`         | `var(--accent-bg, ...)`    | bg aksen lembut                 |
+| `border` / `inputBg` | `var(--border, ...)` / `var(--input-bg, ...)` | border & input |
+
+### 16.2 Nilai JS non-CSS — baca `theme.colors` setelah `loadCurrent()`
+
+Untuk nilai yang **tidak** bisa memakai `var()` (mis. warna slider `accentColor`, argumen
+warna widget IoT, palet canvas DDC), baca `theme.colors` — pastikan sudah `loadCurrent()`
+di awal `main()` supaya merefleksikan tema aktif sebelum UI dibangun.
+
+```typescript
+import { theme } from "@tsix/theme";
+
+export const main = Program(async () => {
+  await theme.loadCurrent(); // baca theme aktif (dark/light) dulu
+
+  const app = new Screen({ title: "Contoh", width: 640, height: 480 });
+  await app.mount(
+    div({ id: "root", style: { background: theme.colors.bg, color: theme.colors.text } },
+      // slider({ ... color: theme.colors.accent })  ← nilai JS, bukan var()
+    ),
+  );
+  await app.loopUntilClose();
+});
+```
+
+### 16.3 Bereaksi saat theme di-switch runtime
+
+Untuk elemen yang butuh re-render eksplisit saat theme berganti (mis. **canvas DDC** yang
+tidak bisa memakai CSS variable), dengarkan event sistem `THEME_CHANGED` via
+`_tsixLib.onEvent("ipc_message")`:
+
+```typescript
+const lib = (global as any)._tsixLib;
+if (lib?.onEvent) {
+  lib.onEvent("ipc_message", (msg: any) => {
+    const ev = msg?.data || msg;
+    if (ev?.type !== "THEME_CHANGED") return;
+    void theme.load(ev.theme, ev.dir || "/opt/asteracea").then(() => {
+      // kirim ulang palet warna ke komponen yang butuh nilai konkret (mis. DDC)
+      syncToDDC();
+    });
+  });
+}
+```
+
+### 16.4 Canvas DDC (Native JS) — kirim palet via handshake `ready`
+
+Canvas DDC (`pli-plot.js` / `regression-plot.js`) dirender 2D di browser dan **tidak bisa**
+memakai `var()` — warnanya harus **dikirim host** sebagai palet. Pola yang benar:
+
+1. Host baca `theme.colors` → bangun objek palet (`bg`, `grid`, `tick`, `axis`, `accent`,
+   `inspect`, `ring`, `textMain`, `textSub`).
+2. NJ di akhir `DDC.onInit` kirim `ctx.send({ event: "ready", data: {...} })`.
+3. Host baru mengirim `update_config` (berisi palet) **saat** `ddcApp.on("ready", ...)`
+   — mencegah race (pesan yang dikirim sebelum NJ siap akan dibuang DOME).
+4. Tambahkan fallback `setTimeout(sync, 600)` sekali (guard `syncedOnce`) untuk kasus
+   event `ready` sudah lewat sebelum listener terpasang.
+
+```typescript
+// NJ (pli-plot.js) — di akhir onInit, SETELAH ctx.onMessage terpasang:
+ctx.send({ event: "ready", data: { width: W, height: H } });
+
+// Host — di dalam form.onSetup setelah mountDDC:
+let syncedOnce = false;
+const doSync = () => { if (syncedOnce) return; syncedOnce = true; syncToDDC(); };
+ddcApp.on("ready", () => doSync());
+setTimeout(doSync, 600); // pengaman bila ready sudah lewat
+```
+
+> Contoh lengkap: `src/mirror/opt/test/pli-app.ts` + `pli-plot.js` (simulasi PLI),
+> `regression-app.ts` + `regression-plot.js` (regresi polinomial).
 
 ---
 

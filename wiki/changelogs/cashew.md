@@ -6,6 +6,41 @@
 
 ## 2026-09-08
 
+### `TComponent.style` kini accessor — live-sync otomatis ke browser setelah mount
+
+- **File:** `src/mirror/lib/cashew.ts`
+- **Latar:** Di `pli-app.ts` (simulasi PLI + DDC), tombol pilihan profil/window-resolution menyimpan state dengan benar tapi **highlight tombol aktif (warna aksen) tidak berpindah** saat diklik. Ternyata `style` adalah field objek biasa — mengubah `btn.style = {...}` setelah form di-mount hanya mengubah memori worker, tidak pernah dikirim ke browser.
+- **Perubahan:**
+  - `TComponent.style` diubah dari **field publik** menjadi **accessor** (getter/setter) dengan backing field `_style`.
+  - Setter otomatis **live-sync**: bila komponen sudah ter-bind ke `Screen`, assignment `comp.style = {...}` memicu `screen.update(id, { style })` → browser meng-merge via `Object.assign` (lihat `dome-client-dom.js`), jadi properti style lain (width/padding/dll.) tidak hilang.
+  - Base `bindEventHandler()` menyimpan screen di `_screenHost`; setter juga membaca field `_screen` milik subclass (private, tetap ada saat runtime) → semua subclass terdeteksi tanpa wajib memanggil `super.bindEventHandler`.
+- **Dampak & kompatibilitas:**
+  - Sebelum mount (screen null) **tidak** ada push → pembangunan tree awal identik.
+  - Mutasi objek (mis. `this._bar.style.width = ...`) **tidak** memicu setter — pola internal (`TProgressBar` dkk) tetap aman.
+  - Pemakaian `comp.style = {...}` / `comp.style.color = ...` sama seperti dulu; kini perubahan setelah mount otomatis tampil.
+- **Contoh:**
+  ```ts
+  function setBtnState(btn: TButton, active: boolean) {
+    btn.style = {
+      ...btn.style,
+      background: active ? "var(--accent, #4caf50)" : "var(--surface2, #0f3460)",
+      color: active ? "#ffffff" : "var(--text, #e0e0e0)",
+    };
+  }
+  btnPressure.onClick = () => { currentProfile = "Pressure"; updateProfileButtons(); };
+  ```
+- **Oleh:** Copilot
+
+### Contoh app Cashew+DDC theme-aware pindah ke `/opt/test`
+
+- **File:**
+  - `src/mirror/opt/test/pli-app.ts` + `pli-plot.js` **(baru, dari `src/mirror/root/`)** — simulasi Piecewise Linear Interpolation.
+  - `src/mirror/opt/test/regression-app.ts` + `regression-plot.js` **(baru, dari `src/mirror/root/`)** — kalkulator regresi polinomial + DDC plot.
+- **Perubahan:** Kedua pasangan app DDC dipindah dari `src/mirror/root/` (di-ignore git) ke `src/mirror/opt/test/` (masuk versioning, ikut sync VFS + auto-transpile `.ts` → `.js`). `NJ_PATH` diubah ke absolut (`/opt/test/pli-plot.js`, `/opt/test/regression-plot.js`), ditambah header "Jalankan" & `export const appMode = "gui"` (regression-app).
+- **Oleh:** Copilot
+
+## 2026-09-08
+
 ### State input selalu sinkron — `TEdit`/`TMemo`/`TComboBox` terbaca LIVE tanpa wajib pasang callback
 
 - **File:** `src/mirror/lib/cashew.ts`

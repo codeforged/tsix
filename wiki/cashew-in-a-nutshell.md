@@ -828,6 +828,90 @@ form.onSetup = async (screen) => {
 
 > **Catatan:** Untuk form standar, `TForm.run()` sudah otomatis memuat theme (`loadCurrent` + `watch`) dan mengirim `WINDOW_THEME` ke DOME — jadi `applyToDome()` manual umumnya **tidak wajib** kecuali kamu butuh kontrol penuh.
 
+### Live-sync `style` setelah mount (tanpa `screen.update` manual)
+
+Sejak `TComponent.style` menjadi **accessor**, setiap **assignment** `comp.style = {...}`
+**setelah komponen di-mount otomatis terkirim ke browser**. Tidak perlu lagi memanggil
+`screen.update(id, { style })` secara manual untuk setiap perubahan visual.
+
+```typescript
+const btn = new TButton("btn-thermistor", { width: "100px" });
+btn.caption = "Thermistor";
+form.add(btn);
+
+// Cukup assign — kalau form sudah jalan, browser langsung di-update
+// (properti style lain seperti width/padding tetap dipertahankan = merge)
+btn.style = { ...btn.style, background: "var(--accent, #4caf50)", color: "#fff" };
+```
+
+**Cara kerja & kompatibilitas ke belakang:**
+- Sebelum mount (screen belum ada) → **tidak** ada push → pembangunan tree awal identik seperti dulu.
+- Setelah mount → assignment memicu `screen.update(id, { style })`; browser meng-merge via `Object.assign` (lihat `dome-client-dom.js`), jadi style lain tidak hilang.
+- Mutasi objek (mis. `this._bar.style.width = "50%"`) **tidak** memicu setter — pola internal tetap aman.
+
+> **Kenapa perlu?** Dulu `btn.style = {...}` setelah form di-mount hanya mengubah objek style di memori worker — browser tidak tahu, sehingga highlight tombol aktif (mis. warna aksen) tidak berpindah saat diklik. Kini otomatis live.
+
+**Contoh — tombol aktif berpindah real-time:**
+```typescript
+function setBtnState(btn: TButton, active: boolean) {
+  const bg = active ? "var(--accent, #4caf50)" : "var(--surface2, #0f3460)";
+  const fg = active ? "#ffffff" : "var(--text, #e0e0e0)";
+  const bd = active
+    ? "1px solid var(--accent, #4caf50)"
+    : "1px solid var(--border, rgba(255,255,255,0.12))";
+  btn.style = { ...btn.style, background: bg, color: fg, border: bd }; // merge!
+}
+
+btnPressure.onClick = () => {
+  currentProfile = "Pressure";
+  updateProfileButtons(); // memanggil setBtnState utk semua tombol
+  syncToDDC();
+};
+```
+
+### Menyelaraskan warna dengan tema aktif Asteracea
+
+**Aturan emas:** jangan hardcode hex. Pakai **CSS variables** (otomatis ikut theme
+light ↔ dark saat di-switch di Asteracea) atau baca **`theme.colors`** untuk nilai
+yang tidak bisa memakai `var()` (mis. warna slider, palet canvas).
+
+```typescript
+import { theme } from "@tsix/theme";
+
+export const main = Program(async () => {
+  await theme.loadCurrent(); // baca theme aktif (light/dark) sebelum bangun UI
+
+  const form = new TForm({ title: "Contoh Tema", width: 640, height: 480 });
+  form.style = { ...form.style, color: "var(--text, #e0e0e0)" };
+
+  // CSS variables → otomatis ikut theme (panel, label, tombol, dsb)
+  const card = new TPanel("card", { background: "var(--surface, #16213e)" });
+  const lbl = new TLabel("judul", { color: "var(--accent, #4caf50)" });
+
+  // Nilai JS non-CSS → baca theme.colors setelah loadCurrent()
+  const slider = new TSlider("sld", {
+    value: 50, min: 0, max: 100,
+    color: theme.colors.accent || "#4caf50",
+  });
+
+  await form.run();
+});
+```
+
+**Tabel pemetaan warna theme → CSS variable:**
+
+| `theme.colors.*`      | CSS variable          | Contoh pakai                              |
+| :-------------------- | :-------------------- | :---------------------------------------- |
+| `bg`                  | `var(--bg, ...)`      | background utama form                     |
+| `surface`             | `var(--surface, ...)` | panel / card                              |
+| `buttonBg`            | `var(--surface2, ...)`| tombol idle (`--button-bg` juga tersedia) |
+| `text`                | `var(--text, ...)`    | teks utama                                |
+| `textDim`             | `var(--text-dim, ...)`| teks redup                                |
+| `textMuted`           | `var(--text-muted, ...)` | teks samar                             |
+| `accent`              | `var(--accent, ...)`  | aksen / tombol aktif / highlight          |
+| `accentBg`            | `var(--accent-bg, ...)`| background aksen lembut                  |
+| `border` / `inputBg`  | `var(--border, ...)` / `var(--input-bg, ...)` | border & input      |
+
 ---
 
 ## 📝 Contoh Lengkap

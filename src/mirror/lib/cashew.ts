@@ -134,7 +134,49 @@ export class TComponent {
   private _children: TComponent[] = [];
   public tag: string = "div";
   public props: Record<string, any> = {};
-  public style: Record<string, any> = {};
+
+  /** Screen tempat komponen di-mount. Diisi saat bindEventHandler()
+   *  (otomatis oleh TForm.run()). Dipakai untuk live-sync style. */
+  protected _screenHost: Screen | null = null;
+
+  /** Backing field untuk accessor `style`. */
+  private _style: Record<string, any> = {};
+
+  /**
+   * Style komponen (CSS object).
+   *
+   * Dulu berupa field publik biasa; kini accessor agar perubahan style
+   * SETELAH komponen di-mount otomatis ikut terkirim ke browser.
+   *
+   * Kompatibilitas ke belakang:
+   *  - Assignment `comp.style = {...}` tetap berfungsi persis seperti dulu.
+   *  - Sebelum mount (screen null) TIDAK ada push → build tree awal sama.
+   *  - Setelah mount, assignment memicu screen.update(id, {style}) → browser
+   *    meng-merge via Object.assign (lihat dome-client-dom.js) sehingga
+   *    properti style lain tidak hilang.
+   *  - Mutasi objek (mis. `this._bar.style.width = ...`) TIDAK memicu setter
+   *    — aman & tidak menambah overhead pada pola internal seperti itu.
+   */
+  get style(): Record<string, any> {
+    return this._style;
+  }
+  set style(v: Record<string, any>) {
+    this._style = v || {};
+
+    // Live-sync: hanya jika sudah di-mount ke sebuah Screen.
+    // Banyak subclass menyimpan screen di field `_screen` sendiri (private,
+    // tetap ada saat runtime) dan tidak selalu memanggil super.bindEventHandler,
+    // jadi kita cek keduanya agar tetap kompatibel ke belakang.
+    const scr: Screen | null =
+      this._screenHost || ((this as any)._screen as Screen | null) || null;
+    if (scr) {
+      try {
+        void scr.update(this.id, { style: { ...this._style } });
+      } catch (_) {
+        /* screen mungkin sedang shutdown — abaikan */
+      }
+    }
+  }
 
   constructor(id?: string) {
     // Kalau id tidak diberikan, generate otomatis dari nama class.
@@ -156,8 +198,13 @@ export class TComponent {
    * bindEventHandler(): Daftarkan event handler ke Screen.
    * Otomatis dipanggil oleh TForm.run() untuk semua komponen.
    * Override di subclass untuk register event spesifik (onClick, onInput, dll).
+   *
+   * Base menyimpan screen agar accessor `style` bisa live-sync. Subclass yang
+   * override TIDAK wajib memanggil super — accessor style juga membaca field
+   * `_screen` yang diisi subclass, jadi keduanya tetap terdeteksi.
    */
   bindEventHandler(screen: Screen): void {
+    this._screenHost = screen;
     // Base: no-op — subclass override untuk register event
   }
 
@@ -2766,7 +2813,7 @@ export class TDataGrid extends TComponent {
   set columns(v: DataGridColumn[]) {
     this._columns = v;
     this.grid.columns = v;
-    if (this._screen) void this.grid.setColumns(v).catch(() => {});
+    if (this._screen) void this.grid.setColumns(v).catch(() => { });
   }
   get columns(): DataGridColumn[] {
     return this._columns;
@@ -2776,7 +2823,7 @@ export class TDataGrid extends TComponent {
   set data(v: Record<string, any>[]) {
     this._data = v;
     this.grid.data = v;
-    if (this._screen) void this.grid.setData(v).catch(() => {});
+    if (this._screen) void this.grid.setData(v).catch(() => { });
   }
   get data(): Record<string, any>[] {
     return this._data;
@@ -2861,7 +2908,7 @@ export class TDataGrid extends TComponent {
           if (this.onRowClick) this.onRowClick(index, record);
         },
       )
-      .catch(() => {});
+      .catch(() => { });
   }
 
   /** Auto-refresh oleh TForm.run() — render data awal */
@@ -2934,7 +2981,7 @@ export class TTabulatorGrid extends TComponent {
   set columns(v: DataGridColumn[]) {
     this._columns = v;
     this.grid.columns = v;
-    if (this._screen) void this.grid.setColumns(v).catch(() => {});
+    if (this._screen) void this.grid.setColumns(v).catch(() => { });
   }
   get columns(): DataGridColumn[] {
     return this._columns;
@@ -2944,7 +2991,7 @@ export class TTabulatorGrid extends TComponent {
   set data(v: Record<string, any>[]) {
     this._data = v;
     this.grid.data = v;
-    if (this._screen) void this.grid.setData(v).catch(() => {});
+    if (this._screen) void this.grid.setData(v).catch(() => { });
   }
   get data(): Record<string, any>[] {
     return this._data;
@@ -3032,7 +3079,7 @@ export class TTabulatorGrid extends TComponent {
           if (this.onRowClick) this.onRowClick(index, record);
         },
       )
-      .catch(() => {});
+      .catch(() => { });
   }
 
   /** Auto-refresh oleh TForm.run() — render data awal */
@@ -3272,13 +3319,13 @@ export class TImage extends TComponent {
       borderRadius: "0px",
       ...(o.width != null
         ? {
-            width: typeof o.width === "number" ? o.width + "px" : o.width,
-          }
+          width: typeof o.width === "number" ? o.width + "px" : o.width,
+        }
         : {}),
       ...(o.height != null
         ? {
-            height: typeof o.height === "number" ? o.height + "px" : o.height,
-          }
+          height: typeof o.height === "number" ? o.height + "px" : o.height,
+        }
         : {}),
       ...(o.style || {}),
     };
@@ -3376,7 +3423,7 @@ export class TImage extends TComponent {
     }
     if (this._file && !this._fileLoaded) {
       this._fileLoaded = true;
-      void this.loadFile(this._file).catch(() => {});
+      void this.loadFile(this._file).catch(() => { });
     }
   }
 
