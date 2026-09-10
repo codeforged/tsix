@@ -9,6 +9,9 @@ import {
 
 export default class TSSHClient {
   async execute(lib: UserLib, args: string[]) {
+    const netstat = await lib.net.netstat();
+    const defaultInterface = netstat.defaultDevice;
+
     if (args.includes("--help") || args.includes("-h") || args.length < 1) {
       await lib.std.print(
         "Usage: tssh <remote_address> [port] [-c command]\nTSIX Secure Shell Client.\n",
@@ -18,12 +21,13 @@ export default class TSSHClient {
 
     const remoteAddr = args[0];
     const remotePort = parseInt(args[1]) || 24;
+    const iface = args[2] || defaultInterface;
     const localPort = 4000 + Math.floor(Math.random() * 1000);
 
     lib.std.print(`[tssh] Connecting to ${remoteAddr}:${remotePort}...\n`);
 
     const fd = await lib.net.socket();
-    await lib.net.bind(fd, localPort);
+    await lib.net.bind(fd, localPort, iface);
     // Binfeo PER-PORT (port lokal klien), bukan global — supaya aplikasi
     // lain (ping/scanif) tetap memakai JSON v1.0 di port mereka. Binfeo =
     // protocol biner TERSANDI utk komunikasi normal (bukan OTA Binary).
