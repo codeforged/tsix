@@ -309,6 +309,7 @@ export class SyscallDispatcher {
       SyscallCode.GET_SIZE,
       SyscallCode.PTY_ALLOC,
       SyscallCode.PTY_FREE,
+      SyscallCode.SET_NET_DEFAULT,
     ];
 
     if (needsArgs.includes(code) && (args === undefined || args === null)) {
@@ -1651,6 +1652,50 @@ export class SyscallDispatcher {
       case SyscallCode.SECAGENT_LIST: {
         // Daftar Security Agent yang terdaftar di kernel (dipakai tool `secagent`).
         return SimpleMQTNLDriver.listAgents();
+      }
+
+      case SyscallCode.SET_NET_DEFAULT: {
+        // Ganti interface MQTNL default secara RUNTIME. Hanya mengubah nilai di
+        // memori kernel (Config singleton) — TIDAK menulis ulang sysconfig.json,
+        // jadi perubahan hilang saat reboot. Butuh root karena memengaruhi
+        // SEMUA proses yang tidak meng-bind interface secara eksplisit.
+        if (!this.isRoot(pcb))
+          throw new Error(
+            "Permission Denied: Only root or root group members can change the default network interface",
+          );
+
+        const { deviceName } = args as { deviceName: string };
+        if (typeof deviceName !== "string" || deviceName.trim() === "")
+          throw new Error(
+            "SET_NET_DEFAULT: butuh nama interface (deviceName atau address)",
+          );
+
+        const wanted = deviceName.trim();
+        let target: SimpleMQTNLDriver | null = null;
+
+        for (const key in this.kernel.devices) {
+          const dev = this.kernel.devices[key];
+          if (!(dev instanceof SimpleMQTNLDriver)) continue;
+          if (dev.name === wanted || (dev as any).localAddress === wanted) {
+            target = dev;
+            break;
+          }
+        }
+
+        if (!target)
+          throw new Error(
+            `Network Interface not found: ${wanted} (lihat daftar via ifconfig)`,
+          );
+
+        const cfg = Config.get();
+        const previous = cfg.network.defaultDevice;
+        cfg.network.defaultDevice = target.name;
+
+        this.kernel.bootLog?.(
+          `NET: default interface ${previous} -> ${target.name} by PID ${pid}`,
+        );
+
+        return { defaultDevice: target.name, previous };
       }
 
       case SyscallCode.DETACH: {

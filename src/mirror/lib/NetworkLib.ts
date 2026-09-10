@@ -195,6 +195,20 @@ export class NetworkLib {
   }
 
   /**
+   * setDefaultDevice(): Ganti interface MQTNL default secara RUNTIME.
+   *
+   * Hanya mengubah nilai di memori kernel — TIDAK menulis ulang
+   * `sysconfig.json`, jadi perubahan hilang saat reboot. `name` boleh berupa
+   * deviceName ("smqtnl1") atau address ("mactsix_2").
+   * Return `{ defaultDevice, previous }` (deviceName kanonik + nilai sebelumnya).
+   */
+  public async setDefaultDevice(name: string): Promise<any> {
+    return await this.dispatch(SyscallCode.SET_NET_DEFAULT, {
+      deviceName: name,
+    });
+  }
+
+  /**
    * listAgents(): Nama semua Security Agent enkripsi yang terdaftar di kernel
    * (lihat registri SimpleMQTNLDriver; dipakai tool `secagent`).
    */
@@ -717,7 +731,8 @@ export interface RsaChaSocketOptions extends NetSocketOptions {
  *   await sock.send("hello");
  */
 export class RsaChaSocket {
-  public onMessage: ((message: string, packet: NetPacket) => void) | null = null;
+  public onMessage: ((message: string, packet: NetPacket) => void) | null =
+    null;
   public onReady: (() => void) | null = null;
   public onError: ((err: Error) => void) | null = null;
   public onClose: (() => void) | null = null;
@@ -727,7 +742,9 @@ export class RsaChaSocket {
   private readonly socket: NetSocket;
   private readonly keyPair: { publicKey: string; privateKey: string } | null;
   private readonly trustedFingerprint?: string;
-  private readonly verifyFingerprint?: (fingerprint: string) => boolean | Promise<boolean>;
+  private readonly verifyFingerprint?: (
+    fingerprint: string,
+  ) => boolean | Promise<boolean>;
   private readonly serverFingerprint: string | null;
   private ready = false;
   private readyResolve!: () => void;
@@ -752,10 +769,13 @@ export class RsaChaSocket {
     this.role = opts.role;
     this.peer = opts.peer;
     this.socket = new NetSocket(opts);
-    this.keyPair = this.role === "server"
-      ? opts.keyPair ?? SecurityAgent.generateKeyPair()
-      : null;
-    this.trustedFingerprint = opts.trustedFingerprint?.replace(/^SHA256:/i, "").toUpperCase();
+    this.keyPair =
+      this.role === "server"
+        ? (opts.keyPair ?? SecurityAgent.generateKeyPair())
+        : null;
+    this.trustedFingerprint = opts.trustedFingerprint
+      ?.replace(/^SHA256:/i, "")
+      .toUpperCase();
     this.verifyFingerprint = opts.verifyFingerprint;
     this.serverFingerprint = this.keyPair
       ? SecurityAgent.getFingerprint(this.keyPair.publicKey)
@@ -770,7 +790,10 @@ export class RsaChaSocket {
     };
     this.socket.onError = (err) => this.emitError(err);
     this.socket.onClose = () => {
-      if (!this.ready) this.readyReject(new Error("RsaChaSocket: socket ditutup sebelum handshake selesai"));
+      if (!this.ready)
+        this.readyReject(
+          new Error("RsaChaSocket: socket ditutup sebelum handshake selesai"),
+        );
       this.onClose?.();
     };
   }
@@ -817,12 +840,22 @@ export class RsaChaSocket {
   }
 
   /** Kirim pesan aman ke peer client. */
-  public async send(message: string, flag: PacketFlags = PacketFlags.FLAG_DATA): Promise<boolean> {
+  public async send(
+    message: string,
+    flag: PacketFlags = PacketFlags.FLAG_DATA,
+  ): Promise<boolean> {
     if (!this.peer) {
-      throw new Error("RsaChaSocket: send() membutuhkan peer; gunakan sendTo() atau reply() di server");
+      throw new Error(
+        "RsaChaSocket: send() membutuhkan peer; gunakan sendTo() atau reply() di server",
+      );
     }
     await this.waitReady();
-    return await this.socket.sendTo(this.peer.address, this.peer.port, RsaChaSocket.MESSAGE + message, flag);
+    return await this.socket.sendTo(
+      this.peer.address,
+      this.peer.port,
+      RsaChaSocket.MESSAGE + message,
+      flag,
+    );
   }
 
   /** Kirim pesan aman ke address:port tertentu, terutama untuk server. */
@@ -833,7 +866,12 @@ export class RsaChaSocket {
     flag: PacketFlags = PacketFlags.FLAG_DATA,
   ): Promise<boolean> {
     await this.waitReady();
-    return await this.socket.sendTo(address, port, RsaChaSocket.MESSAGE + message, flag);
+    return await this.socket.sendTo(
+      address,
+      port,
+      RsaChaSocket.MESSAGE + message,
+      flag,
+    );
   }
 
   /** Balas pesan aman ke pengirim packet. */
@@ -843,7 +881,11 @@ export class RsaChaSocket {
     flag: PacketFlags = PacketFlags.FLAG_DATA,
   ): Promise<boolean> {
     await this.waitReady();
-    return await this.socket.reply(packet, RsaChaSocket.MESSAGE + message, flag);
+    return await this.socket.reply(
+      packet,
+      RsaChaSocket.MESSAGE + message,
+      flag,
+    );
   }
 
   public async close(): Promise<void> {
@@ -860,30 +902,51 @@ export class RsaChaSocket {
     const body = text.slice(1);
 
     try {
-      if (this.role === "server" && !this.ready && opcode === RsaChaSocket.REQUEST_KEY) {
+      if (
+        this.role === "server" &&
+        !this.ready &&
+        opcode === RsaChaSocket.REQUEST_KEY
+      ) {
         await this.socket.reply(
           packet,
-          RsaChaSocket.PUBLIC_KEY + this.keyPair!.publicKey + "::" + this.serverFingerprint,
+          RsaChaSocket.PUBLIC_KEY +
+            this.keyPair!.publicKey +
+            "::" +
+            this.serverFingerprint,
         );
         return;
       }
 
-      if (this.role === "server" && !this.ready && opcode === RsaChaSocket.SECRET_KEY) {
-        const sessionKey = SecurityAgent.decryptWithPrivateKey(this.keyPair!.privateKey, body);
+      if (
+        this.role === "server" &&
+        !this.ready &&
+        opcode === RsaChaSocket.SECRET_KEY
+      ) {
+        const sessionKey = SecurityAgent.decryptWithPrivateKey(
+          this.keyPair!.privateKey,
+          body,
+        );
         await this.socket.upgradeSecurity(sessionKey.toString("hex"));
         this.markReady();
         return;
       }
 
-      if (this.role === "client" && !this.ready && opcode === RsaChaSocket.PUBLIC_KEY) {
+      if (
+        this.role === "client" &&
+        !this.ready &&
+        opcode === RsaChaSocket.PUBLIC_KEY
+      ) {
         const [serverPublicKey, fingerprint] = body.split("::");
         const normalizedFingerprint = fingerprint?.trim().toUpperCase();
         if (!normalizedFingerprint) {
           throw new Error("RsaChaSocket: server tidak mengirim fingerprint");
         }
-        const calculatedFingerprint = SecurityAgent.getFingerprint(serverPublicKey);
+        const calculatedFingerprint =
+          SecurityAgent.getFingerprint(serverPublicKey);
         if (calculatedFingerprint !== normalizedFingerprint) {
-          throw new Error("RsaChaSocket: fingerprint tidak cocok dengan public key server");
+          throw new Error(
+            "RsaChaSocket: fingerprint tidak cocok dengan public key server",
+          );
         }
         if (
           this.trustedFingerprint &&
@@ -902,7 +965,10 @@ export class RsaChaSocket {
         }
 
         const sessionKey = SecurityAgent.generateSessionKey();
-        const encryptedKey = SecurityAgent.encryptWithPublicKey(serverPublicKey, sessionKey);
+        const encryptedKey = SecurityAgent.encryptWithPublicKey(
+          serverPublicKey,
+          sessionKey,
+        );
         await this.socket.sendTo(
           this.peer!.address,
           this.peer!.port,

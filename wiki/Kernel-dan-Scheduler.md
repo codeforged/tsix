@@ -8,14 +8,14 @@ Kernel TSIX (**Dinawari**) adalah jantung dari sistem — sebuah class TypeScrip
 
 ### Tanggung Jawab Utama
 
-| Fungsi | Deskripsi |
-|--------|-----------|
-| `boot()` | Inisialisasi VFS, device drivers, network, dan scheduler |
-| `runInit()` | Spawn PID 1 (init process) |
-| `syncFromHost()` | Dev mode: sinkronisasi `src/__root/` → VFS |
-| `mirrorToSDK()` | Ekstrak VFS ke `.tsix_sdk/` agar Node.js bisa resolve |
-| `loadAuxDevices()` | Auto-load plugin devices dari `aux-devices/` |
-| `handleHostInterrupt()` | Forward Ctrl+C ke foreground process |
+| Fungsi                  | Deskripsi                                                |
+| ----------------------- | -------------------------------------------------------- |
+| `boot()`                | Inisialisasi VFS, device drivers, network, dan scheduler |
+| `runInit()`             | Spawn PID 1 (init process)                               |
+| `syncFromHost()`        | Dev mode: sinkronisasi `src/__root/` → VFS               |
+| `mirrorToSDK()`         | Ekstrak VFS ke `.tsix_sdk/` agar Node.js bisa resolve    |
+| `loadAuxDevices()`      | Auto-load plugin devices dari `aux-devices/`             |
+| `handleHostInterrupt()` | Forward Ctrl+C ke foreground process                     |
 
 ### Lifecycle
 
@@ -46,19 +46,19 @@ Scheduler adalah **process manager**: setiap proses berjalan di **Worker Thread 
 
 Setiap proses direpresentasikan oleh PCB dengan properti berikut:
 
-| Field | Tipe | Deskripsi |
-|-------|------|-----------|
-| `pid` | number | Process ID (unik) |
-| `ppid` | number | Parent Process ID |
-| `uid` | number | User ID yang menjalankan |
-| `gid` | number | Group ID |
-| `state` | string | `RUNNING`, `WAITING`, `EXITED` |
-| `cwd` | string | Current Working Directory |
-| `fdTable` | Map | Tabel File Descriptor |
-| `env` | Map | Environment variables |
-| `ttyId` | number | ID TTY yang terikat (1-6) |
-| `worker` | Worker | Reference ke Worker Thread |
-| `exitCode` | number | Kode keluar (setelah EXIT) |
+| Field      | Tipe   | Deskripsi                      |
+| ---------- | ------ | ------------------------------ |
+| `pid`      | number | Process ID (unik)              |
+| `ppid`     | number | Parent Process ID              |
+| `uid`      | number | User ID yang menjalankan       |
+| `gid`      | number | Group ID                       |
+| `state`    | string | `RUNNING`, `WAITING`, `EXITED` |
+| `cwd`      | string | Current Working Directory      |
+| `fdTable`  | Map    | Tabel File Descriptor          |
+| `env`      | Map    | Environment variables          |
+| `ttyId`    | number | ID TTY yang terikat (1-6)      |
+| `worker`   | Worker | Reference ke Worker Thread     |
+| `exitCode` | number | Kode keluar (setelah EXIT)     |
 
 ### Process States
 
@@ -82,9 +82,9 @@ scheduler.spawn(scriptPath, args, { uid, gid, ttyId, env, cwd });
 scheduler.getProcess(pid);
 
 // Mengirim signal ke proses
-scheduler.sendSignal(pid, "SIGINT");    // Interrupt
-scheduler.sendSignal(pid, "SIGTERM");   // Graceful terminate
-scheduler.sendSignal(pid, "SIGKILL");   // Force kill
+scheduler.sendSignal(pid, "SIGINT"); // Interrupt
+scheduler.sendSignal(pid, "SIGTERM"); // Graceful terminate
+scheduler.sendSignal(pid, "SIGKILL"); // Force kill
 
 // Menunggu proses selesai
 scheduler.waitpid(pid);
@@ -99,12 +99,12 @@ scheduler.kill(pid);
 
 TSIX mengimplementasikan sistem signal berbasis POSIX untuk komunikasi antar-proses — sebuah mekanisme yang telah teruji puluhan tahun di ekosistem UNIX/Linux:
 
-| Signal | Kode | Trigger | Default Action |
-|--------|------|---------|----------------|
-| `SIGINT` | 2 | Ctrl+C | Terminate process |
-| `SIGTERM` | 15 | `kill <pid>` / shutdown | Graceful terminate |
-| `SIGKILL` | 9 | `kill -9 <pid>` | Force kill (unblockable) |
-| `SIGCHLD` | 17 | Child exits | Notify parent |
+| Signal    | Kode | Trigger                 | Default Action           |
+| --------- | ---- | ----------------------- | ------------------------ |
+| `SIGINT`  | 2    | Ctrl+C                  | Terminate process        |
+| `SIGTERM` | 15   | `kill <pid>` / shutdown | Graceful terminate       |
+| `SIGKILL` | 9    | `kill -9 <pid>`         | Force kill (unblockable) |
+| `SIGCHLD` | 17   | Child exits             | Notify parent            |
 
 ### Signal Delivery Flow
 
@@ -121,7 +121,7 @@ sequenceDiagram
     Kernel->>Scheduler: getForegroundPID(ttyId)
     Scheduler->>Scheduler: Lookup foreground PCB
     Scheduler->>Worker: postMessage({signal: "SIGINT"})
-    
+
     alt Handler registered
         Worker->>Worker: Execute onSignal callback
         Worker->>Worker: Cleanup & exit(130)
@@ -140,66 +140,67 @@ Syscall Dispatcher adalah **satu-satunya gateway** antara User-Land dan Kernel-L
 
 #### Filesystem Operations
 
-| Syscall | Deskripsi |
-|---------|-----------|
-| `OPEN` | Membuka file/device, mengembalikan FD |
-| `READ` | Membaca data dari FD |
-| `WRITE` | Menulis data ke FD |
-| `CLOSE` | Menutup FD |
-| `STAT` | Mendapatkan metadata file (size, permissions, owner) |
-| `LS` / `READDIR` | List isi direktori |
-| `MKDIR` | Membuat direktori baru |
-| `UNLINK` | Menghapus file |
-| `RMDIR` | Menghapus direktori |
-| `RENAME` | Rename/move file |
-| `CHMOD` | Mengubah permission bits |
-| `CHOWN` | Mengubah owner/group |
+| Syscall          | Deskripsi                                            |
+| ---------------- | ---------------------------------------------------- |
+| `OPEN`           | Membuka file/device, mengembalikan FD                |
+| `READ`           | Membaca data dari FD                                 |
+| `WRITE`          | Menulis data ke FD                                   |
+| `CLOSE`          | Menutup FD                                           |
+| `STAT`           | Mendapatkan metadata file (size, permissions, owner) |
+| `LS` / `READDIR` | List isi direktori                                   |
+| `MKDIR`          | Membuat direktori baru                               |
+| `UNLINK`         | Menghapus file                                       |
+| `RMDIR`          | Menghapus direktori                                  |
+| `RENAME`         | Rename/move file                                     |
+| `CHMOD`          | Mengubah permission bits                             |
+| `CHOWN`          | Mengubah owner/group                                 |
 
 #### Process Management
 
-| Syscall | Deskripsi |
-|---------|-----------|
-| `EXEC` | Menjalankan program baru (Worker spawn) |
-| `EXIT` | Keluar dari proses |
-| `WAITPID` | Menunggu proses child selesai |
-| `KILL` | Mengirim signal ke proses |
-| `PS` | List semua proses aktif |
-| `GETPID` | Mendapatkan PID sendiri |
-| `GETPPID` | Mendapatkan Parent PID |
-| `REEXEC` | Restart proses tanpa ganti PID |
+| Syscall   | Deskripsi                               |
+| --------- | --------------------------------------- |
+| `EXEC`    | Menjalankan program baru (Worker spawn) |
+| `EXIT`    | Keluar dari proses                      |
+| `WAITPID` | Menunggu proses child selesai           |
+| `KILL`    | Mengirim signal ke proses               |
+| `PS`      | List semua proses aktif                 |
+| `GETPID`  | Mendapatkan PID sendiri                 |
+| `GETPPID` | Mendapatkan Parent PID                  |
+| `REEXEC`  | Restart proses tanpa ganti PID          |
 
 #### Environment & Info
 
-| Syscall | Deskripsi |
-|---------|-----------|
-| `GETENV` | Membaca environment variable |
-| `SETENV` | Menulis environment variable |
-| `CHDIR` | Pindah working directory |
-| `GETCWD` | Baca current working directory |
-| `WHOAMI` | Info user saat ini (UID, GID, username) |
-| `UNAME` | Info sistem (kernel, distro, version) |
-| `HOSTNAME` | Membaca/set hostname |
+| Syscall    | Deskripsi                               |
+| ---------- | --------------------------------------- |
+| `GETENV`   | Membaca environment variable            |
+| `SETENV`   | Menulis environment variable            |
+| `CHDIR`    | Pindah working directory                |
+| `GETCWD`   | Baca current working directory          |
+| `WHOAMI`   | Info user saat ini (UID, GID, username) |
+| `UNAME`    | Info sistem (kernel, distro, version)   |
+| `HOSTNAME` | Membaca/set hostname                    |
 
 #### Device & I/O Control
 
-| Syscall | Deskripsi |
-|---------|-----------|
-| `IOCTL` | Input/Output Control untuk device |
-| `CHVT` | Switch virtual terminal (TTY) |
+| Syscall           | Deskripsi                                   |
+| ----------------- | ------------------------------------------- |
+| `IOCTL`           | Input/Output Control untuk device           |
+| `CHVT`            | Switch virtual terminal (TTY)               |
 | `GET_SCREEN_INFO` | Mendapatkan ukuran terminal ($LINES, $COLS) |
 
 #### Network
 
-| Syscall | Deskripsi |
-|---------|-----------|
-| `NET_SEND` | Kirim paket via MQTNL |
-| `NET_RECV` | Terima paket dari MQTNL |
-| `NET_BIND` | Bind port untuk listening |
-| `NET_LISTEN` | Mulai listening di port |
-| `NET_CONNECT` | Koneksi ke node remote |
-| `NET_ACCEPT` | Accept incoming connection |
-| `NET_IFCONFIG` | Info interface network |
-| `NET_PING` | Ping node lain |
+| Syscall           | Deskripsi                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| `NET_SEND`        | Kirim paket via MQTNL                                                                |
+| `NET_RECV`        | Terima paket dari MQTNL                                                              |
+| `NET_BIND`        | Bind port untuk listening                                                            |
+| `NET_LISTEN`      | Mulai listening di port                                                              |
+| `NET_CONNECT`     | Koneksi ke node remote                                                               |
+| `NET_ACCEPT`      | Accept incoming connection                                                           |
+| `NET_IFCONFIG`    | Info interface network                                                               |
+| `NET_SET_DEFAULT` | Ubah interface network default saat runtime (in-memory, tanpa ubah `sysconfig.json`) |
+| `NET_PING`        | Ping node lain                                                                       |
 
 ---
 
@@ -234,17 +235,17 @@ init (PID 1)
 
 ### Core Devices
 
-| Driver | File | Dev Path | Deskripsi |
-|--------|------|----------|-----------|
-| `KeyboardDevice` | `KeyboardDevice.ts` | `/dev/stdin` | Raw stdin input dengan Ctrl+C detection |
-| `ScreenDevice` | `ScreenDevice.ts` | `/dev/fb0` | Framebuffer — info $LINES, $COLUMNS |
-| `TTYDevice` | `TTYDevice.ts` | `/dev/tty1-6` | 6 virtual console terisolasi |
-| `NullDevice` | `NullDevice.ts` | `/dev/null` | Pembuangan data (black hole) |
-| `PipeDevice` | `PipeDevice.ts` | — | IPC pipe antar-proses |
-| `SerialDevice` | `SerialDevice.ts` | `/dev/ttyUSB*` | UART/Serial port bridge |
-| `SimpleMQTNLDriver` | `SimpleMQTNLDriver.ts` | `/dev/smqtnl0` | Network driver MQTT |
-| `FileSystemDevice` | `FileSystemDevice.ts` | — | VFS file access bridge |
-| `SocketDevice` | `SocketDevice.ts` | — | Network socket abstraction |
+| Driver              | File                   | Dev Path       | Deskripsi                               |
+| ------------------- | ---------------------- | -------------- | --------------------------------------- |
+| `KeyboardDevice`    | `KeyboardDevice.ts`    | `/dev/stdin`   | Raw stdin input dengan Ctrl+C detection |
+| `ScreenDevice`      | `ScreenDevice.ts`      | `/dev/fb0`     | Framebuffer — info $LINES, $COLUMNS     |
+| `TTYDevice`         | `TTYDevice.ts`         | `/dev/tty1-6`  | 6 virtual console terisolasi            |
+| `NullDevice`        | `NullDevice.ts`        | `/dev/null`    | Pembuangan data (black hole)            |
+| `PipeDevice`        | `PipeDevice.ts`        | —              | IPC pipe antar-proses                   |
+| `SerialDevice`      | `SerialDevice.ts`      | `/dev/ttyUSB*` | UART/Serial port bridge                 |
+| `SimpleMQTNLDriver` | `SimpleMQTNLDriver.ts` | `/dev/smqtnl0` | Network driver MQTT                     |
+| `FileSystemDevice`  | `FileSystemDevice.ts`  | —              | VFS file access bridge                  |
+| `SocketDevice`      | `SocketDevice.ts`      | —              | Network socket abstraction              |
 
 ### Auxiliary Devices (Plugin System)
 

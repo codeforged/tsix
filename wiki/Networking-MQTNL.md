@@ -165,17 +165,18 @@ Konfigurasi interface di `src/sysconfig.json`:
 
 ## Perintah Networking
 
-| Perintah                 | Deskripsi                                                                                   |
-| ------------------------ | ------------------------------------------------------------------------------------------- |
-| `ifconfig`               | Menampilkan status interface (IP, MAC, Rx/Tx stats)                                         |
-| `ping <node>`            | Cek konektivitas ke node lain                                                               |
-| `scanif`                 | Broadcast ping (default, cari interface online) & scan port terbuka (`-p <ports> <node>`)   |
-| `nettop`                 | Monitor traffic real-time (like `htop` for network)                                         |
-| `airterm <node>`         | Remote terminal ke node lain (SSH-like via MQTNL)                                           |
-| `scp <src> <node>:<dst>` | Secure file copy antar-node                                                                 |
-| `listen_net`             | Listen incoming packets di port tertentu                                                    |
-| `forward`                | Port forwarding antar-interface                                                             |
-| `secagent`               | Tampilkan daftar Security Agent yang terdaftar di kernel (`secagent` / `--list` / `--json`) |
+| Perintah                 | Deskripsi                                                                                       |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| `ifconfig`               | Menampilkan status interface (IP, MAC, Rx/Tx stats)                                             |
+| `ifconfig <dev\|addr>`   | Ubah interface default saat runtime (mis. `ifconfig smqtnl1`) — tanpa mengubah `sysconfig.json` |
+| `ping <node>`            | Cek konektivitas ke node lain                                                                   |
+| `scanif`                 | Broadcast ping (default, cari interface online) & scan port terbuka (`-p <ports> <node>`)       |
+| `nettop`                 | Monitor traffic real-time (like `htop` for network)                                             |
+| `airterm <node>`         | Remote terminal ke node lain (SSH-like via MQTNL)                                               |
+| `scp <src> <node>:<dst>` | Secure file copy antar-node                                                                     |
+| `listen_net`             | Listen incoming packets di port tertentu                                                        |
+| `forward`                | Port forwarding antar-interface                                                                 |
+| `secagent`               | Tampilkan daftar Security Agent yang terdaftar di kernel (`secagent` / `--list` / `--json`)     |
 
 ### Contoh Penggunaan
 
@@ -191,6 +192,9 @@ scp /root/data.txt tsix-node-2:/tmp/
 
 # Lihat interface aktif
 ifconfig
+
+# Ganti interface default saat runtime (in-memory; kembali ke awal setelah reboot)
+ifconfig smqtnl1
 
 # Monitor jaringan real-time
 nettop
