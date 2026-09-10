@@ -21,7 +21,7 @@ export default class TSSHClient {
 
     const remoteAddr = args[0];
     const remotePort = parseInt(args[1]) || 24;
-    const iface = args[2] || defaultInterface;
+    const iface = args[2] || defaultInterface; 
     const localPort = 4000 + Math.floor(Math.random() * 1000);
 
     lib.std.print(`[tssh] Connecting to ${remoteAddr}:${remotePort}...\n`);

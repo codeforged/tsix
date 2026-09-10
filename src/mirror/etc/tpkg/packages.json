@@ -275,6 +275,10 @@
           "dst": "/usr/bin/forward.ts"
         },
         {
+          "src": "/usr/bin/portfwd.ts",
+          "dst": "/usr/bin/portfwd.ts"
+        },
+        {
           "src": "/sbin/tpkg.ts",
           "dst": "/sbin/tpkg.ts"
         },
