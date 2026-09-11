@@ -1,0 +1,19 @@
+# Dependencies & build output
+node_modules/
+dist/
+build/
+**/.pio/
+*.tsbuildinfo
+
+# Bundles & minified assets (single giant lines — jangan pernah diformat)
+**/*bundle*.js
+**/*.min.js
+
+# Generated course HTML (scripts/build-course-pdf.mjs)
+docs/*.html
+
+# Runtime data (lihat .gitignore)
+*.db
+*.db-*
+*.bak
+*.log

@@ -1,0 +1,4 @@
+name=DDC Sample 10 (Mono LCD)
+icon=🧮
+command=/opt/ddc-sample/ddc-sample10.js
+group=DDC Sample
