@@ -6,6 +6,31 @@
 
 ## 2026-09-12
 
+### Hasil verifikasi di sistem nyata + peluang yang diukur & ditolak
+
+- **Konteks:** penutup rangkaian optimasi memori hari ini. Bagian ini mencatat **angkanya di mesin nyata**, dan — sama pentingnya — **daftar ide yang sudah diuji dan ditolak**, supaya tidak diinvestigasi ulang tanpa alasan baru.
+- **Hasil terukur (12 proses, `mem --per-proc`):**
+  | Titik | RSS | Per worker | `heapTotal`/worker |
+  |---|---|---|---|
+  | Awal | 564 MB | ~30.6 MB | ~18 MB |
+  | Setelah fase 1 | 370 MB | 16.2 MB | 18.1 MB |
+  | Setelah fase 2 | **250.9 MB** | **7.3 MB** | **10.5 MB** |
+  | **Total** | **−313 MB (−56%)** | **−76%** | −42% |
+  - 12 worker total: 144.7 MB → **89.1 MB**.
+- **Temuan penting — RSS bukan angka stabil.** Dua perintah berturut-turut (`mem` lalu `mem --per-proc`, tanpa membuka app apa pun) melaporkan **292.7 MB** vs **250.9 MB** — selisih **42 MB** hanya dari halaman mmap V8 yang di-*reclaim* OS. Inilah alasan label `unattributed` di `mem` sengaja tidak diklaim sebagai "ukuran main thread": angka itu bergerak tanpa perubahan beban. Untuk perbandingan antar-proses, pakai `ps --sort-mem`.
+- **Peluang yang DIUKUR lalu DITOLAK** (jangan diulang tanpa data baru):
+  - **Berbagi `module.exports` framework antar-worker** — framework hanya ~2 MB/worker (trivial 10.5 → require emerald+cashew 12.3 → 300 DOM node 12.7 MB). Harness IPC + scoping per-proses tidak sepadan.
+  - **`arena: true`** (berbagi heap antar-worker) — **berbahaya**: `WorkerEntry` menyabotase `global.require`/`process.exit` dan menyimpan `moduleCache` per-thread; heap bersama membuat proses saling menimpa dan membongkar isolasi.
+  - **Membuang `*.test.ts` dari `/lib`** — setelah cache hanya `.ts`, bobot test tinggal **84 KB** (18 file); hemat ~1 MB untuk 12 worker. Tidak sepadan.
+  - **Kebocoran `windowStates` (dome.ts) & `notifHistory` (asteracea.ts)** — memang tumbuh tanpa batas (prune hanya saat UNMOUNT/DESTROY), tapi lajunya kecil: clock taskbar 1 hari = 1.09 MB; dashboard 4 gauge 1 jam = 0.42 MB (~63 byte/entri). Bukan penyebab lonjakan ratusan MB. Tetap layak dibatasi someday (tumbuh monoton + snapshot dikirim ulang tiap klien reconnect), prioritas rendah.
+  - **Peta main thread (terukur per-modul):** baseline node 58.2 → SyscallDispatcher +14.9 → BKFS +6.2 → Kernel +3.3 → SerialDeviceManager +2.8 → **total 89.3 MB**. Dari situ, data kita hanya ~20 MB (`heapUsed` 16.9 + `malloced` 0.7 + `external` 2.1); **sisa ~70 MB adalah V8 code space (JIT) + stack + mmap** — konsekuensi mengompilasi ~90 MB modul JS, bukan data yang bisa dibebaskan.
+- **Peluang yang masih terbuka (belum dikerjakan):**
+  - Resolve `.ts` `/lib` dari sidecar `.js` yang sudah ada → hemat **96 ms CPU boot** (semua 16 sidecar segar, nol basi). Wajib pakai **guard `modified_at`** (jangan pakai `.js` bila lebih tua dari `.ts`), dan `scripts/vfs-bootstrap.ts` sebaiknya ikut `sourcemap: false` (sidecar 1.25 MB → 0.33 MB karena masih inline sourcemap). Menyentuh jalur eksekusi → perlu uji penuh.
+  - `scheduler.defaultShell: "tsh.ts"` di `sysconfig.json` adalah **setelan mati** (tidak ada pembacanya; `Kernel.runInit()` memakai `scheduler.bootEntry` = `init.js`). Perlu dibersihkan agar tidak menyesatkan.
+  - Akun runtime (`useradd`) pernah hilang dari `/etc/passwd` di `system.db`. **`vfs:bootstrap` TERBUKTI bukan penyebabnya** (lihat `wiki/changelogs/vfs.md`). Pemicu belum teridentifikasi.
+- **Sisa selisih `unattributed` (~125 MB)** kemungkinan besar V8 code space + mmap + overhead isolate, **bukan** kebocoran — dibuktikan oleh inkonsistensi 42 MB di atas. Bila muncul pertumbuhan **monoton** saat idle (bukan naik-turun), itu baru indikasi kebocoran nyata; gunakan `mem --per-proc` berulang untuk memastikan.
+- **Oleh:** Copilot · **Laporan:** kakang
+
 ### Optimasi memori fase 2 — buang beban mati `vfsCache` + lepas thread esbuild
 
 - **File:** `src/kernel/Kernel.ts` (`rebuildVFSCache`), `src/mirror/sbin/mem.ts`, `src/mirror/bin/ps.ts`

@@ -6,6 +6,14 @@
 
 ## 2026-09-12
 
+### Peluang terbuka: resolve `.ts` `/lib` dari sidecar `.js` (belum dikerjakan)
+
+- **File:** `src/kernel/Kernel.ts` (`rebuildVFSCache`), `scripts/vfs-bootstrap.ts`
+- **Alasan:** `rebuildVFSCache()` masih men-transpile 16 file `/lib/*.ts` saat boot — **96 ms CPU di main thread** (memblokir boot). Padahal sidecar `.js` untuk semuanya sudah tersedia dan segar (nol basi, diverifikasi `modified_at`).
+- **Kenapa belum dikerjakan:** menyentuh jalur eksekusi framework, dan **wajib** memakai guard `modified_at` — bila sidecar lebih tua dari `.ts`, harus pakai hasil transpile (kalau tidak, perubahan sumber tidak akan terpakai). Perlu uji boot penuh sebelum diaktifkan.
+- **Bonus terkait:** `scripts/vfs-bootstrap.ts` masih menulis sidecar dengan `sourcemap: "inline"` (1.25 MB) sementara `rebuildVFSCache` sudah `sourcemap: false` (0.33 MB). Menyeragamkan ke `false` akan mengecilkan DB + mempercepat baca.
+- **Oleh:** Copilot
+
 ### CATATAN — akun runtime (`useradd`) hilang dari `/etc/passwd`; `vfs:bootstrap` BUKAN penyebabnya
 
 > ⚠️ Koreksi: dugaan awal (saat kerja optimasi memori) bahwa `vfs:bootstrap` menimpa
