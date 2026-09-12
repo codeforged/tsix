@@ -6,6 +6,26 @@
 
 ## 2026-09-12
 
+### Frame monitor dilepas + efek cembung khas CRT
+
+- **File:** `src/mirror/opt/retroterm/retroterm.ts`, `src/mirror/opt/dome/dome-client-term.js`
+- **Permintaan:** (1) buang frame gambar monitor — jelek; (2) console mengisi form penuh sehingga resize mengubah COLUMNS/LINES seperti PixelTerm; (3) warna & efek console jangan diubah; (4) tambah efek cembung khas layar CRT.
+- **Perubahan:**
+  - **Frame gambar dibuang total.** `applyCrtFx()` tidak lagi menerima `bezel`, tidak membuat `<img>`/layer layar/`clip-path`, dan tidak punya perhitungan geometri. Pembacaan `retro-crt.jpg` + pembaca dimensi JPEG (SOF) dihapus dari app. Container kembali `padding:0; height:100%` seperti PixelTerm.
+  - **`fit()` kembali mengukur node xterm langsung** (bukan layer layar perantara), jadi resize window langsung mengubah COLUMNS/LINES ke shell.
+  - **Efek cembung (baru)** — ilusi tabung CRT:
+    1. **`box-shadow` inset ganda** di container: `inset 0 0 44px 12px` (tepi pekat) + `inset 0 0 120px 30px` (sebaran lebar) → kesan kaca melengkung ke dalam.
+    2. **Specular highlight** `radial-gradient(ellipse 130% 100% at 28% 8%, rgba(190,255,210,0.075))` → kilau kaca kiri-atas.
+    3. **Pantulan kedua** di kanan-bawah (alpha 0.035) → menegaskan kelengkungan.
+    4. Plus `border-radius: 18px` (sudut tabung).
+  - Parameter bisa diatur dari app: `crt.convex = { radius, edge, highlight }`.
+- **⚠️ Catatan kejujuran teknis:** ini **ilusi visual** (cahaya + bayangan), **bukan distorsi geometris**. Distorsi barrel sejati butuh post-processing GPU (WebGL) atau SVG `feDisplacementMap` yang harus dihitung ulang **tiap frame** pada canvas terminal → berat dan berisiko membuat input terasa lag. Pendekatan ini **nol biaya per-frame**.
+- **Efek yang TIDAK diubah** (sesuai permintaan): palet fosfor hijau, tint `rgba(0,255,120,0.045)`, scanlines (period 3, alpha 0.3), vignette 0.5, flicker halus.
+- **Verifikasi (diukur di browser):** `jmlImg = 0` (frame benar-benar hilang), `boxShadow` inset ganda terpasang, 4 layer gradient terkonfirmasi (2 radial kilau/pantulan, radial vignette, repeating-linear scanline), `borderRadius: 18px`, dan **input keyboard tetap jalan** (`nano test.txt` diterima) — regresi `pointer-events` tidak terulang.
+- **Dampak:** kode lebih sederhana — **−154 baris net** (logika bezel + geometri + pembaca JPEG dibuang).
+- **Deploy:** `npm run vfs:bootstrap`.
+- **Oleh:** Copilot · **Laporan:** kakang
+
 ### RetroTerm — terminal emulator CRT / fosfor hijau (baru)
 
 - **File:** `src/mirror/opt/retroterm/retroterm.ts`, `src/mirror/opt/asteracea/menu/retroterm.menu`, `src/mirror/etc/profile`

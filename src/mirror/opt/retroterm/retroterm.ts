@@ -65,76 +65,11 @@ export const main = Program(async (args: string[]) => {
     const lib = (global as any)._tsixLib;
 
     // ==========================================================================
-    // BEZEL: gambar CRT dibaca dari VFS → base64 → data URI untuk browser.
-    // Dibaca sebagai latin1 (1 byte = 1 char) lalu di-encode base64 — pola yang
-    // sama dipakai ResourceBank & TImage, karena fs.readFile mengembalikan string.
+    // TAMPILAN: console mengisi SELURUH form (tanpa frame gambar monitor), jadi
+    // resize window langsung mengubah COLUMNS/LINES — sama seperti PixelTerm.
+    // Yang membedakan hanya EFEK CRT (scanline, vignette, tint fosfor, flicker)
+    // yang di-render browser lewat applyCrtFx().
     // ==========================================================================
-    const BEZEL_PATH = "/opt/retroterm/retro-crt.jpg";
-    let bezelUrl = "";
-    // Dimensi gambar dipakai browser untuk menjaga ASPEK bezel saat resize.
-    // Dibaca dari header JPEG (SOF marker) supaya tetap benar walau file gambar
-    // diganti — tidak di-hardcode.
-    let imgW = 0;
-    let imgH = 0;
-
-    /**
-     * Baca lebar/tinggi dari buffer JPEG dengan memindai marker SOF
-     * (SOF0..SOF3, SOF5..SOF7, SOF9..SOF11, SOF13..SOF15). Segment SOF berisi
-     * 2 byte tinggi lalu 2 byte lebar. Mengembalikan null bila tidak ketemu.
-     */
-    function readJpegSize(buf: Buffer): { w: number; h: number } | null {
-        if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return null;
-        let i = 2;
-        while (i + 9 < buf.length) {
-            if (buf[i] !== 0xff) {
-                i++;
-                continue;
-            }
-            const marker = buf[i + 1];
-            // SOF markers (mengecualikan DHT=0xC4, JPG=0xC8, DAC=0xCC)
-            const isSOF =
-                marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
-            const segLen = buf.readUInt16BE(i + 2);
-            if (isSOF) {
-                return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) };
-            }
-            // Marker tanpa payload
-            if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) {
-                i += 2;
-            } else {
-                i += 2 + segLen;
-            }
-        }
-        return null;
-    }
-
-    try {
-        const raw = await fs.readFile(BEZEL_PATH);
-        if (raw) {
-            const buf = Buffer.from(raw, "latin1");
-            bezelUrl = "data:image/jpeg;base64," + buf.toString("base64");
-            const sz = readJpegSize(buf);
-            if (sz) {
-                imgW = sz.w;
-                imgH = sz.h;
-            }
-            await std.log(
-                `[retroterm] Bezel dimuat dari ${BEZEL_PATH} (${raw.length} byte, ${imgW || "?"}x${imgH || "?"})`,
-                "retroterm",
-            );
-        } else {
-            await std.log(
-                `[retroterm] WARN: ${BEZEL_PATH} kosong — jalan tanpa bezel.`,
-                "retroterm",
-            );
-        }
-    } catch (e: any) {
-        // Non-fatal: terminal tetap jalan, hanya kehilangan frame gambar.
-        await std.log(
-            `[retroterm] WARN: gagal baca ${BEZEL_PATH}: ${e?.message || e}`,
-            "retroterm",
-        );
-    }
 
     // ==========================================================================
     // TEMA TERMINAL: dipaksa fosfor hijau, TIDAK ikut tema sistem. Tujuannya
@@ -171,12 +106,7 @@ export const main = Program(async (args: string[]) => {
     const termTheme = getTermTheme();
 
     // Deskripsi efek CRT — dikirim ke browser, dijalankan oleh applyCrtFx().
-    //
-    // GEOMETRI: `hole` = posisi area layar DI DALAM GAMBAR (fraksi 0..1), DIUKUR
-    // dari retro-crt.jpg (scanline kecerahan, cari area gelap = tabung):
-    //   kiri 13%  kanan 88%  atas 12%  bawah 78%
-    // Browser memakai ini untuk menghitung posisi layar secara PROPORSIONAL
-    // terhadap bezel, sehingga tetap presisi & center di ukuran window apa pun.
+    // Console mengisi seluruh window; tidak ada frame gambar monitor.
     const crtTheme = {
         enabled: true,
         screenBg: PHOSPHOR.screenBg,
@@ -184,16 +114,10 @@ export const main = Program(async (args: string[]) => {
         vignette: 0.5,
         flicker: true,
         scanline: { period: 3, alpha: 0.3 },
-        bezel: {
-            imageUrl: bezelUrl,
-            // Dimensi asli gambar → browser menjaga aspek bezel saat resize
-            // (tanpa ini, bezel gepeng dan lubang layar tidak lagi sejajar).
-            imgW: imgW || 655,
-            imgH: imgH || 576,
-            // Area layar di dalam gambar (fraksi 0..1) — hasil pengukuran.
-            hole: { left: 0.13, right: 0.88, top: 0.12, bottom: 0.78 },
-            screenRadius: "14px",
-        },
+        // Efek cembung khas tabung CRT (ilusi cahaya+bayangan, bukan distorsi
+        // geometris). `edge` = kedalaman gelap di tepi, `highlight` = kekuatan
+        // kilau kaca di kiri-atas, `radius` = sudut melengkung tabung.
+        convex: { radius: 18, edge: 0.75, highlight: 0.075 },
     };
 
     await app.mount(
@@ -201,9 +125,11 @@ export const main = Program(async (args: string[]) => {
             {
                 id: "crt-container",
                 style: {
+                    // padding 0 + height 100% seperti PixelTerm — console mengisi
+                    // penuh form supaya resize mengubah COLUMNS/LINES.
                     padding: "0",
                     height: "100%",
-                    background: bezelUrl ? "#000" : PHOSPHOR.screenBg,
+                    background: PHOSPHOR.screenBg,
                 },
             },
             {

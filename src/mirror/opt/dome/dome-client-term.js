@@ -95,85 +95,82 @@
   }
 
   // --- Efek CRT OPSIONAL (dipakai RetroTerm; pixelterm tidak mengaktifkannya) ---
-  // Bezel + scanline + vignette + tint + flicker. Semua opt-in lewat prop `crt`.
+  // Console mengisi SELURUH node xterm (tanpa frame gambar monitor), jadi resize
+  // window langsung mengubah COLUMNS/LINES seperti PixelTerm. Yang ditambahkan di
+  // sini hanyalah ILUSI TABUNG CRT:
+  //   [1] Cembung    : inset shadow tebal di tepi -> kesan kaca melengkung ke dalam
+  //   [2] Specular   : kilau lembut di kiri-atas -> pantulan kaca cembung
+  //   [3] Vignette   : tepi tabung menggelap
+  //   [4] Scanlines  : garis horizontal periodik
+  //   [5] Tint       : warna fosfor hijau tipis
+  //   [6] Flicker    : denyut sangat halus (bukan strobo)
   //
-  // PRINSIP GEOMETRI (penting, jangan diubah tanpa alasan):
-  //   1. Bezel digambar sebagai background dengan `object-fit: contain` �
-  //      aspek gambar SELALU terjaga (tidak gepeng) di ukuran window apa pun.
-  //   2. Posisi & ukuran layar dihitung PROPORSIONAL terhadap kotak bezel
-  //      (bukan persen window), memakai `hole` yang diukur dari gambar asli.
-  //      Karena itu layar selalu berada persis di lubang bezel dan tetap CENTER
-  //      saat window di-resize.
-  //   3. Layout dihitung ulang pada setiap resize lewat ResizeObserver.
+  // CATATAN KEJUJURAN TEKNIS: ini ilusi visual (cahaya + bayangan), BUKAN distorsi
+  // geometris. Distorsi barrel sejati butuh post-processing GPU (WebGL) atau SVG
+  // feDisplacementMap yang harus dihitung ulang TIAP FRAME pada canvas terminal ->
+  // berat & berisiko bikin input terasa lag. Pendekatan ini nol biaya per-frame.
   //
-  // Ini juga menutup kelas bug sebelumnya: layar selalu kotak opak di atas
-  // bezel, jadi gambar tidak mungkin menutupi teks.
+  // PENTING: overlay WAJIB `pointer-events:none`, dan JANGAN pasang itu pada parent
+  // dari `.xterm` -> sifatnya diwariskan ke anak, xterm jadi tidak bisa diketik
+  // (bug yang pernah terjadi).
   function applyCrtFx(el, crt) {
     el.querySelectorAll("._tsix_crt").forEach(function (n) { n.remove(); });
     if (!crt || !crt.enabled) return;
 
-    var bezel = crt.bezel || {};
-    // Nilai default diukur dari retro-crt.jpg (655x576).
-    var imgW = bezel.imgW || 655;
-    var imgH = bezel.imgH || 576;
-    var hole = bezel.hole || { left: 0.13, right: 0.88, top: 0.12, bottom: 0.78 };
     var screenBg = crt.screenBg || "#020803";
+    var cv = crt.convex || {};
+    var radius = cv.radius != null ? cv.radius : 16;      // px, sudut tabung
+    var edge = cv.edge != null ? cv.edge : 0.72;          // 0..1, kedalaman tepi
+    var hi = cv.highlight != null ? cv.highlight : 0.07;  // 0..1, kekuatan kilau
 
     el.style.position = "relative";
     el.style.background = screenBg;
     el.style.overflow = "hidden";
+    el.style.borderRadius = radius + "px";
+    // Cembung: dua lapis inset shadow -> gelap pekat di tepi, makin tipis ke tengah.
+    el.style.boxShadow =
+      "inset 0 0 44px 12px rgba(0,0,0," + (edge * 0.62).toFixed(3) + ")," +
+      "inset 0 0 120px 30px rgba(0,0,0," + (edge * 0.42).toFixed(3) + ")";
 
-    // 1) Bezel: satu elemen background, aspect-preserving.
-    //    `pointer-events:none` HANYA untuk gambar bezel — JANGAN di stage,
-    //    karena stage adalah PARENT dari screen/xterm dan sifat itu diwariskan
-    //    ke anak (kalau stage di-none, xterm tidak bisa diklik/diketik).
-    var stage = document.createElement("div");
-    stage.className = "_tsix_crt _tsix_crt_stage";
-    stage.style.cssText =
-      "position:absolute;inset:0;z-index:0;overflow:hidden;";
-    var bimg = document.createElement("div");
-    bimg.className = "_tsix_crt _tsix_crt_bezel";
-    // Posisi & ukuran ditentukan layout() (bukan `inset:0`), supaya bezel bisa
-    // digeser agar LUBANG LAYAR-nya tepat di tengah window.
-    bimg.style.cssText =
-      "position:absolute;left:0;top:0;pointer-events:none;" +
-      "background-repeat:no-repeat;background-position:0 0;" +
-      "background-size:100% 100%;" +
-      (bezel.imageUrl ? "background-image:url(" + bezel.imageUrl + ");" : "");
-    stage.appendChild(bimg);
-
-    // 2) Layar: kotak opak di atas bezel (z-index 1).
-    var screen = document.createElement("div");
-    screen.className = "_tsix_crt _tsix_crt_screen";
-    screen.style.cssText =
-      "position:absolute;z-index:1;overflow:hidden;" +
-      "background:" + screenBg + ";" +
-      "border-radius:" + (bezel.screenRadius || "14px") + ";" +
-      "box-shadow:0 0 26px 8px rgba(0,0,0,0.9) inset;";
-    stage.appendChild(screen);
-
-    // 3) Overlay efek di atas teks: vignette + scanline + tint (+ flicker).
+    // Overlay cahaya & efek, di atas teks.
     var fx = document.createElement("div");
     fx.className = "_tsix_crt _tsix_crt_fx";
     var scan = crt.scanline || {};
     var period = scan.period || 3;
     var lineAlpha = scan.alpha != null ? scan.alpha : 0.28;
     var layers = [];
+
+    // [2] Specular highlight: kilau kaca cembung di kiri-atas.
     layers.push(
-      "radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0," +
+      "radial-gradient(ellipse 130% 100% at 28% 8%, rgba(190,255,210," +
+      hi.toFixed(3) + "), rgba(0,0,0,0) 58%)"
+    );
+    // [2b] Pantulan tipis di kanan-bawah (menegaskan kelengkungan).
+    layers.push(
+      "radial-gradient(ellipse 110% 85% at 74% 97%, rgba(120,255,170," +
+      (hi * 0.5).toFixed(3) + "), rgba(0,0,0,0) 46%)"
+    );
+    // [3] Vignette: tepi tabung menggelap.
+    layers.push(
+      "radial-gradient(ellipse at center, rgba(0,0,0,0) 52%, rgba(0,0,0," +
       (crt.vignette != null ? crt.vignette : 0.45) + ") 100%)"
     );
+    // [4] Scanlines.
     layers.push(
       "repeating-linear-gradient(0deg, rgba(0,0,0," + lineAlpha + ") 0px, " +
       "rgba(0,0,0," + lineAlpha + ") 1px, rgba(0,0,0,0) 1px, rgba(0,0,0,0) " +
       period + "px)"
     );
+    // [5] Tint fosfor.
     if (crt.tint) layers.push("linear-gradient(" + crt.tint + ", " + crt.tint + ")");
+
     fx.style.cssText =
       "position:absolute;inset:0;pointer-events:none;z-index:2;" +
+      "border-radius:" + radius + "px;" +
       "background:" + layers.join(",") + ";";
-    screen.appendChild(fx);
+    el.appendChild(fx);
 
+    // [6] Flicker halus.
     if (crt.flicker) {
       var anim = document.createElement("style");
       anim.className = "_tsix_crt _tsix_crt_anim";
@@ -182,84 +179,10 @@
         "@keyframes " + key + " {0%,100%{opacity:.978}50%{opacity:1}}" +
         '[data-tsix-id="' + CSS.escape(el._xtermNodeId || "") + '"] ._tsix_crt_fx' +
         "{animation:" + key + " 120ms steps(2,end) infinite;}";
-      stage.appendChild(anim);
+      el.appendChild(anim);
     }
-
-    el.appendChild(stage);
-
-    // Elemen .xterm dipindah ke dalam layar; ukurannya mengikuti layar.
-    var xtermEl = el.querySelector(".xterm");
-    if (xtermEl) {
-      screen.appendChild(xtermEl);
-      xtermEl.style.width = "100%";
-      xtermEl.style.height = "100%";
-      xtermEl.style.overflow = "hidden";
-    }
-
-    // ---- Perhitungan layout ----
-    // Tujuan: LUBANG LAYAR (bukan seluruh gambar) yang dipusatkan di window, dan
-    // layar tidak pernah lebih besar dari window. Jadi saat resize, layar tumbuh
-    // menyusut sambil tetap persis di tengah.
-    function layout() {
-      var cw = el.clientWidth;
-      var ch = el.clientHeight;
-      if (!cw || !ch) return null;
-
-      var holeW = hole.right - hole.left;   // fraksi lebar lubang (0..1)
-      var holeH = hole.bottom - hole.top;   // fraksi tinggi lubang
-      if (holeW <= 0 || holeH <= 0) return null;
-
-      var holeCnFx = (hole.left + hole.right) / 2;  // pusat lubang (fraksi)
-      var holeCnFy = (hole.top + hole.bottom) / 2;
-
-      // Skala dibatasi EMPAT syarat, ambil yang terkecil. Tujuannya: layar
-      // persis di tengah window (permintaan utama) TANPA casing terpotong.
-      //
-      // Karena lubang layar TIDAK center di gambar (di retro-crt.jpg: atas 12%,
-      // bawah 22%), memusatkan lubang otomatis menggeser gambar. Jadi selain
-      // ukuran, arah geser juga harus dibatasi — kalau tidak, sisi yang lebih
-      // panjang akan keluar window (pernah terjadi pada window portrait).
-      var MARGIN_HOLE = 0.94;  // margin area layar
-      var MARGIN_IMG = 0.98;   // margin gambar penuh (casing)
-      var maxCx = Math.max(holeCnFx, 1 - holeCnFx);  // setengah-lebar terjauh gambar
-      var maxCy = Math.max(holeCnFy, 1 - holeCnFy);  // setengah-tinggi terjauh gambar
-      var scale = Math.min(
-        // (a) lubang muat di window
-        (cw * MARGIN_HOLE) / (imgW * holeW),
-        (ch * MARGIN_HOLE) / (imgH * holeH),
-        // (b) gambar penuh muat walau sudah digeser agar lubang center
-        (cw * MARGIN_IMG) / (2 * maxCx * imgW),
-        (ch * MARGIN_IMG) / (2 * maxCy * imgH)
-      );
-      var bw = imgW * scale;
-      var bh = imgH * scale;
-
-      // Posisi gambar: geser supaya pusat LUBANG jatuh tepat di pusat window.
-      var bx = cw / 2 - holeCnFx * bw;
-      var by = ch / 2 - holeCnFy * bh;
-
-      bimg.style.left = Math.round(bx) + "px";
-      bimg.style.top = Math.round(by) + "px";
-      bimg.style.width = Math.round(bw) + "px";
-      bimg.style.height = Math.round(bh) + "px";
-
-      // Layar = area lubang, relatif ke gambar.
-      screen.style.left = Math.round(bx + hole.left * bw) + "px";
-      screen.style.top = Math.round(by + hole.top * bh) + "px";
-      screen.style.width = Math.round(holeW * bw) + "px";
-      screen.style.height = Math.round(holeH * bh) + "px";
-
-      return { sw: Math.round(holeW * bw), sh: Math.round(holeH * bh) };
-    }
-
-    layout();
-
-    // Re-layout saat window berubah ? layar tetap presisi di tengah bezel.
-    if (typeof ResizeObserver !== "undefined") {
-      new ResizeObserver(layout).observe(el);
-    }
-    el._crtLayout = layout;
   }
+
 
   // --- xterm.js init (dipanggil dari buildDOM dan handleTermTheme) ---
   function initXterm(el, themeColors, crtOptions) {
@@ -342,14 +265,12 @@
       delete el._pendingResize;
     }
     // Auto-fit rows/cols.
-    // PENTING (mode CRT): begitu ada bezel, .xterm dipindah ke dalam layer
-    // `._tsix_crt_screen` yang LEBIH KECIL dari node xterm. Kalau fit() tetap
-    // mengukur `el` (ukuran luar), teks akan meluber keluar area layar dan
-    // COLUMNS/LINES ke shell juga salah. Jadi ukur layer layar bila ada.
+    // Console mengisi SELURUH node xterm (tanpa frame/bezel), jadi ukurannya
+    // cukup dari `el` — sama seperti PixelTerm. Hasilnya: resize window langsung
+    // mengubah COLUMNS/LINES ke shell.
     var fit = function () {
-      var box = el.querySelector("._tsix_crt_screen") || el;
-      var w = box.clientWidth,
-        h = box.clientHeight;
+      var w = el.clientWidth,
+        h = el.clientHeight;
       var cols = Math.floor(w / 8.4);
       var rows = Math.floor(h / 16);
       if (cols > 0 && rows > 0) {
@@ -371,9 +292,9 @@
         }
       }
     };
-    // Efek CRT dipasang SEBELUM fit() � `fit()` mengukur layer layar (yang baru
-    // ada setelah applyCrtFx), jadi urutan ini wajib. Kalau dibalik, xterm
-    // diukur terhadap ukuran window dan teksnya meluber keluar area layar.
+    // Efek CRT dipasang sebelum fit(). Urutannya tidak lagi kritis (tidak ada
+    // layer layar yang harus ada lebih dulu), tapi tetap begini supaya overlay
+    // sudah siap saat grid pertama dihitung.
     if (_crt) {
       el._crtOptions = _crt;
       applyCrtFx(el, _crt);
@@ -393,9 +314,8 @@
       rows: term.rows,
     });
     if (typeof ResizeObserver !== "undefined") {
-      // Amati NODE XTERM (el) � bukan layer layar. Bezel & layar di-hitung
-      // ulang oleh applyCrtFx() (yang punya ResizeObserver sendiri), jadi
-      // mengamati el memberi reaksi pada resize window yang sebenarnya.
+      // Amati node xterm itu sendiri — console mengisi penuh (tanpa layer
+      // perantara), jadi resize window langsung memicu hitung ulang grid.
       new ResizeObserver(fit).observe(el);
     }
   }
