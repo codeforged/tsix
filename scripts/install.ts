@@ -237,7 +237,6 @@ function createDefaultConfig(): SysConfig {
       // Set 0 untuk menonaktifkan pagar (kembali ke default Node).
       workerMaxOldGenMb: 192,
       workerMaxYoungGenMb: 32,
-      workerReapGraceMs: 2000,
     },
     shell: {
       defaultUser: "root",

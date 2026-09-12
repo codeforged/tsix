@@ -11,7 +11,7 @@
 - **File:** `scripts/install.ts`
 - **Masalah:** `src/sysconfig.json` **gitignored** (berisi path DB & broker lokal), jadi instalasi baru mendapat konfigurasi dari `createDefaultConfig()`. Nilai default itu belum memuat opsi optimasi yang sudah ada di mesin kerja — instalasi baru akan kembali boros RAM.
 - **Perubahan:**
-  - `scheduler`: tambah `workerMaxOldGenMb: 192`, `workerMaxYoungGenMb: 32`, `workerReapGraceMs: 2000` (lihat `wiki/changelogs/kernel.md`).
+  - `scheduler`: tambah `workerMaxOldGenMb: 192` + `workerMaxYoungGenMb: 32` — pagar memori heap V8 per worker (batas atas, bukan penghemat). Penjelasan lengkap: `wiki/changelogs/kernel.md`.
   - `shell.loginCount`: `2` → `1` — satu rantai `login`+`tsh` ≈ 32 MB tanpa manfaat tambahan; konsol lain bisa dimasuki lewat `openvt`, dan daemon remote memakai PTY terpisah.
 - **Catatan:** `scheduler.defaultShell` masih `"tsh.ts"` — sengaja dibiarkan. Field itu **tidak pernah dibaca** (`Kernel.runInit()` memakai `scheduler.bootEntry` = `init.js`); perbaikan setelan mati ini disiapkan sebagai perubahan terpisah.
 - **Dampak:** Instalasi baru langsung memakai pagar memori worker + jumlah sesi login yang lebih hemat.

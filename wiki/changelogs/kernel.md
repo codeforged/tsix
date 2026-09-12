@@ -69,11 +69,26 @@
 - **Dampak:** Per worker app `.js`: +16.2 MB (sebelumnya ~30 MB untuk shell `.ts`). Pengurangan terukur pada sistem nyata: 564 MB → 370 MB.
 - **Oleh:** Copilot · **Laporan:** kakang
 
-### `scheduler.workerReapGraceMs` (opsional, belum diaktifkan)
+### `scheduler.workerMaxOldGenMb` & `workerMaxYoungGenMb` — pagar memori per worker
 
-- **File:** `src/sysconfig.json`, `src/common/Config.ts`
-- **Perubahan:** Opsi grace period (ms) untuk force-terminate worker yang PCB-nya sudah `EXITED` tapi thread-nya masih hidup. Saat ini baru disiapkan konfigurasinya; reaper periodiknya belum diimplementasikan.
-- **Oleh:** Copilot
+- **File:** `src/sysconfig.json`, `src/common/Config.ts`, `src/kernel/Scheduler.ts`, `scripts/install.ts`
+- **Apa ini:** batas atas heap V8 **per worker**, diteruskan apa adanya ke `new Worker(..., { resourceLimits })`:
+  - **`workerMaxOldGenMb` (default 192)** → `resourceLimits.maxOldGenerationSizeMb`. Membatasi **old generation** (heap panjang-umur).
+  - **`workerMaxYoungGenMb` (default 32)** → `resourceLimits.maxYoungGenerationSizeMb`. Membatasi **young generation** (ruang objek berumur pendek, tempat GC muda/scavenge bekerja).
+- **Tujuannya KETAHANAN, bukan penghematan.** Kalau satu app bocor atau menumpuk objek tanpa batas, worker itu **gagal** (`Worker terminated due to reaching memory limit: JS heap out of memory`) alih-alih membengkakkan seluruh proses host.
+- **Penting:** parameter ini **tidak mengubah pemakaian normal**. Diukur: `heapTotal` per worker 9.11 MB tanpa limit vs 9.13 MB dengan limit — praktis sama. Yang diatur hanyalah **batas atas**.
+- **Angka default aman:** heap idle TSIX hanya ~8–10 MB/worker, jadi 192 MB ≈ 20× idle. App GUI berat (emerald/cashew + banyak widget) tetap longgar.
+- **Menonaktifkan:** set `workerMaxOldGenMb: 0` → blok `resourceLimits` tidak dipasang sama sekali (`if (maxOldMb > 0)` di `Scheduler.ts`), kembali ke default Node. Berguna untuk diagnosis kalau ada app yang dicurigai kena limit secara keliru.
+- **Sudah diuji:** pemakaian `resourceLimits` (192/32, 512/64, 64/8, atau tanpa limit) tidak mempengaruhi `heapTotal`/`heapUsed` per worker — hanya memasang pagar.
+- **Oleh:** Copilot · **Laporan:** kakang
+
+### DIHAPUS: `scheduler.workerReapGraceMs` (parameter mati)
+
+- **File:** `src/common/Config.ts`, `src/sysconfig.json`, `scripts/install.ts`
+- **Masalah:** parameter ini dideklarasikan dan disetel (`2000`) tapi **tidak pernah dibaca di mana pun** — hanya ada 2 kemunculan di seluruh `src/`: deklarasi tipe dan komentar dokumentasi. Tidak ada reaper yang memakainya.
+- **Keputusan:** **dihapus**, bukan diimplementasikan. Alasannya: lifecycle worker sekarang sudah menangani `exit` + `error` + jaring pengaman di `reap()`, dan belum ada bukti ada worker yang benar-benar menggantung. Menambah reaper periodik berarti menambah kode yang harus diuji tanpa kasus nyata.
+- **Rencana asalnya** (untuk catatan bila nanti dibutuhkan): memberi tenggang waktu sebelum worker yang PCB-nya sudah `EXITED` tapi thread-nya masih hidup di-`force-terminate`.
+- **Oleh:** Copilot · **Laporan:** kakang
 
 ### Utilitas `ps --mem` / `mem --per-proc` — atribusi memori per-proses
 
