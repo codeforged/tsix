@@ -60,23 +60,6 @@
 - **Deploy:** `npm run vfs:bootstrap`.
 - **Oleh:** Copilot · **Laporan:** kakang
 
-### RetroTerm — terminal emulator CRT / fosfor hijau (baru)
-
-- **File:** `src/mirror/opt/retroterm/retroterm.ts`, `src/mirror/opt/asteracea/menu/retroterm.menu`, `src/mirror/etc/profile`
-- **Apa ini:** saudara dari PixelTerm — fungsinya sama (terminal emulator penuh di atas PTY dinamis), tapi tampilannya meniru monitor CRT jadul:
-  - **bezel/frame** dari `/opt/retroterm/retro-crt.jpg`
-  - **scanlines** horizontal (period 3px, alpha 0.3)
-  - **vignette** — tepi tabung menggelap (alpha 0.5)
-  - **tint fosfor hijau** tipis (`rgba(0,255,120,0.045)`)
-  - **flicker** sangat halus (opacity 0.978↔1, 120ms) — bukan strobo
-- **Cara kerja:** efek dikerjakan **di sisi browser** oleh `applyCrtFx()` di `dome-client-term.js` — app hanya mengirim deskripsi efek lewat prop `crtTheme` pada node `xterm`. Jadi nol biaya render di worker.
-- **Palet:** dipaksa fosfor hijau dan **tidak** ikut tema sistem (sengaja) supaya nuansa CRT konsisten. Warna ANSI di-map ke gradasi hijau, jadi `ls` berwarna tetap terbaca tanpa keluar dari nuansa monokrom-hijau.
-- **Bezel:** dibaca dari VFS sebagai `latin1` → base64 → data URI (pola sama seperti `resbank.ts`/TImage). Kalau file hilang, app tetap jalan tanpa bezel (non-fatal, hanya dicatat di log).
-- **Menu:** ditambahkan ke launcher Asteracea (`retroterm.menu`, pinned) dan `/opt/retroterm` masuk `PATH` di `/etc/profile`.
-- **Dibangun dari PixelTerm** dengan semua perbaikan yang sudah ada: PTY dinamis, `freePty()` idempotent di **semua** jalur tutup (termasuk klik X), dan spawn shell ke sidecar `/bin/tsh.js` (bukan `.ts`) agar worker tidak memakai preload transpiler.
-- **Deploy:** `npm run vfs:bootstrap` (wajib — app + aset baru).
-- **Oleh:** Copilot · **Laporan:** kakang
-
 ### 🐞 FIX PENTING: terminal tidak bisa menerima input keyboard
 
 - **File:** `src/mirror/opt/dome/dome-client-term.js`
@@ -134,3 +117,26 @@ Keduanya ditemukan dengan mengukur di browser, bukan dari membaca kode:
    - Verifikasi terukur: tinggi `.xterm` **384px → 342px** (tepat sama dengan layer layar), teks terkonfirmasi di dalam area layar.
 2. **Urutan pemasangan salah.** `fit()` dipanggil **sebelum** `applyCrtFx()`, padahal layer layar baru ada setelah `applyCrtFx()`. Kini `applyCrtFx()` dijalankan lebih dulu, baru `fit()`.
 - **Oleh:** Copilot
+
+### RetroTerm — terminal emulator CRT / fosfor hijau (baru)
+
+> ⚠️ **Catatan revisi:** entri ini adalah versi AWAL. Bagian **frame/bezel gambar**
+> yang disebut di bawah sudah **DIHAPUS** di revisi berikutnya (lihat "Frame monitor
+> dilepas + efek cembung"), begitu pula pembaca dimensi JPEG. Yang tersisa dari
+> entri ini dan masih berlaku: efek CRT dasar, palet fosfor, menu launcher, dan
+> fondasi PixelTerm (PTY dinamis, `freePty()` idempotent, spawn `tsh.js`).
+
+- **File:** `src/mirror/opt/retroterm/retroterm.ts`, `src/mirror/opt/asteracea/menu/retroterm.menu`, `src/mirror/etc/profile`
+- **Apa ini:** saudara dari PixelTerm — fungsinya sama (terminal emulator penuh di atas PTY dinamis), tapi tampilannya meniru monitor CRT jadul:
+  - ~~**bezel/frame** dari `/opt/retroterm/retro-crt.jpg`~~ → **DIHAPUS** (jelek saat diuji)
+  - **scanlines** horizontal (period 3px, alpha 0.3)
+  - **vignette** — tepi tabung menggelap (alpha 0.5)
+  - **tint fosfor hijau** tipis (`rgba(0,255,120,0.045)`)
+  - **flicker** sangat halus (opacity 0.978↔1, 120ms) — bukan strobo
+  - **efek cembung** (ditambahkan di revisi berikutnya)
+- **Cara kerja:** efek dikerjakan **di sisi browser** oleh `applyCrtFx()` di `dome-client-term.js` — app hanya mengirim deskripsi efek lewat prop `crtTheme` pada node `xterm`. Jadi nol biaya render di worker.
+- **Palet:** dipaksa fosfor hijau dan **tidak** ikut tema sistem (sengaja) supaya nuansa CRT konsisten. Warna ANSI di-map ke gradasi hijau, jadi `ls` berwarna tetap terbaca tanpa keluar dari nuansa monokrom-hijau.
+- **Menu:** ditambahkan ke launcher Asteracea (`retroterm.menu`, pinned) dan `/opt/retroterm` masuk `PATH` di `/etc/profile`.
+- **Dibangun dari PixelTerm** dengan semua perbaikan yang sudah ada: PTY dinamis, `freePty()` idempotent di **semua** jalur tutup (termasuk klik X), dan spawn shell ke sidecar `/bin/tsh.js` (bukan `.ts`) agar worker tidak memakai preload transpiler.
+- **Deploy:** `npm run vfs:bootstrap` (wajib — app + aset baru).
+- **Oleh:** Copilot · **Laporan:** kakang
