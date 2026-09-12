@@ -200,6 +200,37 @@
     document.head.appendChild(st);
   }
 
+  // --- Ukur ukuran sel (1 karakter) dari xterm.js ---
+  // PENTING: jangan pakai estimasi (mis. fontSize*0.6) untuk menghitung
+  // cols/rows. Rasio font berbeda-beda — bitmap Tandy 8x16 rasionya 0.5,
+  // sedangkan estimasi 0.6 membuat cols/rows LEBIH BANYAK dari yang muat,
+  // sehingga xterm.js auto-scroll ke bawah dan teks tampak "tenggelam".
+  // Jadi ukur yang sebenarnya, dengan 3 tingkat fallback.
+  function measureCell(term, el, fontSize) {
+    // 1) Dimensi internal render service (paling akurat).
+    try {
+      var rs = term._core && term._core._renderService;
+      var d = rs && rs.dimensions;
+      if (d && d.css && d.css.cell && d.css.cell.width > 0 && d.css.cell.height > 0) {
+        return { w: d.css.cell.width, h: d.css.cell.height };
+      }
+    } catch (_) { /* lanjut ke fallback */ }
+
+    // 2) Elemen pengukur yang dibuat xterm.js (berisi 32 karakter "W").
+    try {
+      var m = el.querySelector(".xterm-char-measure-element");
+      if (m) {
+        var r = m.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          return { w: r.width / 32, h: r.height };
+        }
+      }
+    } catch (_) { /* lanjut ke fallback */ }
+
+    // 3) Estimasi terakhir (rasio 0.6 umum untuk monospace non-bitmap).
+    return { w: fontSize * 0.6, h: fontSize * 1.0 };
+  }
+
   // --- xterm.js init (dipanggil dari buildDOM dan handleTermTheme) ---
   function initXterm(el, themeColors, crtOptions) {
     if (typeof Terminal === "undefined") return;
@@ -215,7 +246,9 @@
     const cw = el.clientWidth || 700;
     const ch = el.clientHeight || 400;
     var _fontSize = (_crt && _crt.fontSize) || 14;
-    // Lebar/tinggi sel diturunkan dari font: bitmap Tandy ~0.5em lebar.
+    // Estimasi awal untuk cols/rows SEBELUM xterm ada (dipakai hanya untuk
+    // jumlah kolom/baris awal). Setelah font siap, fit() akan mengukur ulang
+    // dengan ukuran sel sebenarnya.
     var _cellW = _fontSize * 0.6;
     var _cellH = _fontSize * 1.0;
     const initCols = Math.max(20, Math.floor(cw / _cellW));
@@ -302,10 +335,12 @@
     var fit = function () {
       var w = el.clientWidth,
         h = el.clientHeight;
-      // Ukuran sel ikut fontSize (bukan konstanta 8.4/16) — kalau tidak, jumlah
-      // COLUMNS/LINES salah saat font bitmap dipakai (glyph-nya lebih besar).
-      var cols = Math.floor(w / _cellW);
-      var rows = Math.floor(h / _cellH);
+      // Ukur ukuran sel SEBENARNYA dari xterm (bukan estimasi). Tanpa ini,
+      // cols/rows bisa lebih banyak dari yang muat -> xterm auto-scroll dan
+      // teks tampak tenggelam ke dasar window.
+      var cell = measureCell(term, el, _fontSize);
+      var cols = Math.floor(w / cell.w);
+      var rows = Math.floor(h / cell.h);
       if (cols > 0 && rows > 0) {
         var c = Math.max(20, cols);
         var r = Math.max(5, rows);
@@ -350,6 +385,31 @@
       // Amati node xterm itu sendiri — console mengisi penuh (tanpa layer
       // perantara), jadi resize window langsung memicu hitung ulang grid.
       new ResizeObserver(fit).observe(el);
+    }
+
+    // Hitung ulang setelah font bitmap benar-benar ter-decode.
+    // Font dari data URI dimuat ASINKRON: saat term.open() ukuran sel masih
+    // memakai font fallback, lalu berubah begitu font siap. Tanpa re-fit di
+    // sini, cols/rows tetap memakai ukuran font fallback -> teks tenggelam.
+    if (_crt && _crt.fontFaceCss) {
+      var refitAfterFont = function () { try { fit(); } catch (_) { } };
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(refitAfterFont).catch(function () { });
+      }
+      // Jaring kedua: sebagian browser tidak memicu fonts.ready untuk font
+      // yang baru disuntik. Cek eksplisit beberapa kali, lalu berhenti.
+      var fontTries = 0;
+      var fontTimer = setInterval(function () {
+        fontTries++;
+        var ready = document.fonts && document.fonts.check
+          ? document.fonts.check(_fontSize + "px '" +
+            ((_crt.fontFamily || "").split(",")[0].replace(/['"]/g, "")) + "'")
+          : true;
+        if (ready || fontTries >= 10) {
+          clearInterval(fontTimer);
+          if (ready) refitAfterFont();
+        }
+      }, 120);
     }
   }
 

@@ -6,6 +6,20 @@
 
 ## 2026-09-12
 
+### 🐞 FIX PENTING: teks "tenggelam" ke dasar window setelah resize
+
+- **File:** `src/mirror/opt/dome/dome-client-term.js`
+- **Gejala (dilaporkan kakang):** setelah ganti font, saat window di-resize tulisan console **tenggelam ke dasar window**.
+- **Akar masalah — DUA sebab, keduanya dari perubahan font sebelumnya:**
+  1. **Ukuran sel diestimasi, bukan diukur.** `fit()` memakai `_cellW = fontSize * 0.6`, padahal lebar sel sebenarnya tergantung font (terukur **8.82px** untuk fontSize 16, bukan 9.6). Akibatnya `cols`/`rows` dihitung **lebih banyak dari yang muat** → xterm.js auto-scroll ke bawah → teks tampak tenggelam. Terukur: estimasi memberi `cols 104`, sedangkan ruang nyata muat `109–113`.
+  2. **Font bitmap dimuat ASINKRON.** Font dari data URI harus di-decode dulu; saat `term.open()` ukuran sel masih memakai font fallback, lalu berubah setelah font siap — **tapi `cols`/`rows` tidak pernah dihitung ulang**. Terbukti di log: `fit()` pertama memberi `rows 46`, setelah font siap menjadi `rows 36` (46 baris tidak muat di window).
+- **Perbaikan:**
+  - Tambah **`measureCell(term, el, fontSize)`** — mengukur ukuran sel **sebenarnya** dengan 3 tingkat fallback: (a) `term._core._renderService.dimensions.css.cell`, (b) elemen `.xterm-char-measure-element` yang dibuat xterm (berisi 32 karakter), (c) estimasi terakhir. `fit()` kini memakai hasil pengukuran ini.
+  - **Re-fit setelah font siap:** `document.fonts.ready` + polling `document.fonts.check()` (maks 10× @120ms) sebagai jaring kedua untuk browser yang tidak memicu `ready` pada font yang baru disuntik.
+- **Verifikasi (diukur di browser):** `scrollTop = 0` (tidak ada scroll), `scrollHeight == clientHeight` (684 = 684), `jarakAtasKeBaris = 0`, dan log `fit()` menunjukkan re-fit benar-benar terjadi (cols 109 → 113, rows 46 → 36).
+- **Dampak:** teks kembali menempel dari atas dan resize mengubah COLUMNS/LINES dengan benar.
+- **Oleh:** Copilot · **Laporan:** kakang
+
 ### Dukungan font bitmap (opt-in) — mis. Tandy 1000 / Web437
 
 - **File:** `src/mirror/opt/retroterm/retroterm.ts`, `src/mirror/opt/dome/dome-client-term.js`
