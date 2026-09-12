@@ -113,20 +113,25 @@
     var bottom = inset.bottom || "0px";
     var left = inset.left || "0px";
 
-    // 1) Judul screen (teks bergaya fosfor dengan glow) — diletakkan di area layar.
+    // 1) Bezel: gambar CRT dipasang sebagai BACKGROUND container, lalu layar
+    //    ditimpa di atasnya sebagai kotak opak.
+    //
+    // MENGAPA BUKAN clip-path: `polygon()` tidak mendukung lubang (butuh subpath
+    // arah berlawanan, tidak didukung browser). Poligon "bingkai" naif menutup
+    // lewat garis diagonal yang melintasi area layar — akibatnya gambar monitor
+    // MENUTUPI teks terminal. Itu bug yang pernah terjadi.
+    //
+    // Pendekatan ini kebal terhadap kesalahan itu: apa pun bentuk casing di
+    // gambar, layar selalu berupa kotak opak di z-index LEBIH TINGGI, jadi teks
+    // tidak mungkin tertutup.
     if (bezel.imageUrl) {
-      var img = document.createElement("img");
-      img.className = "_tsix_crt _tsix_crt_bezel";
-      img.src = bezel.imageUrl;
-      img.alt = "";
-      img.setAttribute("aria-hidden", "true");
-      img.style.cssText =
-        "position:absolute;inset:0;width:100%;height:100%;" +
-        "object-fit:fill;pointer-events:none;z-index:0;";
-      el.appendChild(img);
+      el.style.backgroundImage = "url(" + bezel.imageUrl + ")";
+      el.style.backgroundSize = "100% 100%";
+      el.style.backgroundRepeat = "no-repeat";
+      el.style.backgroundPosition = "center";
     }
 
-    // 2) Lapisan teks terminal di atas bezel.
+    // 2) Lapisan teks terminal DI ATAS bezel (z-index lebih tinggi + opak).
     var screen = document.createElement("div");
     screen.className = "_tsix_crt _tsix_crt_screen";
     screen.style.cssText =
@@ -134,7 +139,8 @@
       "top:" + top + ";right:" + right + ";bottom:" + bottom + ";left:" + left + ";" +
       "z-index:1;overflow:hidden;" +
       "background:" + (crt.screenBg || "#020803") + ";" +
-      "border-radius:" + ((bezel.screenRadius) || "18px") + ";";
+      "border-radius:" + ((bezel.screenRadius) || "18px") + ";" +
+      "box-shadow:0 0 24px 6px rgba(0,0,0,0.85) inset;";
     el.appendChild(screen);
 
     // Elemen .xterm dipindahkan ke dalam layer screen supaya ikut ter-clip.
@@ -188,30 +194,6 @@
       el.appendChild(anim);
     }
     screen.appendChild(fx);
-
-    // 4) Bezel frame gambar (JPG) digambar paling atas SEBAGAI BINGKAI, bukan
-    //    menutupi layar: dipotong di tengah oleh `clip-path` sehingga hanya sisi
-    //    casing-nya yang tampak.
-    if (bezel.imageUrl && bezel.overlay !== false) {
-      var frame = document.createElement("img");
-      frame.className = "_tsix_crt _tsix_crt_frame";
-      frame.src = bezel.imageUrl;
-      frame.alt = "";
-      frame.setAttribute("aria-hidden", "true");
-      frame.style.cssText =
-        "position:absolute;inset:0;width:100%;height:100%;" +
-        "object-fit:fill;pointer-events:none;z-index:3;";
-      // Lubang di tengah = area layar (mengikuti inset).
-      frame.style.clipPath =
-        "polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%," +
-        "0% " + (bezel.holeBottom || "78%") + "," +
-        (bezel.holeLeft || "13%") + " " + (bezel.holeBottom || "78%") + "," +
-        (bezel.holeLeft || "13%") + " " + (bezel.holeTop || "13%") + "," +
-        (bezel.holeRight || "79%") + " " + (bezel.holeTop || "13%") + "," +
-        (bezel.holeRight || "79%") + " " + (bezel.holeBottom || "78%") + "," +
-        "100% " + (bezel.holeBottom || "78%") + ")";
-      el.appendChild(frame);
-    }
   }
 
   // --- xterm.js init (dipanggil dari buildDOM dan handleTermTheme) ---

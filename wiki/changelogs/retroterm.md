@@ -23,6 +23,20 @@
 - **Deploy:** `npm run vfs:bootstrap` (wajib — app + aset baru).
 - **Oleh:** Copilot · **Laporan:** kakang
 
+### 🐞 FIX PENTING: gambar monitor menutupi teks terminal
+
+- **File:** `src/mirror/opt/dome/dome-client-term.js`
+- **Gejala (dilaporkan kakang):** RetroTerm hanya menampilkan gambar monitor — teks konsol tidak terlihat sama sekali.
+- **Akar masalah:** gambar bezel dipasang sebagai `<img>` dengan `clip-path: polygon(...)` yang dimaksudkan sebagai "bingkai berlubang". **`clip-path: polygon()` tidak mendukung lubang** (butuh subpath dengan arah berlawanan, yang tidak didukung browser). Poligon naif itu menutup lewat garis diagonal yang **melintasi area layar**, sehingga titik tengah layar berada **di dalam** poligon → gambar ikut mengisi area layar dan menutupi teks. Terbukti dengan ray-casting: 3 perpotongan (ganjil) dari titik tengah layar.
+- **Perbaikan — ganti pendekatan total:**
+  - Gambar bezel kini dipasang sebagai **`background-image` pada container**, bukan elemen yang menutupi.
+  - Layar menjadi **kotak opak** (`z-index: 1`) di atasnya → apa pun bentuk casing di gambar, teks tidak mungkin tertutup.
+  - Overlay efek (scanline/vignette/tint) tetap `z-index: 2` → di atas teks.
+  - Elemen `<img>` bertopeng **dihapus sepenuhnya**; properti `holeTop/holeBottom/holeLeft/holeRight` tidak dipakai lagi.
+- **Verifikasi (hit-test DOM, 4 titik di area layar):** seluruh titik mengembalikan elemen **teks terminal** (`xterm-rows` / `xterm-screen` / `terminal`), bukan `<img>`. Ini pengukuran, bukan pembacaan kode.
+- **Dampak:** teks terminal kini terlihat di atas bezel, dengan scanline + vignette tetap bekerja.
+- **Oleh:** Copilot · **Laporan:** kakang
+
 ### Catatan teknis: dua bug yang ditemukan & diperbaiki saat pembuatan
 
 Keduanya ditemukan dengan mengukur di browser, bukan dari membaca kode:
