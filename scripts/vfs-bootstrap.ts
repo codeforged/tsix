@@ -156,11 +156,18 @@ async function main() {
             item.endsWith(".bmp") ||
             item.endsWith(".svg") ||
             item.endsWith(".webp") ||
-            item.endsWith(".ico");
+            item.endsWith(".ico") ||
+            // Font bitmap (mis. /opt/retroterm/fonts/*.woff2) — tanpa ini file
+            // font dilewati dan app fallback ke font sistem.
+            item.endsWith(".woff2") ||
+            item.endsWith(".woff") ||
+            item.endsWith(".ttf") ||
+            item.endsWith(".otf") ||
+            item.endsWith(".eot");
 
           if (!isTarget) continue;
 
-          // Binary assets (audio/gambar raster) disimpan sebagai
+          // Binary assets (audio/gambar raster/font) disimpan sebagai
           // latin1 string (1 byte = 1 char) — cocok dengan
           // Buffer.from(raw,"latin1") di sisi app. Teks pakai utf8.
           const isBinary =
@@ -172,7 +179,14 @@ async function main() {
             item.endsWith(".gif") ||
             item.endsWith(".bmp") ||
             item.endsWith(".webp") ||
-            item.endsWith(".ico");
+            item.endsWith(".ico") ||
+            // Font WAJIB latin1 — jalur utf8 merusak byte-nya (terukur: 29%
+            // byte rusak pada TTF 1 MB), sehingga font gagal dimuat browser.
+            item.endsWith(".woff2") ||
+            item.endsWith(".woff") ||
+            item.endsWith(".ttf") ||
+            item.endsWith(".otf") ||
+            item.endsWith(".eot");
           const content = isBinary
             ? fs.readFileSync(fullHostPath).toString("latin1")
             : fs.readFileSync(fullHostPath, "utf8");

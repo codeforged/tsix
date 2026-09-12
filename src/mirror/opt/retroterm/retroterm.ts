@@ -1,14 +1,18 @@
 /**
  *  RetroTerm — Terminal Emulator CRT / Fosfor Hijau untuk TSIX
- *  Version 0.1
+ *  Version 0.2
  *
  *  Saudara dari PixelTerm: fungsinya sama (terminal emulator penuh di atas PTY),
  *  tapi tampilannya dibuat menyerupai monitor CRT jadul:
- *    - bezel/frame dari /opt/retroterm/retro-crt.jpg
  *    - scanlines horizontal
  *    - vignette (tabung gelap di tepi)
  *    - tint hijau fosfor
+ *    - efek cembung (ilusi kaca tabung: inset shadow + kilau)
  *    - flicker sangat halus
+ *    - font bitmap era 80-an (opt-in, lihat FONT_FILES)
+ *
+ *  Console mengisi SELURUH form (tanpa frame gambar) — resize window langsung
+ *  mengubah COLUMNS/LINES, sama seperti PixelTerm.
  *
  *  Efek visual dikerjakan di sisi browser oleh dome-client-term.js
  *  (`applyCrtFx`) — opt-in lewat prop `crtTheme` pada node xterm. App ini hanya
@@ -21,13 +25,42 @@ import { theme } from "@tsix/theme";
 
 export const appMode = "gui";
 
-/**
- * Bezel/jendela sengaja TIDAK memakai ukuran 4:3 TV jadul penuh, supaya
- * proporsi gambar 655x576 tidak terlalu melar saat stretch ke ukuran window.
- * 720x560 ≈ 1.29 — mendekati aspek frame, dan muat di layar desktop.
- */
+/** Ukuran window awal. Console mengisi penuh, jadi ini hanya ukuran default. */
 const WIN_W = 720;
 const WIN_H = 560;
+
+/**
+ * FONT BITMAP (opsional).
+ *
+ * Font diletakkan di `/opt/retroterm/fonts/`. Daftar ini di-probe satu per satu
+ * dan yang PERTAMA ketemu dipakai — jadi cukup taruh satu file, tidak perlu
+ * ubah kode. Nama diambil dari rilis font bitmap DOS/Web437, mis.
+ * `Web437_Tandy1K-II_225L.woff2` (Tandy 1000 / IBM PCjr, 225 lines).
+ *
+ * Format didukung: .woff2 / .woff / .ttf / .otf
+ * Jika tidak ada yang ketemu, app jalan dengan font monospace sistem.
+ */
+const FONT_FILES = [
+    "Web437_Tandy1K-II_225L.woff2",
+    "Web437_Tandy1K-II_225L.woff",
+    "Web437_Tandy1K-II_225L.ttf",
+    "Web437_Tandy1K-II_225L.otf",
+    "Web437_Tandy1K-II_225L-2y.woff2",
+    "Web437_Tandy1K-II_225L-2y.woff",
+    "Web437_Tandy1K-II_225L-2y.ttf",
+    "Web437_Tandy1K-II_225L-2y.otf",
+    "Web437Tandy1K-II225L-2y.woff2",
+    "Web437Tandy1K-II225L-2y.woff",
+    "Web437Tandy1K-II225L-2y.ttf",
+    "tandy.woff2",
+    "tandy.ttf",
+];
+
+/** Nama family CSS yang dipakai; bebas, karena di-inject via @font-face. */
+const FONT_FAMILY = "TSIXRetroMono";
+
+/** Ukuran font konsol (px). Bitmap Tandy ~8x16, jadi 16px = kelipatan pas. */
+const FONT_SIZE = 16;
 
 /** Palet fosfor hijau (monokrom amber-ke-hijau ala P1 phosphor). */
 const PHOSPHOR = {
@@ -105,6 +138,49 @@ export const main = Program(async (args: string[]) => {
 
     const termTheme = getTermTheme();
 
+    // ==========================================================================
+    // FONT BITMAP: probe daftar FONT_FILES, pakai yang pertama ketemu.
+    // Dibaca sebagai latin1 lalu di-encode base64 → data URI. WAJIB latin1:
+    // font itu BINER, sedangkan fs.readFile mengembalikan string per-karakter —
+    // konversi utf8 akan merusak byte (lihat pola sama di resbank.ts).
+    // Kalau tidak ada, browser pakai font monospace sistem (fallback aman).
+    // ==========================================================================
+    let fontFaceCss = "";
+    for (const fname of FONT_FILES) {
+        try {
+            const raw = await fs.readFile(`/opt/retroterm/fonts/${fname}`);
+            if (!raw) continue;
+            const ext = fname.split(".").pop()!.toLowerCase();
+            const mime =
+                ext === "woff2"
+                    ? "font/woff2"
+                    : ext === "woff"
+                        ? "font/woff"
+                        : ext === "otf"
+                            ? "font/otf"
+                            : "font/ttf";
+            const b64 = Buffer.from(raw, "latin1").toString("base64");
+            fontFaceCss =
+                `@font-face{font-family:'${FONT_FAMILY}';` +
+                `src:url(data:${mime};base64,${b64}) format('${ext}');` +
+                `font-display:block;}`;
+            await std.log(
+                `[retroterm] Font dimuat: ${fname} (${raw.length} byte) → family '${FONT_FAMILY}'`,
+                "retroterm",
+            );
+            break;
+        } catch (_) {
+            /* file tidak ada — coba kandidat berikutnya */
+        }
+    }
+    if (!fontFaceCss) {
+        await std.log(
+            `[retroterm] Font bitmap tidak ditemukan di /opt/retroterm/fonts/ — ` +
+            `memakai font monospace sistem. Taruh mis. ${FONT_FILES[0]} di sana.`,
+            "retroterm",
+        );
+    }
+
     // Deskripsi efek CRT — dikirim ke browser, dijalankan oleh applyCrtFx().
     // Console mengisi seluruh window; tidak ada frame gambar monitor.
     const crtTheme = {
@@ -114,6 +190,11 @@ export const main = Program(async (args: string[]) => {
         vignette: 0.5,
         flicker: true,
         scanline: { period: 3, alpha: 0.3 },
+        // Font bitmap (kalau ada). Browser menyuntik @font-face ini lalu memakai
+        // family-nya di xterm. Kosong = pakai font monospace sistem.
+        fontFaceCss: fontFaceCss,
+        fontFamily: fontFaceCss ? `'${FONT_FAMILY}', monospace` : undefined,
+        fontSize: FONT_SIZE,
         // Efek cembung khas tabung CRT (ilusi cahaya+bayangan, bukan distorsi
         // geometris). `edge` = kedalaman gelap di tepi, `highlight` = kekuatan
         // kilau kaca di kiri-atas, `radius` = sudut melengkung tabung.

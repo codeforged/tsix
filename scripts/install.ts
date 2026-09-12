@@ -130,10 +130,16 @@ function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string): void {
       item.endsWith(".b64") ||
       item.endsWith(".svg") ||
       item.endsWith(".webp") ||
-      item.endsWith(".ico");
+      item.endsWith(".ico") ||
+      // Font bitmap (mis. /opt/retroterm/fonts/*.woff2)
+      item.endsWith(".woff2") ||
+      item.endsWith(".woff") ||
+      item.endsWith(".ttf") ||
+      item.endsWith(".otf") ||
+      item.endsWith(".eot");
     if (!isTarget) continue;
 
-    // Binary assets (audio/gambar raster) disimpan sebagai latin1 string
+    // Binary assets (audio/gambar raster/font) disimpan sebagai latin1 string
     // (1 byte = 1 char) — cocok dengan Buffer.from(raw,"latin1") di sisi app.
     const isBinary =
       item.endsWith(".mp3") ||
@@ -145,7 +151,12 @@ function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string): void {
       item.endsWith(".bmp") ||
       item.endsWith(".b64") ||
       item.endsWith(".webp") ||
-      item.endsWith(".ico");
+      item.endsWith(".ico") ||
+      item.endsWith(".woff2") ||
+      item.endsWith(".woff") ||
+      item.endsWith(".ttf") ||
+      item.endsWith(".otf") ||
+      item.endsWith(".eot");
     const content = isBinary
       ? fs.readFileSync(fullHostPath).toString("latin1")
       : fs.readFileSync(fullHostPath, "utf8");

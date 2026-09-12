@@ -184,6 +184,22 @@
   }
 
 
+  // --- Font bitmap kustom (dipakai RetroTerm; app lain tidak mengirim) ---
+  // Menyuntik @font-face ke <head> supaya bisa dipakai xterm. Dilakukan sekali
+  // per family — penggantian tema berikutnya tidak menumpuk style duplikat.
+  // Kalau `crt.fontFaceCss` kosong, font monospace sistem yang dipakai.
+  function installCrtFont(crt) {
+    if (!crt || !crt.fontFaceCss) return;
+    var familyMatch = /font-family:'([^']+)'/.exec(crt.fontFaceCss);
+    var family = familyMatch ? familyMatch[1] : "_tsix_retro";
+    var id = "_tsix_font_" + family.replace(/[^a-zA-Z0-9_-]/g, "_");
+    if (document.getElementById(id)) return; // sudah terpasang
+    var st = document.createElement("style");
+    st.id = id;
+    st.textContent = crt.fontFaceCss;
+    document.head.appendChild(st);
+  }
+
   // --- xterm.js init (dipanggil dari buildDOM dan handleTermTheme) ---
   function initXterm(el, themeColors, crtOptions) {
     if (typeof Terminal === "undefined") return;
@@ -191,12 +207,19 @@
     el.innerHTML = "";
     // Efek CRT (kalau ada) dipasang setelah xterm terbentuk.
     var _crt = crtOptions || el._crtOptions;
+    // Font bitmap harus terpasang SEBELUM Terminal dibuat, supaya glyph pertama
+    // sudah memakai font yang benar (kalau tidak, terjadi reflow 1 frame).
+    installCrtFont(_crt);
     const oldStyle = el.querySelector("._tsix_term_theme");
     if (oldStyle) oldStyle.remove();
     const cw = el.clientWidth || 700;
     const ch = el.clientHeight || 400;
-    const initCols = Math.max(20, Math.floor(cw / 8.4));
-    const initRows = Math.max(5, Math.floor(ch / 16));
+    var _fontSize = (_crt && _crt.fontSize) || 14;
+    // Lebar/tinggi sel diturunkan dari font: bitmap Tandy ~0.5em lebar.
+    var _cellW = _fontSize * 0.6;
+    var _cellH = _fontSize * 1.0;
+    const initCols = Math.max(20, Math.floor(cw / _cellW));
+    const initRows = Math.max(5, Math.floor(ch / _cellH));
     const tt = themeColors;
     const termTheme = tt
       ? Object.assign(
@@ -214,12 +237,16 @@
       };
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 14,
+      fontSize: _fontSize,
       cols: initCols,
       rows: initRows,
       convertEol: true,
-      fontFamily: "'SF Mono', 'Menlo', 'Courier New', monospace",
-      fontWeight: "600",
+      // Font bitmap dari app (kalau ada) — kalau tidak, fallback monospace sistem.
+      fontFamily: (_crt && _crt.fontFamily) ||
+        "'SF Mono', 'Menlo', 'Courier New', monospace",
+      // Bitmap font tidak punya bobot bold asli; "normal" menghindari sintesis
+      // bold yang membuat glyph bitmap buram.
+      fontWeight: (_crt && _crt.fontFamily) ? "normal" : "600",
       theme: {
         ...termTheme,
         background: "rgba(0,0,0,0)", // transparent biar selection layer tembus
@@ -234,8 +261,12 @@
         '[data-tsix-id="' + CSS.escape(el._xtermNodeId || "") + '"]';
       style.textContent =
         selBase +
+        // Latar viewport: transparan HANYA saat CRT aktif, supaya efek tabung
+        // (tint/vignette/scanline) terlihat di belakang teks. Untuk app biasa
+        // (PixelTerm) tetap memakai warna tema — jangan dibuat transparan
+        // tanpa syarat, nanti latarnya hilang.
         " .xterm-viewport { background: " +
-        (tt.background || "#0a0a0a") +
+        (_crt && _crt.enabled ? "transparent" : (tt.background || "#0a0a0a")) +
         " !important; }" +
         selBase +
         " .xterm-cursor { background: " +
@@ -271,8 +302,10 @@
     var fit = function () {
       var w = el.clientWidth,
         h = el.clientHeight;
-      var cols = Math.floor(w / 8.4);
-      var rows = Math.floor(h / 16);
+      // Ukuran sel ikut fontSize (bukan konstanta 8.4/16) — kalau tidak, jumlah
+      // COLUMNS/LINES salah saat font bitmap dipakai (glyph-nya lebih besar).
+      var cols = Math.floor(w / _cellW);
+      var rows = Math.floor(h / _cellH);
       if (cols > 0 && rows > 0) {
         var c = Math.max(20, cols);
         var r = Math.max(5, rows);

@@ -6,6 +6,26 @@
 
 ## 2026-09-12
 
+### Dukungan font bitmap (opt-in) — mis. Tandy 1000 / Web437
+
+- **File:** `src/mirror/opt/retroterm/retroterm.ts`, `src/mirror/opt/dome/dome-client-term.js`
+- **Permintaan:** ganti font console dengan font bitmap era 80-an (mis. `Web437Tandy1K-II225L-2y`).
+- **Cara pakai:** taruh file font di **`/opt/retroterm/fonts/`** — tidak perlu ubah kode. App mem-probe daftar `FONT_FILES` dan memakai yang **pertama ketemu**. Kalau tidak ada, otomatis fallback ke font monospace sistem (tidak error).
+  - Kandidat nama yang dicoba: `Web437_Tandy1K-II_225L.woff2`, `…_225L-2y.woff2`, `Web437Tandy1K-II225L-2y.woff2`, `tandy.woff2`, dst (varian `.woff2/.woff/.ttf/.otf`).
+  - Ukuran font default **16px** (`FONT_SIZE`) — bitmap Tandy ~8x16, jadi 16px = kelipatan pas.
+- **Implementasi:**
+  - App membaca font dari VFS sebagai **`latin1`** lalu base64 → data URI, disuntik ke `<head>` sebagai `@font-face` oleh `installCrtFont()`. Dilakukan **sekali per family** (tidak menumpuk style saat tema di-reload).
+  - Font dipasang **sebelum** objek `Terminal` dibuat, supaya glyph pertama sudah benar (menghindari reflow 1 frame).
+  - `fontWeight` diset `normal` saat font kustom dipakai — bitmap tidak punya bold asli, dan sintesis bold membuat glyph buram.
+  - `fit()` kini menurunkan ukuran sel dari `fontSize` (`_cellW = fontSize*0.6`, `_cellH = fontSize`) — sebelumnya hardcode `8.4`/`16`, yang membuat COLUMNS/LINES salah saat font lebih besar.
+  - `.xterm-viewport` dibuat transparan **hanya saat CRT aktif**, supaya efek tabung terlihat di belakang teks; PixelTerm tetap memakai warna temanya.
+- **⚠️ Kenapa `latin1` WAJIB:** font itu **biner**, sedangkan `fs.readFile` mengembalikan string per-karakter. Diuji dengan `arial.ttf` (1.045.720 byte): jalur `latin1` round-trip **identik**, sedangkan jalur `utf8` **merusak 306.957 byte (29%)** — font akan gagal dimuat. Pola ini sama dengan `resbank.ts`/TImage.
+- **Verifikasi (diukur di browser):** `@font-face` terpasang, `document.fonts.check("16px 'TSIXRetroMono'")` = **true**, lebar teks **berbeda** dari monospace generik (142.27 vs 87.97 px untuk 10× "M") → font benar-benar terpakai, bukan fallback. `fontFamily` computed di baris xterm = `TSIXRetroMono, monospace`. Input keyboard tetap jalan (`echo font-ok` diterima).
+- **Catatan:** `retro-crt.jpg` sekarang tidak dipakai lagi oleh app (frame dilepas) — file dibiarkan di tempatnya, tidak masalah.
+- **Deploy:** `npm run vfs:bootstrap` untuk sisi app; **file font cukup ditaruh** di `src/mirror/opt/retroterm/fonts/` lalu jalankan bootstrap.
+- **Prasyarat yang ikut diperbaiki:** `scripts/vfs-bootstrap.ts` & `scripts/install.ts` **sebelumnya tidak mengenal** ekstensi `.woff2/.woff/.ttf/.otf/.eot` — file font akan **dilewati diam-diam** (tidak pernah sampai VFS). Keduanya kini memasukkan ekstensi font sebagai **biner latin1**. Diuji: `arial.ttf` (1.045.720 byte) → ter-sync ke `/opt/retroterm/fonts/`, `Buffer.compare` **identik**, TTF magic `0x00010000` benar.
+- **Oleh:** Copilot · **Laporan:** kakang
+
 ### Frame monitor dilepas + efek cembung khas CRT
 
 - **File:** `src/mirror/opt/retroterm/retroterm.ts`, `src/mirror/opt/dome/dome-client-term.js`
