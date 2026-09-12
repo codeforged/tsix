@@ -80,8 +80,8 @@ export class main implements IProgram {
             }
             output += "-".repeat(92) + "\n";
             output += `Total (${counted}/${processes.length} processes read): heap ${mb(sumHeap)} MB + external ${mb(sumExt)} MB\n`;
-            output += `Note: 'rss' in \`mem\` is process-wide (main thread + all workers);\n`;
-            output += `      the remainder is the main thread & native libraries (esbuild/mqtt/mysql2/sqlite).\n`;
+            output += `Note: these are per-isolate figures (heapTotal may include non-resident pages).\n`;
+            output += `      'rss' in \`mem\` is process-wide (main thread + all workers).\n`;
         } else if (!showAll && processes.length > filtered.length) {
             output += `\n(Total ${processes.length} processes. Use 'ps aux' to see all)\n`;
         }

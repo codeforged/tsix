@@ -6,6 +6,24 @@
 
 ## 2026-09-12
 
+### Optimasi memori fase 2 — buang beban mati `vfsCache` + lepas thread esbuild
+
+- **File:** `src/kernel/Kernel.ts` (`rebuildVFSCache`), `src/mirror/sbin/mem.ts`, `src/mirror/bin/ps.ts`
+- **Latar:** setelah fase 1 (lihat bagian berikutnya), komposisi RSS bergeser — worker sudah ~12 MB, main thread menjadi komponen terbesar (~134 MB dari 298 MB).
+- **Perubahan 1 — cache hanya `.ts`.** `fetchDir()` sebelumnya memasukkan `.ts`, `.js`, **dan** `.json`. `WorkerEntry` memetakan `@tsix/X` → `/lib/X.ts` dan `@common/Y` → `/lib/common/Y.ts`, jadi entri `.js` (51 file, 1.70 MB) **tidak pernah di-lookup** tetapi tetap di-clone ke setiap worker via `workerData`.
+  - **Ukur (12 worker, app yang benar-benar `require` emerald+cashew+Application):**
+    - cache lama (2.16 MB): **16.44 MB/worker**
+    - cache baru (0.46 MB): **12.57 MB/worker**
+    - → hemat **3.86 MB/worker** (~46 MB untuk 12 worker)
+  - **Bukti kesetaraan:** kedua varian melaporkan framework identik lengkap — `OK emerald=48 cashew=46` (confirmed 12/12). Tidak ada framework yang meng-`import` `.js`/`.json` secara eksplisit (diverifikasi dengan grep), jadi pembuangan ini tidak memutus apa pun.
+- **Perubahan 2 — `esbuild.stop()` setelah cache dibangun.** `esbuild.transformSync` men-spawn worker thread native yang bertahan seumur proses.
+  - **Ukur:** `require('esbuild')` +2.4 MB; `transformSync` pertama **+11.9 MB** (thread lahir); `stop()` membebaskan **~10–12 MB**. Pemanggilan `transformSync` berikutnya tidak menumbuhkan lagi (reuse).
+  - Setelah boot, kernel tidak memakai esbuild lagi — transpile app terjadi di dalam worker (yang punya instance sendiri).
+  - **Risiko diuji & bersih:** (a) worker tetap bisa `require("esbuild")` dan `transformSync` **setelah** main thread `stop()` — jalur DME app `.ts` aman; (b) main thread bisa memanggil lagi (lazy restart); (c) `stop()` hanya dipanggil di blok `finally` `rebuildVFSCache`, dan itu satu-satunya pemakai esbuild di `src/kernel`.
+- **Perubahan 3 — label `mem`/`ps` diperbaiki (akurasi diagnosis).** Sebelumnya `difference <- main thread + native libraries` terlalu percaya diri. Terukur pada 12 worker: `sum(heapUsed+external)` = **161.8 MB** sementara RSS naik **144.7 MB** — artinya angka itu bisa **lebih besar** dari RSS (karena `heapTotal` termasuk halaman terpesan yang belum resident). Label kini `unattributed` + catatan eksplisit bahwa angkanya campuran (main thread, V8 code space/JIT, stack, mmap, overhead isolate) dan harus dibaca sebagai tren, bukan ukuran presisi.
+- **Dampak:** ~46 MB (worker) + ~12 MB (thread esbuild) dari basis 12 worker.
+- **Oleh:** Copilot · **Laporan:** kakang
+
 ### Optimasi memori worker thread — RSS turun ~40% (fase 1)
 
 - **File:** `src/kernel/Scheduler.ts`, `src/kernel/Kernel.ts`, `src/common/Config.ts`, `src/sysconfig.json`

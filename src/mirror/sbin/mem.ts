@@ -68,11 +68,16 @@ export const main = Program(async (args: string[]) => {
   const workerTotal = sumHeap + sumExt;
   const rssBytes = memory.rss;
   out += `\n--- reconciliation with rss ---\n`;
-  out += `  measured workers : ${fm(workerTotal)} MB\n`;
-  out += `  process rss      : ${fm(rssBytes)} MB\n`;
-  out += `  difference       : ${fm(rssBytes - workerTotal)} MB  <- main thread + native libraries\n`;
-  out += `                     (esbuild native service, mqtt, mysql2, better-sqlite3,\n`;
-  out += `                      serialport/node-hid/usb, plus V8 allocator overhead)\n`;
+  out += `  measured workers : ${fm(workerTotal)} MB   (heapUsed + external per isolate)\n`;
+  out += `  process rss      : ${fm(rssBytes)} MB   (whole process: main + all workers)\n`;
+  out += `  unattributed     : ${fm(rssBytes - workerTotal)} MB\n`;
+  out += `\n  NOTE: 'measured workers' is NOT a lower bound of real worker RSS.\n`;
+  out += `  heapTotal includes reserved-but-not-resident pages, so heapUsed+external\n`;
+  out += `  can exceed the RSS those workers actually added (measured: 161.8 MB vs\n`;
+  out += `  144.7 MB RSS growth for 12 workers). The 'unattributed' figure therefore\n`;
+  out += `  mixes main thread data, V8 code space/JIT, thread stacks, mmap, and worker\n`;
+  out += `  isolate overhead. Read it as a trend, not as a precise main-thread size.\n`;
+  out += `  Use 'ps --sort-mem' to compare processes against each other instead.\n`;
   out += `  unreadable procs : ${procs.filter((p: any) => !p.mem).length} (zombie PCB / no worker)\n`;
 
   return out;

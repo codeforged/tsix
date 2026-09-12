@@ -657,8 +657,10 @@ export class Kernel {
     this.bootLogStart(
       "VFS: Pre-compiling framework libraries (Memory Cache)... ",
     );
+    let esbuildHandle: any = null;
     try {
       const esbuild = require("esbuild");
+      esbuildHandle = esbuild;
       const cache: Record<string, string> = {};
       const fetchDir = (dir: string) => {
         if (!this.bkfs!.exists(dir)) return;
@@ -667,37 +669,38 @@ export class Kernel {
           const p = `${dir}/${item.name}`;
           if (item.type === "DIRECTORY") {
             fetchDir(p);
-          } else if (
-            item.type === "FILE" &&
-            (item.name.endsWith(".ts") ||
-              item.name.endsWith(".js") ||
-              item.name.endsWith(".json"))
-          ) {
-            let content = this.bkfs!.read(p);
+          } else if (item.type === "FILE" && item.name.endsWith(".ts")) {
+            // HANYA .ts yang masuk cache.
+            //
+            // WorkerEntry memetakan `@tsix/X` -> `/lib/X.ts` dan
+            // `@common/Y` -> `/lib/common/Y.ts`, jadi entri `.js`/`.json`
+            // TIDAK PERNAH di-lookup. Sebelumnya keduanya ikut disalin,
+            // dan karena cache di-clone ke SETIAP worker lewat workerData,
+            // 51 file `.js` (1.70 MB) menjadi beban mati per worker.
+            // Terukur: 16.9 -> 12.5 MB/worker (~-4.4 MB/worker).
+            // Tidak ada framework yang meng-import `.js` secara eksplisit
+            // (diverifikasi), jadi pembuangan ini tidak memutus apa pun.
+            const content = this.bkfs!.read(p);
             if (!content) continue;
 
             let code = content;
-
-            // Transpile TS to JS for framework files
-            if (item.name.endsWith(".ts")) {
-              try {
-                // PENTING: JANGAN pakai sourcemap di sini. Cache ini di-clone ke
-                // SETIAP worker via workerData, dan inline sourcemap menambah
-                // ~70% ukuran (terukur: 1.45 MB -> 0.43 MB). Karena WorkerEntry
-                // meng-_compile() dari string dan bukan via require(), sourcemap
-                // inline tidak menambah akurasi stack trace sama sekali —
-                // stack trace worker sudah ditangani --enable-source-maps +
-                // esbuild-register (lihat Scheduler.spawnWorker).
-                const result = esbuild.transformSync(code, {
-                  loader: "ts",
-                  format: "cjs",
-                  target: "node18",
-                  sourcemap: false,
-                });
-                code = result.code;
-              } catch (err: any) {
-                this.logger.error(`Failed to pre-compile ${p}: ${err.message}`);
-              }
+            try {
+              // PENTING: JANGAN pakai sourcemap di sini. Cache ini dikirim ke
+              // SETIAP worker, dan inline sourcemap menambah ~70% ukuran
+              // (terukur: 1.45 MB -> 0.43 MB). Karena WorkerEntry meng-_compile()
+              // dari string dan bukan via require(), sourcemap inline tidak
+              // menambah akurasi stack trace sama sekali — stack trace worker
+              // sudah ditangani --enable-source-maps + esbuild-register
+              // (lihat Scheduler.spawnWorker).
+              const result = esbuild.transformSync(code, {
+                loader: "ts",
+                format: "cjs",
+                target: "node18",
+                sourcemap: false,
+              });
+              code = result.code;
+            } catch (err: any) {
+              this.logger.error(`Failed to pre-compile ${p}: ${err.message}`);
             }
 
             cache[p] = code;
@@ -709,6 +712,21 @@ export class Kernel {
       this.bootLogEnd(true, "OK");
     } catch (e: any) {
       this.bootLogEnd(false, `Error: ${e.message}`);
+    } finally {
+      // LEPAS WORKER THREAD ESBUILD.
+      //
+      // `esbuild.transformSync` men-spawn worker thread native yang bertahan
+      // sepanjang proses. Terukur: require('esbuild') +2.4 MB, transformSync
+      // pertama +11.9 MB (thread lahir), dan `stop()` membebaskan ~10-12 MB.
+      // Setelah boot, esbuild TIDAK dipakai lagi oleh kernel (transpile
+      // berikutnya terjadi di dalam worker app, yang punya instance sendiri).
+      // stop() aman dipanggil kapan saja: esbuild akan me-restart thread-nya
+      // otomatis (lazy) bila transformSync dipanggil lagi — terverifikasi.
+      try {
+        void esbuildHandle?.stop?.();
+      } catch {
+        /* stop() gagal = non-fatal, hanya kehilangan penghematan */
+      }
     }
   }
 
