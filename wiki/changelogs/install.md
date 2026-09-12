@@ -6,6 +6,17 @@
 
 ## 2026-09-12
 
+### Prompt root password kini minta konfirmasi (anti salah ketik)
+
+- **File:** `scripts/install.ts`
+- **Masalah:** Prompt `Root password (leave empty to keep default)` hanya diminta **sekali**. Salah ketik = password root image baru tidak diketahui, dan root **tidak bisa di-reset dari luar** tanpa mengedit `/etc/shadow` manual (hash bcrypt). Ini berbeda dari akun user biasa, yang sudah punya konfirmasi sejak awal.
+- **Perubahan:** dibungkus loop, mengikuti pola akun user biasa:
+  - **Kosong** → langsung `break`, artinya pertahankan default dari image (tidak diubah). **Tidak** diminta konfirmasi — supaya tidak memaksa input ekstra pada alur yang paling umum.
+  - **Diisi** → wajib `Confirm root password`; kalau beda, tampilkan `Password tidak cocok — ulangi.` dan ulangi dari awal.
+- **Diuji:** 4 skenario — kosong, cocok, beda-lalu-cocok, dan beda-2x-lalu-cocok. Semuanya PASS, termasuk verifikasi bahwa konfirmasi **tidak** ditanyakan saat input kosong dan peringatan mismatch muncul tepat satu kali per percobaan gagal.
+- **Dampak:** Fresh install tidak lagi bisa menghasilkan image dengan password root yang salah ketik tanpa disadari.
+- **Oleh:** Copilot · **Laporan:** kakang
+
 ### `createDefaultConfig()` ikut membawa default optimasi memori
 
 - **File:** `scripts/install.ts`

@@ -493,10 +493,25 @@ async function main() {
       );
 
       dbRel = await prompt(rl, "New database filename (e.g. system.db)", dbRel);
-      rootPassword = await promptPassword(
-        rl,
-        "Root password (leave empty to keep default)",
-      );
+
+      // Root password: KOSONG = pertahankan default dari image (tidak diubah).
+      // Kalau diisi, WAJIB konfirmasi — sama seperti akun user biasa. Root tidak
+      // bisa di-reset dari luar tanpa mengubah /etc/shadow manual, jadi salah
+      // ketik di sini berarti kehilangan akses admin ke image baru.
+      while (true) {
+        rootPassword = await promptPassword(
+          rl,
+          "Root password (leave empty to keep default)",
+        );
+        if (!rootPassword) break; // kosong → pakai default, tidak perlu konfirmasi
+
+        const confirmRoot = await promptPassword(rl, "Confirm root password");
+        if (rootPassword !== confirmRoot) {
+          console.log("[INSTALL] Password tidak cocok — ulangi.");
+          continue;
+        }
+        break;
+      }
     }
 
     // Address interface otomatis mengikuti hostname (di semua mode):
