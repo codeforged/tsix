@@ -23,6 +23,24 @@
 - **Deploy:** `npm run vfs:bootstrap` (wajib — app + aset baru).
 - **Oleh:** Copilot · **Laporan:** kakang
 
+### Layar tetap persis di tengah saat window di-resize
+
+- **File:** `src/mirror/opt/retroterm/retroterm.ts`, `src/mirror/opt/dome/dome-client-term.js`
+- **Permintaan:** saat window di-resize, area layar konsol harus tetap persis di tengah.
+- **Masalah sebelumnya:** geometri layar memakai inset **persen window** (`top:15% right:23% bottom:24% left:15%`). Karena itu tidak mengikuti bentuk gambar, layar bergeser dan tidak center saat ukuran berubah. Inset lama juga **salah ukur**: kanan 23% padahal lubang gambar berakhir di 88% → layar tergeser ±11%.
+- **Perbaikan:**
+  1. **Geometri diukur dari gambar**, bukan ditebak: scanline kecerahan mencari area gelap (tabung) → lubang layar = **kiri 13%, kanan 88%, atas 12%, bawah 78%** (fraksi). Nilai ini dikirim app sebagai `bezel.hole`.
+  2. **Bezel digambar aspect-preserving** (`background-size` dihitung, bukan `100% 100%`), jadi casing tidak gepeng di ukuran apa pun.
+  3. **Layar diposisikan relatif ke gambar** secara proporsional, lalu **pusat lubang dijadikan pusat window** — itulah yang membuatnya tetap center saat resize. Layout dihitung ulang lewat `ResizeObserver`.
+  4. **Skala dibatasi 4 syarat** (ambil terkecil): lubang muat di window **dan** gambar penuh tetap muat walau sudah digeser untuk centering. Tanpa batas ke-2 & ke-3, pada window portrait (mis. 700x1000) gambar menjadi lebih besar dari window sehingga casing kiri/kanan terpotong ±83px — sudah terukur dan diperbaiki.
+  5. **Dimensi gambar dibaca dari header JPEG (SOF marker)**, bukan di-hardcode — jadi tetap benar bila `retro-crt.jpg` diganti.
+- **Verifikasi (diukur, 10 ukuran window termasuk ekstrem 300x200 & 1400x400):**
+  - `offX = 0.00`, `offY = 0.00` → layar **persis center** di semua ukuran
+  - `casingMuatt = true` → gambar penuh selalu berada di dalam window
+  - sisa ruang **simetris** (kiri == kanan, atas == bawah)
+  - hit-test di tengah layar tetap mengembalikan elemen teks terminal
+- **Oleh:** Copilot · **Laporan:** kakang
+
 ### 🐞 FIX PENTING: gambar monitor menutupi teks terminal
 
 - **File:** `src/mirror/opt/dome/dome-client-term.js`
