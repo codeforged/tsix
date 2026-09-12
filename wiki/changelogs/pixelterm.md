@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-09-12
+
+### Spawn shell di PTY memakai sidecar `/bin/tsh.js`
+
+- **File:** `src/mirror/opt/pixelterm/pixelterm.ts`
+- **Masalah:** PixelTerm men-spawn `"/bin/tsh.ts"` secara eksplisit **setiap kali sebuah window terminal dibuka**. Karena path `.ts` eksplisit, `Syscalls.EXEC` tidak pernah mencoba sidecar `.js`, sehingga setiap window baru membuang **~14.4 MB RSS** (worker `.ts` ≈ 30.6 MB vs `.js` ≈ 16.2 MB).
+- **Perubahan:** spawn → `"/bin/tsh.js"` (sidecar sudah tersedia, mode 755).
+- **Dampak:** Membuka terminal baru jauh lebih hemat memori. Ini penyumbang terbesar pada sesi dengan banyak window terminal.
+- **Deploy:** `npm run vfs:bootstrap` (mengubah `src/mirror/opt/*`).
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-30
 
 ### Fix: PTY menggantung saat window ditutup lewat klik X (title bar) — `/dev/pts/X` tidak di-remove

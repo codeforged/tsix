@@ -167,7 +167,7 @@ export class Kernel {
         this.bkfs.mkdir("/var", 0, 0, 0o755);
         this.bkfs.mkdir("/var/log", 0, 0, 0o755);
         this.bkfs.touch(logFile, logLine);
-      } catch (err) {}
+      } catch (err) { }
     }
   }
 
@@ -681,11 +681,18 @@ export class Kernel {
             // Transpile TS to JS for framework files
             if (item.name.endsWith(".ts")) {
               try {
+                // PENTING: JANGAN pakai sourcemap di sini. Cache ini di-clone ke
+                // SETIAP worker via workerData, dan inline sourcemap menambah
+                // ~70% ukuran (terukur: 1.45 MB -> 0.43 MB). Karena WorkerEntry
+                // meng-_compile() dari string dan bukan via require(), sourcemap
+                // inline tidak menambah akurasi stack trace sama sekali —
+                // stack trace worker sudah ditangani --enable-source-maps +
+                // esbuild-register (lihat Scheduler.spawnWorker).
                 const result = esbuild.transformSync(code, {
                   loader: "ts",
                   format: "cjs",
                   target: "node18",
-                  sourcemap: "inline",
+                  sourcemap: false,
                 });
                 code = result.code;
               } catch (err: any) {
@@ -776,7 +783,12 @@ export class Kernel {
     const passwdPath = "/etc/passwd";
     if (!this.bkfs.exists(passwdPath)) {
       this.bootLogStart("Security: Seeding /etc/passwd...");
-      const rootPasswd = "root:x:0:0:root:/root:/bin/tsh.ts\n";
+      // Shell default menunjuk ke sidecar .js, BUKAN .ts.
+      // Alasan (terukur 2026-09-12): path .ts eksplisit melewati preferensi
+      // .js di Syscalls.EXEC (blok ekstensi hanya jalan bila node tidak ada),
+      // sehingga worker shell dipaksa memakai preload transpiler
+      // (+14.4 MB RSS/worker). Sidecar .js dibuat scripts/vfs-bootstrap.ts.
+      const rootPasswd = "root:x:0:0:root:/root:/bin/tsh.js\n";
       this.bkfs.touch(passwdPath, rootPasswd, 0, 0, 0o644);
       this.bootLogEnd(true, "root user added.");
     }

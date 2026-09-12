@@ -161,7 +161,7 @@ export const main = Program(async (args: string[]) => {
           targetId: termId,
           colors,
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   }
 
@@ -185,10 +185,10 @@ export const main = Program(async (args: string[]) => {
         try {
           await std.log(
             `[pixelterm] WARN: cannot open /dev/pts/${ptyId} for TIOCSWINSZ — ${(e as any)?.message || e}. ` +
-              `Resize falls back to IPC only; getScreenInfo() in apps (e.g. atto) may stay stale.`,
+            `Resize falls back to IPC only; getScreenInfo() in apps (e.g. atto) may stay stale.`,
             "pixelterm",
           );
-        } catch (_) {}
+        } catch (_) { }
       }
     }
   }
@@ -252,9 +252,11 @@ export const main = Program(async (args: string[]) => {
   // Apply initial xterm theme
   await applyTermTheme();
 
-  // Spawn tsh.ts on PTY slave — no pipe I/O, uses PTY buffer directly
+  // Spawn shell di PTY slave — no pipe I/O, uses PTY buffer directly.
+  // Pakai sidecar .js (bukan .ts) agar worker TIDAK memakai preload transpiler
+  // (+14.4 MB RSS/worker). Sidecar dibuat scripts/vfs-bootstrap.ts.
   const shResult = await shell.exec(
-    "/bin/tsh.ts",
+    "/bin/tsh.js",
     [],
     undefined,
     undefined,
@@ -274,7 +276,7 @@ export const main = Program(async (args: string[]) => {
   // Fokuskan terminal — user langsung bisa mengetik tanpa klik area terminal.
   // Delay kecil biar xterm sudah dirender & window sudah aktif.
   setTimeout(() => {
-    termFocus().catch(() => {});
+    termFocus().catch(() => { });
   }, 250);
 
   // Jika ada argumen command, kirim ke shell setelah terminal siap
@@ -365,12 +367,12 @@ export const main = Program(async (args: string[]) => {
       if (data === "\x03" || data.includes("\x03")) {
         try {
           await shell.write(shResult.pid, "\x03");
-        } catch (e) {}
+        } catch (e) { }
       } else {
         // Inject input ke TTY shell (via TTY buffer, bukan pipe)
         try {
           await shell.write(shResult.pid, data);
-        } catch (e) {}
+        } catch (e) { }
       }
     } else if (ev?.eventType === "term_resize") {
       const size = JSON.parse(ev.value || "{}");
@@ -439,7 +441,7 @@ export const main = Program(async (args: string[]) => {
       if (shResult?.pid) {
         try {
           await shell.kill(shResult.pid, 1);
-        } catch (_) {}
+        } catch (_) { }
         await new Promise((r) => setTimeout(r, 200));
       }
       while (killQueue.length > 0) {
@@ -453,13 +455,13 @@ export const main = Program(async (args: string[]) => {
           if (!visited.has(c.pid)) killQueue.push(c.pid);
           try {
             await shell.kill(c.pid, 9);
-          } catch (_) {}
+          } catch (_) { }
         }
       }
       try {
         await shell.kill(shResult.pid, 9);
-      } catch (_) {}
-    } catch (_) {}
+      } catch (_) { }
+    } catch (_) { }
     await std.log(
       "[pixelterm] huponexit=true — child processes terminated",
       "pixelterm",
@@ -485,7 +487,7 @@ export const main = Program(async (args: string[]) => {
                 `[pixelterm] Reparent PID ${child.pid} → init (PPID 1)`,
                 "pixelterm",
               );
-            } catch (_) {}
+            } catch (_) { }
           }
           try {
             await shell.reparent(shellPid, 1);
@@ -493,9 +495,9 @@ export const main = Program(async (args: string[]) => {
               `[pixelterm] Reparent shell PID ${shellPid} → init (PPID 1)`,
               "pixelterm",
             );
-          } catch (_) {}
+          } catch (_) { }
         }
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 });

@@ -88,7 +88,7 @@ export class SyscallDispatcher {
         // (antisipasi kalo ada socket yang kelewat cleanup-nya)
         try {
           this.kernel.getPortManager().releasePortsByPid(pid);
-        } catch (_) {}
+        } catch (_) { }
 
         // --- GUI Cleanup ---
         const guiRegistry = this.kernel.guiRegistry;
@@ -135,7 +135,7 @@ export class SyscallDispatcher {
       }
       const mysqlDev = this.kernel.devices?.mysql as any;
       if (mysqlDev && typeof mysqlDev.release === "function") {
-        mysqlDev.release(pid).catch(() => {});
+        mysqlDev.release(pid).catch(() => { });
       }
 
       // --- Network Sniffer cleanup: proses mati → lepas dari semua interface ---
@@ -903,7 +903,17 @@ export class SyscallDispatcher {
 
       case SyscallCode.PS: {
         const processes = this.scheduler.listProcesses();
-        return processes.map((p) => ({
+        // Memori per-proses dibaca HANYA bila diminta (args.includeMemory).
+        // Pembacaan bersifat pull ke tiap isolate worker, jadi untuk sistem
+        // dengan belasan proses tetap satu round-trip per proses — dan sengaja
+        // tidak dilakukan di jalur `ps` biasa agar tetap ringan.
+        const includeMemory = !!(args as any)?.includeMemory;
+        const mem = includeMemory
+          ? await Promise.all(
+            processes.map((p) => this.scheduler.getProcessMemory(p.pid)),
+          )
+          : [];
+        return processes.map((p, i) => ({
           pid: p.pid,
           ppid: p.ppid,
           name: p.name,
@@ -915,6 +925,9 @@ export class SyscallDispatcher {
           cwd: p.cwd,
           ttyId: p.ttyId,
           uuid: (p as any).uuid,
+          // null = proses tanpa worker (mis. PCB zombie) atau worker tak dapat dibaca.
+          // heapUsed/heapTotal/external dalam BYTE, milik isolate proses itu sendiri.
+          mem: includeMemory ? mem[i] : undefined,
         }));
       }
 
@@ -1338,7 +1351,7 @@ export class SyscallDispatcher {
         }
         // Non-blocking cleanup: allows worker to receive the result of this syscall
         // before it gets terminated by the kernel.
-        this.cleanupProcess(pid).catch(() => {});
+        this.cleanupProcess(pid).catch(() => { });
         return true;
       }
 
@@ -1430,7 +1443,7 @@ export class SyscallDispatcher {
           if (!isAuthorized) {
             this.logger.warn(
               `GUI: PID ${pid} attempted to modify window '${payload.wid}' ` +
-                `owned by PID ${ownerPid}. Sending SIGSEGV.`,
+              `owned by PID ${ownerPid}. Sending SIGSEGV.`,
             );
             this.scheduler.sendEvent(pid, "signal", "SIGSEGV");
             throw new Error(

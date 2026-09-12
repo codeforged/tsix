@@ -173,7 +173,7 @@ export class StdLib {
 
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) {}
+  ) { }
 
   public setStdin(fd: number) {
     this.stdinFd = fd;
@@ -277,7 +277,7 @@ export class StdLib {
 
     try {
       await (this as any)._lib.fs.mkdir(logDir);
-    } catch (e) {}
+    } catch (e) { }
 
     try {
       const fd = await (this as any)._lib.fs.open(logFile, "a");
@@ -285,7 +285,7 @@ export class StdLib {
         await (this as any)._lib.fs.write(fd, logLine);
         await (this as any)._lib.fs.close(fd);
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   /**
@@ -503,7 +503,7 @@ export class KeyboardLib {
   // tinggalkan) — ditampung di sini supaya TIDAK ada byte yang hilang.
   private pendingChar: string | null | undefined;
 
-  constructor(private std: StdLib) {}
+  constructor(private std: StdLib) { }
 
   /** Masuk raw mode — wajib dipanggil sebelum readKey(). */
   public async enable(): Promise<void> {
@@ -607,7 +607,7 @@ export class KeyboardLib {
     // Timeout menang — tangkap hasil getChar yang mungkin datang belakangan.
     p.then((c) => {
       if (c !== null && c !== undefined) this.pendingChar = c;
-    }).catch(() => {});
+    }).catch(() => { });
     return null;
   }
 
@@ -875,7 +875,7 @@ export class KeyboardLib {
 export class FsLib {
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) {}
+  ) { }
 
   public async open(path: string, flags: string = "r") {
     return await this.dispatch(SyscallCode.OPEN, { path, flags });
@@ -1164,7 +1164,7 @@ export class WebLib {
   private dispatched = false;
   private handlers = new Map<string, Set<(data: any) => void>>();
 
-  constructor(private lib: UserLib) {}
+  constructor(private lib: UserLib) { }
 
   private get fs() {
     return this.lib.fs;
@@ -1390,14 +1390,27 @@ export class ShellLib {
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
     private pid: number,
-  ) {}
+  ) { }
 
   public getPid(): number {
     return this.pid;
   }
 
-  public async ps() {
-    return await this.dispatch(SyscallCode.PS, null);
+  public async ps(options?: { includeMemory?: boolean }) {
+    return await this.dispatch(SyscallCode.PS, options ?? null);
+  }
+
+  /**
+   * memoryUsage():
+   * Pemakaian memori isolate PROSES INI SENDIRI (bukan rss process-wide).
+   * Angka per-proses untuk SEMUA proses ada di `ps({ includeMemory: true })`.
+   */
+  public memoryUsage(): { rss: number; heapTotal: number; heapUsed: number; external: number; arrayBuffers: number } {
+    // process.memoryUsage() tersedia di worker, tapi `rss`-nya process-wide —
+    // sengaja tetap diekspos agar nilai apa adanya terlihat; untuk atribusi
+    // pakai heapUsed/external/arrayBuffers yang memang per-isolate.
+    const m = (globalThis as any).process?.memoryUsage?.();
+    return m ?? { rss: 0, heapTotal: 0, heapUsed: 0, external: 0, arrayBuffers: 0 };
   }
 
   public async kill(targetPid: number, sig: number = 9) {
@@ -1636,7 +1649,7 @@ export { NetworkLib } from "./NetworkLib";
 export class PtyLib {
   constructor(
     private dispatch: (code: SyscallCode, args: any) => Promise<any>,
-  ) {}
+  ) { }
 
   /** alloc(): Buat PTY baru. Returns { id, slavePath, masterPath }. */
   public async alloc(

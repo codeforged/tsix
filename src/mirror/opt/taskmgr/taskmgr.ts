@@ -101,11 +101,11 @@ export const main = Program(async (args: string[]) => {
                     ),
                 ),
             ),
-        ).catch(() => {});
+        ).catch(() => { });
 
         const dismiss = () => {
             _ctxActive = false;
-            app.win.unmount(ctxId).catch(() => {});
+            app.win.unmount(ctxId).catch(() => { });
         };
 
         app.on(ctxId, "click", dismiss);
@@ -113,13 +113,13 @@ export const main = Program(async (args: string[]) => {
             dismiss();
             try {
                 await shell.kill(pid, 15);
-            } catch (_) {}
+            } catch (_) { }
         });
         app.on(killId, "click", async () => {
             dismiss();
             try {
                 await shell.kill(pid, 9);
-            } catch (_) {}
+            } catch (_) { }
         });
     }
 
@@ -132,9 +132,11 @@ export const main = Program(async (args: string[]) => {
             const filtered = processes.filter((p: any) =>
                 p.state !== "EXITED" &&
                 p.pid > 1 &&
-                p.name !== "tsh.ts" &&
+                // Sembunyikan shell (tsh.ts / tsh.js — tergantung sidecar mana
+                // yang dipakai passwd) dan helper CLI agar daftar tetap bersih.
+                !/^tsh\.(ts|js)$/.test(p.name) &&
                 !p.name.endsWith(".menu") &&
-                !["ps.js", "awk.js", "xargs.js", "echo.js", "grep.js", "cat.js", "kill.js", "init", "login.ts"].includes(p.name)
+                !["ps.js", "awk.js", "xargs.js", "echo.js", "grep.js", "cat.js", "kill.js", "init", "login.ts", "login.js"].includes(p.name)
             );
             // Snapshot untuk deteksi perubahan
             const snap = filtered.map((p: any) => `${p.pid}:${p.state}:${p.name}`).join("|");
@@ -165,8 +167,8 @@ export const main = Program(async (args: string[]) => {
     // Mount DataGrid — bind sort + row click + context menu (klik kanan)
     await grid.mount(
         app,
-        () => {},                    // onSort (sort internal grid)
-        () => {},                    // onRowClick (tidak dipakai)
+        () => { },                    // onSort (sort internal grid)
+        () => { },                    // onRowClick (tidak dipakai)
         (index, record, x, y) => {   // onRowContextMenu
             showContextMenu(x, y, record);
         },

@@ -4,6 +4,69 @@
 
 ---
 
+## 2026-09-12
+
+### Optimasi memori worker thread — RSS turun ~40% (fase 1)
+
+- **File:** `src/kernel/Scheduler.ts`, `src/kernel/Kernel.ts`, `src/common/Config.ts`, `src/sysconfig.json`
+- **Masalah:** RSS TSIX membengkak (564 MB pada 16 proses) lalu naik terus setiap aplikasi dijalankan.
+- **Pengukuran (Node v22.20.0, benchmark isolat nyata):** biaya per worker setelah boot penuh `WorkerEntry` + UserLib:
+  | Varian spawn | RSS/worker |
+  |---|---|
+  | Worker polos | +10.7 MB |
+  | `-r esbuild-register -r tsconfig-paths/register` | **+25.9 MB** |
+  | `WorkerEntry` + app biasa (`execArgv` kosong) | **+16.2 MB** |
+  | `WorkerEntry` + app `.ts` (preload transpiler) | **+30.6 MB** |
+- **Perubahan:**
+  - **Preload transpiler hanya untuk jalur `.ts` mentah.** Jalur `.js` (yang dipakai runtime normal) kini `execArgv: []` → hemat ~14.4 MB/worker. `tsconfig-paths/register` dihapus (impor relatif userland sudah di-resolve hook `Module._load` di `WorkerEntry`). Log peringatan ditambahkan bila ada app `.ts` mentah.
+  - **`rebuildVFSCache()`: `sourcemap: "inline"` → `false`.** Cache di-clone ke setiap worker via `workerData`; inline sourcemap menambah ~70% ukuran (terukur 1.45 MB → 0.43 MB). Sourcemap inline tidak menambah akurasi stack trace karena konten dieksekusi via `_compile()` dari string, bukan `require()`.
+  - **`resourceLimits` per worker** (`scheduler.workerMaxOldGenMb` default 192, `workerMaxYoungGenMb` default 32). Pagar agar satu app nakal tidak membengkakkan RSS proses host. Set `0` untuk menonaktifkan.
+  - **Lifecycle worker diperbaiki** (akar "RSS naik tiap kali run aplikasi"): `pcb.worker` tidak pernah dilepas di handler `exit`; handler `error` hanya men-set state sementara worker dibiarkan hidup. Kini `pcb.worker = undefined` + `removeAllListeners()` di kedua jalur, plus jaring pengaman di `reap()`.
+  - Handler `message` memakai referensi `worker` lokal (bukan `pcb.worker`) agar balasan tidak nyasar ke worker baru saat proses di-`reexec`.
+- **Dampak:** Per worker app `.js`: +16.2 MB (sebelumnya ~30 MB untuk shell `.ts`). Pengurangan terukur pada sistem nyata: 564 MB → 370 MB.
+- **Oleh:** Copilot · **Laporan:** kakang
+
+### `scheduler.workerReapGraceMs` (opsional, belum diaktifkan)
+
+- **File:** `src/sysconfig.json`, `src/common/Config.ts`
+- **Perubahan:** Opsi grace period (ms) untuk force-terminate worker yang PCB-nya sudah `EXITED` tapi thread-nya masih hidup. Saat ini baru disiapkan konfigurasinya; reaper periodiknya belum diimplementasikan.
+- **Oleh:** Copilot
+
+### Utilitas `ps --mem` / `mem --per-proc` — atribusi memori per-proses
+
+- **File:** `src/kernel/Scheduler.ts`, `src/kernel/Syscalls.ts`, `src/mirror/lib/UserLib.ts`, `src/mirror/bin/ps.ts`, `src/mirror/sbin/mem.ts`
+- **Masalah:** `process.memoryUsage().rss` bersifat **process-wide** — bahkan bila dibaca dari dalam worker (worker dengan buffer 128 MB melaporkan `rss` 180 MB). Jadi `mem` lama tidak bisa menjelaskan siapa memakai berapa.
+- **Temuan kunci:** Node menyediakan **`worker.getHeapStatistics()`** — API **pull** yang dipanggil dari main thread **tanpa** `postMessage`, sehingga tetap merespons walau worker sedang sinkron/blocking (`while(true)` — terverifikasi). Mengembalikan `Promise<HeapInfo>` dengan angka **per-isolate** (`used_heap_size`, `total_heap_size`, `external_memory`, `heap_size_limit`).
+- **Perubahan:**
+  - `Scheduler.getProcessMemory(pid)` → `{heapUsed, heapTotal, external, heapLimit} | null`; `null` bila proses tanpa worker atau worker tak dapat dibaca. Cast `as any` karena `@types/node` v20 belum mendeklarasikan method ini.
+  - Syscall `PS` menerima `args.includeMemory` (opsional) → membaca statistik heap tiap worker. **Tidak** diambil pada `ps` biasa agar tetap ringan; `SyscallCode.PS` tidak ada di `validateArgs`, jadi argumen objek aman.
+  - `UserLib.ShellLib.ps(options?)` meneruskan `{includeMemory:true}`; tambah `memoryUsage()`.
+  - `ps --mem` / `ps --sort-mem` + ringkasan total heap semua worker; `mem --per-proc` menampilkan tabel per-proses dan **rekonsiliasi** (worker terukur vs RSS → selisih = main thread + library native).
+- **Verifikasi:** uji e2e dengan worker nyata — `leak.js` tumbuh 19.7 → 42.3 MB sementara dua worker `calm` tetap datar di 10.2 MB; kebocoran teratribusi tepat. Uji itu juga membuktikan `resourceLimits` 192 MB benar-benar mematikan worker yang OOM.
+- **Catatan:** teks keluaran `ps`/`mem` berbahasa Inggris agar konsisten dengan utilitas Unix lain.
+- **Oleh:** Copilot · **Laporan:** kakang
+
+### Koreksi penting — `vfs:bootstrap` TIDAK menimpa `/etc/passwd`
+
+- **Konteks:** saat mengerjakan optimasi di atas, sempat diduga `npm run vfs:bootstrap` menimpa `/etc/passwd` (karena akun runtime `joe` hilang dari file itu di `system.db`).
+- **Hasil verifikasi (uji A/B langsung):** dugaan itu **SALAH**. `syncDir()` di `scripts/vfs-bootstrap.ts` melewati file tanpa ekstensi (`if (!isTarget) continue;`), sehingga `passwd`/`group`/`shadow`/`motd`/`profile` **identik** sebelum & sesudah bootstrap.
+- **Yang memang menimpa:** `scripts/install.ts` lewat daftar `CRITICAL_ETC` — ini perilaku yang didesain untuk fresh install, bukan bug. Sumber `src/mirror/etc/passwd` & `shadow` hanya berisi `root` (di git sejak awal).
+- **Pemicu** hilangnya entri `passwd` pada `system.db` kerja belum teridentifikasi; yang pasti bukan `vfs:bootstrap` dan bukan seed kernel (`Kernel.ts` hanya menulis bila file belum ada).
+- **Peluang terpisah yang masih terbuka:** `Kernel.ts` menyalin `defaultShell` dari `sysconfig.json`, tapi `Kernel.runInit()` memakai `scheduler.bootEntry` (`init.js`) — jadi `scheduler.defaultShell: "tsh.ts"` adalah setelan mati yang perlu dibersihkan agar tidak menyesatkan.
+- **Oleh:** Copilot · **Laporan:** kakang
+
+### Audit lanjutan: beban mati di `vfsCache` (temuan, belum dikerjakan)
+
+- **File:** `src/kernel/Kernel.ts` (`rebuildVFSCache`)
+- **Temuan:** `fetchDir` memasukkan `.ts`, `.js`, **dan** `.json` dari `/lib`, padahal `WorkerEntry` **hanya** mencari `/lib/X.ts` (`@tsix/X` → `/lib/X.ts`). Entri `.js` (51 file, **1.70 MB**) tidak pernah di-lookup, tetapi di-clone ke setiap worker.
+- **Ukur empiris** (4 worker, app yang benar-benar `require` `emerald`+`cashew`+`Application`):
+  - cache lengkap: **+16.9 MB/worker**
+  - tanpa `.js` mentah: **+12.5 MB/worker**, framework tetap lengkap (`FRAMEWORK-OK` 4/4)
+  - → potensi hemat **−4.4 MB/worker** (~84 MB untuk 19 worker), tanpa mengubah perilaku.
+- **Temuan tambahan:** `*.test.ts` di `/lib` (354 KB, `.ts`+`.js`) ikut di-transpile saat boot & ikut dikirim ke setiap worker, padahal tidak pernah di-`require` aplikasi. Transpile 16 file `*.ts` saat boot memakan **96 ms CPU di main thread** (memblokir), sedangkan membaca sidecar `.js` yang sudah ada = **0 ms** (semua sidecar segar, nol yang basi).
+- **Status:** belum diimplementasikan — menunggu keputusan (lihat rekomendasi di `wiki/changelogs/vfs.md`).
+- **Oleh:** Copilot
+
 ## 2026-09-07
 
 ### Device HTTP & WebSocket di kernel land (`/dev/httpd`, `/dev/wsd`)

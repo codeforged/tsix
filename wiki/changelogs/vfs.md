@@ -4,6 +4,46 @@
 
 ---
 
+## 2026-09-12
+
+### CATATAN — akun runtime (`useradd`) hilang dari `/etc/passwd`; `vfs:bootstrap` BUKAN penyebabnya
+
+> ⚠️ Koreksi: dugaan awal (saat kerja optimasi memori) bahwa `vfs:bootstrap` menimpa
+> `/etc/passwd` **terbukti SALAH** setelah diuji. Bagian ini ditulis ulang berdasarkan
+> hasil verifikasi.
+
+- **Fakta terverifikasi (diuji langsung):** `scripts/vfs-bootstrap.ts` **melewati** file tanpa ekstensi — `syncDir()` punya `if (!isTarget) continue;`, dan `isTarget` hanya mencocokkan `.ts/.js/.json/.html/.css/.menu/.mp3/.wav/.jpg/.jpeg/.png/.gif/.bmp/.svg/.webp/.ico`. Uji A/B: `passwd`, `group`, `shadow`, `motd`, `profile` di DB **identik** sebelum & sesudah `npm run vfs:bootstrap`.
+- **Yang MEMANG menimpa:** `scripts/install.ts` — daftar `CRITICAL_ETC` (`passwd`, `group`, `shadow`, dll) sengaja di-`touch` dari `src/mirror/etc/*`. Ini **didesain** untuk fresh install, jadi bukan bug; tapi efek sampingnya perlu diketahui (fresh install mereset akun ke isi sumber).
+- **Isi sumber:** `src/mirror/etc/passwd` & `shadow` hanya berisi `root` (di git, sejak awal).
+- **Observasi:** pada `system.db` kerja, `passwd` hanya berisi `root`, sementara `shadow` & `group` masih memuat entri `joe`/`joes` buatan **runtime** (`useradd`). Jadi akun `joe` bukan berasal dari git — ia state runtime di DB. Pemicu tepat hilangnya entri di `passwd` **belum teridentifikasi**; yang pasti bukan `vfs:bootstrap` dan bukan seed kernel (seed hanya jalan bila file belum ada).
+- **Praktis:** akun yang dibuat runtime dapat hilang dari `/etc/passwd` karena operasi yang menulis ulang file itu dari sumber. Bila perlu, buat ulang dengan `useradd`, atau `usermod -s` untuk memperbaiki field shell. `system.db` bersifat lokal (tidak ikut ter-commit).
+- **Oleh:** Copilot · **Laporan:** kakang
+
+### Shell default pindah ke sidecar `.js` — path `.ts` melewati preferensi `.js`
+- **File:** `src/mirror/etc/passwd`, `src/kernel/Kernel.ts` (seed), `src/mirror/bin/useradd.ts`, `scripts/lib/user-account.ts`
+- **Masalah:** `/etc/passwd` menunjuk `/bin/tsh.ts` (path `.ts` eksplisit). Di `Syscalls.EXEC`, blok preferensi ekstensi `.js`→`.ts` hanya berjalan `if (!node)`; karena `.ts`-nya **ada**, sidecar `.js` tidak pernah dicoba. Akibatnya setiap shell dipaksa memakai preload transpiler (**+14.4 MB RSS/worker**).
+- **Perubahan:** shell default → `/bin/tsh.js` di keempat titik (file sumber, seed kernel, `useradd`, dan helper installer). Sidecar `tsh.js` sudah tersedia (mode 755), lebih baru dari `.ts`-nya, dan lolos `node --check`.
+- **Dampak:** Worker shell turun dari ~30.6 MB → ~16.2 MB.
+- **Deploy:** nilai `/etc/passwd` di DB yang sudah ada harus disesuaikan manual (mis. `usermod -s /bin/tsh.js root`) — `vfs:bootstrap` tidak menyentuhnya.
+- **Oleh:** Copilot
+
+### Semua titik spawn `.ts` dipindah ke sidecar `.js`
+
+- **File:** `src/mirror/opt/pixelterm/pixelterm.ts`, `src/mirror/opt/tssh/tsshd.ts`, `src/mirror/sbin/airtermd.ts`, `src/mirror/bin/userdel.ts`, `src/mirror/bin/sudo.ts`, `src/mirror/bin/which.ts`, `src/mirror/bin/tsh.ts`, `src/mirror/opt/taskmgr/taskmgr.ts`
+- **Masalah:** Pola yang sama berulang di banyak tempat — path `.ts` ditulis eksplisit, atau resolver hanya mencoba `cmd` lalu `cmd.ts` tanpa `cmd.js`.
+- **Perubahan:**
+  - `tsshd.ts` & `airtermd.ts`: exec `/bin/login.js` (sebelumnya `/bin/login.ts`).
+  - `userdel.ts`: exec `/bin/rm.js` (sebelumnya `/bin/rm.ts`).
+  - `sudo.ts`: urutan ekstensi `["", ".ts"]` → `["", ".js", ".ts"]` — sebelumnya **setiap perintah via `sudo`** selalu memakai worker `.ts`.
+  - `which.ts`: tambah `.js` pada jalur path-langsung (sebelumnya hanya `cmd` + `cmd.ts`).
+  - `tsh.ts` (`resolveBinary()`): jalur `cmd.includes("/")` kini mencoba sidecar `.js` sebelum `.ts`.
+  - `taskmgr.ts`: filter shell memakai `/^tsh\.(ts|js)$/` agar tetap benar saat shell berganti nama.
+- **Dampak:** Hemat ~14.4 MB per proses yang terlibat; tidak ada perubahan perilaku.
+- **Deploy:** `npm run vfs:bootstrap` (wajib — runtime mengeksekusi sidecar `.js`).
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-28
 
 ### PENTING — perubahan `src/common/*` & `src/mirror/lib/*` JUGA wajib `vfs:bootstrap`

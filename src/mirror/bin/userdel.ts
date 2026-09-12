@@ -84,7 +84,8 @@ export default class UserDel {
         // 5. Remove home directory (optional)
         if (removeHome && homeDir) {
             try {
-                const proc = await lib.shell.exec("/bin/rm.ts", ["-r", homeDir]);
+                // rm.js (sidecar) — menghindari preload transpiler di worker.
+                const proc = await lib.shell.exec("/bin/rm.js", ["-r", homeDir]);
                 if (proc && proc.pid) {
                     await lib.shell.waitpid(proc.pid);
                 }

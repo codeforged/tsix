@@ -60,7 +60,9 @@ export default class UserAdd {
         const newUid = maxUid < 1000 ? 1000 : maxUid + 1;
         const newGid = 100; // Default to 'users' group (GID 100)
         const home = `/home/${username}`;
-        const shell = "/bin/tsh.ts";
+        // Sidecar .js, bukan .ts: menghindari preload transpiler di worker shell
+        // (+14.4 MB RSS/worker). Lihat catatan di Kernel.ts seed /etc/passwd.
+        const shell = "/bin/tsh.js";
 
         // x means password in /etc/shadow
         const newLine = `${username}:x:${newUid}:${newGid}:${username}:${home}:${shell}`;

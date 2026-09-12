@@ -22,6 +22,15 @@ export interface SysConfig {
         defaultCwd: string;
         bootEntry: string;
         defaultShell: string;
+        /** Batas V8 old-generation per worker (MB). Pagar agar satu app nakal
+         *  tidak membengkakkan RSS proses host. Heap idle TSIX hanya ~15 MB,
+         *  jadi default 192 MB (≈13× idle) sangat longgar untuk app GUI berat
+         *  sekalipun. Set 0 untuk menonaktifkan pagar (pakai default Node). */
+        workerMaxOldGenMb?: number;
+        /** Batas V8 young-generation per worker (MB). */
+        workerMaxYoungGenMb?: number;
+        /** Grace period (ms) sebelum worker yang sudah EXITED di-force-terminate. */
+        workerReapGraceMs?: number;
     };
     shell: {
         defaultUser: string;

@@ -116,11 +116,11 @@ export default class TSSHDaemon {
           sess.active = false;
           try {
             await lib.shell.kill(sess.shellPid, 9);
-          } catch (_) {}
+          } catch (_) { }
           try {
             if (sess.ptyId !== undefined && sess.ptyId >= 0)
               await lib.pty.free(sess.ptyId);
-          } catch (_) {}
+          } catch (_) { }
           const byePkt = TSSHProtocol.pack(
             TSSHOpcode.EXIT,
             TSSHChannel.CONTROL,
@@ -245,7 +245,8 @@ export default class TSSHDaemon {
           );
         } else {
           procInfo = await lib.shell.exec(
-            "/bin/login.ts",
+            // login.js adalah sidecar — menghindari preload transpiler di worker.
+            "/bin/login.js",
             [],
             undefined,
             undefined,
@@ -265,7 +266,7 @@ export default class TSSHDaemon {
         if (sess.ptyId !== undefined && sess.ptyId >= 0) {
           try {
             await lib.pty.free(sess.ptyId);
-          } catch (_) {}
+          } catch (_) { }
         }
         this.sessions.delete(sid);
       }
@@ -292,7 +293,7 @@ export default class TSSHDaemon {
                 await lib.fs.ioctl(ptyFd, 3, { lines: rows, columns: cols });
                 await lib.fs.close(ptyFd);
               }
-            } catch (_) {}
+            } catch (_) { }
           }
           break;
         }
@@ -313,7 +314,7 @@ export default class TSSHDaemon {
           await lib.shell.kill(sess.shellPid, 9);
           try {
             await lib.pty.free(sess.ptyId);
-          } catch (_) {}
+          } catch (_) { }
           this.sessions.delete(sid);
           break;
         }
@@ -351,7 +352,7 @@ export default class TSSHDaemon {
             idle = true;
           }
         }
-      } catch (_) {}
+      } catch (_) { }
     })();
 
     (async () => {
@@ -370,7 +371,7 @@ export default class TSSHDaemon {
         // Bebaskan PTY setelah shell keluar
         try {
           await lib.pty.free(sess.ptyId);
-        } catch (_) {}
+        } catch (_) { }
         this.sessions.delete(sess.id);
       }
     })();

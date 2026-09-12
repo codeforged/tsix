@@ -6,6 +6,21 @@
 
 ---
 
+## 2026-09-12
+
+### `shell.ps({ includeMemory })` + `memoryUsage()` — atribusi memori per-proses
+
+- **File:** `src/mirror/lib/UserLib.ts`, `src/kernel/Syscalls.ts`, `src/kernel/Scheduler.ts`
+- **Perubahan:**
+  - `ShellLib.ps()` kini menerima opsi `{ includeMemory?: boolean }`. Bila `true`, kernel membaca statistik heap **per worker isolate** (pull via `worker.getHeapStatistics()`) dan melampirkan `mem: { heapUsed, heapTotal, external, heapLimit }` pada tiap entri proses. Tanpa opsi ini, `ps` tetap ringan seperti sebelumnya.
+  - Tambah **`memoryUsage()`** — pemakaian memori isolate proses pemanggil sendiri (padanan `process.memoryUsage()`, tapi terdokumentasi jelas soal `rss` yang process-wide).
+  - `mem` di entri proses bernilai `null` untuk PCB zombie / proses tanpa worker.
+- **Penting:** `rss` bersifat **process-wide** (main thread + semua worker). Yang **per-isolate** adalah `heapUsed`/`external`/`arrayBuffers`. Untuk atribusi pakai `includeMemory` — jangan pakai `rss`.
+- **Pemakaian:** `ps --mem`, `ps --sort-mem` (`/bin/ps`), dan `mem --per-proc` di `/sbin/mem` (teks keluaran berbahasa Inggris).
+- **Deploy:** `npm run vfs:bootstrap` (mengubah `src/mirror/lib/*` + `src/common/*`).
+- **Detail:** `wiki/changelogs/kernel.md` (bagian "Utilitas `ps --mem` / `mem --per-proc`").
+- **Oleh:** Copilot
+
 ## 2026-09-07
 
 ### WebLib — sub-library `web` (HTTP & WebSocket server yang friendly)

@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-09-12
+
+### Seed `/etc/passwd` memakai sidecar `/bin/tsh.js` (bukan `.ts`)
+
+- **File:** `src/kernel/Kernel.ts` (bagian `Security: Seeding /etc/passwd`)
+- **Masalah:** Seed default menulis `root:...:/bin/tsh.ts`. Path `.ts` eksplisit melewati preferensi sidecar `.js` di `Syscalls.EXEC` (blok ekstensi hanya jalan bila node tidak ditemukan), sehingga setiap shell dipaksa memakai preload transpiler → **+14.4 MB RSS per worker shell**.
+- **Perubahan:** seed → `/bin/tsh.js`. `sysconfig.scheduler.defaultShell` masih bernilai `tsh.ts` dan **tidak dipakai** oleh `Kernel.runInit()` (yang membaca `bootEntry` = `init.js`), jadi hanya seed passwd yang perlu diubah.
+- **Dampak:** Instalasi baru langsung memakai jalur cepat `.js` untuk shell. Untuk DB yang sudah ada, lihat `wiki/changelogs/vfs.md` (bootstrap menimpa `/etc/passwd`).
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-28
 
 ### Jumlah login spawn kini dari `shell.loginCount` (bukan hardcode TTY2-6)

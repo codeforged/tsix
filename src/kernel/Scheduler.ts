@@ -325,6 +325,7 @@ export class Scheduler {
 
     private spawnWorker(pcb: PCB, options: SpawnOptions) {
         const cfg = Config.get();
+        const provider = this.vfsCacheProvider;
         const workerData: WorkerInitData = {
             pid: pcb.pid,
             appName: options.appName || pcb.name,
@@ -333,7 +334,14 @@ export class Scheduler {
             stackBkfsPath: options.stackBkfsPath,
             appContent: options.appContent,
             env: pcb.env,
-            vfsCache: this.vfsCacheProvider ? this.vfsCacheProvider() : {}
+            // LAZY: vfsCache disajikan lewat getter, BUKAN field biasa.
+            // Structured clone memanggil getter PERSIS SEKALI saat serialize
+            // (terverifikasi), jadi objek cache reference tetap murah — tapi
+            // bentuk ini membuat niat "jangan salin sebelum perlu" eksplisit
+            // dan mencegah penyalinan berulang bila objek ini dipakai lagi.
+            get vfsCache() {
+                return provider ? provider() : {};
+            }
         };
         const workerPath = path.resolve(__dirname, cfg.scheduler.workerEntryPath);
         // Deteksi apakah ini file JS untuk jalur cepat (JS-Direct)
@@ -342,35 +350,71 @@ export class Scheduler {
         const method = isJs ? "JS-Direct (FAST)" : "TS-Transpile";
         this.logger.info(`Spawning Worker for ${pcb.name} (PID: ${pcb.pid}) [Method: ${method}]`);
 
-        const execArgv = ["--enable-source-maps"];
+        // execArgv HANYA untuk jalur TS mentah (.ts tanpa sidecar .js).
+        //
+        // MEMORY (terukur 2026-09-12, Node v22.20.0): preload transpiler
+        // (`-r esbuild-register -r tsconfig-paths/register`) menambah
+        // ~+15 MB RSS PER WORKER (worker polos +10.7 MB -> +25.9 MB). Di sistem
+        // dengan ~19 worker itu ~285 MB percuma. Runtime normal selalu memakai
+        // sidecar .js (dibuat scripts/vfs-bootstrap.ts), sehingga jalur ini
+        // hanya tersentuh bila user benar-benar menjalankan sumber .ts.
+        //
+        // Catatan: `tsconfig-paths/register` TIDAK diperlukan di sini — impor
+        // relatif userland (`../lib/IProgram`, `../../common/*`) sudah
+        // di-resolve oleh hook `Module._load` di WorkerEntry; yang tersisa
+        // hanyalah modul host, yang diselesaikan oleh Node biasa.
+        // `--enable-source-maps` juga sengaja TIDAK dipasang di sini: V8
+        // menahan sourcemap + source text selama isolate hidup.
+        const execArgv: string[] = [];
         if (!isJs) {
+            this.logger.warn(
+                `PID ${pcb.pid} (${pcb.name}) berjalan dari sumber .ts mentah — ` +
+                `worker ini memakai preload transpiler (+~15 MB RSS). ` +
+                `Jalankan 'npm run vfs:bootstrap' agar tersedia sidecar .js.`,
+            );
             const esbuildRegister = require.resolve("esbuild-register");
-            const tsconfigPaths = require.resolve("tsconfig-paths/register");
-            execArgv.push("-r", esbuildRegister, "-r", tsconfigPaths);
+            execArgv.push("--enable-source-maps", "-r", esbuildRegister);
         }
 
-        pcb.worker = new Worker(workerPath, {
+        // Pagar memori: tanpa resourceLimits, satu app nakal bisa mengambil
+        // heap tanpa batas dan membengkakkan RSS proses host bersama.
+        // Default 192 MB ≈ 13× heap idle (~15 MB), jadi app GUI berat pun aman.
+        // Set workerMaxOldGenMb = 0 di sysconfig untuk menonaktifkan pagar.
+        const maxOldMb = cfg.scheduler.workerMaxOldGenMb ?? 192;
+        const maxYoungMb = cfg.scheduler.workerMaxYoungGenMb ?? 32;
+        const workerOptions: ConstructorParameters<typeof Worker>[1] = {
             workerData,
-            execArgv
-        });
+            execArgv,
+        };
+        if (maxOldMb > 0) {
+            workerOptions.resourceLimits = {
+                maxOldGenerationSizeMb: maxOldMb,
+                maxYoungGenerationSizeMb: maxYoungMb,
+            };
+        }
+
+        const worker = new Worker(workerPath, workerOptions);
+        pcb.worker = worker;
 
         pcb.state = ProcessState.RUNNING;
 
         // Dengarkan Syscall dari Worker
-        pcb.worker.on("message", async (request: SyscallRequest) => {
+        worker.on("message", async (request: SyscallRequest) => {
             if (this.syscallHandler) {
                 try {
                     const result = await this.syscallHandler(request);
-                    if (pcb.worker) {
-                        pcb.worker.postMessage({
+                    // Pakai `worker` (bukan pcb.worker) agar balasan tidak nyasar
+                    // ke worker baru bila proses ini sudah di-reexec.
+                    if (!(pcb.state === (ProcessState as any).REEXECING)) {
+                        worker.postMessage({
                             requestId: request.requestId,
                             success: true,
                             data: result
                         });
                     }
                 } catch (error: any) {
-                    if (pcb.worker) {
-                        pcb.worker.postMessage({
+                    if (!(pcb.state === (ProcessState as any).REEXECING)) {
+                        worker.postMessage({
                             requestId: request.requestId,
                             success: false,
                             error: error.message
@@ -380,12 +424,18 @@ export class Scheduler {
             }
         });
 
-        pcb.worker.on("error", (err) => {
+        worker.on("error", (err) => {
             this.logger.error(`Worker [${pcb.pid}] Crash Error: ${err.message}`);
             pcb.state = ProcessState.EXITED;
+            // Worker yang crash TIDAK boleh dibiarkan hidup: tanpa terminate,
+            // isolate-nya menahan memori sampai proses host mati. ini penyebab
+            // RSS membengkak pada app yang sering gagal.
+            pcb.worker = undefined;
+            worker.removeAllListeners();
+            worker.terminate().catch(() => { });
         });
 
-        pcb.worker.on("exit", (code) => {
+        worker.on("exit", (code) => {
             // If it was a reexec, we don't trigger the exit logic yet
             if (pcb.state === (ProcessState as any).REEXECING) return;
 
@@ -428,6 +478,15 @@ export class Scheduler {
             if (this.getForegroundProcess(pcb.ttyId) === pcb.pid) {
                 this.setForegroundProcess(null, pcb.ttyId);
             }
+
+            // LEPAS RAGA PROSES.
+            // PCB boleh tetap ada sebagai zombie (menunggu waitpid untuk
+            // membaca exit code), tapi thread-nya HARUS dilepas. Tanpa ini,
+            // `pcb.worker` terus memegang isolate + listener MessagePort
+            // walau proses sudah selesai — sumber utama RSS yang naik terus
+            // setiap kali aplikasi dijalankan.
+            pcb.worker = undefined;
+            worker.removeAllListeners();
         });
     }
 
@@ -520,8 +579,59 @@ export class Scheduler {
                     this.logger.debug(`UUID ${pcb.uuid} released from PID ${pid}`);
                 }
 
+                // Jaring pengaman: lepas raga proses bila handler 'exit' belum
+                // sempat melakukannya (mis. proses di-kill paksa via SIGKILL).
+                // terminate() bersifat idempoten — aman walau worker sudah mati.
+                const worker = pcb.worker;
+                if (worker) {
+                    pcb.worker = undefined;
+                    worker.removeAllListeners();
+                    worker.terminate().catch(() => { });
+                }
+
                 this.processes.splice(index, 1);
             }
+        }
+    }
+
+    /**
+     * getProcessMemory():
+     * Membaca pemakaian memori SEBUAH worker secara pull — langsung dari isolate-nya,
+     * tanpa lewat postMessage (jadi TETAP BEKERJA walau worker sedang sinkron/blocking;
+     * terverifikasi pada worker `while(true)`).
+     *
+     * Angka PENTING: `used_heap_size` / `total_heap_size` / `external_memory`
+     * adalah milik isolate worker itu saja (bukan process-wide), sehingga bisa
+     * dipakai untuk atribusi siapa makan berapa. Sebaliknya `process.memoryUsage().rss`
+     * di dalam worker justru process-wide dan menyesatkan — jangan dipakai.
+     *
+     * Return null bila proses tidak punya worker hidup atau pembacaan gagal.
+     */
+    public async getProcessMemory(pid: number): Promise<{
+        heapUsed: number;
+        heapTotal: number;
+        external: number;
+        heapLimit: number;
+    } | null> {
+        const pcb = this.getProcess(pid);
+        const worker = pcb?.worker as any;
+        if (!worker || pcb?.state === ProcessState.EXITED) return null;
+        try {
+            // getHeapStatistics() mengembalikan Promise<HeapInfo> dan TIDAK
+            // memerlukan worker respons (terverifikasi pada worker `while(true)`).
+            // Cast `any` karena @types/node v20 belum mendeklarasikan method ini,
+            // padahal tersedia sejak Node 12 (stabil di Node 22).
+            const h = await worker.getHeapStatistics();
+            if (!h) return null;
+            return {
+                heapUsed: h.used_heap_size,
+                heapTotal: h.total_heap_size,
+                external: h.external_memory,
+                heapLimit: h.heap_size_limit,
+            };
+        } catch {
+            // Worker berhenti tepat saat dibaca — non-fatal, cukup dianggap tak diketahui.
+            return null;
         }
     }
 

@@ -231,6 +231,13 @@ function createDefaultConfig(): SysConfig {
       defaultCwd: "/",
       bootEntry: "init.js",
       defaultShell: "tsh.ts",
+      // Batas memori V8 per worker thread (MB). Pagar agar satu aplikasi
+      // nakal tidak membengkakkan RSS proses host; heap idle TSIX hanya
+      // ~15 MB, jadi 192 MB (≈13×) longgar untuk app GUI berat sekalipun.
+      // Set 0 untuk menonaktifkan pagar (kembali ke default Node).
+      workerMaxOldGenMb: 192,
+      workerMaxYoungGenMb: 32,
+      workerReapGraceMs: 2000,
     },
     shell: {
       defaultUser: "root",
@@ -243,7 +250,10 @@ function createDefaultConfig(): SysConfig {
       // login lokal). Daemon remote (tsshd/airtermd/pixelterm) pakai PTY
       // on-demand, jadi tidak perlu banyak konsol. Hemat RAM.
       ttyCount: 3,
-      loginCount: 2,
+      // Satu sesi login lokal cukup — loginCount=2 menambah 1 rantai
+      // login+shell (~32 MB) tanpa manfaat, karena konsol tambahan bisa
+      // dimasuki lewat openvt dan daemon remote memakai PTY terpisah.
+      loginCount: 1,
     },
     network: {
       interfaces: [

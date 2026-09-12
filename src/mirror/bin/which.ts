@@ -27,10 +27,10 @@ export class main implements IProgram {
     if (args.includes("--help") || args.includes("-h")) {
       await std.print(
         "Usage: which [-a] [command...]\n\n" +
-          "Locate a command in the PATH environment variable and print\n" +
-          "the full path that would be executed when launching it.\n\n" +
-          "Options:\n" +
-          "  -a    Print ALL matches in PATH, not just the first one\n",
+        "Locate a command in the PATH environment variable and print\n" +
+        "the full path that would be executed when launching it.\n\n" +
+        "Options:\n" +
+        "  -a    Print ALL matches in PATH, not just the first one\n",
       );
       return;
     }
@@ -80,9 +80,9 @@ export class main implements IProgram {
     };
 
     // 1. Nama mengandung "/" -> path langsung, cukup satu hasil.
-    //    (tsh.ts hanya cek `cmd` lalu `cmd.ts` — tanpa `cmd.js`)
+    //    Utamakan sidecar .js (lihat catatan resolusi shell di bawah).
     if (cmd.includes("/")) {
-      for (const p of [cmd, cmd + ".ts"]) {
+      for (const p of [cmd, cmd + ".js", cmd + ".ts"]) {
         if (await isFile(p)) return [p];
       }
       return [];

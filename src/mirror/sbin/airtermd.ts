@@ -213,7 +213,8 @@ export default class Airtermd {
                 procInfo = await lib.shell.exec(bin, args, undefined, undefined, undefined, pty.id);
                 await lib.std.log(`[${sess.id}] Executing remote command: ${customCmd} (PID ${procInfo?.pid})`, "airtermd");
             } else {
-                procInfo = await lib.shell.exec("/bin/login.ts", [], undefined, undefined, undefined, pty.id);
+                // login.js adalah sidecar — menghindari preload transpiler di worker.
+                procInfo = await lib.shell.exec("/bin/login.js", [], undefined, undefined, undefined, pty.id);
                 await lib.std.log(`[${sess.id}] Remote login shell spawned (PID ${procInfo?.pid}, PTY${pty.id})`, "airtermd");
             }
 

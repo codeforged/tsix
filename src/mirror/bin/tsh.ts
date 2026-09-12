@@ -38,7 +38,7 @@ export class main implements IProgram {
   // Dipakai buat skip redraw prompt saat resize biar tidak menimpa layar app.
   private foregroundPid: number | null = null;
 
-  constructor() {}
+  constructor() { }
 
   async execute(lib: OSContext, args: string[]): Promise<string> {
     this.std = lib.std;
@@ -608,7 +608,7 @@ export class main implements IProgram {
           candidates.push(cleanName + suffix);
         }
       });
-    } catch (e) {}
+    } catch (e) { }
     candidates = [...new Set(candidates)];
     candidates.sort();
     return {
@@ -661,7 +661,7 @@ export class main implements IProgram {
             result.push(cleanName + " ");
           }
         });
-      } catch (e) {}
+      } catch (e) { }
     }
     return result;
   }
@@ -1111,13 +1111,19 @@ export class main implements IProgram {
       try {
         const info = await this.fs.stat(cmd);
         if (info && info.type === "FILE") return cmd;
-      } catch (e) {}
+      } catch (e) { }
 
-      try {
-        const tsPath = cmd + ".ts";
-        const infoTs = await this.fs.stat(tsPath);
-        if (infoTs && infoTs.type === "FILE") return tsPath;
-      } catch (e) {}
+      // Bila user menulis path TANPA ekstensi atau berakhiran .ts, utamakan
+      // sidecar .js yang sudah ter-transpile — worker target jadi tidak perlu
+      // preload transpiler (+14.4 MB RSS). Fallback .ts tetap ada.
+      const baseNoExt = cmd.replace(/\.ts$/, "");
+      for (const candidate of [baseNoExt + ".js", baseNoExt + ".ts"]) {
+        if (candidate === cmd) continue;
+        try {
+          const info = await this.fs.stat(candidate);
+          if (info && info.type === "FILE") return candidate;
+        } catch (e) { }
+      }
       return null;
     }
 
@@ -1132,7 +1138,7 @@ export class main implements IProgram {
       try {
         const info = await this.fs.stat(baseFullPath);
         if (info && info.type === "FILE") return baseFullPath;
-      } catch (e) {}
+      } catch (e) { }
 
       // Priority: .js (Direct) > .ts (Transpile)
       const extensions = [".js", ".ts"];
@@ -1142,7 +1148,7 @@ export class main implements IProgram {
           if (baseFullPath.endsWith(ext)) continue;
           const infoAlt = await this.fs.stat(altPath);
           if (infoAlt && infoAlt.type === "FILE") return altPath;
-        } catch (e) {}
+        } catch (e) { }
       }
     }
     return null;

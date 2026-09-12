@@ -107,7 +107,10 @@ export default class Sudo {
 
         const pathEnv = await lib.shell.getenv("PATH") || "/bin";
         const paths = pathEnv.split(":");
-        const extensions = ["", ".ts"];
+        // .js DIDAHULUKAN: sidecar sudah ter-transpile, jadi worker target
+        // tidak perlu preload transpiler (+14.4 MB RSS). .ts tetap dicoba
+        // sebagai fallback bila sidecar belum dibuat (vfs:bootstrap).
+        const extensions = ["", ".js", ".ts"];
 
         for (const p of paths) {
             for (const ext of extensions) {

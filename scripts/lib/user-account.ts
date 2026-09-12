@@ -21,7 +21,8 @@ export function createUserAccount(
   const shadowPath = "/etc/shadow";
   const gid = 100; // grup 'users'
   const home = `/home/${username}`;
-  const shell = "/bin/tsh.ts";
+  // Sidecar .js agar shell tidak memakai preload transpiler (+14.4 MB/worker).
+  const shell = "/bin/tsh.js";
 
   // 1. /etc/passwd — hitung UID berikutnya (mulai dari 1000, seperti useradd)
   const passwd = bkfs.read(passwdPath) || "";
