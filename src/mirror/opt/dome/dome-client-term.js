@@ -123,17 +123,20 @@
     el.style.background = screenBg;
     el.style.overflow = "hidden";
 
-    // 1) Bezel: satu elemen background, aspect-preserving (contain).
+    // 1) Bezel: satu elemen background, aspect-preserving.
+    //    `pointer-events:none` HANYA untuk gambar bezel — JANGAN di stage,
+    //    karena stage adalah PARENT dari screen/xterm dan sifat itu diwariskan
+    //    ke anak (kalau stage di-none, xterm tidak bisa diklik/diketik).
     var stage = document.createElement("div");
     stage.className = "_tsix_crt _tsix_crt_stage";
     stage.style.cssText =
-      "position:absolute;inset:0;pointer-events:none;z-index:0;overflow:hidden;";
+      "position:absolute;inset:0;z-index:0;overflow:hidden;";
     var bimg = document.createElement("div");
     bimg.className = "_tsix_crt _tsix_crt_bezel";
     // Posisi & ukuran ditentukan layout() (bukan `inset:0`), supaya bezel bisa
     // digeser agar LUBANG LAYAR-nya tepat di tengah window.
     bimg.style.cssText =
-      "position:absolute;left:0;top:0;" +
+      "position:absolute;left:0;top:0;pointer-events:none;" +
       "background-repeat:no-repeat;background-position:0 0;" +
       "background-size:100% 100%;" +
       (bezel.imageUrl ? "background-image:url(" + bezel.imageUrl + ");" : "");

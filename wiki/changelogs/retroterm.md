@@ -23,6 +23,22 @@
 - **Deploy:** `npm run vfs:bootstrap` (wajib — app + aset baru).
 - **Oleh:** Copilot · **Laporan:** kakang
 
+### 🐞 FIX PENTING: terminal tidak bisa menerima input keyboard
+
+- **File:** `src/mirror/opt/dome/dome-client-term.js`
+- **Gejala (dilaporkan kakang):** setelah alignment benar, xterm **tidak bisa diklik/diketik** sama sekali.
+- **Akar masalah:** elemen `stage` (pembungkus yang saya tambahkan saat rework centering) diset `pointer-events: none` supaya bezel tidak menghalangi klik. Tapi `stage` adalah **PARENT** dari layer layar dan `.xterm`, dan `pointer-events` **diwariskan** ke anak — jadi seluruh terminal menjadi click-through dan tidak pernah bisa menerima fokus maupun tombol. Ini **regresi** dari perbaikan centering.
+- **Perbaikan:** `pointer-events: none` dipindah dari `stage` ke **gambar bezel saja** (elemen yang memang perlu click-through):
+  | Elemen | pointer-events | Alasan |
+  |---|---|---|
+  | `stage` | auto (default) | parent — kalau `none`, anak ikut mati |
+  | `bezel` (gambar) | `none` | hanya background, tidak boleh menghalangi |
+  | `screen` (layar) | auto | harus bisa diklik |
+  | `fx` (scanline/vignette) | `none` | overlay tidak boleh memblokir klik |
+- **Verifikasi:** (1) mengukur `computed style` keempat elemen, (2) **mengetik sungguhan** di 3 ukuran window (default, lebar setelah resize, portrait setelah resize) — semua ketikan diterima dan `xterm-helper-textarea` tetap fokus.
+- **Catatan proses:** percobaan uji pertama sempat melaporkan "input tidak diterima" — itu **bug di harness uji** (halaman uji belum memasang `term.onData`, yang di bundle asli sudah ada), bukan bug aplikasi. Harness diperbaiki lalu uji diulang.
+- **Oleh:** Copilot · **Laporan:** kakang
+
 ### Layar tetap persis di tengah saat window di-resize
 
 - **File:** `src/mirror/opt/retroterm/retroterm.ts`, `src/mirror/opt/dome/dome-client-term.js`
