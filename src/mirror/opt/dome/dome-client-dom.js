@@ -54,8 +54,13 @@
       el.style.overflow = "hidden";
       el._xtermNodeId = node.id;
       el._xtermWid = wid;
-      // Init xterm dengan theme dari props
-      setTimeout(() => TSIX.initXterm(el, node.props?.termTheme), 100);
+      // Init xterm dengan theme dari props. `crtTheme` (opsional) mengaktifkan
+      // efek CRT — dipakai RetroTerm; app lain tidak mengirimnya.
+      if (node.props?.crtTheme) el._crtOptions = node.props.crtTheme;
+      setTimeout(
+        () => TSIX.initXterm(el, node.props?.termTheme, node.props?.crtTheme),
+        100,
+      );
       return el;
     }
 
@@ -670,7 +675,7 @@
     if (
       down &&
       ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].indexOf(e.key) >=
-        0
+      0
     ) {
       e.preventDefault();
     }

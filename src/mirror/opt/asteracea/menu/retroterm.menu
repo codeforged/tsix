@@ -1,0 +1,7 @@
+name=RetroTerm
+icon=📺
+command=/opt/retroterm/retroterm.js
+#tambahkan --huponexit atau -hue untuk mengirim SIGHUP ke child process saat window ditutup
+params=-hue
+pinned_launcher=true
+group=System
