@@ -95,6 +95,52 @@ if (typeof require !== "undefined") {
     (global as any).require = hijackRequire;
 }
 
+/**
+ * MEMORY STAT RESPONDER — jalur fallback `ps --mem` / `mem --per-proc`
+ *
+ * Kernel lebih suka membaca isolate worker sendiri lewat
+ * `worker.getHeapStatistics()`, TAPI method itu baru ada di Node >= 22.16.
+ * Di Node lama kernel mengirim pesan `{ __tsixMemStatRequest }` dan menunggu
+ * balasan; responder ini yang menjawabnya.
+ *
+ * Kenapa di sini (WorkerEntry) dan bukan di UserLib: bootloader ini SELALU
+ * jalan, bahkan untuk app yang gagal dimuat — sedangkan UserLib baru hidup
+ * setelah app meng-import framework. Tanpa itu, proses bermasalah justru
+ * kehilangan angka memorinya.
+ *
+ * `rss` sengaja TIDAK dilaporkan: di dalam worker nilainya process-wide
+ * (main thread + semua worker), menyesatkan untuk atribusi per-proses.
+ */
+if (parentPort) {
+    parentPort.on("message", (msg: any) => {
+        const requestId = msg && msg.__tsixMemStatRequest;
+        if (typeof requestId !== "string") return;
+
+        // Jangan biarkan kegagalan pembacaan mematikan proses — balas apa adanya.
+        try {
+            const m = process.memoryUsage();
+            let heapLimit = 0;
+            try {
+                heapLimit = hostRequire ? hostRequire("v8").getHeapStatistics().heap_size_limit : 0;
+            } catch (_) { /* v8 opsional — 0 berarti tidak diketahui */ }
+
+            parentPort!.postMessage({
+                __tsixMemStat: requestId,
+                stats: {
+                    heapUsed: m.heapUsed,
+                    heapTotal: m.heapTotal,
+                    external: m.external,
+                    arrayBuffers: m.arrayBuffers,
+                    heapLimit,
+                },
+            });
+        } catch (_) {
+            // Balas null supaya kernel tidak menunggu sampai timeout.
+            parentPort!.postMessage({ __tsixMemStat: requestId, stats: null });
+        }
+    });
+}
+
 process.on("unhandledRejection", (reason) => {
     const msg = reason instanceof Error ? reason.message : String(reason);
     console.error("[Worker Fatal] Unhandled Rejection:", msg);

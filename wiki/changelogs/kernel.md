@@ -4,6 +4,29 @@
 
 ---
 
+## 2026-09-14
+
+### Perbaikan: `ps --mem` / `mem --per-proc` kosong di macOS & Ubuntu (Node < 22.16)
+
+- **File:** `src/kernel/Scheduler.ts`, `src/userland/WorkerEntry.ts`, `src/mirror/bin/ps.ts`, `src/mirror/sbin/mem.ts`
+- **Versi:** kernel `0.2.6.20260912.1` → `0.2.7.20260914.1`.
+- **Gejala:** di Windows kolom `HEAP+EXT(MB)` terisi; di macOS dan Ubuntu **semua** proses menampilkan `-` (`Total (0/13 processes read)`, `unreadable procs : 13`) **tanpa pesan apa pun** — terbaca seperti fitur rusak.
+- **Akar masalah:** jalur baca memori per-proses hanya memakai **`worker.getHeapStatistics()`**, dan method itu **baru ada di Node ≥ 22.16 / ≥ 24** (dok Node: *"Added in: v24.0.0, v22.16.0"*). Di Node 20 — versi yang dipakai `@types/node` proyek ini — `worker.getHeapStatistics` bernilai **`undefined`**, sehingga `await worker.getHeapStatistics()` melempar `TypeError`, tertangkap `catch`, dan jadi `null` untuk tiap proses. Windows kebetulan memakai Node yang lebih baru, jadi gejalanya tampak "jalan hanya di Windows". **Terverifikasi di mesin dev (Node v20.20.2):** `typeof Worker.prototype.getHeapStatistics === "undefined"`.
+- **Perubahan 1 — fallback IPC.** `Scheduler.getProcessMemory()` sekarang punya dua jalur:
+  1. **pull** — `worker.getHeapStatistics()` bila tersedia (Node ≥ 22.16). Bebas-blocking: tetap terbaca walau worker sedang sinkron.
+  2. **ipc** — bila tidak ada, kernel mengirim `{__tsixMemStatRequest}` dan menunggu balasan `{__tsixMemStat, stats}` dengan timeout **400 ms** (timer di-`unref()`, jadi tidak menahan event loop kernel). Balasan ini **dicegat di handler pesan Scheduler** dan tidak pernah diteruskan ke `syscallHandler`.
+  - Hasil kini membawa `source: "pull" | "ipc"`, dan `ps --mem` mencetak berapa proses yang dibaca lewat IPC.
+- **Perubahan 2 — kenapa responder diletakkan di `WorkerEntry`, bukan `UserLib`.** `WorkerEntry` **selalu** jalan (bahkan untuk app yang gagal dimuat), sedangkan `UserLib` baru hidup setelah app meng-import framework — tanpa itu, proses bermasalah justru kehilangan angka memorinya. Responder juga melaporkan `heapLimit` (`v8.getHeapStatistics().heap_size_limit`). `rss` sengaja **tidak** dikirim: di dalam worker nilainya process-wide dan menyesatkan.
+- **Perubahan 3 — berhenti diam-diam.** `ps --mem` & `mem --per-proc` kini menjelaskan diri saat tak ada angka sama sekali: Node ≥ 22.16 memberi jalur pull, Node lama bergantung pada worker yang sempat memutar event loop, dan proses yang baru spawn mungkin belum online. `ps --mem` juga mencetak versi Node host.
+- **Verifikasi:**
+  - **Sistem nyata (Ubuntu, Node 20 — kasus yang dilaporkan):** `mem --per-proc` kini menampilkan **13 proses** lengkap dan `unreadable procs : 0`; `ps --mem` melaporkan **`Total (13/13 processes read)`** plus baris `Read via worker reply (IPC): 13/13`. Angka total 114.7 MB (79.9 heap + 34.8 external) konsisten antara kedua utilitas.
+  - Responder (memakai `WorkerEntry.js` asli, worker hidup) → `{heapUsed: 5.4 MB, heapTotal: 9.9 MB, external: 2.5 MB, arrayBuffers: 10 KB, heapLimit: 4.3 GB}`.
+  - `Scheduler` nyata di Node 20 (jadi menempuh jalur IPC): worker idle → angka + `source: 'ipc'`; worker sibuk sinkron (`while` 3 s) → `null` setelah **401 ms**; PID tanpa worker → `null`.
+- **Batasan yang disengaja:** di Node < 22.16, worker yang sedang sinkron/blocking **tidak bisa** dibaca (event loop-nya tak berputar). Ini kompromi yang lebih jujur daripada kolom kosong tanpa penjelasan; solusi penuhnya adalah memakai Node ≥ 22.16.
+- **Oleh:** Copilot · **Laporan:** kakang
+
+---
+
 ## 2026-09-12
 
 ### Hasil verifikasi di sistem nyata + peluang yang diukur & ditolak

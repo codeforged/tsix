@@ -82,6 +82,27 @@ export class main implements IProgram {
             output += `Total (${counted}/${processes.length} processes read): heap ${mb(sumHeap)} MB + external ${mb(sumExt)} MB\n`;
             output += `Note: these are per-isolate figures (heapTotal may include non-resident pages).\n`;
             output += `      'rss' in \`mem\` is process-wide (main thread + all workers).\n`;
+
+            // Sumber angka penting: 'pull' itu bebas-blocking, 'ipc' bergantung pada
+            // worker sempat memutar event loop (lihat Scheduler.getProcessMemory).
+            const viaIpc = (processes as any[]).filter(proc => proc.mem?.source === "ipc").length;
+            if (counted > 0 && viaIpc > 0) {
+                output += `Read via worker reply (IPC): ${viaIpc}/${counted} — `;
+                output += `'pull' (Node >= 22.16) is more reliable on busy workers.\n`;
+            }
+
+            // Jangan biarkan kolom kosong tanpa penjelasan: inilah yang bikin
+            // 'ps --mem' tampak rusak di macOS/Ubuntu yang memakai Node < 22.16.
+            if (counted === 0) {
+                output += `\nNo memory figures available for any process. Why:\n`;
+                output += `  * Node >= 22.16 lets the kernel pull stats straight from each isolate\n`;
+                output += `    (worker.getHeapStatistics). On older Node it must ASK the worker,\n`;
+                output += `    and a worker busy in synchronous code never answers in time.\n`;
+                output += `  * Processes that just spawned may not have their worker online yet.\n`;
+                const nodeVer = (globalThis as any).process?.version;
+                if (nodeVer) output += `Host Node: ${nodeVer}\n`;
+                output += `Try again, or check the kernel log for worker errors.\n`;
+            }
         } else if (!showAll && processes.length > filtered.length) {
             output += `\n(Total ${processes.length} processes. Use 'ps aux' to see all)\n`;
         }

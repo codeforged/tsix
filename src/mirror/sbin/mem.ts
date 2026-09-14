@@ -63,7 +63,7 @@ export const main = Program(async (args: string[]) => {
     out += `${String(r.pid).padStart(6)}  ${String(r.name).padEnd(20)}${fm(r.heapUsed)}${fm(r.external)}${fm(r.total)}\n`;
   }
   out += "-".repeat(58) + "\n";
-  out += `${`TOTAL`.padStart(6)}  ${(rows.length + " processes").padEnd(20)}${fm(sumHeap)}${fm(sumExt)}${fm(sumHeap + sumExt)}\n`;
+  out += `${`TOTAL`.padStart(6)}  ${`${rows.length} process${rows.length === 1 ? "" : "es"}`.padEnd(20)}${fm(sumHeap)}${fm(sumExt)}${fm(sumHeap + sumExt)}\n`;
 
   const workerTotal = sumHeap + sumExt;
   const rssBytes = memory.rss;
@@ -78,7 +78,17 @@ export const main = Program(async (args: string[]) => {
   out += `  mixes main thread data, V8 code space/JIT, thread stacks, mmap, and worker\n`;
   out += `  isolate overhead. Read it as a trend, not as a precise main-thread size.\n`;
   out += `  Use 'ps --sort-mem' to compare processes against each other instead.\n`;
-  out += `  unreadable procs : ${procs.filter((p: any) => !p.mem).length} (zombie PCB / no worker)\n`;
+  const unreadable = procs.filter((p: any) => !p.mem).length;
+  out += `  unreadable procs : ${unreadable} (no worker, EXITED, or worker did not answer)\n`;
+  if (procs.length > 0 && unreadable === procs.length) {
+    // Tanpa penjelasan ini, kolom kosong terbaca sebagai "fitur rusak".
+    out += `\n  WHY NO DATA: the kernel reads per-isolate stats directly with\n`;
+    out += `  worker.getHeapStatistics(), which exists only on Node >= 22.16. On older\n`;
+    out += `  Node it falls back to asking each worker over IPC with a short timeout,\n`;
+    out += `  and a worker stuck in synchronous code cannot answer in time.\n`;
+    const nodeVer = (globalThis as any).process?.version;
+    if (nodeVer) out += `  Host Node: ${nodeVer}\n`;
+  }
 
   return out;
 });

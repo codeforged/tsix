@@ -79,6 +79,29 @@ export interface SpawnOptions {
 }
 
 /**
+ * STATISTIK MEMORI PER-ISOLATE
+ *
+ * Hasil `Scheduler.getProcessMemory()`. Semua angka dalam BYTE dan milik
+ * isolate worker proses itu sendiri (bukan process-wide seperti `rss`).
+ */
+export interface ProcessMemoryStat {
+    heapUsed: number;
+    heapTotal: number;
+    external: number;
+    heapLimit: number;
+    /**
+     * Dari mana angka didapat:
+     *   - `pull` → dibaca langsung dari isolate via `worker.getHeapStatistics()`
+     *     (Node ≥ 22.16; lihat `worker.getHeapStatistics()` di dok Node). Tetap
+     *     bekerja walau worker sedang sinkron/blocking.
+     *   - `ipc`  → worker menjawab permintaan lewat pesan (fallback Node lama,
+     *     karena `getHeapStatistics()` TIDAK ADA sebelum Node 22.16). Hanya
+     *     berhasil bila event loop worker sempat berputar.
+     */
+    source: "pull" | "ipc";
+}
+
+/**
  * SCHEDULER
  * 
  * Mengatur jalannya proses dan multitasking.
@@ -94,6 +117,11 @@ export class Scheduler {
 
     private waitQueue: Map<number, Array<(exitCode: number) => void>> = new Map();
     private onProcessExitCallback?: (pid: number) => void;
+
+    // Permintaan statistik memori lewat IPC (fallback Node < 22.16):
+    // requestId -> resolver yang menunggu balasan worker.
+    private memStatWaiters: Map<string, (stats: any) => void> = new Map();
+    private memStatSeq: number = 0;
 
     constructor() {
         this.logger = new Logger("Scheduler");
@@ -400,6 +428,14 @@ export class Scheduler {
 
         // Dengarkan Syscall dari Worker
         worker.on("message", async (request: SyscallRequest) => {
+            // Balasan permintaan statistik memori BUKAN syscall — jangan
+            // diteruskan ke syscallHandler (lihat requestProcessMemory()).
+            const memStatId = (request as any)?.__tsixMemStat;
+            if (typeof memStatId === "string") {
+                this.resolveMemStat(memStatId, (request as any).stats);
+                return;
+            }
+
             if (this.syscallHandler) {
                 try {
                     const result = await this.syscallHandler(request);
@@ -596,43 +632,119 @@ export class Scheduler {
 
     /**
      * getProcessMemory():
-     * Membaca pemakaian memori SEBUAH worker secara pull — langsung dari isolate-nya,
-     * tanpa lewat postMessage (jadi TETAP BEKERJA walau worker sedang sinkron/blocking;
-     * terverifikasi pada worker `while(true)`).
+     * Membaca pemakaian memori SEBUAH worker.
      *
      * Angka PENTING: `used_heap_size` / `total_heap_size` / `external_memory`
      * adalah milik isolate worker itu saja (bukan process-wide), sehingga bisa
      * dipakai untuk atribusi siapa makan berapa. Sebaliknya `process.memoryUsage().rss`
      * di dalam worker justru process-wide dan menyesatkan — jangan dipakai.
      *
+     * DUA JALUR — kenapa harus ada dua:
+     *   1. **pull** (`worker.getHeapStatistics()`) — cara terbaik: dibaca dari
+     *      isolate tanpa perlu worker menjawab, jadi TETAP BEKERJA walau worker
+     *      sedang sinkron/blocking (terverifikasi pada worker `while(true)`).
+     *      TAPI method ini baru ada di **Node ≥ 22.16 / ≥ 24** (dok Node:
+     *      "Added in: v24.0.0, v22.16.0"). Di Node 20 (versi yang dipakai
+     *      `@types/node` proyek ini) method-nya `undefined`, dan versi lama
+     *      yang menelannya diam-diam membuat `ps --mem` menampilkan `-` untuk
+     *      SEMUA proses tanpa penjelasan — persis bug yang dilaporkan di macOS
+     *      & Ubuntu (Windows kebetulan pakai Node yang lebih baru).
+     *   2. **ipc** (fallback) — kernel mengirim pesan, worker menjawab dengan
+     *      `process.memoryUsage()`-nya sendiri. Bekerja di Node berapa pun,
+     *      tapi bergantung pada event loop worker: worker yang sedang sinkron
+     *      akan kehabisan waktu dan hasilnya `null`.
+     *
      * Return null bila proses tidak punya worker hidup atau pembacaan gagal.
      */
-    public async getProcessMemory(pid: number): Promise<{
-        heapUsed: number;
-        heapTotal: number;
-        external: number;
-        heapLimit: number;
-    } | null> {
+    public async getProcessMemory(pid: number): Promise<ProcessMemoryStat | null> {
         const pcb = this.getProcess(pid);
         const worker = pcb?.worker as any;
         if (!worker || pcb?.state === ProcessState.EXITED) return null;
-        try {
-            // getHeapStatistics() mengembalikan Promise<HeapInfo> dan TIDAK
-            // memerlukan worker respons (terverifikasi pada worker `while(true)`).
-            // Cast `any` karena @types/node v20 belum mendeklarasikan method ini,
-            // padahal tersedia sejak Node 12 (stabil di Node 22).
-            const h = await worker.getHeapStatistics();
-            if (!h) return null;
-            return {
-                heapUsed: h.used_heap_size,
-                heapTotal: h.total_heap_size,
-                external: h.external_memory,
-                heapLimit: h.heap_size_limit,
-            };
-        } catch {
-            // Worker berhenti tepat saat dibaca — non-fatal, cukup dianggap tak diketahui.
-            return null;
+
+        // --- Jalur 1: pull langsung dari isolate (Node ≥ 22.16) ---
+        // Cast `any` karena @types/node v20 belum mendeklarasikan method ini.
+        if (typeof worker.getHeapStatistics === "function") {
+            try {
+                const h = await worker.getHeapStatistics();
+                if (h) {
+                    return {
+                        heapUsed: h.used_heap_size,
+                        heapTotal: h.total_heap_size,
+                        external: h.external_memory,
+                        heapLimit: h.heap_size_limit,
+                        source: "pull",
+                    };
+                }
+            } catch {
+                // Worker berhenti tepat saat dibaca — non-fatal, cukup dianggap tak diketahui.
+                return null;
+            }
         }
+
+        // --- Jalur 2: tanya worker lewat IPC (Node < 22.16) ---
+        return await this.requestProcessMemory(pid, worker);
+    }
+
+    /**
+     * requestProcessMemory():
+     * Fallback untuk Node tanpa `worker.getHeapStatistics()`: kirim permintaan
+     * ke worker dan tunggu balasannya (dijawab WorkerEntry — lihat
+     * `__tsixMemStatRequest`/`__tsixMemStat`).
+     *
+     * Dipasang timeout karena worker yang sedang sinkron (mis. `while(true)`)
+     * tidak akan pernah menjawab; tanpa timeout, `ps --mem` ikut menggantung.
+     * Timeout di-`unref()` agar tidak menahan event loop kernel.
+     */
+    private async requestProcessMemory(
+        pid: number,
+        worker: any,
+        timeoutMs: number = 400,
+    ): Promise<ProcessMemoryStat | null> {
+        const requestId = `memstat:${pid}:${++this.memStatSeq}`;
+
+        const stats = await new Promise<any>((resolve) => {
+            const timer: any = setTimeout(() => {
+                this.memStatWaiters.delete(requestId);
+                resolve(null);
+            }, timeoutMs);
+            if (typeof timer?.unref === "function") timer.unref();
+
+            this.memStatWaiters.set(requestId, (s) => {
+                clearTimeout(timer);
+                resolve(s);
+            });
+
+            try {
+                worker.postMessage({ __tsixMemStatRequest: requestId });
+            } catch {
+                // Worker mati di antara pengecekan dan pengiriman.
+                clearTimeout(timer);
+                this.memStatWaiters.delete(requestId);
+                resolve(null);
+            }
+        });
+
+        if (!stats) return null;
+        return {
+            heapUsed: stats.heapUsed ?? 0,
+            heapTotal: stats.heapTotal ?? 0,
+            external: stats.external ?? 0,
+            heapLimit: stats.heapLimit ?? 0,
+            source: "ipc",
+        };
+    }
+
+    /**
+     * resolveMemStat(): Membangunkan penunggu balasan statistik memori.
+     * Dipanggil dari handler pesan worker. Return false bila requestId tak
+     * dikenal (mis. balasan datang setelah timeout).
+     */
+    public resolveMemStat(requestId: string, stats: any): boolean {
+        const waiter = this.memStatWaiters.get(requestId);
+        if (!waiter) return false;
+        this.memStatWaiters.delete(requestId);
+        waiter(stats);
+        return true;
     }
 
     /**
