@@ -183,6 +183,7 @@ sequenceDiagram
 | **Keyboard/Screen** | Virtual input/output devices                                                      |
 | **Serial**          | I2C-like device with configurable baud rate                                       |
 | **MCP23017**        | GPIO extender (I2C), auto-registration                                            |
+| **LM6029 LCD**      | LCD mono 128×64 (SPI0 + 2× 74HC595), auto-registration — [lcd-lm6029.md](lcd-lm6029.md) |
 | **MySQL** *(eksperimental)* | Database device (POC) — integrasi eksternal via HAL, bukan pola utama akses DB (lihat kurikulum `DbLib`) |
 | **SimpleMQTNL**     | MQTT-like network layer device                                                    |
 
@@ -296,6 +297,7 @@ tsix/
 | [mqtnl-ota.md](mqtnl-ota.md)                                         | OTA update protocol                                    |
 | [mqtnl_binary_ota.md](mqtnl_binary_ota.md)                           | Binary OTA format                                      |
 | [mcp23017-registration.md](mcp23017-registration.md)                 | MCP23017 GPIO extender                                 |
+| [lcd-lm6029.md](lcd-lm6029.md)                                       | LCD mono 128×64 LM6029ACW (`/dev/lcd` + `@tsix/lcdLib`) |
 | [identity_guid_ipc_walkthrough.md](identity_guid_ipc_walkthrough.md) | Identity & IPC walkthrough                             |
 | [boot_sequence.md](boot_sequence.md)                                 | Boot sequence details                                  |
 | [ARCHITECTURE_RINGS.md](ARCHITECTURE_RINGS.md)                       | Architecture rings detail                              |

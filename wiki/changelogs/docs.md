@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-09-14
+
+### Dokumentasi LCD LM6029ACW + changelog subsistem LCD
+- **File:** `wiki/lcd-lm6029.md` (baru), `wiki/changelogs/lcd.md` (baru), `wiki/Home.md`
+- **Perubahan:** Halaman wiki baru untuk rantai `/dev/lcd` → `@tsix/lcdLib` → addon npm `lm6029acw` — berisi diagram lapisan, urutan resolusi addon, tabel API lengkap, layout bit framebuffer 1 bpp, tabel namespace ioctl `0x4C`, CLI `test-LM6029`, dan troubleshooting. Changelog subsistem baru `changelogs/lcd.md`; keduanya didaftarkan di `Home.md` (tabel **Devices** + **Complete Wiki**).
+- **Dampak:** Device LCD kini punya dokumentasi mandiri setara MCP23017; pola 3 lapisan (driver HAL → library userland → addon npm) tercatat sebagai rujukan untuk device berikutnya.
+- **Oleh:** Copilot
+
 ## 2026-08-10
 
 ### README ditulis ulang (English, no-emoji, nada jujur)
