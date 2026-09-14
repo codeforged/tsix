@@ -31,6 +31,11 @@ graph LR
 > addon. Kalau addon tidak terpasang, TSIX tetap boot normal — node `/dev/lcd`
 > saja yang tidak muncul.
 
+> **Status (2026-09-14): sudah diverifikasi end-to-end di hardware asli** —
+> Raspberry Pi (Node 22.20.0, npm 10.9.3) + panel LM6029ACW. Seluruh rantai di
+> atas berfungsi: aplikasi → `lcdLib` → `/dev/lcd` → addon `lm6029acw` →
+> SPI0 + 74HC595 → panel.
+
 ---
 
 ## 2. Instalasi

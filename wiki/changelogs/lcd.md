@@ -48,6 +48,8 @@
 - **Test:** driver 30/30, `lcdLib` 20/20, integrasi `lcdLib → driver → hardware
   palsu` 23/23 (termasuk verifikasi urutan resolusi addon: pilih `lm6029acw`,
   fallback ke `raspi-lcd-addon`).
+- **Verifikasi hardware:** ✅ diuji langsung pada Raspberry Pi + panel LM6029ACW
+  (Node 22.20.0, npm 10.9.3) — seluruh rantai berfungsi sampai panel.
 - **Deploy:** `npm install` di repo tsix (mengambil addon + build `node-gyp`),
   lalu `npm run vfs:bootstrap` untuk menyinkronkan userland
   (`src/mirror/lib/lcdLib.ts`, `src/mirror/opt/test/test-LM6029.ts`).
