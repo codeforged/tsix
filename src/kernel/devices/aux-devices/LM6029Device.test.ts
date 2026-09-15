@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 
-import { LM6029Device, LCDIOCTL, LCD_FRAMEBUFFER_SIZE } from "./LM6029Device";
+import {
+  LM6029Device,
+  LCDIOCTL,
+  LCD_FRAMEBUFFER_SIZE,
+  LCD_WIDTH,
+  LCD_HEIGHT,
+} from "./LM6029Device";
 
 /**
  * Fake native handle — meniru raspi-lcd-addon/LM6029LCD tanpa menyentuh
@@ -46,6 +52,39 @@ function makeFakeLcd(overrides: Record<string, any> = {}): any {
     getSpiSpeed: vi.fn(() => 7812500),
     ...overrides,
   };
+}
+
+/**
+ * Fake native handle yang BENAR-BENAR menyimpan piksel — meniru
+ * `LM6029ACW_595::drawPixel` + `Adafruit_GFX::drawBitmap` 6-arg, yang HANYA
+ * menyalakan piksel untuk bit 1 dan TIDAK menghapus piksel lama (bit 0 tidak
+ * ditulis). Dipakai untuk membuktikan semantik "blit = mengganti seluruh
+ * layar" pada write() framebuffer.
+ */
+function makePixelLcd(): { lcd: any; px: Uint8Array } {
+  const px = new Uint8Array(LCD_WIDTH * LCD_HEIGHT); // 1 byte per piksel
+  const lcd = makeFakeLcd();
+
+  lcd.clear.mockImplementation(() => px.fill(0));
+  lcd.clearDisplay.mockImplementation(() => px.fill(0));
+  lcd.drawPixel.mockImplementation((x: number, y: number, color: number) => {
+    if (x < 0 || x >= LCD_WIDTH || y < 0 || y >= LCD_HEIGHT) return;
+    px[y * LCD_WIDTH + x] = color ? 1 : 0;
+  });
+  lcd.drawBitmap.mockImplementation(
+    (x: number, y: number, bmp: Buffer, w: number, h: number, color: number) => {
+      const byteWidth = (w + 7) >> 3; // padding scanline = 1 byte penuh
+      for (let j = 0; j < h; j++) {
+        for (let i = 0; i < w; i++) {
+          const b = bmp[j * byteWidth + (i >> 3)];
+          // bit 1 → nyalakan; bit 0 → dilewati (piksel lama dibiarkan)
+          if (b & (0x80 >> (i & 7))) lcd.drawPixel(x + i, y + j, color);
+        }
+      }
+    },
+  );
+
+  return { lcd, px };
 }
 
 /** Device siap pakai (sudah init dengan fake hardware). */
@@ -323,6 +362,55 @@ describe("LM6029Device — write() modes (C10.47-C10.49)", () => {
     expect(dev.write(fb)).toBe(true);
     expect(lcd.drawBitmap).toHaveBeenCalledWith(0, 0, fb, 128, 64, 1);
     expect(lcd.display).toHaveBeenCalledTimes(1);
+  });
+
+  it("C10.48d full-frame write REPLACES the screen (buffer dibersihkan dulu)", () => {
+    const { dev, lcd } = makeReadyDevice();
+    const fb = Buffer.alloc(LCD_FRAMEBUFFER_SIZE, 0xaa);
+    dev.write(fb);
+
+    // Wajib: clear() dipanggil SEBELUM drawBitmap(), karena drawBitmap
+    // (Adafruit_GFX) hanya menyalakan piksel bit-1 dan tidak menghapus piksel
+    // lama — tanpa clear() hasilnya "menumpuk", bukan mengganti frame.
+    expect(lcd.clear).toHaveBeenCalled();
+    expect(lcd.clear.mock.invocationCallOrder[0]).toBeLessThan(
+      lcd.drawBitmap.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("C10.48e frame kosong tetap menghapus layar (bisa dipakai untuk clear)", () => {
+    const { lcd, px } = makePixelLcd();
+    const dev = new LM6029Device({ native: lcd });
+    dev.init({ syslog: () => {} });
+
+    // Frame lama terisi penuh, lalu dikirim frame kosong (semua bit 0).
+    px.fill(1);
+    expect(dev.write(Buffer.alloc(LCD_FRAMEBUFFER_SIZE))).toBe(true);
+
+    let nyala = 0;
+    for (const p of px) nyala += p;
+    expect(nyala).toBe(0);
+  });
+
+  it("C10.48f framebuffer mengganti frame sebelumnya (tanpa hantu piksel)", () => {
+    const { lcd, px } = makePixelLcd();
+    const dev = new LM6029Device({ native: lcd });
+    dev.init({ syslog: () => {} });
+
+    // Frame 1: hanya pojok kiri-atas.
+    const fb1 = Buffer.alloc(LCD_FRAMEBUFFER_SIZE);
+    fb1[0] |= 0x80;
+    dev.write(fb1);
+    expect(px[0]).toBe(1);
+
+    // Frame 2: hanya pojok kanan-atas. Piksel frame 1 harus hilang.
+    const fb2 = Buffer.alloc(LCD_FRAMEBUFFER_SIZE);
+    fb2[0] |= 0x01;
+    dev.write(fb2);
+
+    expect(px[0]).toBe(0); // sisa frame 1 terhapus
+    expect(px[7]).toBe(1); // isi frame 2 tampil
+    expect(px.reduce((a, b) => a + b, 0)).toBe(1); // total piksel nyala = 1
   });
 
   it("C10.48b write(short buffer) is treated as text", () => {

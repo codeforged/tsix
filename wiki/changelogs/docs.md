@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-09-15
+
+### Klarifikasi semantik framebuffer pada dokumentasi LCD
+- **File:** `wiki/lcd-lm6029.md`, `wiki/changelogs/lcd.md`
+- **Perubahan:** §4 (Framebuffer 1 bpp) menjelaskan bahwa `blit()` **mengganti** isi layar (driver membersihkan buffer panel dulu) sehingga `fb.clear()` + `blit()` = layar bersih, dan bahwa present mengikuti `setAutoFlush()` (butuh `flush()` manual bila OFF). §5 tabel mode `write()` dan §8 Troubleshooting ditambahkan: buffer 1024 byte = ganti frame, sedangkan `drawBitmap` ioctl tetap bersifat "cap", plus dua penyebab umum frame framebuffer tidak muncul.
+- **Dampak:** Dokumen tidak lagi menyiratkan `blit()` bersifat auto-flush tanpa syarat; perilaku frame kosong dan hantu piksel kini terdokumentasi.
+- **Oleh:** Copilot
+
 ## 2026-09-14
 
 ### Dokumentasi LCD LM6029ACW + changelog subsistem LCD

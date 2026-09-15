@@ -153,8 +153,23 @@ fb.clear();
 fb.line(0, 0, 127, 63);
 fb.fillCircle(64, 32, 20);
 fb.setPixel(10, 10, 1);
-await lcd.blit(fb);               // blit penuh + auto-flush
+await lcd.blit(fb);               // kirim 1 frame penuh (mengganti isi layar)
 ```
+
+**`blit()` mengganti, bukan menumpuk.** Driver membersihkan buffer panel lebih
+
+dulu, lalu menggambar frame baru di atasnya. Konsekuensinya:
+
+- `fb.clear()` + `blit()` = **layar bersih** (cara menghapus layar dari
+  framebuffer). Kalau `blit()` sekadar "menempel", frame kosong tidak akan
+  menghapus apa pun.
+- Animasi tidak meninggalkan "hantu" piksel dari frame sebelumnya.
+- Ukuran wajib tepat **1024 byte**; `blit()` melempar error bila bukan 1 frame
+  penuh (buffer berukuran lain akan diperlakukan driver sebagai *teks*).
+
+> **Present ke panel mengikuti `setAutoFlush()`.** Bila auto-flush OFF, panggil
+> `flush()` sendiri setelah `blit()` — kalau tidak, frame tetap di buffer dan
+> panel masih menampilkan gambar lama.
 
 **Layout byte** — raster scanline 1 bpp, MSB-first (format `drawBitmap`
 Adafruit_GFX), jadi bisa langsung di-`dd` ke `/dev/lcd`:
@@ -179,7 +194,7 @@ Driver menerima tiga bentuk data:
 
 | Data | Efek |
 | --- | --- |
-| `Buffer`/`Uint8Array` **1024 byte** | blit framebuffer penuh (auto-flush) |
+| `Buffer`/`Uint8Array` **1024 byte** | blit 1 frame penuh — **mengganti** seluruh isi layar (buffer panel dibersihkan dulu; frame kosong = clear) |
 | `Buffer` pendek / `string` | dicetak sebagai teks di kursor |
 | `{ op: "fillRect", args: [1,1,2,2,1] }` | panggil primitive GFX |
 
@@ -251,6 +266,17 @@ Minta **32 MHz**, bukan 25 MHz, untuk dapat ~31.25 MHz. Cek core clock:
 Bottleneck-nya biasanya overhead syscall, bukan SPI. Pakai `blit()` framebuffer
 (1 kali kirim 1024 byte) daripada ratusan ioctl gambar. Bandingkan angkanya
 dengan `test-LM6029 fps`.
+
+**Frame framebuffer tidak muncul / ada sisa gambar lama ("hantu" piksel)**
+Dua penyebab paling umum:
+
+1. **Auto-flush OFF** — `blit()` hanya menulis ke buffer; panggil `flush()`
+   setelahnya (atau nyalakan `setAutoFlush(true)`). Gejalanya: panel tetap
+   menampilkan scene sebelumnya.
+2. **`drawBitmap()` (ioctl `0x4C1B`) memang bersifat "cap",** bukan ganti frame:
+   ia hanya menyalakan piksel untuk bit 1. Untuk mengganti layar penuh, pakai
+   `blit()`/`write(1024 byte)` — atau `clear()` dulu bila ingin tetap memakai
+   `drawBitmap()`.
 
 **Gagal `npm install lm6029acw`**
 Pastikan `build-essential` + `python3` terpasang. Di non-Linux npm akan

@@ -167,7 +167,11 @@ async function sceneFramebuffer(pause: number) {
   fb.line(64, 0, W - 1, H - 1, 1).line(64, H - 1, W - 1, 0, 1);
 
   const t0 = Date.now();
-  const ok = await lcd.blit(fb); // blit penuh + auto-flush
+  const ok = await lcd.blit(fb); // blit penuh: MENGGANTI seluruh isi layar
+  // Auto-flush mengikuti setAutoFlush(). Di suite auto-flush dimatikan, jadi
+  // frame ini harus di-flush manual — kalau tidak, panel tetap menampilkan
+  // scene sebelumnya.
+  await lcd.flush();
   await std.println(
     `   → blit(${fb.bytes.length} byte) = ${ok} dalam ${Date.now() - t0} ms`,
   );
@@ -224,7 +228,8 @@ async function cmdContrast(value?: string) {
 
   await std.println("Sweep kontras 0..63 (pola gradasi sederhana)...");
   // Pola: 8 blok dithering sebagai referensi — digambar di framebuffer
-  // lokal, lalu di-blit sekali (contoh pemakaian LcdFramebuffer).
+  // lokal, lalu di-blit sekali (contoh pemakaian LcdFramebuffer). blit()
+  // mengganti seluruh layar, jadi pola lama tidak menumpuk.
   const fb = lcd.framebuffer();
   for (let i = 0; i < 8; i++) {
     const density = i + 1;
@@ -236,7 +241,7 @@ async function cmdContrast(value?: string) {
       }
     }
   }
-  await lcd.drawBitmap(0, 0, fb, W, H, 1);
+  await lcd.blit(fb);
   await lcd.flush();
 
   const levels = [0, 10, 20, 28, 31, 38, 48, 56, 63];
@@ -315,7 +320,9 @@ async function cmdFps(seconds: number) {
   }
   const fullFps = (n / (seconds || 1)).toFixed(1);
 
-  // 4) Framebuffer blit: gambar di memori, kirim 1x 1024 byte.
+  // 4) Framebuffer blit: gambar di memori, kirim 1x 1024 byte (mengganti
+  //    seluruh layar). Auto-flush masih OFF di fase ini, jadi yang diukur
+  //    adalah biaya menulis frame — bukan present ke panel.
   const fb = lcd.framebuffer().fillCircle(64, 32, 20, 1);
   n = 0;
   t = Date.now();

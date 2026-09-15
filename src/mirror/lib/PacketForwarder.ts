@@ -153,13 +153,15 @@ export class PacketForwarder {
    * (OTA/Binfeo) tetap utuh.
    */
   private nextHop(message: Buffer, topic: string): Buffer | null {
+    const MAX_FORWARD = 5; // Izinkan hingga 5-hop bridge (Node A -> Node B -> Node C -> Node D)
+
     // ── v1.0 JSON: forwarded = elemen ke-8 dari array MQTNL ──
     if (topic.startsWith("mqtnl@1.0/")) {
       try {
         const arr = JSON.parse(message.toString("utf8"));
-        const fwd = arr[8] || 0;
-        if (fwd !== 0) return null; // sudah pernah di-bridge → jangan balik
-        arr[8] = 1;
+        const fwd = Number(arr[8]) || 0;
+        if (fwd >= MAX_FORWARD) return null; // cap MAX_FORWARD untuk anti-looping
+        arr[8] = fwd + 1;
         return Buffer.from(JSON.stringify(arr), "utf8");
       } catch {
         return null; // bukan JSON MQTNL yang valid → drop
@@ -180,9 +182,9 @@ export class PacketForwarder {
       const fwdPos = 17 + srcLen + dstLen;
       if (fwdPos >= message.length) return null;
       const fwd = message[fwdPos];
-      if (fwd !== 0) return null; // sudah pernah di-bridge → jangan balik
+      if (fwd >= MAX_FORWARD) return null; // cap MAX_FORWARD untuk anti-looping
       const out = Buffer.from(message); // salinan — patch 1 byte `forwarded`
-      out[fwdPos] = 1;
+      out[fwdPos] = fwd + 1;
       return out;
     }
 
@@ -223,5 +225,5 @@ export class PacketForwarder {
       bytesBtoA: this.bytesBtoA,
       uptime: this.isRunning ? Date.now() - this.startTime : 0,
     };
-  }
+  } 
 }

@@ -398,4 +398,29 @@ describe("LcdFramebuffer — back-buffer 1 bpp", () => {
     expect(fs.write).toHaveBeenCalledWith(FD, fb.bytes);
     expect(fb.bytes.length).toBe(LCD_FB_SIZE);
   });
+
+  it("C11.21 blit() menerima Uint8Array mentah 1024 byte", async () => {
+    const { lib, fs } = makeLib();
+    const raw = new Uint8Array(LCD_FB_SIZE).fill(0xff);
+    expect(await lib.blit(raw)).toBe(true);
+    expect(fs.write).toHaveBeenCalledWith(FD, raw);
+  });
+
+  it("C11.22 blit() menolak buffer yang bukan 1 frame penuh", async () => {
+    const { lib, fs } = makeLib();
+    // Ukuran salah tidak boleh "diam-diam" jadi mode teks di driver.
+    await expect(lib.blit(new Uint8Array(16))).rejects.toThrow(/1024 byte/);
+    expect(fs.write).not.toHaveBeenCalled();
+  });
+
+  it("C11.23 framebuffer: clear()-lalu-blit = frame kosong (hapus layar)", async () => {
+    const { lib, fs } = makeLib();
+    const fb = lib.framebuffer().fillRect(0, 0, 128, 64, 1); // layar penuh
+    await lib.blit(fb);
+    fb.clear(); // semua bit 0 → driver yang menghapus panel
+    await lib.blit(fb);
+    const last = fs.write.mock.calls[fs.write.mock.calls.length - 1][1] as Uint8Array;
+    expect(last.length).toBe(LCD_FB_SIZE);
+    expect(last.every((b) => b === 0)).toBe(true);
+  });
 });

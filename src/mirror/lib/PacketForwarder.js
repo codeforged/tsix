@@ -32,7 +32,7 @@ __export(stdin_exports, {
 module.exports = __toCommonJS(stdin_exports);
 var mqtt = __toESM(require("mqtt"));
 const MQTNL_TOPICS = ["mqtnl@1.0/#", "mqtnl@1.1/#", "mqtnl@1.2/#"];
-const MAX_FORWARD = 3;
+const MAX_FORWARD = 5;
 class PacketForwarder {
   clientA = null;
   clientB = null;

@@ -18,6 +18,8 @@
  * 1. FRAMEBUFFER (ala /dev/fb0, sekali jalan):
  *      write(Buffer 1024 byte) → blit penuh 128x64, 1 bpp MSB-first
  *      row-major (raster scanline, format drawBitmap Adafruit_GFX).
+ *      Buffer panel dibersihkan dulu, jadi frame baru benar-benar
+ *      MENGGANTI isi layar (bukan menumpuk) — frame kosong = clear layar.
  *      Cocok untuk `dd`, snapshot layar, atau lib framebuffer TSIX.
  * 2. PERINTAH:
  *      write("teks")                        → cetak di cursor
@@ -512,6 +514,9 @@ export class LM6029Device implements IDevice {
   /**
    * write(): terima string (teks), Buffer (framebuffer / teks), atau
    * objek { op, args }. Auto-flush bila autoFlush ON (default).
+   *
+   * Buffer 1024 byte = SATU FRAME penuh dan bersifat mengganti: buffer panel
+   * dibersihkan sebelum di-blit. Buffer lebih pendek diperlakukan sebagai teks.
    */
   public write(data: any): boolean {
     if (!this.initialized || !this.lcd) return false;
@@ -522,6 +527,12 @@ export class LM6029Device implements IDevice {
       if (raw) {
         if (raw.length === LCD_FRAMEBUFFER_SIZE) {
           // Blit penuh 1 bpp MSB-first row-major (raster scanline).
+          // PENTING: buffer panel dibersihkan dulu. drawBitmap() Adafruit_GFX
+          // hanya MENYALA-kan piksel untuk bit 1 dan melewati bit 0, jadi tanpa
+          // clear() frame baru akan menumpuk di atas frame lama (hantu piksel)
+          // dan frame kosong pun tidak bisa menghapus layar. Dengan clear(),
+          // satu write(1024 byte) benar-benar MENGGANTI seluruh isi layar.
+          this.lcd.clear();
           this.lcd.drawBitmap(0, 0, raw, LCD_WIDTH, LCD_HEIGHT, 1);
         } else {
           this.lcd.print(raw.toString("utf8"));

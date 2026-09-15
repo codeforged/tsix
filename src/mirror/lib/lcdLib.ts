@@ -20,7 +20,7 @@
  *   fb.clear();
  *   fb.line(0, 0, 127, 63);
  *   fb.text?  → tidak ada font di sini; pakai lcd.printText()
- *   await lcd.blit(fb);
+ *   await lcd.blit(fb);   // kirim 1 frame penuh (mengganti isi layar)
  *
  * Instance sendiri (untuk test / dipakai lintas konteks):
  *   import { LcdLib } from "@tsix/lcdLib";
@@ -732,18 +732,36 @@ export class LcdLib {
   // FRAMEBUFFER (paling cepat untuk animasi penuh-layar)
   // ================================================================
 
-  /** Buat back-buffer mono baru (kosong). */
+  /** Buat back-buffer mono baru (kosong, 1024 byte). */
   public framebuffer(): LcdFramebuffer {
     return new LcdFramebuffer();
   }
 
   /**
-   * Kirim framebuffer penuh 1024 byte ke panel.
-   * Menggantikan seluruh isi layar; auto-flush mengikuti setAutoFlush().
+   * Kirim framebuffer penuh (1024 byte) ke panel — SATU FRAME UTUH.
+   *
+   * Driver membersihkan buffer panel lebih dulu, jadi frame ini benar-benar
+   * **mengganti** isi layar — bukan menumpuk di atas frame sebelumnya. Karena
+   * itu `fb.clear()` + `blit()` = layar bersih (cara menghapus layar dari
+   * framebuffer), dan animasi berikutnya tidak meninggalkan "hantu" piksel.
+   *
+   * Present ke panel mengikuti `setAutoFlush()`: bila auto-flush OFF, panggil
+   * `flush()` sendiri setelah `blit()` — kalau tidak, frame tetap di buffer
+   * dan panel masih menampilkan gambar lama.
+   *
+   * Menerima `LcdFramebuffer` atau `Uint8Array` mentah 1024 byte.
    */
   public async blit(fb: LcdFramebuffer | Uint8Array): Promise<boolean> {
-    const fd = await this.ensureOpen();
     const bytes = fb instanceof LcdFramebuffer ? fb.toBytes() : fb;
+    if (!bytes || bytes.length !== LCD_FB_SIZE) {
+      // Tanpa guard ini, buffer berukuran salah akan diperlakukan driver
+      // sebagai TEKS (write() non-1024 byte = print), bukan sebagai frame.
+      throw new Error(
+        `[lcdLib] blit() butuh ${LCD_FB_SIZE} byte (frame penuh ` +
+          `${LCD_WIDTH}x${LCD_HEIGHT} 1 bpp), dapat ${bytes ? bytes.length : 0}.`,
+      );
+    }
+    const fd = await this.ensureOpen();
     return !!(await this.fs.write(fd, bytes));
   }
 

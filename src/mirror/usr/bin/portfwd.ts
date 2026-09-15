@@ -88,7 +88,7 @@ export default class main {
       const now = Date.now();
       for (const [key, session] of this.activeSessions.entries()) {
         if (now - session.lastActive > this.SESSION_TIMEOUT_MS) {
-          session.outSocket.close().catch(() => {});
+          session.outSocket.close().catch(() => { });
           this.activeSessions.delete(key);
           lib.std.log(`[portfwd] Session ${key} expired & cleaned up.`, "portfwd");
         }
@@ -101,12 +101,12 @@ export default class main {
       for (const session of this.activeSessions.values()) {
         try {
           await session.outSocket.close();
-        } catch (_) {}
+        } catch (_) { }
       }
       this.activeSessions.clear();
       try {
         await inSocket.close();
-      } catch (_) {}
+      } catch (_) { }
     };
 
     // Register Signal Handlers (SIGINT = Ctrl+C, SIGTERM = kill -15)
@@ -121,7 +121,7 @@ export default class main {
         await cleanupAllResources();
         await lib.shell.exit(143);
       });
-    } catch (_) {}
+    } catch (_) { }
 
     // Tangani data masuk di inSocket (smqtnl0)
     inSocket.onData = async (pkt) => {
@@ -201,6 +201,4 @@ export default class main {
     );
     await lib.shell.exit(0);
   }
-}
-
-
+} 

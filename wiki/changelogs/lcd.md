@@ -7,6 +7,43 @@
 
 ---
 
+## 2026-09-15
+
+### Fix: write() framebuffer 1024 byte sekarang benar-benar MENGGANTI layar
+
+- **File:**
+  - `src/kernel/devices/aux-devices/LM6029Device.ts`
+  - `src/kernel/devices/aux-devices/LM6029Device.test.ts`
+  - `src/mirror/lib/lcdLib.ts` (+ `lcdLib.test.ts`)
+  - `src/mirror/opt/test/test-LM6029.ts`
+- **Masalah:** `write(1024 byte)` (jalur `lcd.blit()`, `dd`, dan scene 7 demo)
+  hanya memanggil `drawBitmap()`. Karena `Adafruit_GFX::drawBitmap()` 6-arg
+  hanya **menyalakan** piksel untuk bit 1 dan melewati bit 0, frame baru
+  menumpuk di atas frame lama:
+  - `fb.clear()` + `blit()` **tidak menghapus** apa pun (frame kosong = no-op);
+  - animasi meninggalkan "hantu" piksel dari frame sebelumnya;
+  - scene 7 demo tampil bercampur sisa scene 6.
+  Ini bertentangan dengan kontrak yang didokumentasikan ("blit penuh",
+  "menggantikan seluruh isi layar").
+- **Perubahan:**
+  - Driver `write()`: buffer panel dibersihkan (`lcd.clear()`) **sebelum**
+    `drawBitmap()` pada jalur 1024 byte — satu frame penuh kini mengganti isi
+    layar, dan frame kosong berarti clear. Semantik `LCDIOCTL.DRAW_BITMAP`
+    (stamp/cap pada posisi `x,y`) **tidak** diubah.
+  - `lcdLib.blit()`: dokumentasi kontrak diperjelas (mengganti layar + present
+    mengikuti `setAutoFlush()`) dan diberi **guard ukuran**: buffer ≠ 1024 byte
+    melempar error, bukan diam-diam dicetak sebagai teks oleh driver.
+  - Demo `test-LM6029`: scene 7 kini `flush()` eksplisit (suite mematikan
+    auto-flush, jadi `blit()` saja tidak menampilkan apa pun) dan `contrast`
+    memakai `blit()` agar pola gradasi tidak menumpuk di atas gambar lama.
+- **Test:** +3 test driver memakai fake LCD yang menyimpan piksel sungguhan
+  (meniru `drawBitmap` Adafruit): `C10.48d` urutan clear→drawBitmap, `C10.48e`
+  frame kosong menghapus layar, `C10.48f` tanpa hantu piksel antar-frame.
+  `lcdLib.test.ts` +3: terima `Uint8Array` mentah, tolak ukuran salah,
+  `clear()`+`blit()` = frame kosong. Driver 33/33, `lcdLib` 23/23.
+- **Detail:** `wiki/lcd-lm6029.md` §4 (Framebuffer) & §8 (Troubleshooting)
+- **Oleh:** Copilot
+
 ## 2026-09-14
 
 ### Driver `/dev/lcd` + `@tsix/lcdLib` + addon npm `lm6029acw` (rilis pertama)
