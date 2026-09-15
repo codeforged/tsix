@@ -32,7 +32,10 @@
  * LCDIOCTL.DISPLAY sendiri setelah menggambar beberapa objek (lebih cepat).
  *
  * ── HARDWARE ──
- * Addon membuka /dev/spidev0.0; SPI harus di-enable (raspi-config). Pin
+ * Addon membuka bus SPI yang tersedia; SPI harus di-enable (raspi-config /
+ * orangepi-config). Path tidak di-hardcode: addon mengauto-deteksi
+ * /dev/spidev* (Raspberry Pi /dev/spidev0.0, Orange Pi /dev/spidev3.0),
+ * bisa dipaksa lewat opsi `spiDevice` atau env `LM6029_SPI_DEV`. Pin
  * kontrol (RD/WR/RS/RES/CS/LED) ada di 74HC595, bukan GPIO JavaScript.
  *
  * Referensi native: paket npm `lm6029acw` (src/LM6029ACW_595.h)
@@ -143,6 +146,10 @@ export interface LM6029NativeHandle {
   isDisplayOn(): boolean;
   setSpiSpeed(hz: number): number;
   getSpiSpeed(): number;
+  // Opsional: hanya ada di addon lm6029acw >= 1.1.0 (auto-deteksi bus SPI).
+  setSpiDevice?(path: string): void;
+  getSpiDevicePath?(): string;
+  getSpiProbeLog?(): string;
 }
 
 /** Bentuk modul hasil require(). */
@@ -156,7 +163,7 @@ export interface LM6029NativeModule {
 
 export enum LCDIOCTL {
   // ── Lifecycle ──
-  /** arg: null → boolean (coba buka /dev/spidev0.0 + init panel) */
+  /** arg: null → boolean (coba buka bus SPI + init panel) */
   BEGIN = 0x4c01,
   /** arg: null → true (clear + display) */
   RESET = 0x4c02,
@@ -286,6 +293,13 @@ export interface LM6029Options {
   name?: string;
   /** Clock SPI yang diminta (Hz). Default addon: 10 MHz. */
   spiSpeed?: number;
+  /**
+   * Bus SPI eksplisit, mis. "/dev/spidev3.0" (Orange Pi) atau
+   * "/dev/spidev0.0" (Raspberry Pi). Kosong = biarkan addon
+   * mengauto-deteksi dari /dev/spidev* (default; env LM6029_SPI_DEV juga
+   * dihormati oleh addon).
+   */
+  spiDevice?: string;
   /** Kontras awal 0..63 (EVR). Default addon: 31. */
   contrast?: number;
   /** Backlight awal (default: true). */
@@ -387,6 +401,7 @@ export class LM6029Device implements IDevice {
   private height = LCD_HEIGHT;
 
   private spiSpeed?: number;
+  private spiDevice?: string;
   private initialContrast?: number;
   private initialBacklight?: boolean;
   private initialInvert?: boolean;
@@ -405,6 +420,7 @@ export class LM6029Device implements IDevice {
     this.addonPathOverride = options.addonPath;
     this.autoFlush = options.autoFlush !== false;
     this.spiSpeed = options.spiSpeed;
+    this.spiDevice = options.spiDevice;
     this.initialContrast = options.contrast;
     this.initialBacklight = options.backlight;
     this.initialInvert = options.invert;
@@ -426,13 +442,15 @@ export class LM6029Device implements IDevice {
 
     if (this.open()) {
       const hz = this.safe(() => this.lcd!.getSpiSpeed());
+      const bus = this.safe(() => this.lcd!.getSpiDevicePath?.() ?? null);
       this.log(
         `LM6029 siap: ${this.width}x${this.height} di /dev/${this.name}` +
+          (bus ? ` via ${bus}` : "") +
           (hz ? ` (SPI ~${Math.round(num(hz) / 1000)} kHz)` : ""),
       );
     } else {
       this.log(
-        "LM6029 tidak terdeteksi (lm6029acw / /dev/spidev0.0 belum siap). " +
+        "LM6029 tidak terdeteksi (addon lm6029acw atau bus SPI belum siap). " +
           "Node /dev disembunyikan dari `ls /dev`.",
       );
     }
@@ -458,9 +476,20 @@ export class LM6029Device implements IDevice {
     }
 
     try {
+      // Bus SPI eksplisit (opsi `spiDevice`) menang atas auto-deteksi addon.
+      if (this.spiDevice && typeof lcd.setSpiDevice === "function") {
+        lcd.setSpiDevice(this.spiDevice);
+      }
+
       const ok = lcd.begin(this.spiSpeed ?? 0);
       if (!ok) {
-        this.lastError = "begin() gagal membuka /dev/spidev0.0";
+        const probe = this.safe(() => lcd.getSpiProbeLog?.() ?? "");
+        this.lastError =
+          "begin() gagal membuka bus SPI" +
+          (probe ? ` (${probe})` : "") +
+          (typeof lcd.setSpiDevice === "function"
+            ? ""
+            : " — addon lama: bus di-hardcode /dev/spidev0.0, update lm6029acw");
         return false;
       }
 
@@ -875,6 +904,9 @@ export class LM6029Device implements IDevice {
       pages: LCD_PAGES,
       framebufferSize: LCD_FRAMEBUFFER_SIZE,
       spiSpeed: alive ? this.safe(() => this.lcd!.getSpiSpeed()) : null,
+      spiDevice: alive
+        ? this.safe(() => this.lcd!.getSpiDevicePath?.() ?? null)
+        : null,
       contrast: alive ? this.safe(() => this.lcd!.getContrast()) : null,
       backlight: alive ? this.safe(() => this.lcd!.getBacklight()) : null,
       invert: alive ? this.safe(() => this.lcd!.getDisplayInvert()) : null,

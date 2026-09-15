@@ -9,6 +9,46 @@
 
 ## 2026-09-15
 
+### Bus SPI portabel: auto-deteksi `/dev/spidev*` (Raspberry Pi ↔ Orange Pi)
+
+- **File:**
+  - `raspi-lcd-addon/src/LM6029ACW_595.{h,cpp}` (addon `lm6029acw@1.1.0`)
+  - `raspi-lcd-addon/src/main.cpp` (binding N-API)
+  - `raspi-lcd-addon/README.md`
+  - `src/kernel/devices/aux-devices/LM6029Device.ts` (+ test)
+  - `src/mirror/lib/lcdLib.ts` (tipe `LcdInfo.spiDevice`)
+- **Masalah:** path bus SPI di-hardcode `/dev/spidev0.0`. Setup yang sudah jalan
+  di Raspberry Pi (SPI0) langsung rusak begitu dipindah ke Orange Pi, karena bus
+  panel di sana ada di `/dev/spidev3.0`. Mengganti hardcode ke `3.0` hanya
+  memindahkan masalah ke board lain.
+- **Perubahan (addon `lm6029acw@1.1.0`):**
+  - `begin()` tidak lagi hardcode bus. Urutan percobaan: preferensi eksplisit →
+    `/dev/spidev0.0` (default Pi) → sisa `/dev/spidev*` urut lexicographic
+    (menemukan `/dev/spidev3.0` di Orange Pi). Bus pertama yang bisa dibuka
+    dipakai; bila bukan pilihan pertama, satu baris peringatan ditulis ke
+    `stderr`. Satu binary jalan di Pi maupun Orange Pi tanpa konfigurasi.
+  - API baru: `setSpiDevice(path)`, `getSpiDevicePath()`, `getSpiProbeLog()`;
+    `begin(speedHz?, devicePath?)` menerima path (urutan argumen bebas).
+  - Override lewat env `LM6029_SPI_DEV` untuk service/daemon tanpa ubah kode.
+  - `begin()` ulang (hotplug) tidak lagi membocorkan FD SPI lama.
+- **Perubahan (sisi TSIX):**
+  - `LM6029Options.spiDevice` — paksa bus dari kernel/userland; diteruskan ke
+    addon sebelum `begin()` (diabaikan dengan aman oleh addon lama).
+  - `GET_INFO` melaporkan `spiDevice` (bus yang benar-benar dipakai) dan
+    `lastError` saat gagal memuat jejak bus yang dicoba; `test-LM6029`
+    menampilkannya di baris status dan `info`.
+  - Pesan log/error tidak lagi mengasumsikan `/dev/spidev0.0`.
+- **Test:** `LM6029Device.test.ts` +4 (`C10.50`..`C10.50d`: urutan
+  `setSpiDevice` → `begin()`, tanpa opsi = auto, addon lama tetap aman, error
+  memuat probe log). Total driver 37/37, `lcdLib` 23/23. Addon di-build
+  (`node-gyp`) dan di-smoke-test untuk jalur auto/env/setSpiDevice.
+- **Deploy:** `lm6029acw@1.1.0` perlu `npm publish` dari repo addon, lalu di
+  TSIX `npm i lm6029acw@latest` + `npm run vfs:bootstrap` (menyinkronkan
+  `lcdLib.ts` & `test-LM6029.ts` ke VFS). Addon lama yang belum di-update tetap
+  jalan seperti sebelumnya — bus di-hardcode `/dev/spidev0.0`.
+- **Detail:** `wiki/lcd-lm6029.md` §2.1 & §8; `raspi-lcd-addon/README.md`
+- **Oleh:** Copilot
+
 ### Fix: write() framebuffer 1024 byte sekarang benar-benar MENGGANTI layar
 
 - **File:**
@@ -40,7 +80,8 @@
   (meniru `drawBitmap` Adafruit): `C10.48d` urutan clear→drawBitmap, `C10.48e`
   frame kosong menghapus layar, `C10.48f` tanpa hantu piksel antar-frame.
   `lcdLib.test.ts` +3: terima `Uint8Array` mentah, tolak ukuran salah,
-  `clear()`+`blit()` = frame kosong. Driver 33/33, `lcdLib` 23/23.
+  `clear()`+`blit()` = frame kosong. Driver 33/33 dan `lcdLib` 23/23 saat itu
+  (naik lagi setelah entri bus SPI di atas).
 - **Detail:** `wiki/lcd-lm6029.md` §4 (Framebuffer) & §8 (Troubleshooting)
 - **Oleh:** Copilot
 

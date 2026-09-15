@@ -371,7 +371,8 @@ export const main = Program(async (args: string[]) => {
     await std.println(
       `✔ ${LCD_DEVICE_PATH} siap — ${info?.width}x${info?.height}, ` +
         `SPI ${(Number(info?.spiSpeed) / 1e6).toFixed(2)} MHz, ` +
-        `kontras ${info?.contrast}, backlight ${info?.backlight}`,
+        `kontras ${info?.contrast}, backlight ${info?.backlight}` +
+        (info?.spiDevice ? `\n   bus ${info.spiDevice}` : ""),
     );
     await std.println("");
 

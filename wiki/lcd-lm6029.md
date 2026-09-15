@@ -43,9 +43,19 @@ graph LR
 ### 2.1 Aktifkan SPI
 
 ```bash
-ls /dev/spidev0.0        # kalau tidak ada:
-sudo raspi-config        # Interface Options → SPI → Enable → reboot
+ls /dev/spidev*          # Raspberry Pi : /dev/spidev0.0 (+0.1)
+                         # Orange Pi    : /dev/spidev3.0  (nomor bus beda!)
+sudo raspi-config        # Pi   → Interface Options → SPI → Enable → reboot
+sudo orangepi-config     # OPi  → Hardware → SPI → Enable → reboot
 ```
+
+> **Path bus SPI TIDAK di-hardcode.** Raspberry Pi memakai SPI0
+> (`/dev/spidev0.0`), Orange Pi bisa SPI3 (`/dev/spidev3.0`). Addon
+> mengauto-deteksinya berurutan: **preferensi eksplisit** (opsi `spiDevice` /
+> env `LM6029_SPI_DEV`) → `/dev/spidev0.0` → sisa `/dev/spidev*`
+> (urut lexicographic) — pakai yang pertama bisa dibuka. Jadi satu binary yang
+> sama jalan di Pi maupun Orange Pi tanpa konfigurasi. Bus yang benar-benar
+> dipakai bisa dilihat di `test-LM6029 info` (field `spiDevice`).
 
 ### 2.2 Native addon `lm6029acw`
 
@@ -233,7 +243,7 @@ Utilitas di `/opt/test/test-LM6029.ts` — sekaligus contoh pemakaian `lcdLib`.
 | --- | --- |
 | `test-LM6029` | suite visual 7 scene (bentuk, font, inversi, font kustom, grafik, bar, framebuffer) |
 | `test-LM6029 --fast` | suite dengan jeda lebih singkat |
-| `test-LM6029 info` | status lengkap driver |
+| `test-LM6029 info` | status lengkap driver (termasuk bus SPI terpakai) |
 | `test-LM6029 text "Halo"` | cetak teks |
 | `test-LM6029 graph` | plot gelombang sinus |
 | `test-LM6029 fb` | kirim framebuffer 1024 byte |
@@ -250,8 +260,23 @@ Utilitas di `/opt/test/test-LM6029.ts` — sekaligus contoh pemakaian `lcdLib`.
 
 **`/dev/lcd` tidak muncul di `ls /dev`**
 Bukan error. Driver memanggil `present()` → `false` saat panel belum siap.
-Cek berurutan: (1) `/dev/spidev0.0` ada? (2) `npm ls lm6029acw` terpasang?
-(3) syslog kernel mencatat alasan pastinya.
+Cek berurutan: (1) ada `/dev/spidev*`? (2) `npm ls lm6029acw` terpasang?
+(3) syslog kernel mencatat alasan pastinya (`lastError` memuat daftar bus yang
+dicoba, mis. `/dev/spidev0.0 gagal, /dev/spidev3.0 gagal`).
+
+**Pindah board (Pi → Orange Pi): layar kosong padahal `begin()` sukses**
+Nomor bus SPI berbeda antar board — Pi `/dev/spidev0.0`, Orange Pi
+`/dev/spidev3.0`. Addon sudah auto-deteksi, tapi auto-deteksi hanya memilih bus
+yang **bisa dibuka**; ia tidak tahu di bus mana panel benar-benar terpasang.
+Kalau board punya beberapa `spidev`, paksa yang benar:
+
+```bash
+LM6029_SPI_DEV=/dev/spidev3.0 test-LM6029 info
+```
+
+atau lewat opsi driver TSIX: `{ spiDevice: "/dev/spidev3.0" }`
+(lihat `LM6029Options`). Cek hasilnya dengan `test-LM6029 info` → field
+`spiDevice`.
 
 **Tulisan pudar / ada baris hilang**
 Naikkan kontras. Di bawah EVR ~20 tulisan 1 px mulai hilang; di atas ~55

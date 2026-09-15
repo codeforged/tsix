@@ -453,3 +453,53 @@ describe("LM6029Device — write() modes (C10.47-C10.49)", () => {
     expect(lcd.display).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("LM6029Device — bus SPI portabel (C10.50)", () => {
+  it("C10.50 opsi spiDevice diteruskan SEBELUM begin()", () => {
+    const lcd = makeFakeLcd({
+      setSpiDevice: vi.fn(),
+      getSpiDevicePath: vi.fn(() => "/dev/spidev3.0"),
+      getSpiProbeLog: vi.fn(() => ""),
+    });
+    const dev = new LM6029Device({ native: lcd, spiDevice: "/dev/spidev3.0" });
+    dev.init({ syslog: () => {} });
+
+    expect(lcd.setSpiDevice).toHaveBeenCalledWith("/dev/spidev3.0");
+    expect(lcd.setSpiDevice.mock.invocationCallOrder[0]).toBeLessThan(
+      lcd.begin.mock.invocationCallOrder[0],
+    );
+    // Bus yang benar-benar dipakai dilaporkan ke userland.
+    expect(dev.getInfo().spiDevice).toBe("/dev/spidev3.0");
+  });
+
+  it("C10.50b tanpa opsi: addon yang auto-deteksi tidak dipaksa", () => {
+    const lcd = makeFakeLcd({ setSpiDevice: vi.fn() });
+    const dev = new LM6029Device({ native: lcd });
+    dev.init({ syslog: () => {} });
+
+    expect(lcd.setSpiDevice).not.toHaveBeenCalled();
+    expect(lcd.begin).toHaveBeenCalled();
+  });
+
+  it("C10.50c addon lama (tanpa setSpiDevice/getSpiDevicePath) tetap aman", () => {
+    const lcd = makeFakeLcd(); // tidak punya API bus SPI
+    const dev = new LM6029Device({ native: lcd, spiDevice: "/dev/spidev3.0" });
+
+    expect(() => dev.init({ syslog: () => {} })).not.toThrow();
+    expect(dev.present()).toBe(true);
+    expect(dev.getInfo().spiDevice).toBeNull();
+  });
+
+  it("C10.50d kegagalan begin() memuat jejak probe bus", () => {
+    const lcd = makeFakeLcd({
+      begin: vi.fn(() => false),
+      setSpiDevice: vi.fn(),
+      getSpiProbeLog: vi.fn(() => "/dev/spidev0.0 gagal, /dev/spidev3.0 gagal"),
+    });
+    const dev = new LM6029Device({ native: lcd });
+    dev.init({ syslog: () => {} });
+
+    expect(dev.present()).toBe(false);
+    expect(String(dev.getInfo().lastError)).toContain("/dev/spidev0.0 gagal");
+  });
+});

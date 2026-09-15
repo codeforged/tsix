@@ -67,6 +67,7 @@ const INFO = {
   pages: 8,
   framebufferSize: LCD_FB_SIZE,
   spiSpeed: 7812500,
+  spiDevice: "/dev/spidev0.0",
   contrast: 31,
   backlight: true,
   invert: false,
@@ -152,6 +153,7 @@ describe("LcdLib — device & lifecycle", () => {
     const info = await lib.getInfo();
     expect(info?.device).toBe(LCD_DEVICE_PATH);
     expect(info?.framebufferSize).toBe(LCD_FB_SIZE);
+    expect(info?.spiDevice).toBe("/dev/spidev0.0");
     expect(await lib.getWidth()).toBe(LCD_WIDTH);
     expect(await lib.getHeight()).toBe(LCD_HEIGHT);
   });

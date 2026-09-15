@@ -6,6 +6,12 @@
 
 ## 2026-09-15
 
+### Dokumentasi bus SPI portabel (Pi ↔ Orange Pi)
+- **File:** `wiki/lcd-lm6029.md`, `wiki/changelogs/lcd.md`
+- **Perubahan:** §2.1 menjelaskan nomor bus SPI berbeda antar-SBC (Pi `/dev/spidev0.0`, Orange Pi `/dev/spidev3.0`) dan bahwa addon mengauto-deteksi `/dev/spidev*` (dengan override `LM6029_SPI_DEV` / opsi `spiDevice`); §8 Troubleshooting menambahkan kasus "pindah board: layar kosong padahal `begin()` sukses"; tabel CLI mencatat `test-LM6029 info` menampilkan bus terpakai.
+- **Dampak:** Prosedur pindah board Pi ↔ Orange Pi tidak lagi menuntut edit `#define`/hardcode path di source addon.
+- **Oleh:** Copilot
+
 ### Klarifikasi semantik framebuffer pada dokumentasi LCD
 - **File:** `wiki/lcd-lm6029.md`, `wiki/changelogs/lcd.md`
 - **Perubahan:** §4 (Framebuffer 1 bpp) menjelaskan bahwa `blit()` **mengganti** isi layar (driver membersihkan buffer panel dulu) sehingga `fb.clear()` + `blit()` = layar bersih, dan bahwa present mengikuti `setAutoFlush()` (butuh `flush()` manual bila OFF). §5 tabel mode `write()` dan §8 Troubleshooting ditambahkan: buffer 1024 byte = ganti frame, sedangkan `drawBitmap` ioctl tetap bersifat "cap", plus dua penyebab umum frame framebuffer tidak muncul.

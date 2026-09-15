@@ -123,6 +123,11 @@ export interface LcdInfo {
   framebufferSize: number;
   /** Clock SPI aktual (Hz), atau null bila panel belum hidup. */
   spiSpeed: number | null;
+  /**
+   * Bus SPI yang dipakai driver, mis. "/dev/spidev0.0" (Raspberry Pi) atau
+   * "/dev/spidev3.0" (Orange Pi). Addon mengauto-deteksi dari /dev/spidev*.
+   */
+  spiDevice?: string | null;
   contrast: number | null;
   backlight: boolean | null;
   invert: boolean | null;
