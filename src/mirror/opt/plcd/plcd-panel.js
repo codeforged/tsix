@@ -114,7 +114,7 @@ DDC.onInit(function (ctx) {
         }
     }
 
-    /** 
+    /**
      * Luruhkan level sisa-nyala satu langkah (dipanggil per RAF).
      * Piksel yang ON di frame terakhir → level penuh; sisanya turun FADE.
      * Return true selama masih ada bayangan yang perlu diluruhkan.
@@ -219,8 +219,8 @@ DDC.onInit(function (ctx) {
 
         // --- AKTIFKAN BLUR TIPIS ---
         // Gunakan nilai px yang kecil (misal: 1px atau 1.5px) untuk efek blur tipis.
-        c2.save(); 
-        c2.filter = "blur(.8px)"; 
+        c2.save();
+        c2.filter = "blur(.8px)";
 
         // 1. Gambar canvas offscreen ke canvas utama terlebih dahulu
         c2.drawImage(off, offX, offY, PANEL_W * scale, PANEL_H * scale);
@@ -240,10 +240,10 @@ DDC.onInit(function (ctx) {
                 c2.fillRect(offX, offY + y * scale, PANEL_W * scale, 1);
             }
         }
-        
+
         // --- MATIKAN BLUR ---
         // c2.restore() akan mengembalikan status filter ke 'none' (normal)
-        c2.restore(); 
+        c2.restore();
 
         // Bingkai tipis tepi panel (biar batas kaca terlihat). Tidak ikut blur.
         c2.strokeStyle = "rgba(0,0,0,0.6)";
@@ -268,7 +268,6 @@ DDC.onInit(function (ctx) {
             c2.fillText("⌁ backlight off", offX + 4, offY + 4);
         }
     }
-
 
     ctx.onMessage = function (msg) {
         if (!msg) return;

@@ -15,7 +15,7 @@
  * Tombol di bawah panel berfungsi sebagai test-bench: semuanya menulis ke
  * `/dev/plcd` lewat `lcdLib` (jalur yang sama dengan app sungguhan), jadi
  * sekaligus membuktikan driver pseudo-nya bekerja.
- * 
+ *
  * Jalankan: plcd-emulator
  * PASTIKAN DOME SUDAH RUNNING: dome
  * DEPLOY: sync VFS (`scripts/sync-vfs.ts`) + restart kernel (driver
