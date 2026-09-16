@@ -7,6 +7,85 @@
 
 ---
 
+## 2026-09-16
+
+### PSEUDO-LCD `/dev/plcd` + emulator GUI — kembangkan app LCD tanpa hardware
+
+- **File:**
+  - `src/kernel/devices/aux-devices/PLCDDevice.ts` **(baru)** — driver pseudo
+  - `src/kernel/devices/aux-devices/plcdFont5x7.ts` **(baru)** — font 5x7
+  - `src/kernel/devices/aux-devices/PLCDDevice.test.ts` **(baru)** — 29 tes
+  - `src/kernel/devices/aux-devices/LM6029Device.ts` — helper argumen ioctl
+    diekspor (dipakai bersama) + tes C10.50e
+  - `src/mirror/lib/lcdLib.ts` — `devicePath`/`setDevicePath()`/`TSIX_LCD_DEV`,
+    `isPseudo()`, `getFrameRev()`, `getFrame()`, tipe `LcdPseudoFrame`
+  - `src/mirror/opt/plcd/plcd-emulator.ts` + `plcd-panel.js` **(baru)** — viewer
+  - `src/mirror/opt/asteracea/menu/lcd-emulator.menu` **(baru)**
+- **Latar:** mengembangkan UI LCD selalu butuh panel fisik (dan SPI) — tidak bisa
+  dikerjakan sambil jalan, tidak bisa di-uji di CI, dan setiap perubahan layout
+  harus di-flash ke board untuk dilihat. Yang dibutuhkan: "panel palsu" yang
+  **tidak bisa dibedakan** oleh aplikasi.
+- **Perubahan 1 — driver pseudo `PLCDDevice` (`/dev/plcd`).** Nomor ioctl
+  (`LCDIOCTL`), bentuk argumen, mode `write()` (string / Buffer 1024 byte / `{op,args}`),
+  dan auto-flush **sama persis** dengan LM6029Device; semua gambar diraster
+  software ke framebuffer RAM 1024 byte (1 bpp MSB-first). Semantik hardware
+  ditiru ketat: DD-RAM terpisah dari panel (`CLEAR` tidak mengubah tampilan,
+  `DISPLAY`/flush yang memindahkannya), blit 1024 byte **mengganti** isi layar,
+  `rotation` 0..3 memakai pemetaan koordinat Adafruit_GFX (+ `GET_WIDTH/HEIGHT`
+  bertukar), dan `invert`/`displayOn` tetap properti kaca panel (byte DD-RAM
+  tidak diubah). Dua ioctl khas emulator: `GET_REV` (0x4c51, murah — untuk
+  polling) dan `GET_FRAME` (0x4c50, base64 1024 byte + flag tampilan).
+- **Perubahan 2 — font 5x7 milik proyek** (`plcdFont5x7.ts`): 99 glyph
+  (ASCII 32..126 + `°` + 4 panah) yang ditulis sebagai ASCII-art
+  (`".###./#...#/..."`) sehingga bisa ditambah/diedit tanpa tool apa pun.
+  Cell & advance-nya sama dengan glcdfont hardware (6 px, baris 8 px) supaya
+  tata letak app tidak bergeser. Karakter di luar tabel → kotak placeholder.
+- **Perubahan 3 — `lcdLib` bisa diarahkan tanpa mengubah app:** opsi
+  `new LcdLib(lib, { devicePath })`, `setDevicePath(path)` (menutup FD lama),
+  atau env `TSIX_LCD_DEV=/dev/plcd` untuk **semua** instance `lcd` sekaligus.
+  Ditambah `isPseudo()`, `getFrameRev()`, `getFrame()` — di panel asli ketiganya
+  mengembalikan `false`/`null` (ioctl tak dikenal → `null`), jadi app lama aman.
+- **Jaminan kompatibilitas hardware (titik terpenting):** default path **tetap
+  `/dev/lcd`** — `TSIX_LCD_DEV` kosong = perilaku persis seperti sebelumnya.
+  `LCDIOCTL` tidak diubah satu pun; yang ditambahkan hanya dua nomor baru
+  (0x4c50/0x4c51) yang **diabaikan hardware** (`null`). Ini dijaga tes
+  C10.50e: `LM6029Device` (addon asli, fake handle) → `ioctl(0x4c50/0x4c51)`
+  = `null`, `GET_INFO.pseudo` undefined (`isPseudo()` = false), dan perintah
+  LCD normal tetap diteruskan ke addon (`drawRect` terpanggil).
+- **Perubahan 4 — emulator GUI** (`/opt/plcd/plcd-emulator.js`, menu "System"):
+  mem-poll `GET_REV` tiap 80 ms, dan **hanya saat berubah** menarik `GET_FRAME`
+  → dikirim ke NJ (`{t:"frame", fb, ...}`) yang menggambar 1 px = 4 px fisik di
+  canvas (128x64 → 512x256, `imageSmoothingEnabled = false`). Invert /
+  display-off / backlight-off diterapkan di kaca, bukan ke byte DD-RAM. Tombol
+  Test Pattern / Clear / Print / Invert / Display / Backlight / Kontras ± /
+  Refresh semuanya menulis lewat `lcdLib` ke `/dev/plcd` — jadi panel itu
+  sendiri yang membuktikan driver pseudo-nya jalan.
+- **Verifikasi:**
+  - `npx vitest run` untuk 3 suite terkait → **99 lulus** (hardware 30 + pseudo
+    29 + lcdLib 30, termasuk 6 tes baru untuk target device & API pseudo).
+  - Rasterisasi diperiksa **sebagai ASCII-art** dari DD-RAM device nyata
+    (scene test-LM6029: rect, diagonal, circle, fillCircle, fillTriangle,
+    roundRect, teks). Dari cara ini ketemu bug nyata: `roundRect` menggambar dua
+    garis horizontal palsu di tengah (kondisi baris datar salah) — sudah
+    diperbaiki sebelum ada tes yang menutupinya.
+  - Font diperiksa dengan me-render beberapa kalimat (`"Halo TSIX!"`,
+    `"0123456789"`, `"!@#$%^&*()"`, `"The quick brown"`) sebagai ASCII-art.
+  - NJ diverifikasi di browser sungguhan: NJ dijalankan dengan frame asli dari
+    device, lalu piksel canvas dibaca ulang — canvas 512x256, tepi border =
+    `11,13,8` (INK), bagian kosong = `172,209,93` (kaca), baris teks berisi
+    piksel; event `ready` melaporkan `scale: 4`.
+- **Batasan yang disengaja (emulator, bukan replika byte):** semua font id 0..3
+  digambar dengan font 5x7 bawaan (FreeSans/FreeMono tidak ada di JS), kurva
+  bisa beda ±1 px dari Adafruit_GFX, dan tidak ada SPI (`GET_SPI_SPEED` = null,
+  `SET_SPI_SPEED` no-op) sehingga drag-region/timing hardware tidak bisa diuji
+  di sini.
+- **Deploy:** `scripts/sync-vfs.ts` untuk `lcdLib.ts`, `plcd-emulator.ts`,
+  `plcd-panel.js`, dan `lcd-emulator.menu` + **restart kernel** (node
+  `/dev/plcd` didaftarkan saat boot) lalu reload halaman browser.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
+---
+
 ## 2026-09-15
 
 ### Bus SPI portabel: auto-deteksi `/dev/spidev*` (Raspberry Pi ↔ Orange Pi)

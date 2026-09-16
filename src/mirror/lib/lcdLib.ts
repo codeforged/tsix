@@ -26,6 +26,12 @@
  *   import { LcdLib } from "@tsix/lcdLib";
  *   const myLcd = new LcdLib(lib);   // lib = UserLib
  *
+ * Panel PALSU (emulator software, tanpa hardware) — node /dev/plcd:
+ *   TSIX_LCD_DEV=/dev/plcd ./app.js               // semua instance `lcd` pindah
+ *   new LcdLib().setDevicePath("/dev/plcd")       // hanya instance ini
+ *   `LCD_PSEUDO_DEVICE_PATH` di-export supaya tidak perlu hardcode string.
+ *   Driver-nya `PLCDDevice` (kernel) + viewer GUI `/opt/plcd/plcd-emulator.js`.
+ *
  * ── CATATAN ──
  * Konstanta ioctl di bawah HARUS sinkron dengan enum `LCDIOCTL` di driver
  * kernel: src/kernel/devices/aux-devices/LM6029Device.ts
@@ -78,8 +84,26 @@ const LCD_GET_HEIGHT = 0x4c42; // null                    → number
 const LCD_SET_AUTO_FLUSH = 0x4c43; // boolean | {on}          → boolean
 const LCD_GET_AUTO_FLUSH = 0x4c44; // null                    → boolean
 
+// ── Khas PSEUDO-LCD (/dev/plcd) — lihat driver kernel PLCDDevice ──
+const LCD_GET_FRAME = 0x4c50; // null                    → LcdPseudoFrame (fb base64)
+const LCD_GET_REV = 0x4c51; // null                    → number
+
 /** Path device LCD di VFS. */
 export const LCD_DEVICE_PATH = "/dev/lcd";
+
+/**
+ * Node PSEUDO-LCD (emulator software, tanpa SPI) — driver kernel `PLCDDevice`.
+ * Nomor ioctl & bentuk argumennya sama persis dengan `/dev/lcd`, jadi aplikasi
+ * bisa diuji (dan dilihat di browser lewat DDC) tanpa hardware.
+ */
+export const LCD_PSEUDO_DEVICE_PATH = "/dev/plcd";
+
+/**
+ * Env untuk mengarahkan SEMUA instance `lcd` ke node lain — mis.
+ * `TSIX_LCD_DEV=/dev/plcd` membuat app yang tidak diubah sama sekali tetap
+ * bicara ke panel palsu (berguna untuk uji UI tanpa hardware).
+ */
+export const LCD_DEVICE_ENV = "TSIX_LCD_DEV";
 
 /** Geometri panel. */
 export const LCD_WIDTH = 128;
@@ -117,6 +141,11 @@ export interface LcdInfo {
   device: string;
   /** true kalau panel benar-benar siap dipakai. */
   available: boolean;
+  /**
+   * true kalau node ini panel PALSU (software/emulator, mis. `/dev/plcd`) —
+   * driver hardware tidak mengisi field ini.
+   */
+  pseudo?: boolean;
   width: number;
   height: number;
   pages: number;
@@ -141,6 +170,29 @@ export interface LcdInfo {
 
 /** Opsi warna: 1 = piksel nyala, 0 = mati (panel monokrom). */
 export type LcdColor = 0 | 1;
+
+/**
+ * Satu frame panel dari PSEUDO-LCD (`/dev/plcd`) — hasil ioctl GET_FRAME.
+ * Viewer (mis. `/opt/plcd/plcd-emulator.js`) memakai ini untuk menggambar
+ * isi panel di browser.
+ */
+export interface LcdPseudoFrame {
+  /** Revisi panel: naik HANYA saat flush (isi panel benar-benar berubah). */
+  rev: number;
+  /** Jumlah frame yang sudah di-flush sejak boot. */
+  frames: number;
+  width: number;
+  height: number;
+  /** Properti TAMPILAN (kaca panel), bukan isi DD-RAM. */
+  invert: boolean;
+  displayOn: boolean;
+  backlight: boolean;
+  contrast: number;
+  rotation: number;
+  autoFlush: boolean;
+  /** Isi DD-RAM panel: base64 dari 1024 byte, 1 bpp MSB-first row-major. */
+  fb: string;
+}
 
 // ================================================================
 // FRAMEBUFFER 1 BPP (mono, row-major MSB-first)
@@ -330,16 +382,71 @@ export class LcdFramebuffer {
 // LIBRARY
 // ================================================================
 
+/** Opsi instance — lihat `LcdLib`. */
+export interface LcdLibOptions {
+  /**
+   * Path node device (mis. `/dev/plcd`). Default: env `TSIX_LCD_DEV` bila ada,
+   * kalau tidak `/dev/lcd`.
+   */
+  devicePath?: string;
+}
+
 export class LcdLib {
   private _lib: any;
   private fd: number | null = null;
+  /** Path device khusus instance ini (opsi constructor / setDevicePath). */
+  private _devicePath?: string;
 
   /**
-   * @param lib UserLib instance (opsional). Default: `(global as any)._tsixLib`
-   *            — cocok dipakai dari bin, lib, maupun app.
+   * @param lib     UserLib instance (opsional). Default: `(global as any)._tsixLib`
+   *                — cocok dipakai dari bin, lib, maupun app.
+   * @param options `{ devicePath }` untuk mengarahkan ke node lain (mis. `/dev/plcd`).
    */
-  constructor(lib?: any) {
+  constructor(lib?: any, options: LcdLibOptions = {}) {
     this._lib = lib || null;
+    this._devicePath = options.devicePath;
+  }
+
+  /**
+   * Path node yang sedang dipakai: opsi instance → env `TSIX_LCD_DEV` →
+   * `/dev/lcd`. Env dibaca saat pemakaian (lazy), bukan saat import — jadi
+   * test/app boleh mengubahnya kapan saja sebelum operasi pertama.
+   */
+  public get devicePath(): string {
+    if (this._devicePath && this._devicePath.trim()) return this._devicePath;
+    const fromEnv = this.envDevicePath();
+    return fromEnv || LCD_DEVICE_PATH;
+  }
+
+  /** Baca `TSIX_LCD_DEV` dari environment proses (kalau ada). */
+  private envDevicePath(): string {
+    try {
+      const v = (globalThis as any)?.process?.env?.[LCD_DEVICE_ENV];
+      return typeof v === "string" && v.trim() ? v.trim() : "";
+    } catch {
+      return "";
+    }
+  }
+
+  /**
+   * Arahkan instance ini ke node lain (mis. `LCD_PSEUDO_DEVICE_PATH`).
+   * Kalau FD sudah terbuka untuk device sebelumnya, FD itu ditutup dulu supaya
+   * tidak ada handle nyangkut — jadi aman dipanggil di tengah umur instance.
+   */
+  public setDevicePath(path: string): this {
+    const next = String(path ?? "").trim();
+    if (!next || next === this.devicePath) return this;
+    this._devicePath = next;
+    if (this.fd !== null) {
+      const fd = this.fd;
+      this.fd = null;
+      try {
+        void Promise.resolve(this.fs?.close?.(fd)).catch(() => { });
+      } catch {
+        /* abaikan */
+      }
+    }
+    return this;
   }
 
   /** Resolusi lazy — `global._tsixLib` baru tersedia saat runtime worker. */
@@ -364,11 +471,14 @@ export class LcdLib {
           "Pastikan dipanggil di lingkungan TSIX Worker.",
       );
     }
-    const fd = await this.fs.open(LCD_DEVICE_PATH, "w+");
+    const path = this.devicePath;
+    const fd = await this.fs.open(path, "w+");
     if (fd === null || fd === undefined || fd < 0) {
       throw new Error(
-        `[lcdLib] Gagal buka ${LCD_DEVICE_PATH} (fd=${fd}). ` +
-          `Pastikan driver LM6029 sudah di-load kernel & SPI aktif.`,
+        `[lcdLib] Gagal buka ${path} (fd=${fd}). ` +
+          (path === LCD_DEVICE_PATH
+            ? "Pastikan driver LM6029 sudah di-load kernel & SPI aktif."
+            : `Pastikan driver untuk ${path} sudah di-load kernel.`),
       );
     }
     this.fd = fd;
@@ -419,6 +529,47 @@ export class LcdLib {
   public async getInfo(): Promise<LcdInfo | null> {
     try {
       return (await this.cmd(LCD_GET_INFO)) as LcdInfo | null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * true kalau node yang dipakai adalah panel PALSU (emulator software).
+   * Berguna kalau app ingin menampilkan penanda "simulasi" — app lain tidak
+   * perlu tahu apa-apa, karena kontrak ioctl-nya identik.
+   */
+  public async isPseudo(): Promise<boolean> {
+    const info = await this.getInfo();
+    return info?.pseudo === true;
+  }
+
+  /**
+   * [PSEUDO-LCD] Revisi isi panel — murah, jadi aman di-poll berkala.
+   * Naik hanya saat flush (isi panel berubah), bukan tiap perintah gambar.
+   * Di panel asli (`/dev/lcd`) ioctl ini tidak ada → null.
+   */
+  public async getFrameRev(): Promise<number | null> {
+    try {
+      const v = await this.cmd(LCD_GET_REV);
+      return v === null || v === undefined ? null : Number(v);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * [PSEUDO-LCD] Tarik isi panel + status tampilan (warna, invert, dst).
+   * Alur viewer: `getFrameRev()` berubah → `getFrame()` → gambar `fb`
+   * (decode base64, 1 bpp MSB-first) ke canvas.
+   * Di panel asli ioctl ini tidak ada → null.
+   */
+  public async getFrame(): Promise<LcdPseudoFrame | null> {
+    try {
+      const v = await this.cmd(LCD_GET_FRAME);
+      return v && typeof v === "object" && typeof v.fb === "string"
+        ? (v as LcdPseudoFrame)
+        : null;
     } catch {
       return null;
     }

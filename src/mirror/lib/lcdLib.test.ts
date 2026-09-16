@@ -1,13 +1,16 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 import {
   LcdLib,
   LcdFramebuffer,
   LcdFont,
   LCD_DEVICE_PATH,
+  LCD_PSEUDO_DEVICE_PATH,
+  LCD_DEVICE_ENV,
   LCD_WIDTH,
   LCD_HEIGHT,
   LCD_FB_SIZE,
+  type LcdLibOptions,
 } from "./lcdLib";
 
 /**
@@ -79,7 +82,7 @@ const INFO = {
  * Fake UserLib: ioctl "loopback" — perintah set mengembalikan nilai yang
  * dikirim, perintah get mengembalikan nilai tetap (meniru driver).
  */
-function makeLib() {
+function makeLib(options: LcdLibOptions = {}) {
   const ioctl = vi.fn(async (_fd: number, cmd: number, arg: any) => {
     switch (cmd) {
       case C.GET_INFO:
@@ -130,7 +133,7 @@ function makeLib() {
     write: vi.fn(async () => true),
   };
 
-  return { lib: new LcdLib({ fs, std: { ioctl } }), ioctl, fs };
+  return { lib: new LcdLib({ fs, std: { ioctl } }, options), ioctl, fs };
 }
 
 describe("LcdLib — device & lifecycle", () => {
@@ -424,5 +427,121 @@ describe("LcdFramebuffer — back-buffer 1 bpp", () => {
     const last = fs.write.mock.calls[fs.write.mock.calls.length - 1][1] as Uint8Array;
     expect(last.length).toBe(LCD_FB_SIZE);
     expect(last.every((b) => b === 0)).toBe(true);
+  });
+});
+
+describe("LcdLib — target device (pseudo /dev/plcd)", () => {
+  afterEach(() => {
+    delete process.env[LCD_DEVICE_ENV];
+  });
+
+  it("C11.24 default devicePath = /dev/lcd", () => {
+    const { lib } = makeLib();
+    expect(lib.devicePath).toBe(LCD_DEVICE_PATH);
+  });
+
+  it("C11.25 setDevicePath memindahkan pembacaan ke node pseudo", async () => {
+    const { lib, fs, ioctl } = makeLib();
+    await lib.getWidth(); // buka /dev/lcd dulu
+    expect(fs.open).toHaveBeenLastCalledWith(LCD_DEVICE_PATH, "w+");
+
+    lib.setDevicePath(LCD_PSEUDO_DEVICE_PATH);
+    expect(lib.devicePath).toBe(LCD_PSEUDO_DEVICE_PATH);
+    await lib.getWidth();
+    expect(fs.open).toHaveBeenLastCalledWith(LCD_PSEUDO_DEVICE_PATH, "w+");
+    expect(ioctl).toHaveBeenCalled();
+  });
+
+  it("C11.26 env TSIX_LCD_DEV dipakai bila tidak ada opsi", async () => {
+    process.env[LCD_DEVICE_ENV] = LCD_PSEUDO_DEVICE_PATH;
+    const { lib, fs } = makeLib();
+    expect(lib.devicePath).toBe(LCD_PSEUDO_DEVICE_PATH);
+    await lib.isAvailable();
+    expect(fs.open).toHaveBeenCalledWith(LCD_PSEUDO_DEVICE_PATH, "w+");
+  });
+
+  it("C11.27 opsi constructor menang atas env", () => {
+    process.env[LCD_DEVICE_ENV] = "/dev/lcd";
+    const { lib } = makeLib({ devicePath: LCD_PSEUDO_DEVICE_PATH });
+    expect(lib.devicePath).toBe(LCD_PSEUDO_DEVICE_PATH);
+  });
+
+  it("C11.28 env dibaca lazy (boleh diset setelah instance dibuat)", () => {
+    const { lib } = makeLib();
+    expect(lib.devicePath).toBe(LCD_DEVICE_PATH);
+    process.env[LCD_DEVICE_ENV] = LCD_PSEUDO_DEVICE_PATH;
+    expect(lib.devicePath).toBe(LCD_PSEUDO_DEVICE_PATH);
+  });
+
+  it("C11.29 pindah device menutup FD lama (tidak menyangkut)", async () => {
+    const { lib, fs } = makeLib();
+    await lib.clear();
+    lib.setDevicePath(LCD_PSEUDO_DEVICE_PATH);
+    expect(fs.close).toHaveBeenCalledWith(FD);
+    await lib.clear(); // lanjut di node baru, bukan FD lama
+    expect(fs.open).toHaveBeenLastCalledWith(LCD_PSEUDO_DEVICE_PATH, "w+");
+  });
+
+  it("C11.30 pseudo bisa blit & readRaw seperti device asli", async () => {
+    const { lib, fs } = makeLib({ devicePath: LCD_PSEUDO_DEVICE_PATH });
+    const raw = new Uint8Array(LCD_FB_SIZE);
+    expect(await lib.blit(raw)).toBe(true);
+    expect(fs.write).toHaveBeenCalledWith(FD, raw);
+    expect(await lib.readRaw()).toBe(JSON.stringify(INFO));
+  });
+
+  it("C11.31 API khas pseudo: getFrameRev()/getFrame()/isPseudo()", async () => {
+    const framePayload = {
+      rev: 7,
+      frames: 7,
+      width: LCD_WIDTH,
+      height: LCD_HEIGHT,
+      invert: true,
+      displayOn: false,
+      backlight: true,
+      contrast: 44,
+      rotation: 0,
+      autoFlush: true,
+      fb: "AAAA",
+    };
+    const ioctl = vi.fn(async (_fd: number, cmd: number) => {
+      switch (cmd) {
+        case C.GET_INFO:
+          return { ...INFO, pseudo: true };
+        case 0x4c50:
+          return framePayload;
+        case 0x4c51:
+          return 7;
+        default:
+          return true;
+      }
+    });
+    const lib = new LcdLib({
+      fs: { open: vi.fn(async () => FD), close: vi.fn(), read: vi.fn(), write: vi.fn() },
+      std: { ioctl },
+    });
+
+    expect(await lib.getFrameRev()).toBe(7);
+    const frame = await lib.getFrame();
+    expect(frame?.fb).toBe("AAAA");
+    expect(frame?.displayOn).toBe(false);
+    expect(frame?.invert).toBe(true);
+    expect(await lib.isPseudo()).toBe(true);
+  });
+
+  it("C11.32 panel asli: API pseudo balik null / false (tidak melempar)", async () => {
+    const ioctl = vi.fn(async (_fd: number, cmd: number) => {
+      if (cmd === C.GET_INFO) return INFO;
+      if (cmd === 0x4c50 || cmd === 0x4c51) return null;
+      return true;
+    });
+    const lib = new LcdLib({
+      fs: { open: vi.fn(async () => FD), close: vi.fn(), read: vi.fn(), write: vi.fn() },
+      std: { ioctl },
+    });
+
+    expect(await lib.getFrameRev()).toBeNull();
+    expect(await lib.getFrame()).toBeNull();
+    expect(await lib.isPseudo()).toBe(false);
   });
 });

@@ -4,6 +4,21 @@
 
 ---
 
+## 2026-09-16
+
+### Pola viewer "poll revisi → tarik frame" (NJ `plcd-panel.js`)
+
+- **File:** `src/mirror/opt/plcd/plcd-emulator.ts` (TGA), `src/mirror/opt/plcd/plcd-panel.js` (NJ), `src/mirror/opt/asteracea/menu/lcd-emulator.menu`, `src/mirror/lib/lcdLib.ts` (`getFrameRev()` / `getFrame()`).
+- **Pola:** TGA mem-poll **revisi** sumber data tiap 80 ms (`GET_REV`, satu ioctl murah) dan **hanya saat berubah** menarik frame penuh (base64 1024 byte) → `anim.send({ t: "frame", fb, ... })`. Panel yang diam = nol trafik, jadi 12 fps pun hanya ~16 KB/s saat isinya benar-benar berganti.
+- **Kenapa base64, bukan Buffer:** `DDCApp.send()` melewati `JSON.stringify`, jadi payload biner harus di-encode; 1024 byte → 1368 char base64, masih jauh di bawah batas pesan DDC.
+- **Rendering sans-Fabric:** NJ membuat canvas offscreen 128x64 (ImageData, tulis 1 bpp MSB-first → RGBA) lalu `drawImage` skala integer ke canvas utama dengan `imageSmoothingEnabled = false` — piksel tetap tajam (LCD dot-matrix), bukan hasil anti-alias.
+- **Properti tampilan di sisi "kaca":** `invert` / `displayOn` / `backlight` dikirim sebagai flag dan diterapkan NJ, bukan diubah di byte DD-RAM — meniru perilaku panel asli (invert = XOR di kaca, bukan di memori).
+- **Verifikasi di browser sungguhan:** NJ asli + frame asli dari device dijalankan di halaman uji, lalu **piksel canvas dibaca ulang** (`getImageData`): canvas 512x256, tepi border `11,13,8` (INK), area kosong `172,209,93` (kaca hijau), baris teks berisi piksel, dan event `ready` melaporkan `scale: 4`.
+- **Dampak:** app LCD (hardware) bisa dilihat hasilnya tanpa panel fisik; pola ini reusable untuk app lain yang perlu menampilkan buffer eksternal (bukan animasi yang digambar sendiri).
+- **Oleh:** Copilot · **Laporan:** andriansah
+
+---
+
 ## 2026-08-08
 
 ### ddc-sample0.ts — TForm object literal + maximizable: false
