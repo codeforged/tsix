@@ -31,11 +31,14 @@ import { LcdLib, LCD_PSEUDO_DEVICE_PATH } from "@tsix/lcdLib";
 export const appMode = "gui";
 
 // ================================================================
-// GEOMETRI: panel 128x64, digambar 4x → 512x256 (1 px = 4 px fisik)
+// GEOMETRI: panel 128x64 digambar SCALE× (sekarang 3× → 384x192).
+// `SCALE` satu-satunya knob ukuran: canvas + ukuran window memakai
+// PHYS_W/PHYS_H, dan NJ menghitung skalanya sendiri dari ukuran canvas
+// — jadi tidak ada nilai lain yang perlu disamakan saat SCALE diubah.
 // ================================================================
 const PANEL_W = 128;
 const PANEL_H = 64;
-const SCALE = 4;
+const SCALE = 3;
 const PHYS_W = PANEL_W * SCALE;
 const PHYS_H = PANEL_H * SCALE;
 

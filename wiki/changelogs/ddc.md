@@ -54,6 +54,22 @@
   persistence), konsisten dengan look NJ kalkulator grafis.
 - **Oleh:** Copilot · **Laporan:** andriansah
 
+### Penyetelan ukuran panel emulator: `SCALE` 4× → 3× (window lebih ringkas)
+
+- **File:** `src/mirror/opt/plcd/plcd-emulator.ts` (TGA) — di-sync ke VFS: `/opt/plcd/plcd-emulator.js`.
+- **Perubahan:** `SCALE` 4 → 3, jadi panel 128×64 digambar **384×192** (sebelumnya
+  512×256) dan window emulator ikut lebih ringkas — lebih nyaman di layar kecil
+  atau saat dipakai berdampingan dengan app lain.
+- **Cukup satu tempat:** `SCALE` sudah jadi satu-satunya knob — canvas, ukuran
+  window, dan pesan `DDC_MOUNT` semuanya memakai `PHYS_W`/`PHYS_H`; NJ
+  (`plcd-panel.js`) menghitung skalanya sendiri dari ukuran canvas
+  (`scale = floor(min(W/128, H/64))`), jadi tidak ada nilai lain yang perlu
+  disamakan.
+- **Komentar geometri dirapikan:** header TGA dulu menulis "digambar 4x →
+  512x256" sehingga jadi basi begitu `SCALE` diubah — kini menunjuk nilai
+  `SCALE` + menjelaskan bahwa NJ menentukan skalanya sendiri.
+- **Oleh:** andriansah (penyetelan tampilan) · **Dicatat:** Copilot
+
 ---
 
 ## 2026-08-08
