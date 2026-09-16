@@ -93,6 +93,16 @@ open() gagal → initialized = false
 
 Tidak ada crash, tidak ada node "setengah hidup".
 
+**Mau tetap ngoding walau hardware/SPI belum jalan?** Pakai **pseudo-LCD**
+`/dev/plcd` — driver software dengan kontrak ioctl yang sama persis (bahkan
+glyph font-nya byte-identik dengan panel asli), plus viewer di browser:
+
+```bash
+TSIX_LCD_DEV=/dev/plcd node app.js     # app yang sama, tanpa SPI
+```
+
+Detail: `wiki/changelogs/lcd.md` (2026-09-16) · viewer DDC: `wiki/changelogs/ddc.md`.
+
 ---
 
 ## 3. Pemakaian dari aplikasi (`@tsix/lcdLib`)
@@ -135,6 +145,16 @@ if (await lcd.isAvailable()) {
 | `print(text)` | cetak di kursor |
 | `printText(text, x, y, size?)` | cetak sekali di posisi tertentu |
 | `printCentered(text, y, size?)` | rata tengah (estimasi lebar font default) |
+
+**Sumber data font (biar tidak "kira-kira").** Glyph-nya bukan gambar ulang:
+`setFont(0)` memakai byte asli `raspi-lcd-addon/src/glcdfont.c` (font bawaan
+Adafruit_GFX — termasuk kuirk `_cp437 = false`, kode ≥ 176 digeser +1),
+sedangkan `setFont(1..3)` memakai `Fonts/FreeSans9pt7b.h`,
+`FreeSansBold12pt7b.h`, dan `FreeMono9pt7b.h`. `scripts/gen-lcd-fonts.mjs`
+mengubah semuanya menjadi modul TS (`lcdFontClassic.ts`, `lcdFonts.ts`) yang
+dipakai `/dev/plcd`, jadi panel fisik dan pseudo-LCD merender glyph yang sama —
+termasuk metrik `cursorY` (baseline untuk font GFX, sudut atas untuk glcdfont).
+Detail & verifikasi: `wiki/changelogs/lcd.md` (2026-09-16).
 
 ### 3.3 Kontrol tampilan & lifecycle
 

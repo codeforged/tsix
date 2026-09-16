@@ -40,6 +40,8 @@
   (`".###./#...#/..."`) sehingga bisa ditambah/diedit tanpa tool apa pun.
   Cell & advance-nya sama dengan glcdfont hardware (6 px, baris 8 px) supaya
   tata letak app tidak bergeser. Karakter di luar tabel → kotak placeholder.
+  ⚠️ **Sudah digantikan** di entri di bawah (data asli `glcdfont.c` + glyph
+  ekstensi) — tabel ASCII-art ini kini tinggal panah `→ ← ↑ ↓` + placeholder.
 - **Perubahan 3 — `lcdLib` bisa diarahkan tanpa mengubah app:** opsi
   `new LcdLib(lib, { devicePath })`, `setDevicePath(path)` (menutup FD lama),
   atau env `TSIX_LCD_DEV=/dev/plcd` untuk **semua** instance `lcd` sekaligus.
@@ -101,7 +103,9 @@
   yOffset]` + `first/last/yAdvance`. Jalankan ulang kalau font di addon
   berubah; file hasil **di-commit** supaya build tidak bergantung repo addon.
 - **Perubahan 2 — raster font GFX yang setia.** `PLCDDevice` kini memilih jalur
-  raster berdasarkan id font: id 0 (dan id tak dikenal) → font 5x7 bawaan;
+  raster berdasarkan id font: id 0 (dan id tak dikenal) → font 5x7 bawaan
+  (⚠️ sejak entri berikutnya memakai data asli `glcdfont.c` — lihat entri
+  "Font 5x8 bawaan (id 0) kini byte-exact");
   id 1..3 → data glyph asli. Dua detail hardware yang ditiru:
   1. **Bitmap dibaca KONTINU** (satu byte untuk 8 piksel berikutnya, tanpa
      padding antar-baris) — persis loop `Adafruit_GFX::write`. Asumsi awal
