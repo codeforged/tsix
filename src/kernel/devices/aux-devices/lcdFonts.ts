@@ -8,8 +8,9 @@
  *     Regenerate: `node scripts/gen-lcd-fonts.mjs`
  *     Folder lain: `--fonts-dir=/path/ke/Fonts` atau env `LCD_FONTS_DIR`.
  *
- * Kunci = id font yang dikenali `setFont(id)` (0 = font 5x7 bawaan
- * `plcdFont5x7.ts`, jadi tidak ada di tabel ini).
+ * Kunci = id font yang dikenali `setFont(id)` (id 0 dan id font pabrik
+ * memakai font 5x8 klasik — lihat `lcdFontClassic.ts` — jadi tidak ada di
+ * tabel ini).
  *
  * Format glyph mengikuti Adafruit_GFX:
  *   - `bitmaps`: 1 bpp MSB-first, baris demi baris, per glyph
@@ -48,7 +49,7 @@ export interface LcdGfxFont {
   glyphs: LcdGfxGlyphTuple[];
 }
 
-/** Font per id (id 0 = font 5x7 bawaan, lihat `plcdFont5x7.ts`). */
+/** Font GFX per id (font klasik 5x8 ada di `lcdFontClassic.ts`). */
 export const LCD_GFX_FONTS: Record<number, LcdGfxFont> = {
   1: {
     name: "FreeSans9pt7b",
@@ -160,9 +161,9 @@ export const LCD_GFX_FONTS: Record<number, LcdGfxFont> = {
   },
 };
 
-/** Nama font untuk log/CLI (termasuk id 0 yang bukan GFX). */
+/** Nama font untuk log/CLI (termasuk font klasik yang bukan GFX). */
 export const LCD_GFX_FONT_NAMES: Record<number, string> = {
-  0: "default 5x7",
+  0: "glcdfont 5x7 (Adafruit)",
   1: "FreeSans9pt7b",
   2: "FreeSansBold12pt7b",
   3: "FreeMono9pt7b",

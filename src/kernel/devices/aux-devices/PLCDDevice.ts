@@ -27,10 +27,15 @@
  *  - `rotation` 0..3 memakai pemetaan koordinat Adafruit_GFX; `GET_WIDTH` /
  *    `GET_HEIGHT` ikut bertukar saat rotasi 1/3.
  *
+ * ── FONT ──
+ *  - id 0 (dan id tak dikenal) → font 5x8 klasik dari `glcdfont.c` addon
+ *    (`lcdFontClassic.ts`): byte-nya SAMA dengan yang tampil di panel fisik
+ *    saat addon memakai `setFont(0)`/`setFont(NULL)`.
+ *  - id 1..3 → data glyph Adafruit_GFX asli dari addon (`lcdFonts.ts`).
+ *  - Karakter di luar jangkauan font (mis. panah U+2192) memakai tabel
+ *    ekstensi `plcdFont5x7.ts`; yang tidak ada di situ digambar kotak kosong.
+ *
  * ── BATASAN (jujur, karena ini emulator) ──
- *  - Semua font (id 0..3) digambar dengan font bitmap 5x7 bawaan
- *    (`plcdFont5x7.ts`) — FreeSans/FreeMono dari addon tidak tersedia di JS.
- *    Cell & advance-nya sama (6 px), jadi tata letak teks tetap sebanding.
  *  - Kurva (circle/roundRect) memakai rasterisasi software sendiri; bisa
  *    berbeda 1 px dari Adafruit_GFX asli.
  *  - Tidak ada SPI, jadi `GET_SPI_SPEED` → null dan `SET_SPI_SPEED` no-op.
@@ -52,14 +57,16 @@ import {
   toByteBuffer,
 } from "./LM6029Device";
 import {
-  PLCD_FONT_ADVANCE,
   PLCD_FONT_H,
-  PLCD_FONT_LINE_HEIGHT,
   PLCD_FONT_W,
   plcdGlyph,
   rowsToGlyph,
 } from "./plcdFont5x7";
 import { LCD_GFX_FONTS, type LcdGfxFont } from "./lcdFonts";
+import {
+  LCD_CLASSIC_FONTS,
+  type LcdClassicFont,
+} from "./lcdFontClassic";
 
 /** Warna piksel panel monokrom: 1 = nyala, 0 = mati. */
 type Pix = 0 | 1;
@@ -84,6 +91,33 @@ function gfxBitmaps(fontId: number, font: LcdGfxFont): Uint8Array | null {
   } catch (e: any) {
     return null;
   }
+}
+
+/** Cache bitmap font klasik 5x8: id font → byte (decode base64 sekali saja). */
+const _classicBitmapCache = new Map<number, Uint8Array>();
+
+/** Ambil bitmap font klasik (null kalau data rusak). */
+function classicBitmaps(
+  fontId: number,
+  font: LcdClassicFont,
+): Uint8Array | null {
+  const cached = _classicBitmapCache.get(fontId);
+  if (cached) return cached;
+  try {
+    const bytes = new Uint8Array(Buffer.from(font.bitmaps, "base64"));
+    if (!bytes.length) return null;
+    _classicBitmapCache.set(fontId, bytes);
+    return bytes;
+  } catch (e: any) {
+    return null;
+  }
+}
+
+/** Nama font efektif untuk GET_INFO (id tak dikenal → nama font klasik). */
+function fontNameOf(fontId: number): string {
+  const gfx = LCD_GFX_FONTS[fontId];
+  if (gfx) return gfx.name;
+  return (LCD_CLASSIC_FONTS[fontId] ?? LCD_CLASSIC_FONTS[0]).name;
 }
 
 // ================================================================
@@ -553,10 +587,10 @@ export class PLCDDevice implements IDevice {
       autoFlush: this.autoFlush,
       rotation: this.rotation,
       font: this.fontId,
-      /** Nama font efektif (id 0 = "default 5x7", lain = nama font addon). */
-      fontName: this.fontId === 0 ? "default 5x7" : (LCD_GFX_FONTS[this.fontId]?.name ?? "default 5x7"),
-      /** true = cursorY adalah baseline (font GFX), false = sudut atas (5x7). */
-      cursorBaseline: this.fontId !== 0 && !!LCD_GFX_FONTS[this.fontId],
+      /** Nama font efektif (id 0 = glcdfont, 1..3 = font Adafruit_GFX addon). */
+      fontName: fontNameOf(this.fontId),
+      /** true = cursorY adalah baseline (font GFX), false = sudut atas glyph. */
+      cursorBaseline: !!LCD_GFX_FONTS[this.fontId],
       textSize: this.textSize,
       textColor: this.textColor,
       textBg: this.textBg,
@@ -905,35 +939,98 @@ export class PLCDDevice implements IDevice {
 
   /**
    * Raster teks ke framebuffer + majukan cursor (wrap bila diaktifkan).
-   * Id font 1..3 memakai data glyph asli addon (`lcdFonts.ts`); id 0 (dan id
-   * yang tidak dikenal) memakai font bitmap 5x7 bawaan.
+   * Id 1..3 memakai data glyph Adafruit_GFX asli (`lcdFonts.ts`); id lain
+   * (0 dan id tak dikenal) memakai font 5x8 klasik `glcdfont.c`
+   * (`lcdFontClassic.ts`) — sama seperti `setFont(0)` di addon.
    */
   private drawText(text: string, x: number, y: number, size: number): void {
     const sz = Math.max(1, Math.floor(size) || 1);
-    const gfx = this.fontId === 0 ? null : LCD_GFX_FONTS[this.fontId];
+    const gfx = LCD_GFX_FONTS[this.fontId];
     if (gfx) return this.drawTextGfx(text, x, y, sz, gfx);
-    return this.drawText5x7(text, x, y, sz);
+    const classic = LCD_CLASSIC_FONTS[this.fontId] ?? LCD_CLASSIC_FONTS[0];
+    return this.drawText5x7(text, x, y, sz, classic);
   }
 
-  /** Jalur font 5x7 bawaan (cursor = sudut kiri-atas glyph). */
-  private drawText5x7(text: string, x: number, y: number, sz: number): void {
+  /**
+   * Jalur font 5x8 klasik: cursor = sudut kiri-atas glyph, advance 6 px,
+   * tinggi baris 8 px — metrik & byte glyph persis `Adafruit_GFX::write`.
+   *
+   * Dua perilaku Adafruit yang ikut ditiru:
+   *   - `_cp437` bawaannya false → kode ≥ 176 digeser +1 (`if (!_cp437 &&
+   *     (c >= 176)) c++`). Kode yang lewat batas tabel (0xFF → 256) tidak
+   *     di baca di luar array (sampah di hardware) tapi jadi kotak.
+   *   - mode opaque (`setTextColor(color, bg)`) mengisi SELURUH sel 6x8,
+   *     termasuk kolom pemisah di kanan glyph.
+   * Karakter di luar 0..255 (mis. panah U+2192) memakai tabel ekstensi TSIX.
+   */
+  private drawText5x7(
+    text: string,
+    x: number,
+    y: number,
+    sz: number,
+    font: LcdClassicFont,
+  ): void {
+    const bm = classicBitmaps(this.fontId, font);
+    const advance = font.advance * sz;
+    const lineHeight = font.lineHeight * sz;
     let cx = Math.floor(x);
     let cy = Math.floor(y);
+
     for (const ch of text) {
-      if (ch === "\n" || ch === "\r") {
+      if (ch === "\n") {
         cx = 0;
-        cy += PLCD_FONT_LINE_HEIGHT * sz;
+        cy += lineHeight;
         continue;
       }
-      if (this.textWrap && cx + PLCD_FONT_ADVANCE * sz > this.logicalWidth()) {
+      if (ch === "\r") continue;
+      if (this.textWrap && cx + advance > this.logicalWidth()) {
         cx = 0;
-        cy += PLCD_FONT_LINE_HEIGHT * sz;
+        cy += lineHeight;
       }
-      this.drawGlyph(cx, cy, ch, sz);
-      cx += PLCD_FONT_ADVANCE * sz;
+      const code = this.classicCode(ch, font);
+      if (code === null) this.drawGlyph(cx, cy, ch, sz);
+      else this.drawClassicGlyph(cx, cy, code, sz, font, bm);
+      cx += advance;
     }
     this.cursorX = cx;
     this.cursorY = cy;
+  }
+
+  /**
+   * Kode byte karakter untuk font klasik, atau null kalau karakter itu tidak
+   * bisa dialamatkan font ini (di luar 0..255) — di situ glyph ekstensi TSIX
+   * (`plcdFont5x7.ts`) yang dipakai.
+   */
+  private classicCode(ch: string, font: LcdClassicFont): number | null {
+    const c = ch.charCodeAt(0);
+    if (c > 0xff) return null;
+    // `_cp437` di Adafruit_GFX bawaannya false → kode ≥ 176 digeser +1.
+    const code = c >= 176 ? c + 1 : c;
+    return code < font.glyphCount ? code : null;
+  }
+
+  /**
+   * Gambar satu glyph font klasik (5 kolom × 8 baris; bit0 = baris paling
+   * atas — sama dengan `_displayBuffer[...] |= 1 << (y%8)` di addon).
+   */
+  private drawClassicGlyph(
+    x: number,
+    y: number,
+    code: number,
+    size: number,
+    font: LcdClassicFont,
+    bm: Uint8Array | null,
+  ): void {
+    if (this.textBg !== null)
+      this.fillRect(x, y, font.advance * size, font.cellH * size, this.textBg);
+    if (!bm) return;
+    for (let i = 0; i < font.glyphW; i++) {
+      const col = bm[code * font.glyphW + i] ?? 0;
+      for (let r = 0; r < font.cellH; r++) {
+        if (!((col >> r) & 1)) continue;
+        this.fillRect(x + i * size, y + r * size, size, size, this.textColor);
+      }
+    }
   }
 
   /**
@@ -956,7 +1053,11 @@ export class PLCDDevice implements IDevice {
     font: LcdGfxFont,
   ): void {
     const bm = gfxBitmaps(this.fontId, font);
-    if (!bm) return this.drawText5x7(text, x, y, size); // data tak terbaca
+    if (!bm) {
+      // Data GFX tak terbaca → pakai font klasik (glcdfont) supaya teks tetap
+      // tampil, bukan hilang tanpa jejak.
+      return this.drawText5x7(text, x, y, size, LCD_CLASSIC_FONTS[0]);
+    }
 
     let cx = Math.floor(x);
     let cy = Math.floor(y);

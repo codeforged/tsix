@@ -14,9 +14,18 @@
  *   node scripts/gen-lcd-fonts.mjs
  *   node scripts/gen-lcd-fonts.mjs --fonts-dir=/path/ke/Fonts
  *   LCD_FONTS_DIR=/path/ke/Fonts node scripts/gen-lcd-fonts.mjs
+ *   node scripts/gen-lcd-fonts.mjs --addon-src=/path/ke/raspi-lcd-addon/src
  *
  * Font yang dikonversi (id-nya sama dengan `setFont(id)` di driver):
- *   1 = FreeSans9pt7b, 2 = FreeSansBold12pt7b, 3 = FreeMono9pt7b
+ *
+ *   A. GFX (→ `lcdFonts.ts`)
+ *      1 = FreeSans9pt7b, 2 = FreeSansBold12pt7b, 3 = FreeMono9pt7b
+ *
+ *   B. 5x8 klasik (→ `lcdFontClassic.ts`) — 5 byte KOLOM per glyph, sel 6x8:
+ *      0 = `glcdfont.c` — font bawaan Adafruit_GFX. INILAH yang tampil di
+ *          panel fisik saat addon memakai `setFont(0)`/`setFont(NULL)`.
+ *          (Font sample pabrik `defaultFont.h` ternyata font yang sama dengan
+ *          urutan bit terbalik — lihat catatan di CLASSIC_FONTS.)
  *
  * Format GFXfont (tidak berubah sejak Adafruit_GFX 1.x):
  *   - `Bitmaps[]`          : 1 bpp MSB-first yang dibaca KONTINU oleh
@@ -48,6 +57,36 @@ const OUT_FILE = path.join(
   REPO,
   "src/kernel/devices/aux-devices/lcdFonts.ts",
 );
+const OUT_CLASSIC_FILE = path.join(
+  REPO,
+  "src/kernel/devices/aux-devices/lcdFontClassic.ts",
+);
+
+/**
+ * Font 5x8 klasik (bukan Adafruit_GFX): 5 byte kolom per glyph, 256 glyph
+ * (index = kode karakter 0..255), sel 6x8 px.
+ *
+ * Hanya `glcdfont.c` (font bawaan Adafruit_GFX) yang dibutuhkan, karena itulah
+ * glyph yang BENAR-BENAR tampil di panel fisik saat addon memakai
+ * `setFont(0)`/`setFont(NULL)`. Bitmap-nya dipakai Adafruit apa adanya
+ * (`_displayBuffer[page*128+x] |= 1 << (y%8)` → bit0 = baris paling atas).
+ *
+ * CATATAN (biar tidak diulang): `ori-from-lcd-factory/defaultFont.h` -- font
+ * sample pabrik -- ternyata FONT YANG SAMA, hanya disimpan dengan urutan bit
+ * terbalik (driver pabrik menulis `reverse(pgm_read_byte(defaultFont + c*5+i))`).
+ * Dibanding glcdfont: 255 glyph (tanpa 0xFF yang toh kosong) dan 7 glyph
+ * berbeda ±1 px di rentang Latin-1/block (0x84 0x8E 0x94 0x99 0xB0 0xB2 0xE1).
+ * Jadi tidak perlu entri font terpisah — cukup glcdfont.
+ */
+const CLASSIC_FONTS = [
+  {
+    id: 0,
+    name: "glcdfont 5x7 (Adafruit)",
+    file: "glcdfont.c",
+    marker: "unsigned char font[] PROGMEM",
+    note: "font bawaan Adafruit_GFX; inilah glyph yang tampil di panel saat addon memakai setFont(0)/setFont(NULL)",
+  },
+];
 
 /** Cari folder header font: argumen → env → sibling repo (default dev). */
 function resolveFontsDir() {
@@ -55,6 +94,23 @@ function resolveFontsDir() {
   if (arg) return path.resolve(arg.slice("--fonts-dir=".length));
   if (process.env.LCD_FONTS_DIR) return path.resolve(process.env.LCD_FONTS_DIR);
   return path.resolve(REPO, "..", "raspi-lcd-addon", "src", "Fonts");
+}
+
+/**
+ * Cari folder `src` addon (untuk glcdfont.c + defaultFont.h):
+ * argumen → env → turunan folder Fonts → sibling repo.
+ */
+function resolveAddonSrcDir() {
+  const arg = process.argv.find((a) => a.startsWith("--addon-src="));
+  if (arg) return path.resolve(arg.slice("--addon-src=".length));
+  if (process.env.LCD_ADDON_SRC)
+    return path.resolve(process.env.LCD_ADDON_SRC);
+  const fontsArg = process.argv.find((a) => a.startsWith("--fonts-dir="));
+  if (fontsArg)
+    return path.dirname(path.resolve(fontsArg.slice("--fonts-dir=".length)));
+  if (process.env.LCD_FONTS_DIR)
+    return path.dirname(path.resolve(process.env.LCD_FONTS_DIR));
+  return path.resolve(REPO, "..", "raspi-lcd-addon", "src");
 }
 
 /** Ambil blok `const <type> <Name>[] PROGMEM = { … };` (tanpa parsing C penuh). */
@@ -135,6 +191,23 @@ function parseFont(src, name) {
   };
 }
 
+/**
+ * Ambil array byte dari header C: `... = { 0x00, 0x11, … };`
+ * (cukup untuk tabel font — bukan parser C penuh).
+ */
+function parseByteArray(src, marker) {
+  const start = src.indexOf(marker);
+  if (start === -1) throw new Error(`marker tidak ditemukan: ${marker}`);
+  const tail = src.slice(start, start + 40000);
+  const end = tail.indexOf("}");
+  const body = end === -1 ? tail : tail.slice(0, end);
+  const bytes = [...body.matchAll(/0x([0-9A-Fa-f]{1,2})/g)].map((m) =>
+    parseInt(m[1], 16),
+  );
+  if (!bytes.length) throw new Error(`${marker}: array kosong`);
+  return bytes;
+}
+
 /** Tulis array angka rapi (beberapa baris) supaya diff-nya enak dibaca. */
 function formatGlyphs(glyphs) {
   const lines = [];
@@ -179,6 +252,116 @@ function main() {
     return { id: f.id, ...font };
   });
 
+  // ── Font 5x8 klasik (glcdfont addon + defaultFont pabrik) ──
+  const srcDir = resolveAddonSrcDir();
+  const classic = CLASSIC_FONTS.map((f) => {
+    const file = path.join(srcDir, f.file);
+    if (!fs.existsSync(file)) {
+      console.error(
+        `[gen-lcd-fonts] header tidak ada: ${file}\n` +
+          `  Pakai --addon-src=<path> atau env LCD_ADDON_SRC kalau repo addon\n` +
+          `  (raspi-lcd-addon) tidak berada di sebelah repo TSIX.`,
+      );
+      process.exit(1);
+    }
+    const bytes = parseByteArray(fs.readFileSync(file, "utf8"), f.marker);
+    const glyphCount = bytes.length / 5;
+    if (!Number.isInteger(glyphCount) || glyphCount < 128) {
+      throw new Error(
+        `${f.file}: ${bytes.length} byte bukan kelipatan 5 (minimal 128 glyph)`,
+      );
+    }
+    // Glyph spasi (0x20) WAJIB kosong: kalau tidak, offset tabel bergeser.
+    if (bytes.slice(0x20 * 5, 0x20 * 5 + 5).some((b) => b !== 0)) {
+      throw new Error(
+        `${f.file}: glyph spasi (0x20) tidak kosong → offset tabel bergeser?`,
+      );
+    }
+    const hexGlyph = (code) =>
+      bytes
+        .slice(code * 5, code * 5 + 5)
+        .map((b) => b.toString(16).padStart(2, "0").toUpperCase())
+        .join(" ");
+    console.log(
+      `  id ${f.id} ${f.name.padEnd(26)} glyph ${String(glyphCount).padStart(3)}` +
+        ` · ${String(bytes.length).padStart(4)} byte (5/glyph, bit0 = baris atas)` +
+        ` · 'A' = ${hexGlyph(0x41)}`,
+    );
+    return { ...f, bytes, glyphCount };
+  });
+
+  const classicEntries = classic
+    .map((f) =>
+      [
+        `  ${f.id}: {`,
+        `    name: ${JSON.stringify(f.name)},`,
+        `    source: ${JSON.stringify(`raspi-lcd-addon/src/${f.file}`)},`,
+        `    glyphW: 5,`,
+        `    cellH: 8,`,
+        `    advance: 6,`,
+        `    lineHeight: 8,`,
+        `    glyphCount: ${f.glyphCount},`,
+        `    // ${f.glyphCount} glyph × 5 byte kolom (base64) — dari ${f.file}`,
+        `    bitmaps:`,
+        `      ${JSON.stringify(Buffer.from(Uint8Array.from(f.bytes)).toString("base64"))},`,
+        `  },`,
+      ].join("\n"),
+    )
+    .join("\n");
+
+  const classicOut = `/**
+ * lcdFontClassic.ts — font 5x8 KLASIK untuk PSEUDO-LCD (/dev/plcd)
+ *
+ * ⚠️  FILE INI DI-GENERATE — JANGAN DIEDIT MANUAL.
+ *     Sumber: header C di repo addon, jadi byte-nya SAMA dengan yang dipakai
+ *     panel fisik. Regenerate: \`node scripts/gen-lcd-fonts.mjs\`.
+ *
+ * Ini BUKAN font Adafruit_GFX (untuk itu lihat \`lcdFonts.ts\`), melainkan font
+ * bitmap "klasik" — 5 byte KOLOM per glyph, sel 6x8 px — yaitu bentuk yang
+ * dipakai jalur \`setFont(0)\` di Adafruit_GFX:
+ *
+ *   id 0 — \`glcdfont.c\` : font bawaan Adafruit_GFX. Inilah glyph yang tampil
+ *          di panel fisik saat addon memakai \`setFont(0)\`/\`setFont(NULL)\`.
+ *
+ * ── Orientasi bit ──
+ * Adafruit memakai byte glcdfont APA ADANYA (bit0 = baris paling atas), sama
+ * dengan \`_displayBuffer[page*128+x] |= 1 << (y%8)\` di addon — jadi TIDAK ada
+ * pembalikan bit di sini (beda dari font sample pabrik \`defaultFont.h\` yang
+ * disimpan MSB-atas dan di-\`reverse()\` oleh driver pabrik).
+ *
+ * CATATAN: \`ori-from-lcd-factory/defaultFont.h\` ternyata adalah font yang sama
+ * dengan glcdfont ini (255 glyph, urutan bit terbalik; 7 glyph beda ±1 px di
+ * rentang Latin-1/block). Karena itu tidak ada entri font pabrik terpisah.
+ *
+ * (c) 2026 TSIX Project
+ */
+
+/** Satu font 5x8 klasik (bitmap byte-kolom, sel 6x8). */
+export interface LcdClassicFont {
+  /** Nama font (dipakai \`GET_INFO.fontName\`). */
+  name: string;
+  /** File sumber di repo addon (jejak asal data). */
+  source: string;
+  /** Lebar glyph dalam kolom. */
+  glyphW: number;
+  /** Tinggi sel dalam baris (termasuk baris descender). */
+  cellH: number;
+  /** Jarak maju cursor per karakter. */
+  advance: number;
+  /** Tinggi baris teks. */
+  lineHeight: number;
+  /** Jumlah glyph di tabel (index = kode karakter 0..glyphCount-1). */
+  glyphCount: number;
+  /** Bitmap 5 byte kolom per glyph, urut kode karakter (base64). */
+  bitmaps: string;
+}
+
+/** Font 5x8 klasik per id (0 = glcdfont bawaan Adafruit_GFX). */
+export const LCD_CLASSIC_FONTS: Record<number, LcdClassicFont> = {
+${classicEntries}
+};
+`;
+
   const entries = parsed
     .map((f) => {
       const b64 = Buffer.from(Uint8Array.from(f.bytes)).toString("base64");
@@ -210,8 +393,9 @@ function main() {
  *     Regenerate: \`node scripts/gen-lcd-fonts.mjs\`
  *     Folder lain: \`--fonts-dir=/path/ke/Fonts\` atau env \`LCD_FONTS_DIR\`.
  *
- * Kunci = id font yang dikenali \`setFont(id)\` (0 = font 5x7 bawaan
- * \`plcdFont5x7.ts\`, jadi tidak ada di tabel ini).
+ * Kunci = id font yang dikenali \`setFont(id)\` (id 0 dan id font pabrik
+ * memakai font 5x8 klasik — lihat \`lcdFontClassic.ts\` — jadi tidak ada di
+ * tabel ini).
  *
  * Format glyph mengikuti Adafruit_GFX:
  *   - \`bitmaps\`: 1 bpp MSB-first, baris demi baris, per glyph
@@ -250,21 +434,24 @@ export interface LcdGfxFont {
   glyphs: LcdGfxGlyphTuple[];
 }
 
-/** Font per id (id 0 = font 5x7 bawaan, lihat \`plcdFont5x7.ts\`). */
+/** Font GFX per id (font klasik 5x8 ada di \`lcdFontClassic.ts\`). */
 export const LCD_GFX_FONTS: Record<number, LcdGfxFont> = {
 ${entries}
 };
 
-/** Nama font untuk log/CLI (termasuk id 0 yang bukan GFX). */
+/** Nama font untuk log/CLI (termasuk font klasik yang bukan GFX). */
 export const LCD_GFX_FONT_NAMES: Record<number, string> = {
-  0: "default 5x7",
+${classic.map((f) => `  ${f.id}: ${JSON.stringify(f.name)},`).join("\n")}
 ${parsed.map((f) => `  ${f.id}: ${JSON.stringify(f.name)},`).join("\n")}
 };
 `;
 
   fs.writeFileSync(OUT_FILE, out);
-  const kb = (fs.statSync(OUT_FILE).size / 1024).toFixed(1);
-  console.log(`[gen-lcd-fonts] ${path.relative(REPO, OUT_FILE)} (${kb} KB)`);
+  fs.writeFileSync(OUT_CLASSIC_FILE, classicOut);
+  for (const file of [OUT_FILE, OUT_CLASSIC_FILE]) {
+    const kb = (fs.statSync(file).size / 1024).toFixed(1);
+    console.log(`[gen-lcd-fonts] ${path.relative(REPO, file)} (${kb} KB)`);
+  }
 }
 
 main();

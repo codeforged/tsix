@@ -3,19 +3,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PLCDDevice, PLCDIOCTL } from "./PLCDDevice";
 import { LCDIOCTL, LCD_FRAMEBUFFER_SIZE } from "./LM6029Device";
 import { LCD_GFX_FONTS } from "./lcdFonts";
+import { LCD_CLASSIC_FONTS } from "./lcdFontClassic";
 
 /** Id font GFX yang dipakai di tes (FreeMono9pt7b / FreeSans9pt7b). */
 const MONO = 3;
 const SANS = 1;
 
 /**
- * PSEUDO LCD (/dev/plcd) — C10.60..C10.84
+ * PSEUDO LCD (/dev/plcd) — C10.60..C10.100
  *
  * Fokus: perilakunya harus SEBANDING dengan driver hardware LM6029Device,
  * karena aplikasi (`lcdLib`, `dd`, `cat`) tidak boleh bisa membedakan
  * keduanya. Yang diuji: kontrak ioctl, semantik DD-RAM vs panel (flush),
- * frame blit yang mengganti isi layar, rasterisasi GFX + teks, rotasi,
- * dan ioctl khas emulator (GET_REV / GET_FRAME).
+ * frame blit yang mengganti isi layar, rasterisasi font (glcdfont klasik +
+ * Adafruit_GFX) + teks, rotasi, dan ioctl khas emulator (GET_REV / GET_FRAME).
  */
 
 /** Baca satu piksel dari byte DD-RAM (panel space, 1 bpp MSB-first). */
@@ -53,6 +54,32 @@ function glyphPixels(fontId: number, ch: string): Array<[number, number]> {
   for (let i = 0; i < w * h; i++) {
     if ((bm[offset + (i >> 3)] >> (7 - (i & 7))) & 1)
       out.push([xOffset + (i % w), yOffset + Math.floor(i / w)]);
+  }
+  return out;
+}
+
+/**
+ * Hitung posisi piksel nyala satu glyph font KLASIK (glcdfont) dari DATA
+ * FONT-nya sendiri (bukan angka hardcode) — supaya tes tetap benar kalau data
+ * di-regenerate. Koordinat relatif terhadap sudut kiri-atas sel glyph.
+ *
+ * `cp437: true` = JANGAN geser kode ≥ 176 (perilaku Adafruit saat
+ * `cp437(true)`); default = kuirk hardware/Adafruit bawaan (`_cp437 = false`,
+ * kode ≥ 176 digeser +1).
+ */
+function classicPixels(
+  ch: string,
+  opts: { cp437?: boolean } = {},
+): Array<[number, number]> {
+  const font = LCD_CLASSIC_FONTS[0];
+  const bm = Buffer.from(font.bitmaps, "base64");
+  const raw = ch.charCodeAt(0);
+  const code = raw >= 176 && !opts.cp437 ? raw + 1 : raw;
+  const out: Array<[number, number]> = [];
+  for (let i = 0; i < font.glyphW; i++) {
+    const col = bm[code * font.glyphW + i];
+    for (let r = 0; r < font.cellH; r++)
+      if ((col >> r) & 1) out.push([i, r]);
   }
   return out;
 }
@@ -277,15 +304,29 @@ describe("PLCDDevice (C10.60-C10.84)", () => {
   });
 
   // ── Teks ──
-  it("C10.76 printText meraster glyph 5x7 dan tidak mengubah cursor", () => {
-    dev.ioctl(LCDIOCTL.PRINT_TEXT, { text: "A", x: 0, y: 0, size: 1 });
+  it("C10.76 printText meraster glyph glcdfont PERSIS data addon", () => {
+    const text = "A";
+    const bits = classicPixels(text);
+    expect(bits.length).toBeGreaterThan(10);
+
+    dev.ioctl(LCDIOCTL.PRINT_TEXT, { text, x: 0, y: 0, size: 1 });
     const b = frameBytes(dev);
-    // Baris atas glyph 'A' = ".###." → px(1,0) & px(3,0) nyala, px(0,0) mati.
-    expect(px(b, 1, 0)).toBe(1);
-    expect(px(b, 3, 0)).toBe(1);
-    expect(px(b, 0, 0)).toBe(0);
-    // Kaki 'A' ada di kolom 0 baris 6.
-    expect(px(b, 0, 6)).toBe(1);
+
+    // Semua piksel glyph harus ada di posisi yang sama dengan data font.
+    for (const [dx, dy] of bits) expect(px(b, dx, dy)).toBe(1);
+
+    // Di dalam sel 5x8, piksel yang TIDAK nyala di data harus tetap 0.
+    const font = LCD_CLASSIC_FONTS[0];
+    const lit = new Set(bits.map(([dx, dy]) => dx + "," + dy));
+    let empty = 0;
+    for (let yy = 0; yy < font.cellH; yy++) {
+      for (let xx = 0; xx < font.glyphW; xx++) {
+        if (lit.has(xx + "," + yy)) continue;
+        expect(px(b, xx, yy)).toBe(0);
+        empty++;
+      }
+    }
+    expect(empty).toBeGreaterThan(0);
 
     const info: any = dev.ioctl(LCDIOCTL.GET_INFO, null);
     expect(info.cursorX).toBe(0); // PRINT_TEXT memulihkan cursor
@@ -313,22 +354,41 @@ describe("PLCDDevice (C10.60-C10.84)", () => {
   });
 
   it("C10.79 setTextSize memperbesar glyph (blok size×size)", () => {
+    const bits = classicPixels("A");
     dev.ioctl(LCDIOCTL.SET_TEXT_SIZE, { size: 2 });
     dev.ioctl(LCDIOCTL.PRINT_TEXT, { text: "A", x: 0, y: 0, size: 2 });
     const b = frameBytes(dev);
-    // Kolom 1 baris 0..1 nyala (blok 2x2), kolom 0 tetap mati.
-    expect(px(b, 2, 0)).toBe(1);
-    expect(px(b, 3, 1)).toBe(1);
-    expect(px(b, 0, 0)).toBe(0);
-    expect(px(b, 0, 2)).toBe(1); // baris ke-2 glyph (kaki kiri 'A') ikut membesar
+
+    // Tiap piksel glyph jadi blok 2x2 di (2*dx, 2*dy).
+    for (const [dx, dy] of bits) {
+      expect(px(b, dx * 2, dy * 2)).toBe(1);
+      expect(px(b, dx * 2 + 1, dy * 2 + 1)).toBe(1);
+    }
+    const font = LCD_CLASSIC_FONTS[0];
+    expect(px(b, font.glyphW * 2, 0)).toBe(0); // kolom gap tetap kosong
+
+    // Advance juga ikut terskala: 2 karakter × advance × size.
+    dev.ioctl(LCDIOCTL.SET_CURSOR, { x: 0, y: 0 });
+    dev.ioctl(LCDIOCTL.PRINT, { text: "AB" });
+    const info: any = dev.ioctl(LCDIOCTL.GET_INFO, null);
+    expect(info.cursorX).toBe(2 * font.advance * 2);
   });
 
-  it("C10.80 setTextColor(color, bg) → mode opaque menulis latar", () => {
+  it("C10.80 setTextColor(color, bg) → mode opaque mengisi SELURUH sel 6x8", () => {
     dev.ioctl(LCDIOCTL.SET_TEXT_COLOR, { color: 0, bg: 1 });
     dev.ioctl(LCDIOCTL.PRINT_TEXT, { text: "A", x: 0, y: 0, size: 1 });
     const b = frameBytes(dev);
-    expect(px(b, 0, 0)).toBe(1); // latar (bg=1)
-    expect(px(b, 1, 0)).toBe(0); // piksel glyph jadi color=0
+
+    const font = LCD_CLASSIC_FONTS[0];
+    const lit = new Set(classicPixels("A").map(([dx, dy]) => dx + "," + dy));
+    for (let yy = 0; yy < font.cellH; yy++) {
+      // `advance` (6) mencakup kolom pemisah di kanan glyph — Adafruit juga
+      // mengisi kolom itu dengan bg saat mode opaque.
+      for (let xx = 0; xx < font.advance; xx++) {
+        const glyphPixel = lit.has(xx + "," + yy);
+        expect(px(b, xx, yy)).toBe(glyphPixel ? 0 : 1);
+      }
+    }
   });
 
   it("C10.81 karakter di luar tabel font → placeholder kotak (tidak crash)", () => {
@@ -538,15 +598,70 @@ describe("PLCDDevice (C10.60-C10.84)", () => {
     for (const [dx, dy] of bits) expect(px(b, 10 + dx, 30 + dy)).toBe(0);
   });
 
-  it("C10.96 id font tak dikenal → fallback 5x7 (cursorBaseline false)", () => {
+  it("C10.96 id font tak dikenal → pakai glcdfont (cursorBaseline false)", () => {
     dev.ioctl(LCDIOCTL.SET_FONT, { id: 9 });
     expect(dev.ioctl(LCDIOCTL.SET_FONT, { id: 9 })).toBe(9);
     const info: any = dev.ioctl(LCDIOCTL.GET_INFO, null);
     expect(info.font).toBe(9);
+    expect(info.fontName).toBe(LCD_CLASSIC_FONTS[0].name);
     expect(info.cursorBaseline).toBe(false);
-    // Tetap meraster (jalur 5x7): 'A' pada cursorY = sudut atas glyph.
+
+    // Tetap meraster (jalur glcdfont): 'A' pada cursorY = sudut atas glyph.
     dev.ioctl(LCDIOCTL.PRINT_TEXT, { text: "A", x: 0, y: 0, size: 1 });
     const b = flushAndFrame(dev);
-    expect(px(b, 1, 0)).toBe(1);
+    const [dx, dy] = classicPixels("A")[0];
+    expect(px(b, dx, dy)).toBe(1);
+  });
+
+  it("C10.97 kuirk Adafruit: `_cp437 = false` → kode ≥ 176 digeser +1", () => {
+    // Addon tidak pernah memanggil cp437(true), jadi byte 0xB0 di panel fisik
+    // dirender memakai glyph tabel ke-177, bukan ke-176.
+    const ch = String.fromCharCode(0xb0);
+    const shifted = classicPixels(ch);
+    const raw = classicPixels(ch, { cp437: true });
+    expect(shifted).not.toEqual(raw); // dua pola block yang memang berbeda
+
+    dev.ioctl(LCDIOCTL.PRINT_TEXT, { text: ch, x: 0, y: 0, size: 1 });
+    const b = frameBytes(dev);
+    for (const [dx, dy] of shifted) expect(px(b, dx, dy)).toBe(1);
+    for (const [dx, dy] of raw) expect(px(b, dx, dy)).toBe(0);
+  });
+
+  it("C10.98 font klasik memakai sel 8 baris (descender 'g' sampai baris 7)", () => {
+    const bits = classicPixels("g");
+    expect(Math.max(...bits.map(([, dy]) => dy))).toBe(7);
+
+    dev.ioctl(LCDIOCTL.PRINT_TEXT, { text: "g", x: 0, y: 0, size: 1 });
+    const b = frameBytes(dev);
+    const [dx, dy] = bits.find(([, yy]) => yy === 7)!;
+    expect(px(b, dx, dy)).toBe(1);
+  });
+
+  it("C10.99 karakter di luar 0..255 → tabel ekstensi TSIX (panah)", () => {
+    const arrow = "\u2192";
+    dev.ioctl(LCDIOCTL.PRINT_TEXT, { text: arrow, x: 0, y: 0, size: 1 });
+    const b = frameBytes(dev);
+    expect(px(b, 2, 3)).toBe(1); // baris tengah panah penuh
+    expect(px(b, 0, 0)).toBe(0); // ujung atas kiri kosong
+
+    // Advance tetap satu sel 6 px (metrik yang sama dengan font klasik).
+    dev.ioctl(LCDIOCTL.SET_CURSOR, { x: 0, y: 0 });
+    dev.ioctl(LCDIOCTL.PRINT, { text: arrow });
+    const info: any = dev.ioctl(LCDIOCTL.GET_INFO, null);
+    expect(info.cursorX).toBe(6);
+  });
+
+  it("C10.100 data font klasik = glcdfont.c addon (256 glyph, 'A' & spasi benar)", () => {
+    const font = LCD_CLASSIC_FONTS[0];
+    expect(font.glyphCount).toBe(256);
+    expect(font.source).toContain("glcdfont.c");
+    const bm = Buffer.from(font.bitmaps, "base64");
+    expect(bm.length).toBe(256 * 5);
+    // Penanda offset tabel benar: glyph spasi (0x20) harus kosong.
+    expect(classicPixels(" ").length).toBe(0);
+    // 'A' = byte glcdfont yang sudah dikenal di addon.
+    expect([...bm.slice(0x41 * 5, 0x41 * 5 + 5)]).toEqual([
+      0x7c, 0x12, 0x11, 0x12, 0x7c,
+    ]);
   });
 });

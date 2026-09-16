@@ -46,8 +46,19 @@
   tabel glyph), jadi tidak ada data font ganda yang bisa basi. Dua detail
   hardware yang ditiru: bitmap dibaca **kontinu** (tanpa padding antar-baris,
   seperti loop `Adafruit_GFX::write`) dan `cursorY` = **baseline** + `yAdvance`
-  untuk baris baru. Id 0 tetap font 5x7 bawaan (`plcdFont5x7.ts`).
-- **Verifikasi:** 37 tes baru (C10.60–C10.96) + 30 tes LM6029Device lulus; DD-RAM di-render sebagai ASCII-art untuk memeriksa rasterisasi (dari situ ketemu & diperbaiki bug `roundRect`: dua garis horizontal palsu) dan untuk verifikasi ketiga font GFX; suite kernel tidak menambah kegagalan (6 pre-existing tetap 6).
+  untuk baris baru.
+- **Font 5x8 bawaan (id 0) juga byte-exact:** jalur `setFont(0)` memakai data
+  `glcdfont.c` addon → `src/kernel/devices/aux-devices/lcdFontClassic.ts`
+  (256 glyph × 5 byte kolom, sel 6x8 px) — bukan lagi glyph 5x7 buatan sendiri.
+  Ikut ditiru: kuirk Adafruit `_cp437 = false` (kode ≥ 176 digeser +1) dan sel
+  setinggi 8 baris (descender `g`/`y` sampai baris 7). `plcdFont5x7.ts` kini
+  hanya berisi glyph ekstensi di luar 0x00..0xFF (panah) + placeholder.
+- **Temuan (tidak perlu kode):** font sample **pabrik**
+  `ori-from-lcd-factory/defaultFont.h` ternyata **font yang sama** dengan
+  glcdfont — hanya urutan bitnya terbalik (`reverse()` di driver pabrik),
+  255 glyph, dan 7 glyph beda ±1 px (0x84 0x8E 0x94 0x99 0xB0 0xB2 0xE1).
+  Jadi tidak ada entri font pabrik terpisah di pseudo-LCD.
+- **Verifikasi:** 41 tes baru (C10.60–C10.100) + 30 tes LM6029Device lulus; DD-RAM di-render sebagai ASCII-art untuk memeriksa rasterisasi (dari situ ketemu & diperbaiki bug `roundRect`: dua garis horizontal palsu) dan untuk verifikasi ketiga font GFX; suite kernel tidak menambah kegagalan (6 pre-existing tetap 6).
 - **Detail lengkap:** `wiki/changelogs/lcd.md` (2026-09-16); sisi viewer/DDC: `wiki/changelogs/ddc.md`.
 - **Deploy:** **restart kernel** (device didaftarkan saat boot) — file kernel, bukan `src/mirror/**`.
 - **Oleh:** Copilot · **Laporan:** andriansah

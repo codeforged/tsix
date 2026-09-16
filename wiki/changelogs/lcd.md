@@ -134,6 +134,56 @@
   hanya perlu dijalankan ulang kalau font di addon berubah.
 - **Oleh:** Copilot · **Laporan:** andriansah
 
+### Font 5x8 bawaan (id 0) kini byte-exact `glcdfont.c` — dan ternyata font pabrik = glcdfont
+
+- **File:** `scripts/gen-lcd-fonts.mjs` (ditambah), `src/kernel/devices/aux-devices/lcdFontClassic.ts` **(baru, generated)**, `PLCDDevice.ts`,
+  `PLCDDevice.test.ts` (+4 tes → **41**), `plcdFont5x7.ts` (diubah peran).
+- **Latar:** jalur `setFont(0)` masih memakai tabel 5x7 buatan sendiri
+  ("setara, bukan salinan byte-per-byte"). Padahal data aslinya sudah ada:
+  `raspi-lcd-addon/src/glcdfont.c` — font bawaan Adafruit_GFX, **inilah yang
+  benar-benar tampil di panel fisik** saat addon memakai `setFont(0)`/
+  `setFont(NULL)`.
+- **Perubahan:** generator yang sama kini juga membaca `glcdfont.c` →
+  `lcdFontClassic.ts` (256 glyph × 5 byte kolom, sel 6x8 px, base64 + metadata
+  `glyphW/cellH/advance/lineHeight/glyphCount/source`). Raster di `PLCDDevice`
+  memakai byte itu **apa adanya** (bit0 = baris paling atas), sama dengan
+  `_displayBuffer[page*128+x] |= 1 << (y%8)` di addon.
+- **Dua perilaku Adafruit yang ikut ditiru:**
+  1. **Kuirk `_cp437 = false`** — addon tidak pernah memanggil `cp437(true)`,
+     jadi kode ≥ 176 digeser +1 sebelum dicari (`if (!_cp437 && (c >= 176))
+     c++`). Byte 0xB0 di panel fisik dirender dengan glyph tabel ke-177.
+  2. **Sel 8 baris + kolom gap** — descender (`g`, `y`) turun sampai baris 7,
+     dan mode opaque mengisi seluruh sel 6x8 (5 kolom glyph + kolom pemisah).
+- **Temuan penting (menghemat kode):** font sample pabrik
+  `ori-from-lcd-factory/defaultFont.h` — yang dulu berniat dipakai sebagai
+  "font ori pabrik" — ternyata **font yang sama** dengan glcdfont, hanya
+  disimpan dengan urutan bit terbalik (driver pabrik menulis
+  `reverse(pgm_read_byte(defaultFont + c*5 + i))`), 255 glyph (tanpa 0xFF yang
+  toh kosong), dan **7 glyph beda ±1 px** di rentang Latin-1/block
+  (`0x84 0x8E 0x94 0x99 0xB0 0xB2 0xE1`). Jadi **tidak** ada entri font pabrik
+  terpisah di pseudo-LCD — cukup glcdfont. Catatan ini juga ditulis di header
+  `lcdFontClassic.ts` + `scripts/gen-lcd-fonts.mjs` supaya tidak diusulkan lagi.
+- **`plcdFont5x7.ts` berubah peran:** tabel ASCII/Latin-nya dihapus (diganti
+  data asli) dan kini hanya berisi glyph **ekstensi** untuk kode di luar
+  0x00..0xFF (panah `→ ← ↑ ↓` untuk UI LCD) + `rowsToGlyph()` untuk placeholder
+  kotak. Termasuk `"°"` dihapus dari tabel: 0xB0 ≤ 0xFF, jadi di hardware
+  memang dirender sebagai blok shade.
+- **Verifikasi:**
+  - **41 tes** pseudo-LCD lulus; 4 tes lama (C10.76/79/80/96) ditulis ulang
+    karena dulu mengandalkan bentuk glyph buatan sendiri. Sekarang semua
+    ekspektasi **diturunkan dari data font**, jadi tetap benar kalau
+    diregenerate: piksel nyala harus sama persis dengan data, piksel dalam sel
+    yang tidak nyala harus tetap 0, blok `size=2`, kuirk `_cp437`, descender
+    baris 7, dan panah dari tabel ekstensi. Ditambah tes provenance
+    (C10.100): 256 glyph, `source` menunjuk `glcdfont.c`, glyph spasi kosong,
+    dan `'A'` = `7C 12 11 12 7C` (nilai glcdfont yang sudah dikenal).
+  - ASCII-art dari framebuffer driver untuk `"Halo 42! g_y"`,
+    `"0123456789 -> ok ~"`, dan `"AB"` size 2 — semua glyph terbaca benar.
+- **Dampak:** teks default (`setFont(0)`) di `/dev/plcd` kini **identik byte**
+  dengan panel fisik; tidak ada lagi glyph "kira-kira".
+- **Deploy:** file kernel → **restart kernel** (tanpa sync VFS).
+- **Oleh:** Copilot · **Laporan:** andriansah
+
 ---
 
 ## 2026-09-15
