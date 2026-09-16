@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-09-16
+
+### Ctrl+/ — toggle komentar `//` untuk baris terseleksi
+
+- **File:** `src/mirror/bin/atto.ts`
+- **Perubahan:**
+  - **Ctrl+/** (terminal mengirim `0x1F`, alias `Ctrl+_`) men-toggle komentar `//`: kalau **semua** baris target sudah berkomentar → `//` dibuang; kalau tidak → `// ` ditambahkan **hanya** pada baris yang belum berkomentar (perilaku lazim editor). Baris kosong / hanya-spasi dilewati dan indentasi dipertahankan (`  foo()` ⇄ `  // foo()`).
+  - Rentang yang dipakai adalah baris yang terseleksi; **tanpa selection** berlaku untuk baris kursor, jadi shortcut tidak pernah jadi no-op. Selection tetap aktif sesudahnya supaya Ctrl+/ bisa ditekan berulang (comment → uncomment → comment).
+  - Handler dipasang **sebelum** blok `finalizeSelection()` di `handleKey()`; kalau ditaruh sesudahnya, selection terlanjur di-copy lalu dibatalkan lebih dulu. Kolom anchor/end + kursor digeser mengikuti delta tiap baris (`+3` untuk `// `, negatif saat uncomment), dan `captureState(true)` dipanggil supaya satu Ctrl+/ bisa di-undo.
+  - Help box (F1) mendapat baris `Ctrl+/: Toggle Cmt` (lebar kolom tetap 74 char per baris).
+- **Dampak:** Menandai blok kode jadi komentar (dan sebaliknya) tanpa menyentuh baris satu per satu — termasuk untuk satu baris kursor saja.
+- **Verifikasi:** logika toggle disimulasikan terpisah — round-trip comment ⇄ uncomment benar (`["  const a = 1;", "", "    foo();"]` ⇄ `["  // const a = 1;", "", "    // foo();"]`) dengan delta `+3`/`-3`; tabel help dicek per-kolom (`sep@[0,24,43,73]`, semua baris 74 char).
+- **Deploy:** sync `atto.ts` ke VFS (`scripts/sync-vfs.ts`) — sidecar `atto.js` ikut di-transpile otomatis; tanpa restart kernel.
+- **Catatan:** di terminal browser (pixelterm/retroterm) butuh `dome-client-term.js`, karena xterm.js tidak mengirim apa pun untuk Ctrl+/ (lihat changelog DOME 2026-09-16).
+- **Oleh:** Copilot · **Laporan:** andriansah
+
+---
+
 ## 2026-08-05
 
 ### Status bar warna konfigurabel (fg/bg) + R:C mengikuti cursor

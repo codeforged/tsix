@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-09-16
+
+### Widget `<xterm>`: teruskan Ctrl+/ (`0x1F`) ke TUI
+
+- **File:** `src/mirror/opt/dome/dome-client-term.js`
+- **Masalah:** app TUI (atto: toggle komentar `//`) menerima `0x1F` dari console native, tapi tidak pernah di pixelterm/retroterm. Akarnya di xterm.js 5.3.0: pada `evaluateKeyboardEvent`, cabang "ctrl saja" hanya memetakan keyCode 65-90 (A-Z), 32 (Space), 51-56, dan 219-221 — keyCode 191 (`/`) tidak ada di daftar, jadi `o.key` tetap `undefined`, `onData` tak pernah di-fire, dan tidak ada byte yang dikirim ke TTY.
+- **Perubahan:**
+  - `term.attachCustomKeyEventHandler` meng-intersep `Ctrl+/` (juga `Ctrl+Shift+/` lewat `code === "Slash"`; `Cmd+/` untuk macOS) → kirim `0x1F` lewat jalur `term_input` yang sama, `preventDefault()` lalu `return false` supaya xterm tidak memprosesnya dobel.
+  - Callback `onData` diekstrak jadi `sendTermInput()` supaya kedua jalur memakai pengiriman yang sama.
+- **Dampak:** **Semua** app berbasis widget `<xterm>` (pixelterm, retroterm, tssh) kini menerima Ctrl+/ persis seperti console native — bukan hanya atto.
+- **Verifikasi (xterm.js 5.3.0 nyata, key event asli dari browser):** `Ctrl+/` sebelum fix → **tidak ada data**; sesudah fix → `1f` **sekali** (tidak dobel). `Ctrl+A` tetap `01`, ketik `foo/bar` tetap normal, `Ctrl+Shift+/` juga `1f`. Sekalian terukur: `Alt+1..6` → `1b 31`..`1b 36`, `Ctrl+Alt+1` → `1b 31`, `Ctrl+4/5/6` → `1c/1d/1e`, `Ctrl+1/2` → tidak ada byte (dipakai untuk analisis hotkey TTY di changelog Kernel 2026-09-16).
+- **Deploy:** sync `dome-client-term.js` ke VFS + restart DOME/TSIX (static asset dibaca sekali saat startup), lalu reload halaman browser.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
+---
+
 ## 2026-09-07
 
 ### Port DOME dipindahkan ke konfigurasi `/etc/dome/dome.json`
