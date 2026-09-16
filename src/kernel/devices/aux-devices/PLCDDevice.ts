@@ -59,12 +59,32 @@ import {
   plcdGlyph,
   rowsToGlyph,
 } from "./plcdFont5x7";
+import { LCD_GFX_FONTS, type LcdGfxFont } from "./lcdFonts";
 
 /** Warna piksel panel monokrom: 1 = nyala, 0 = mati. */
 type Pix = 0 | 1;
 
 /** Glyph pengganti untuk karakter yang belum ada di tabel font. */
 const FALLBACK_GLYPH = rowsToGlyph("#####/#...#/#...#/#...#/#...#/#...#/#####");
+
+/**
+ * Cache bitmap font Adafruit_GFX: id font → byte (decode base64 sekali saja).
+ * Ukurannya kecil (844–2186 byte per font), jadi aman ditahan di memori.
+ */
+const _gfxBitmapCache = new Map<number, Uint8Array>();
+
+/** Ambil bitmap font GFX (null kalau data rusak / id tidak punya GFX font). */
+function gfxBitmaps(fontId: number, font: LcdGfxFont): Uint8Array | null {
+  const cached = _gfxBitmapCache.get(fontId);
+  if (cached) return cached;
+  try {
+    const bytes = new Uint8Array(Buffer.from(font.bitmaps, "base64"));
+    _gfxBitmapCache.set(fontId, bytes);
+    return bytes;
+  } catch (e: any) {
+    return null;
+  }
+}
 
 // ================================================================
 // IOCTL KHAS PSEUDO-DEVICE (namespace 0x4C, lanjutan milik LM6029Device)
@@ -533,6 +553,10 @@ export class PLCDDevice implements IDevice {
       autoFlush: this.autoFlush,
       rotation: this.rotation,
       font: this.fontId,
+      /** Nama font efektif (id 0 = "default 5x7", lain = nama font addon). */
+      fontName: this.fontId === 0 ? "default 5x7" : (LCD_GFX_FONTS[this.fontId]?.name ?? "default 5x7"),
+      /** true = cursorY adalah baseline (font GFX), false = sudut atas (5x7). */
+      cursorBaseline: this.fontId !== 0 && !!LCD_GFX_FONTS[this.fontId],
       textSize: this.textSize,
       textColor: this.textColor,
       textBg: this.textBg,
@@ -734,7 +758,8 @@ export class PLCDDevice implements IDevice {
       [Math.floor(x0), Math.floor(y0)],
       [Math.floor(x1), Math.floor(y1)],
       [Math.floor(x2), Math.floor(y2)],
-    ].sort((a, b) => a[1] - b[1]);
+    ];
+    pts.sort((a, b) => a[1] - b[1]);
     const [ax, ay] = pts[0];
     const [bx, by] = pts[1];
     const [cx, cy] = pts[2];
@@ -878,9 +903,20 @@ export class PLCDDevice implements IDevice {
     this.cursorY = saveY;
   }
 
-  /** Raster teks ke framebuffer + majukan cursor (wrap bila diaktifkan). */
+  /**
+   * Raster teks ke framebuffer + majukan cursor (wrap bila diaktifkan).
+   * Id font 1..3 memakai data glyph asli addon (`lcdFonts.ts`); id 0 (dan id
+   * yang tidak dikenal) memakai font bitmap 5x7 bawaan.
+   */
   private drawText(text: string, x: number, y: number, size: number): void {
     const sz = Math.max(1, Math.floor(size) || 1);
+    const gfx = this.fontId === 0 ? null : LCD_GFX_FONTS[this.fontId];
+    if (gfx) return this.drawTextGfx(text, x, y, sz, gfx);
+    return this.drawText5x7(text, x, y, sz);
+  }
+
+  /** Jalur font 5x7 bawaan (cursor = sudut kiri-atas glyph). */
+  private drawText5x7(text: string, x: number, y: number, sz: number): void {
     let cx = Math.floor(x);
     let cy = Math.floor(y);
     for (const ch of text) {
@@ -895,6 +931,69 @@ export class PLCDDevice implements IDevice {
       }
       this.drawGlyph(cx, cy, ch, sz);
       cx += PLCD_FONT_ADVANCE * sz;
+    }
+    this.cursorX = cx;
+    this.cursorY = cy;
+  }
+
+  /**
+   * Jalur font Adafruit_GFX (glyph asli dari addon, mis. FreeMono9pt7b).
+   *
+   * Dua beda penting dari font 5x7 — keduanya meniru hardware:
+   *   1. `cursorY` adalah BASELINE (bukan sudut atas glyph): glyph digambar di
+   *      `(cursorX + xOffset, cursorY + yOffset)`, dan baris baru menambah
+   *      `yAdvance`.
+   *   2. Bitmap dibaca KONTINU: satu byte untuk 8 piksel berikutnya tanpa
+   *      padding antar-baris (persis loop `Adafruit_GFX::write`).
+   * Karakter di luar rentang font dilewati tanpa memajukan cursor (juga
+   * mengikuti Adafruit).
+   */
+  private drawTextGfx(
+    text: string,
+    x: number,
+    y: number,
+    size: number,
+    font: LcdGfxFont,
+  ): void {
+    const bm = gfxBitmaps(this.fontId, font);
+    if (!bm) return this.drawText5x7(text, x, y, size); // data tak terbaca
+
+    let cx = Math.floor(x);
+    let cy = Math.floor(y);
+    for (const ch of text) {
+      if (ch === "\n" || ch === "\r") {
+        cx = 0;
+        cy += font.yAdvance * size;
+        continue;
+      }
+      const idx = ch.charCodeAt(0) - font.first;
+      if (idx < 0 || idx >= font.glyphs.length) continue;
+
+      const [offset, w, h, xAdvance, xOffset, yOffset] = font.glyphs[idx];
+      if (this.textWrap && cx + xAdvance * size > this.logicalWidth()) {
+        cx = 0;
+        cy += font.yAdvance * size;
+      }
+
+      const gx = cx + xOffset;
+      const gy = cy + yOffset;
+      if (this.textBg !== null)
+        this.fillRect(gx, gy, w * size, h * size, this.textBg);
+
+      const pixels = w * h;
+      for (let i = 0; i < pixels; i++) {
+        const byte = bm[offset + (i >> 3)];
+        if (byte === undefined) break;
+        if (!((byte >> (7 - (i & 7))) & 1)) continue;
+        this.fillRect(
+          gx + (i % w) * size,
+          gy + Math.floor(i / w) * size,
+          size,
+          size,
+          this.textColor,
+        );
+      }
+      cx += xAdvance * size;
     }
     this.cursorX = cx;
     this.cursorY = cy;

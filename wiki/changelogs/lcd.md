@@ -74,14 +74,64 @@
     device, lalu piksel canvas dibaca ulang — canvas 512x256, tepi border =
     `11,13,8` (INK), bagian kosong = `172,209,93` (kaca), baris teks berisi
     piksel; event `ready` melaporkan `scale: 4`.
-- **Batasan yang disengaja (emulator, bukan replika byte):** semua font id 0..3
-  digambar dengan font 5x7 bawaan (FreeSans/FreeMono tidak ada di JS), kurva
-  bisa beda ±1 px dari Adafruit_GFX, dan tidak ada SPI (`GET_SPI_SPEED` = null,
+- **Batasan yang disengaja (emulator, bukan replika byte):** kurva bisa beda
+  ±1 px dari Adafruit_GFX, dan tidak ada SPI (`GET_SPI_SPEED` = null,
   `SET_SPI_SPEED` no-op) sehingga drag-region/timing hardware tidak bisa diuji
-  di sini.
+  di sini. Font **sudah bukan** batasan lagi — lihat entri di bawah.
 - **Deploy:** `scripts/sync-vfs.ts` untuk `lcdLib.ts`, `plcd-emulator.ts`,
   `plcd-panel.js`, dan `lcd-emulator.menu` + **restart kernel** (node
   `/dev/plcd` didaftarkan saat boot) lalu reload halaman browser.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
+### Font asli Adafruit_GFX di pseudo-LCD (`setFont(1..3)` kini glyph-per-glyph sama dengan hardware)
+
+- **File:**
+  - `scripts/gen-lcd-fonts.mjs` **(baru)** — generator data font
+  - `src/kernel/devices/aux-devices/lcdFonts.ts` **(baru, generated)**
+  - `src/kernel/devices/aux-devices/PLCDDevice.ts` — jalur raster font GFX
+  - `src/kernel/devices/aux-devices/PLCDDevice.test.ts` — +8 tes (C10.89–C10.96)
+- **Latar:** versi pertama pseudo-LCD menggambar **semua** id font dengan font
+  5x7 bawaan, jadi teks tampak berbeda dari panel asli — padahal datanya sudah
+  ada di addon (`raspi-lcd-addon/src/Fonts/*.h`: FreeSans9, FreeSansBold12,
+  FreeMono9). Menyalin data itu manual ke TS = data ganda yang cepat basi.
+- **Perubahan 1 — generator, bukan salin manual.** `scripts/gen-lcd-fonts.mjs`
+  membaca header `.h` addon (argumen `--fonts-dir=` atau env `LCD_FONTS_DIR`
+  kalau repo addon tidak bersebelahan) lalu menulis `lcdFonts.ts`:
+  bitmaps sebagai base64 + tabel glyph `[offset, w, h, xAdvance, xOffset,
+  yOffset]` + `first/last/yAdvance`. Jalankan ulang kalau font di addon
+  berubah; file hasil **di-commit** supaya build tidak bergantung repo addon.
+- **Perubahan 2 — raster font GFX yang setia.** `PLCDDevice` kini memilih jalur
+  raster berdasarkan id font: id 0 (dan id tak dikenal) → font 5x7 bawaan;
+  id 1..3 → data glyph asli. Dua detail hardware yang ditiru:
+  1. **Bitmap dibaca KONTINU** (satu byte untuk 8 piksel berikutnya, tanpa
+     padding antar-baris) — persis loop `Adafruit_GFX::write`. Asumsi awal
+     "padding per baris" langsung terbantah saat generator memvalidasi offset:
+     dengan model kontinu, byte terpakai = panjang array **persis** di ketiga
+     font (1150/1150, 2186/2186, 844/844).
+  2. **`cursorY` = BASELINE** untuk font GFX (glyph digambar di
+     `cursorY + yOffset`), beda dari font 5x7 yang memakai sudut kiri-atas;
+     baris baru menambah `yAdvance` (FreeSans9 = 22 px, FreeSansBold12 = 29 px),
+     dan `advance` horizontal memakai `xAdvance` per glyph (FreeSans proporsional,
+     jadi "i" ≠ "W" — tidak lagi 6 px tetap).
+  Karakter di luar rentang font dilewati tanpa memajukan cursor (juga mengikuti
+  Adafruit). Mode opaque (`setTextColor(color, bg)`) mengisi kotak glyph dengan
+  bg sebelum menggambar.
+- **Perubahan 3 — `GET_INFO` melaporkan font efektif:** `fontName` (mis.
+  `"FreeMono9pt7b"`), dan `cursorBaseline` (`true` = y adalah baseline) supaya
+  viewer/app bisa menyesuaikan tanpa menebak.
+- **Verifikasi:**
+  - 37 tes pseudo-LCD lulus (+8 baru), semuanya **menurunkan ekspektasi dari
+    data font itu sendiri** (bukan angka hardcode) — jadi tetap benar kalau font
+    di-regenerate: posisi tiap piksel glyph harus sama dengan data, piksel
+    dalam kotak glyph yang tidak nyala harus tetap 0, `yAdvance` untuk `\n`,
+    `xAdvance` proporsional, karakter di luar rentang, `size=2`, mode opaque.
+  - ASCII-art dari DD-RAM untuk ketiga font: FreeMono9 ("Halo 42!") monospace,
+    FreeSans9 proporsional, FreeSansBold12 dua baris dengan jarak 29 px —
+    semuanya terbaca sebagai glyph utuh.
+- **Dampak:** teks di `/dev/plcd` kini identik dengan panel hardware (termasuk
+  metrik & posisi baseline), jadi layout UI bisa disetel tanpa panel fisik.
+- **Deploy:** file kernel → **restart kernel** (tidak perlu sync VFS). Generator
+  hanya perlu dijalankan ulang kalau font di addon berubah.
 - **Oleh:** Copilot · **Laporan:** andriansah
 
 ---

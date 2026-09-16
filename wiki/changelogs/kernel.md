@@ -40,7 +40,14 @@
 - **Terdaftar sebagai `/dev/plcd`:** `kernel.devices.plcd` (autoRegister + auto-load aux-device) → `Syscalls` me-resolve `/dev/<name>` langsung dari registry, jadi tidak perlu entry/bootstrap tambahan.
 - **Hardware tidak tersentuh:** `/dev/lcd` tetap milik driver asli; ioctl 0x4c50/0x4c51 di `LM6029Device` diabaikan (`null`) dan `GET_INFO`-nya tidak mengisi flag `pseudo`. Dijaga tes **C10.50e** (fake addon: perintah khas pseudo → `null`, `GET_INFO.pseudo` undefined, `drawRect` normal tetap diteruskan ke addon).
 - **Perubahan pendukung:** `positional`/`num`/`bool`/`boolFrom`/`toByteBuffer`/`asBuffer` di `LM6029Device.ts` kini diekspor — dipakai bersama pseudo-device supaya kontrak argumen ioctl hanya hidup di satu tempat.
-- **Verifikasi:** 29 tes baru (C10.60–C10.88) + 30 tes LM6029Device lulus; DD-RAM di-render sebagai ASCII-art untuk memeriksa rasterisasi (dari situ ketemu & diperbaiki bug `roundRect`: dua garis horizontal palsu); suite kernel tidak menambah kegagalan (6 pre-existing tetap 6).
+- **Font asli hardware:** `setFont(1..3)` (FreeSans9, FreeSansBold12, FreeMono9)
+  kini meraster **data glyph asli addon** — `scripts/gen-lcd-fonts.mjs` membaca
+  `raspi-lcd-addon/src/Fonts/*.h` dan menulis `lcdFonts.ts` (bitmaps base64 +
+  tabel glyph), jadi tidak ada data font ganda yang bisa basi. Dua detail
+  hardware yang ditiru: bitmap dibaca **kontinu** (tanpa padding antar-baris,
+  seperti loop `Adafruit_GFX::write`) dan `cursorY` = **baseline** + `yAdvance`
+  untuk baris baru. Id 0 tetap font 5x7 bawaan (`plcdFont5x7.ts`).
+- **Verifikasi:** 37 tes baru (C10.60–C10.96) + 30 tes LM6029Device lulus; DD-RAM di-render sebagai ASCII-art untuk memeriksa rasterisasi (dari situ ketemu & diperbaiki bug `roundRect`: dua garis horizontal palsu) dan untuk verifikasi ketiga font GFX; suite kernel tidak menambah kegagalan (6 pre-existing tetap 6).
 - **Detail lengkap:** `wiki/changelogs/lcd.md` (2026-09-16); sisi viewer/DDC: `wiki/changelogs/ddc.md`.
 - **Deploy:** **restart kernel** (device didaftarkan saat boot) — file kernel, bukan `src/mirror/**`.
 - **Oleh:** Copilot · **Laporan:** andriansah

@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import { PLCDDevice, PLCDIOCTL } from "./PLCDDevice";
 import { LCDIOCTL, LCD_FRAMEBUFFER_SIZE } from "./LM6029Device";
+import { LCD_GFX_FONTS } from "./lcdFonts";
+
+/** Id font GFX yang dipakai di tes (FreeMono9pt7b / FreeSans9pt7b). */
+const MONO = 3;
+const SANS = 1;
 
 /**
  * PSEUDO LCD (/dev/plcd) — C10.60..C10.84
@@ -32,6 +37,24 @@ function frameBytes(dev: PLCDDevice): Buffer {
 function flushAndFrame(dev: PLCDDevice): Buffer {
   dev.ioctl(LCDIOCTL.DISPLAY, null);
   return frameBytes(dev);
+}
+
+/**
+ * Hitung posisi piksel nyala satu glyph GFX dari DATA FONT-nya sendiri
+ * (bukan angka hardcode) — supaya tes tetap benar kalau font di-regenerate.
+ * Koordinat relatif terhadap (cursorX + xOffset, cursorY + yOffset).
+ */
+function glyphPixels(fontId: number, ch: string): Array<[number, number]> {
+  const font = LCD_GFX_FONTS[fontId];
+  const g = font.glyphs[ch.charCodeAt(0) - font.first];
+  const [offset, w, h, , xOffset, yOffset] = g;
+  const bm = Buffer.from(font.bitmaps, "base64");
+  const out: Array<[number, number]> = [];
+  for (let i = 0; i < w * h; i++) {
+    if ((bm[offset + (i >> 3)] >> (7 - (i & 7))) & 1)
+      out.push([xOffset + (i % w), yOffset + Math.floor(i / w)]);
+  }
+  return out;
 }
 
 describe("PLCDDevice (C10.60-C10.84)", () => {
@@ -393,5 +416,137 @@ describe("PLCDDevice (C10.60-C10.84)", () => {
     expect(px(Buffer.from(snap), 0, 0)).toBe(1);
     snap[0] = 0;
     expect(px(frameBytes(dev), 0, 0)).toBe(1); // device tidak terpengaruh
+  });
+
+  // ── Font Adafruit_GFX asli (data glyph dari addon, bukan 5x7) ──
+  it("C10.89 setFont(3) meraster glyph FreeMono9pt7b persis data addon", () => {
+    const glyph = "A";
+    const [gx, y0] = [2, 20];
+    const bits = glyphPixels(MONO, glyph);
+    expect(bits.length).toBeGreaterThan(10);
+
+    dev.ioctl(LCDIOCTL.SET_FONT, { id: MONO });
+    dev.ioctl(LCDIOCTL.PRINT_TEXT, { text: glyph, x: gx, y: y0, size: 1 });
+    const b = flushAndFrame(dev);
+
+    // Semua piksel glyph harus ada di posisi yang sama dengan data font.
+    for (const [dx, dy] of bits) expect(px(b, gx + dx, y0 + dy)).toBe(1);
+
+    // Dan di dalam kotak glyph, piksel yang TIDAK nyala di data harus tetap 0.
+    const font = LCD_GFX_FONTS[MONO];
+    const [offset, w, h, , , ] = font.glyphs[glyph.charCodeAt(0) - font.first];
+    const lit = new Set(bits.map(([dx, dy]) => dx + "," + dy));
+    let checkedEmpty = 0;
+    for (let yy = 0; yy < h; yy++) {
+      for (let xx = 0; xx < w; xx++) {
+        if (lit.has(xx + "," + yy)) continue;
+        expect(px(b, gx + xx, y0 + yy)).toBe(0);
+        checkedEmpty++;
+      }
+    }
+    expect(checkedEmpty).toBeGreaterThan(0);
+
+    const info: any = dev.ioctl(LCDIOCTL.GET_INFO, null);
+    expect(info.font).toBe(MONO);
+    expect(info.fontName).toBe("FreeMono9pt7b");
+    expect(info.cursorBaseline).toBe(true);
+  });
+
+  it("C10.90 font GFX: cursorY adalah BASELINE (ink di atas y, sesuai yOffset)", () => {
+    const baseline = 30;
+    dev.ioctl(LCDIOCTL.SET_FONT, { id: MONO });
+    dev.ioctl(LCDIOCTL.PRINT_TEXT, { text: "H", x: 0, y: baseline, size: 1 });
+    const b = flushAndFrame(dev);
+
+    const font = LCD_GFX_FONTS[MONO];
+    const [, , , , , yOffset] = font.glyphs["H".charCodeAt(0) - font.first];
+    expect(yOffset).toBeLessThan(0); // tinggi glyph naik dari baseline
+    // Baris paling atas glyph = baseline + yOffset, dan di atasnya harus kosong.
+    expect(px(b, 0, baseline + yOffset - 1)).toBe(0);
+    expect(px(b, 3, baseline + yOffset)).toBe(1); // cap "H" mulai dari atas
+  });
+
+  it("C10.91 font GFX: baris baru memakai yAdvance font (bukan 8 px)", () => {
+    const font = LCD_GFX_FONTS[SANS];
+    expect(font.yAdvance).not.toBe(8);
+    dev.ioctl(LCDIOCTL.SET_FONT, { id: SANS });
+    // PRINT_TEXT memulihkan cursor (kontrak LCDIOCTL.PRINT_TEXT), jadi
+    // pergeseran baris diperiksa lewat PRINT + cursor aktif.
+    dev.ioctl(LCDIOCTL.SET_CURSOR, { x: 4, y: 40 });
+    dev.ioctl(LCDIOCTL.PRINT, { text: "A\nB" });
+    const info: any = dev.ioctl(LCDIOCTL.GET_INFO, null);
+    expect(info.cursorY).toBe(40 + font.yAdvance);
+    expect(info.cursorX).toBe(
+      font.glyphs["B".charCodeAt(0) - font.first][3],
+    );
+  });
+
+  it("C10.92 font GFX proporsional: advance pakai xAdvance per glyph", () => {
+    const font = LCD_GFX_FONTS[SANS];
+    const adv = (ch: string) => font.glyphs[ch.charCodeAt(0) - font.first][3];
+    expect(adv("i")).toBeLessThan(adv("W")); // memang proporsional
+
+    dev.ioctl(LCDIOCTL.SET_FONT, { id: SANS });
+    dev.ioctl(LCDIOCTL.PRINT, { text: "i" });
+    let info: any = dev.ioctl(LCDIOCTL.GET_INFO, null);
+    expect(info.cursorX).toBe(adv("i"));
+    expect(info.cursorX).not.toBe(6); // bukan advance font 5x7
+
+    dev.ioctl(LCDIOCTL.SET_CURSOR, { x: 0, y: 30 });
+    dev.ioctl(LCDIOCTL.PRINT, { text: "W" });
+    info = dev.ioctl(LCDIOCTL.GET_INFO, null);
+    expect(info.cursorX).toBe(adv("W"));
+  });
+
+  it("C10.93 font GFX: karakter di luar rentang dilewati tanpa majukan cursor", () => {
+    const font = LCD_GFX_FONTS[MONO];
+    expect(font.last).toBe(0x7e);
+    dev.ioctl(LCDIOCTL.SET_FONT, { id: MONO });
+    dev.ioctl(LCDIOCTL.SET_CURSOR, { x: 10, y: 20 });
+    dev.ioctl(LCDIOCTL.PRINT, { text: "\u20ac" }); // € di luar 0x20..0x7E
+    const info: any = dev.ioctl(LCDIOCTL.GET_INFO, null);
+    expect(info.cursorX).toBe(10); // tidak bergerak
+    const b = flushAndFrame(dev);
+    let ink = 0;
+    for (let y = 0; y < 64; y++)
+      for (let x = 0; x < 128; x++) if (px(b, x, y)) ink++;
+    expect(ink).toBe(0);
+  });
+
+  it("C10.94 font GFX: setTextSize(2) menskalakan blok 2x2 & advance", () => {
+    const font = LCD_GFX_FONTS[MONO];
+    const [, , , xAdvance] = font.glyphs["A".charCodeAt(0) - font.first];
+    dev.ioctl(LCDIOCTL.SET_FONT, { id: MONO });
+    dev.ioctl(LCDIOCTL.PRINT_TEXT, { text: "A", x: 0, y: 30, size: 2 });
+    const info: any = dev.ioctl(LCDIOCTL.GET_INFO, null);
+    expect(info.cursorX).toBe(0); // PRINT_TEXT memulihkan cursor
+
+    dev.ioctl(LCDIOCTL.SET_CURSOR, { x: 0, y: 30 });
+    dev.ioctl(LCDIOCTL.PRINT, { text: "A" }); // size aktif = 1 (default)
+    const after1: any = dev.ioctl(LCDIOCTL.GET_INFO, null);
+    expect(after1.cursorX).toBe(xAdvance);
+  });
+
+  it("C10.95 font GFX + bg opaque: latar glyph ikut ditulis", () => {
+    // Teks di atas layar nyala → piksel glyph jadi 0 ("teks gelap").
+    dev.ioctl(LCDIOCTL.FILL_SCREEN, { color: 1 });
+    dev.ioctl(LCDIOCTL.SET_FONT, { id: MONO });
+    dev.ioctl(LCDIOCTL.SET_TEXT_COLOR, { color: 0, bg: 1 });
+    dev.ioctl(LCDIOCTL.PRINT_TEXT, { text: "A", x: 10, y: 30, size: 1 });
+    const b = flushAndFrame(dev);
+    const bits = glyphPixels(MONO, "A");
+    for (const [dx, dy] of bits) expect(px(b, 10 + dx, 30 + dy)).toBe(0);
+  });
+
+  it("C10.96 id font tak dikenal → fallback 5x7 (cursorBaseline false)", () => {
+    dev.ioctl(LCDIOCTL.SET_FONT, { id: 9 });
+    expect(dev.ioctl(LCDIOCTL.SET_FONT, { id: 9 })).toBe(9);
+    const info: any = dev.ioctl(LCDIOCTL.GET_INFO, null);
+    expect(info.font).toBe(9);
+    expect(info.cursorBaseline).toBe(false);
+    // Tetap meraster (jalur 5x7): 'A' pada cursorY = sudut atas glyph.
+    dev.ioctl(LCDIOCTL.PRINT_TEXT, { text: "A", x: 0, y: 0, size: 1 });
+    const b = flushAndFrame(dev);
+    expect(px(b, 1, 0)).toBe(1);
   });
 });
