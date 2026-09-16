@@ -17,6 +17,43 @@
 - **Dampak:** app LCD (hardware) bisa dilihat hasilnya tanpa panel fisik; pola ini reusable untuk app lain yang perlu menampilkan buffer eksternal (bukan animasi yang digambar sendiri).
 - **Oleh:** Copilot · **Laporan:** andriansah
 
+### Look panel disamakan dengan NJ kalkulator grafis: palet + gradient kaca + trailing
+
+- **File:** `src/mirror/opt/plcd/plcd-panel.js` (NJ) — sudah di-sync ke VFS (`/opt/plcd/plcd-panel.js`).
+- **Permintaan:** tampilan panel pseudo-LCD disamakan dengan NJ `opt/ddc-sample/graphcalc.js` (kombinasi warna + efeknya dianggap paling pas).
+- **Perubahan 1 — palet & gradient kaca.** Kaca tidak lagi satu warna datar
+  (`172,209,93`): tiap baris diambil dari gradient sheen vertikal
+  (`GLASS_HI [200,216,166]` → `GLASS_LO [138,158,102]`, sheen di ≈35% tinggi,
+  falloff kuadratik — `glassRow()` meniru `paintGlass()` graphcalc). Tinta
+  memakai `INK [40,40,40]` (hitam pekat khas kalkulator grafis). Tetap **2 level**
+  (ON/OFF), bukan anti-alias, jadi dot-matrix-nya tetap terlihat. Saat
+  backlight/display OFF dipakai pasangan gelap `GLASS_*_DIM` supaya hue hijau
+  tidak berubah jadi abu-abu.
+- **Perubahan 2 — TRAILING (persistence LCD).** Piksel yang padam tidak
+  langsung hilang: `ghost[]` menyimpan level sisa-nyala, dirender **solid**
+  selama `level >= SOLID_LV` (180) lalu **di-dither Bayer 4×4** (`FADE = 34` per
+  frame) sampai benar-benar OFF — efek "membayang" khas LCD seperti di
+  graphcalc. Karena frame di sini datang **asinkron** (hasil polling `GET_REV`,
+  bisa dua frame tanpa satu tick RAF), seeding bayangan dilakukan di
+  `setFrame()` (piksel yang baru padam → level 255). Kalau hanya mengandalkan
+  `decay()` seperti graphcalc (yang menggambar ulang tiap frame), bayangan frame
+  sebelumnya **tidak akan pernah muncul** — ketemu lewat uji logika di bawah.
+- **Perubahan 3 — loop RAF hemat CPU.** `tick()` meluruhkan bayangan lalu
+  menggambar, dan **berhenti sendiri** begitu tidak ada yang luruh lagi
+  (`kick()` menyalakannya kembali saat frame baru tiba). Panel diam = tanpa RAF
+  sama sekali, beda dari graphcalc yang memang animasi kontinu.
+- **Toggle:** TGA → NJ `{ t: "style", trail: false|true }` (default `true`);
+  event `ready` kini juga melaporkan `trail`.
+- **Verifikasi (tanpa browser):** `plcd-panel.js` dijalankan di Node dengan stub
+  canvas 2D + RAF manual, lalu isi `ImageData` dibaca ulang: gradient terukur
+  (y=22 → `199,215,165` paling terang, y=63 → `153,172,117`), frame bar
+  horizontal tampil tepat, dan saat bar dipindah bayangannya luruh dalam 8
+  langkah (3 langkah pekat → dither bergantian 67/45 lalu 45/22 → habis) lalu
+  loop RAF mati sendiri; `displayOn=false` → kaca dim `71,83,47`.
+- **Dampak:** panel pseudo-LCD tampak seperti LCD asli (kaca bergradient +
+  persistence), konsisten dengan look NJ kalkulator grafis.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
 ---
 
 ## 2026-08-08

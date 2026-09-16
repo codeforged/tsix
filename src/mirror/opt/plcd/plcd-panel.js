@@ -5,14 +5,23 @@
  * 1 piksel logika = `scale` x `scale` piksel fisik (integer, tanpa smoothing)
  * supaya tampak seperti LCD dot-matrix sungguhan — bukan hasil anti-alias.
  *
+ * ── LOOK: sama dengan NJ kalkulator grafis (`opt/ddc-sample/graphcalc.js`) ──
+ *   - Kaca LCD = gradient sheen vertikal (sheen di ≈35% tinggi, falloff
+ *     kuadratik) — TETAP 2 level: ON hitam pekat, OFF kaca hijau metalik.
+ *     Bukan anti-alias, jadi tetap terlihat dot-matrix.
+ *   - TRAILING (persistence LCD): piksel yang padam tidak langsung hilang —
+ *     levelnya luruh bertahap, dirender SOLID sesaat lalu di-dither Bayer 4×4
+ *     sampai benar-benar OFF. Efek khas LCD lama saat gambar berpindah.
+ *
  * Protokol (TGA → NJ):
  *   { t: "frame", fb, invert, displayOn, backlight, contrast, rev }
  *     `fb` = base64 1024 byte, 1 bpp MSB-first row-major (format drawBitmap
  *     Adafruit_GFX) — sama persis dengan isi panel yang sedang tampil.
  *   { t: "reset" }   → kosongkan panel (mis. /dev/plcd belum ada isinya)
+ *   { t: "style", trail: boolean } → hidup/matikan efek trailing
  *
  * NJ → TGA:
- *   { event: "ready", panelW, panelH, scale }
+ *   { event: "ready", panelW, panelH, scale, trail }
  *
  * Catatan: invert / display-off / backlight-off adalah properti TAMPILAN
  * (kaca panel), jadi diterapkan di sini — byte DD-RAM tetap mentah.
@@ -24,16 +33,29 @@ DDC.onInit(function (ctx) {
   var H = ctx.height;
   var c2 = ctx.canvas.getContext("2d");
 
-  // Palet LCD monokrom: piksel OFF = hijau metalik, ON = hitam pekat.
-  var GLASS = [172, 209, 93]; // kaca menyala (backlight ON)
-  var GLASS_DIM = [58, 70, 34]; // kaca tanpa backlight
-  var INK = [11, 13, 8];
+  // ── PALET (disamakan dengan ddc-sample/graphcalc.js) ──
+  // Kaca LCD = dua stop hijau metalik; tiap baris diambil warnanya lewat
+  // gradient sheen (glassRow). INK = hitam pekat khas kalkulator grafis.
+  var GLASS_HI = [200, 216, 166];
+  var GLASS_LO = [138, 158, 102];
+  var GLASS_HI_DIM = [72, 84, 48]; // dipakai saat backlight/display OFF
+  var GLASS_LO_DIM = [44, 53, 30];
+  var INK = [40, 40, 40];
 
-  var state = { invert: false, displayOn: true, backlight: true };
+  // ── TRAILING / persistence (ambang sama dengan graphcalc.js) ──
+  var FADE = 34; // penurunan level sisa-nyala per frame
+  var SOLID_LV = 180; // level >= ini → bayangan masih PEKAT (belum di-dither)
+  var BAYER_TH = [0, 136, 34, 170, 204, 68, 238, 102, 51, 187, 17, 153, 238, 119, 221, 85];
+
+  var state = { invert: false, displayOn: true, backlight: true, trail: true };
   var scale = 1;
   var offX = 0;
   var offY = 0;
-  var haveFrame = false;
+
+  // Frame terakhir (1 = piksel ON) + level sisa-nyala per piksel logika.
+  var lit = new Uint8Array(PANEL_W * PANEL_H);
+  var ghost = new Uint8Array(PANEL_W * PANEL_H);
+  var rafRunning = false;
 
   // Canvas offscreen 128x64 → di-blit ke canvas utama dengan skala integer.
   var off = document.createElement("canvas");
@@ -49,40 +71,145 @@ DDC.onInit(function (ctx) {
     c2.imageSmoothingEnabled = false;
   }
 
-  /** Decode base64 1024 byte (1 bpp MSB-first) → ImageData 128x64. */
-  function decode(b64) {
-    var bytes = atob(b64 || "");
-    var d = imgData.data;
-    var glass = state.backlight ? GLASS : GLASS_DIM;
-    var offCol = state.displayOn ? glass : GLASS_DIM;
-    var inkCol = state.invert ? glass : INK;
+  /**
+   * Warna kaca untuk satu baris — gradient sheen vertikal, persis
+   * `paintGlass()` di graphcalc.js: sheen di ≈35% tinggi, falloff kuadratik.
+   */
+  var rowCol = [0, 0, 0];
+  function glassRow(y, dim) {
+    var u = y / (PANEL_H - 1); // 0 (atas) .. 1 (bawah)
+    var d = Math.abs(u - 0.35) / 0.75;
+    if (d > 1) d = 1;
+    var s = 1 - d * d;
+    var hi = dim ? GLASS_HI_DIM : GLASS_HI;
+    var lo = dim ? GLASS_LO_DIM : GLASS_LO;
+    rowCol[0] = (lo[0] + (hi[0] - lo[0]) * s) | 0;
+    rowCol[1] = (lo[1] + (hi[1] - lo[1]) * s) | 0;
+    rowCol[2] = (lo[2] + (hi[2] - lo[2]) * s) | 0;
+    return rowCol;
+  }
+
+  /**
+   * Decode base64 1024 byte (1 bpp MSB-first) → mask `lit` (1 = piksel ON).
+   *
+   * PENTING (beda dari graphcalc yang menggambar ulang tiap frame): frame di
+   * sini datang ASINKRON (hasil polling `GET_REV`), jadi bisa ada dua frame
+   * tanpa satu pun tick RAF di antaranya. Karena itu piksel yang baru PADAM
+   * diberi level bayangan penuh di sini — kalau hanya mengandalkan `decay()`,
+   * bayangan frame sebelumnya tidak akan pernah muncul.
+   */
+  function setFrame(b64) {
+    var s = atob(b64 || "");
     for (var y = 0; y < PANEL_H; y++) {
+      var base = y * (PANEL_W >> 3);
       for (var x = 0; x < PANEL_W; x++) {
-        var b = bytes.charCodeAt(y * (PANEL_W >> 3) + (x >> 3)) || 0;
-        var bit = (b >> (7 - (x & 7))) & 1;
-        var col = bit ? inkCol : offCol;
-        var i = (y * PANEL_W + x) * 4;
-        d[i] = col[0];
-        d[i + 1] = col[1];
-        d[i + 2] = col[2];
-        d[i + 3] = 255;
+        var i = y * PANEL_W + x;
+        var was = lit[i];
+        var b = s.charCodeAt(base + (x >> 3)) || 0;
+        var now = (b >> (7 - (x & 7))) & 1;
+        lit[i] = now;
+        // Baru padam → mulai dari level penuh (jadi bayangan yang luruh).
+        if (state.trail && was && !now) ghost[i] = 255;
+      }
+    }
+  }
+
+  /**
+   * Luruhkan level sisa-nyala satu langkah (dipanggil per RAF).
+   * Piksel yang ON di frame terakhir → level penuh; sisanya turun FADE.
+   * Return true selama masih ada bayangan yang perlu diluruhkan.
+   */
+  function decay() {
+    if (!state.trail) {
+      ghost.fill(0);
+      return false;
+    }
+    var active = 0;
+    for (var i = 0; i < lit.length; i++) {
+      if (lit[i]) {
+        ghost[i] = 255; // masih menyala → level penuh
+        continue;
+      }
+      var lv = ghost[i];
+      if (lv === 0) continue; // sudah gelap total → jalur cepat
+      lv -= FADE;
+      ghost[i] = lv > 0 ? lv : 0;
+      if (lv > 0) active++;
+    }
+    return active > 0;
+  }
+
+  /**
+   * Susun ulang ImageData 128x64 dari `lit` + `ghost`, lalu blit ke canvas.
+   * Bayangan dirender SOLID selama levelnya masih tinggi (LCD memang lambat
+   * mati), sisanya di-dither Bayer 4×4 — jadi tetap hanya 2 warna.
+   */
+  function compose() {
+    var d = imgData.data;
+    var dim = !state.displayOn || !state.backlight;
+    var visible = state.displayOn;
+    for (var y = 0; y < PANEL_H; y++) {
+      var g = glassRow(y, dim);
+      var gr = g[0];
+      var gg = g[1];
+      var gb = g[2];
+      var ir = INK[0];
+      var ig = INK[1];
+      var ib = INK[2];
+      if (state.invert) {
+        // Panel negatif: tinta memakai warna kaca baris ini.
+        ir = gr;
+        ig = gg;
+        ib = gb;
+      }
+      for (var x = 0; x < PANEL_W; x++) {
+        var i = y * PANEL_W + x;
+        var on = visible && lit[i] === 1;
+        if (!on && visible && ghost[i] > 0) {
+          var lv = ghost[i];
+          on = lv >= SOLID_LV || lv >= BAYER_TH[((y & 3) << 2) | (x & 3)];
+        }
+        var o = i * 4;
+        if (on) {
+          d[o] = ir;
+          d[o + 1] = ig;
+          d[o + 2] = ib;
+        } else {
+          d[o] = gr;
+          d[o + 1] = gg;
+          d[o + 2] = gb;
+        }
+        d[o + 3] = 255;
       }
     }
     octx.putImageData(imgData, 0, 0);
-    haveFrame = true;
+    draw();
   }
 
-  function clearPanel() {
-    var d = imgData.data;
-    var glass = state.backlight ? GLASS : GLASS_DIM;
-    for (var i = 0; i < d.length; i += 4) {
-      d[i] = glass[0];
-      d[i + 1] = glass[1];
-      d[i + 2] = glass[2];
-      d[i + 3] = 255;
+  /** Loop RAF untuk meluruhkan bayangan; berhenti sendiri saat layar bersih. */
+  function tick() {
+    rafRunning = false;
+    var more = decay();
+    compose();
+    if (more) {
+      rafRunning = true;
+      ctx.raf(tick);
     }
-    octx.putImageData(imgData, 0, 0);
-    haveFrame = true;
+  }
+
+  /** Nyalakan loop hanya kalau memang ada yang perlu diluruhkan (hemat CPU). */
+  function kick() {
+    if (!rafRunning && state.trail) {
+      rafRunning = true;
+      ctx.raf(tick);
+    }
+  }
+
+  /** Panel kosong: semua kaca, tanpa tinta & tanpa sisa nyala. */
+  function clearPanel() {
+    lit.fill(0);
+    ghost.fill(0);
+    compose();
   }
 
   function draw() {
@@ -119,25 +246,27 @@ DDC.onInit(function (ctx) {
     }
   }
 
-  layout();
-  clearPanel();
-  draw();
-  ctx.send({ event: "ready", panelW: PANEL_W, panelH: PANEL_H, scale: scale });
-
   ctx.onMessage = function (msg) {
     if (!msg) return;
     if (msg.t === "frame") {
       state.invert = !!msg.invert;
       state.displayOn = msg.displayOn !== false;
       state.backlight = msg.backlight !== false;
-      decode(msg.fb);
-      draw();
+      setFrame(msg.fb);
+      kick(); // frame baru → luruhkan bayangan frame sebelumnya
+      compose();
     } else if (msg.t === "reset") {
       state.invert = false;
       state.displayOn = true;
       state.backlight = true;
       clearPanel();
-      draw();
+    } else if (msg.t === "style") {
+      if (typeof msg.trail === "boolean") {
+        state.trail = msg.trail;
+        if (!state.trail) ghost.fill(0); // efek dimatikan → langsung bersih
+      }
+      kick();
+      compose();
     }
   };
 
@@ -145,11 +274,25 @@ DDC.onInit(function (ctx) {
     W = w;
     H = h;
     layout();
-    if (!haveFrame) clearPanel();
-    draw();
+    compose();
   };
 
   ctx.onDestroy = function () {
-    haveFrame = false;
+    rafRunning = false; // RAF-nya dibatalkan runtime DDC saat window tutup
+    lit.fill(0);
+    ghost.fill(0);
   };
+
+  // ================================================================
+  // START
+  // ================================================================
+  layout();
+  compose(); // panel kosong = kaca bergradient
+  ctx.send({
+    event: "ready",
+    panelW: PANEL_W,
+    panelH: PANEL_H,
+    scale: scale,
+    trail: state.trail,
+  });
 });
