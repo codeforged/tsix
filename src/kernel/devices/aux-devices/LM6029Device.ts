@@ -324,8 +324,17 @@ export interface LM6029Options {
 // HELPER
 // ================================================================
 
+/**
+ * Helper koersi argumen ioctl LCD.
+ *
+ * Diekspor karena kontrak ioctl LCD (0x4c) dipakai BERSAMA oleh driver asli
+ * (LM6029Device) dan pseudo-device (`PLCDDevice`) — pseudo-device memakai
+ * nomor perintah & bentuk argumen yang sama persis supaya userland
+ * (`lcdLib`, `cat`, `dd`) tidak bisa membedakan keduanya.
+ */
+
 /** Ambil argumen posisional dari objek bernama ATAU array ATAU scalar. */
-function positional(arg: any, names: string[]): any[] {
+export function positional(arg: any, names: string[]): any[] {
   if (Array.isArray(arg)) return arg;
   if (arg !== null && typeof arg === "object") return names.map((k) => arg[k]);
   if (names.length <= 1) return [arg];
@@ -333,13 +342,13 @@ function positional(arg: any, names: string[]): any[] {
 }
 
 /** Koersi ke number (NaN → 0). */
-function num(v: any): number {
+export function num(v: any): number {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : 0;
 }
 
 /** Koersi ke boolean longgar (1 / "1" / "true" / true). */
-function bool(v: any): boolean {
+export function bool(v: any): boolean {
   return v === true || v === 1 || v === "1" || v === "true";
 }
 
@@ -347,7 +356,7 @@ function bool(v: any): boolean {
  * Ambil nilai boolean dari scalar, array, atau object bernama.
  * Contoh: false, [true], { on: true }, { invert: true }.
  */
-function boolFrom(arg: any, keys: string[]): boolean {
+export function boolFrom(arg: any, keys: string[]): boolean {
   if (Array.isArray(arg)) return bool(arg[0]);
   if (arg !== null && typeof arg === "object") {
     for (const k of keys) {
@@ -363,7 +372,7 @@ function boolFrom(arg: any, keys: string[]): boolean {
  * Buffer yang sudah lewat syscall/JSON ({ type: "Buffer", data: [...] }).
  * Return null kalau bukan data biner.
  */
-function toByteBuffer(v: any): Buffer | null {
+export function toByteBuffer(v: any): Buffer | null {
   if (Buffer.isBuffer(v)) return v;
   if (v instanceof Uint8Array) return Buffer.from(v);
   if (v && typeof v === "object" && v.type === "Buffer" && Array.isArray(v.data))
@@ -373,7 +382,7 @@ function toByteBuffer(v: any): Buffer | null {
 }
 
 /** Buffer primitif GFX yang valid untuk drawBitmap (fallback: buffer kosong). */
-function asBuffer(v: any): Buffer {
+export function asBuffer(v: any): Buffer {
   return toByteBuffer(v) ?? Buffer.alloc(0);
 }
 

@@ -33,6 +33,18 @@
   SIGQUIT itu urusan line discipline host, bukan TSIX: TSIX men-set `stdin.setRawMode(true)` (lihat `KeyboardDevice`), jadi `0x1C` tiba sebagai data dan dipakai untuk pindah TTY — bukan membunuh proses. Di browser (pixelterm/retroterm) xterm.js hanya mengirim `Ctrl+3..7` (ESC/FS/GS/RS/US): `Ctrl+4..6` bekerja, `Ctrl+1/2` tidak. **Kesimpulan:** pakai `Alt+1..6` (dan biarkan GNOME Terminal 1 tab per window); `Ctrl+Alt+1` serta `Ctrl+4..6` ikut jalan sebagai bonus.
 - **Oleh:** Copilot · **Laporan:** andriansah
 
+### Device baru: pseudo-LCD `/dev/plcd` (`PLCDDevice`) — uji app LCD tanpa hardware
+
+- **File:** `src/kernel/devices/aux-devices/PLCDDevice.ts` **(baru)**, `plcdFont5x7.ts` **(baru)**, `PLCDDevice.test.ts` **(baru)**, `LM6029Device.ts` (helper argumen ioctl diekspor + tes C10.50e).
+- **Ringkas:** aux-device yang meniru `LM6029Device` seluruhnya di software — nomor ioctl (`LCDIOCTL`) & bentuk argumen sama persis, tapi gambar diraster ke framebuffer RAM 1024 byte (1 bpp MSB-first). Tanpa addon native, tanpa SPI. Dua ioctl khas emulator: `GET_REV` (0x4c51, murah untuk polling) & `GET_FRAME` (0x4c50, base64 1024 byte + flag tampilan).
+- **Terdaftar sebagai `/dev/plcd`:** `kernel.devices.plcd` (autoRegister + auto-load aux-device) → `Syscalls` me-resolve `/dev/<name>` langsung dari registry, jadi tidak perlu entry/bootstrap tambahan.
+- **Hardware tidak tersentuh:** `/dev/lcd` tetap milik driver asli; ioctl 0x4c50/0x4c51 di `LM6029Device` diabaikan (`null`) dan `GET_INFO`-nya tidak mengisi flag `pseudo`. Dijaga tes **C10.50e** (fake addon: perintah khas pseudo → `null`, `GET_INFO.pseudo` undefined, `drawRect` normal tetap diteruskan ke addon).
+- **Perubahan pendukung:** `positional`/`num`/`bool`/`boolFrom`/`toByteBuffer`/`asBuffer` di `LM6029Device.ts` kini diekspor — dipakai bersama pseudo-device supaya kontrak argumen ioctl hanya hidup di satu tempat.
+- **Verifikasi:** 29 tes baru (C10.60–C10.88) + 30 tes LM6029Device lulus; DD-RAM di-render sebagai ASCII-art untuk memeriksa rasterisasi (dari situ ketemu & diperbaiki bug `roundRect`: dua garis horizontal palsu); suite kernel tidak menambah kegagalan (6 pre-existing tetap 6).
+- **Detail lengkap:** `wiki/changelogs/lcd.md` (2026-09-16); sisi viewer/DDC: `wiki/changelogs/ddc.md`.
+- **Deploy:** **restart kernel** (device didaftarkan saat boot) — file kernel, bukan `src/mirror/**`.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
 ---
 
 ## 2026-09-14

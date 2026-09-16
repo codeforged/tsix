@@ -502,4 +502,22 @@ describe("LM6029Device — bus SPI portabel (C10.50)", () => {
     expect(dev.present()).toBe(false);
     expect(String(dev.getInfo().lastError)).toContain("/dev/spidev0.0 gagal");
   });
+
+  /**
+   * Panel ASLI vs panel PALSU: ioctl khas pseudo-device (GET_FRAME 0x4c50 /
+   * GET_REV 0x4c51) tidak boleh mengganggu hardware — di sini harus null,
+   * dan GET_INFO hardware tidak boleh mengaku `pseudo`.
+   */
+  it("C10.50e ioctl khas pseudo-device diabaikan hardware (null, tanpa crash)", () => {
+    const lcd = makeFakeLcd();
+    const dev = new LM6029Device({ native: lcd });
+    dev.init({ syslog: () => {} });
+
+    expect(dev.ioctl(0x4c50, null)).toBeNull(); // GET_FRAME (hanya /dev/plcd)
+    expect(dev.ioctl(0x4c51, null)).toBeNull(); // GET_REV   (hanya /dev/plcd)
+    expect(dev.getInfo().pseudo).toBeUndefined(); // → lcdLib.isPseudo() === false
+    // Perintah LCD normal tetap jalan seperti biasa.
+    expect(dev.ioctl(LCDIOCTL.DRAW_RECT, { x: 0, y: 0, w: 4, h: 4, color: 1 })).toBe(true);
+    expect(lcd.drawRect).toHaveBeenCalledWith(0, 0, 4, 4, 1);
+  });
 });
