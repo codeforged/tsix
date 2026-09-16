@@ -188,6 +188,63 @@
 - **Deploy:** file kernel → **restart kernel** (tanpa sync VFS).
 - **Oleh:** Copilot · **Laporan:** andriansah
 
+### `/opt/plcd/launcher` — pembelokan device pindah dari app ke launcher
+
+- **File:**
+  - `src/mirror/opt/plcd/launcher.ts` **(baru)**
+  - `src/mirror/root/graphcalc.ts`, `src/mirror/opt/test/test-LM6029.ts` —
+    `await lcd.setDevicePath("/dev/plcd")` **dihapus** (app kembali jujur ke
+    `/dev/lcd`); `test-LM6029` kini mencetak `lcd.devicePath` (path AKTUAL)
+  - `src/mirror/lib/lcdLib.ts` — header: launcher jadi cara utama + larangan
+    hardcode `setDevicePath()` di app
+  - `src/mirror/etc/profile` — `/opt/plcd` masuk `PATH` (bisa `launcher <app>`)
+- **Latar:** app LCD terpaksa meng-hardcode `lcd.setDevicePath("/dev/plcd")`
+  supaya bisa diuji tanpa hardware. Itu salah tempat: device target adalah
+  urusan **deployment**, bukan urusan aplikasi — dan app yang sama jadi salah
+  arah saat benar-benar dipasang di panel nyata.
+- **Perubahan 1 — launcher sebagai pembelok device.** `/opt/plcd/launcher`
+  menjalankan app apa pun dengan node device dibelokkan (default
+  `/dev/lcd` → `/dev/plcd`), jadi app tetap menulis ke `/dev/lcd`:
+  `launcher /root/graphcalc.ts`, `launcher graphcalc.ts` (relatif cwd),
+  `launcher test-LM6029 suite` (cari di `PATH`). Opsi: `-d/--device <node>`
+  (mis. `-d /dev/lcd` untuk kembali ke hardware), `-c/--check` (verifikasi
+  node + ringkasan panel tanpa menjalankan app), `-f/--force`, `--`.
+  Sebelum app jalan: banner berisi target, node terdaftar?, `pseudo=true`,
+  geometri, kontras/backlight — dan app **tidak dijalankan** kalau node belum
+  siap (exit 2) beserta petunjuk penyebabnya. App yang masih memanggil
+  `setDevicePath()` sendiri diberi peringatan saat dimuat.
+- **Perubahan 2 — app dijalankan IN-PROSES (keputusan teknis kunci).**
+  `process.env` adalah milik **worker/isolate**, sedangkan env yang di-`setenv`
+  kernel hidup di **PCB**. Kalau launcher men-`shell.exec()` app sebagai proses
+  anak, worker anak menyalin env dari **main thread kernel** (bukan dari proses
+  launcher) → `TSIX_LCD_DEV` pembelokan **tidak akan terbawa**. Karena itu app
+  dimuat di worker yang sama: sumber dibaca dari VFS → `esbuild.transformSync`
+  bila `.ts` → `Module._compile()` → `new AppClass().execute(lib, args)` (pola
+  yang sama dengan WorkerEntry). Override env jadi pasti terbaca, tanpa worker
+  baru (~+10 MB RSS) dan tanpa proses perantara. Batasannya: `ps` tetap
+  menampilkan `launcher.js`, app berbagi sandbox launcher, dan app yang butuh
+  `global.require` host (mis. `/opt/tbuild`) di luar cakupan tool ini.
+- **Perubahan 3 — sabuk + bretel.** `TSIX_LCD_DEV` diset di `process.env`
+  (lazy-dibaca `lcdLib` → SEMUA instance), `shell.setenv()` dipanggil juga
+  (konsisten di sisi kernel + ikut ke anak proses), dan singleton `lcd`
+  di-`setDevicePath()` (instance yang sudah telanjur ada tetap terarah).
+- **Perubahan 4 — semua OUTPUT launcher berbahasa Inggris** (help, banner, pesan
+  error/peringatan, entri syslog) — sekaligus seluruh komentar & header file,
+  jadi `launcher.ts` tidak lagi bercampur dua bahasa. Pesan tetap memuat
+  petunjuk konkret: node belum terdaftar → "driver loaded at boot (restart the
+  kernel…)", panel belum siap → "check SPI/addon in /var/log/syslog".
+- **Verifikasi:** `npx tsc --noEmit` bersih untuk `launcher.ts` + kedua app;
+  smoke test loader terhadap sumber asli (`graphcalc.ts`, `test-LM6029.ts`, dan
+  app `.js`) dengan framework di-stub → `AppClass` + `execute` terbentuk
+  (membuktikan jalur VFS → esbuild → `Module._compile` → `Program()` bekerja);
+  sync VFS membuat sidecar `/opt/plcd/launcher.js`
+  (`/opt` ⇒ mode 0755 otomatis), `/root/graphcalc.js`, `/opt/test/test-LM6029.js`.
+- **Deploy:** `scripts/sync-vfs.ts` per file (`launcher.ts`, `graphcalc.ts`,
+  `test-LM6029.ts`, `lcdLib.ts`, `etc/profile`) + `/dev/plcd` terdaftar saat
+  boot. Shell yang sudah jalan perlu `source /etc/profile` (atau login baru)
+  agar `/opt/plcd` ada di `PATH`.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
 ---
 
 ## 2026-09-15

@@ -98,8 +98,19 @@ Tidak ada crash, tidak ada node "setengah hidup".
 glyph font-nya byte-identik dengan panel asli), plus viewer di browser:
 
 ```bash
-TSIX_LCD_DEV=/dev/plcd node app.js     # app yang sama, tanpa SPI
+# Di TSIX: jalankan app APA ADANYA lewat launcher — node device dibelokkan.
+launcher /root/graphcalc.ts          # app → /dev/plcd (panel palsu)
+launcher -c                          # cek dulu: /dev/plcd siap dipakai?
+launcher -d /dev/lcd graphcalc.ts    # balik ke panel LM6029 asli
+
+# Di luar TSIX (host Node biasa):
+TSIX_LCD_DEV=/dev/plcd node app.js
 ```
+
+> ⚠️ **Jangan hardcode pembelokan di dalam app.** Aplikasi harus tetap menulis
+> ke `/dev/lcd` (atau tidak menyebut device sama sekali); memindahkan node
+> adalah urusan *deployment* dan itu tugas `/opt/plcd/launcher`
+> (`src/mirror/opt/plcd/launcher.ts`).
 
 Detail: `wiki/changelogs/lcd.md` (2026-09-16) · viewer DDC: `wiki/changelogs/ddc.md`.
 
@@ -273,6 +284,13 @@ Utilitas di `/opt/test/test-LM6029.ts` — sekaligus contoh pemakaian `lcdLib`.
 | `test-LM6029 display on\|off` | display on/off |
 | `test-LM6029 speed [hz]` | set / sweep clock SPI + pola integritas |
 | `test-LM6029 fps [detik]` | benchmark 4 fase (render / flush / full / blit) |
+
+Tanpa panel fisik, jalankan lewat launcher (node device dibelokkan otomatis):
+
+```bash
+launcher test-LM6029 suite     # sama dengan `test-LM6029`, tapi ke /dev/plcd
+launcher test-LM6029 --fast
+```
 
 ---
 

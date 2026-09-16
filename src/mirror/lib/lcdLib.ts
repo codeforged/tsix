@@ -27,10 +27,17 @@
  *   const myLcd = new LcdLib(lib);   // lib = UserLib
  *
  * Panel PALSU (emulator software, tanpa hardware) — node /dev/plcd:
+ *   /opt/plcd/launcher /root/graphcalc.ts         // CARA UTAMA (disarankan):
+ *                                                 // app tetap bicara ke /dev/lcd,
+ *                                                 // LAUNCHER yang membelokkan node.
  *   TSIX_LCD_DEV=/dev/plcd ./app.js               // semua instance `lcd` pindah
  *   new LcdLib().setDevicePath("/dev/plcd")       // hanya instance ini
  *   `LCD_PSEUDO_DEVICE_PATH` di-export supaya tidak perlu hardcode string.
  *   Driver-nya `PLCDDevice` (kernel) + viewer GUI `/opt/plcd/plcd-emulator.js`.
+ *
+ * ⚠️ JANGAN hardcode `lcd.setDevicePath("/dev/plcd")` di dalam aplikasi: app
+ *    harus tetap jujur ke `/dev/lcd` (atau autodetect). Pembelokan device adalah
+ *    urusan DEPLOYMENT — pakai launcher di atas (lihat header `launcher.ts`).
  *
  * ── CATATAN ──
  * Konstanta ioctl di bawah HARUS sinkron dengan enum `LCDIOCTL` di driver

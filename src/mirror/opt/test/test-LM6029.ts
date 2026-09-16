@@ -32,7 +32,6 @@ import { Program, std } from "@tsix/Application";
 import {
   lcd,
   LcdFont,
-  LCD_DEVICE_PATH,
   LCD_FONT_NAMES,
   LCD_WIDTH,
   LCD_HEIGHT,
@@ -356,12 +355,13 @@ export const main = Program(async (args: string[]) => {
   await std.println("╔════════════════════════════════════════════╗");
   await std.println("║ 🖥️  test-LM6029 — LCD 128x64 via /dev/lcd   ║");
   await std.println("╚════════════════════════════════════════════╝");
-  await lcd.setDevicePath("/dev/plcd");
+  // Device default = /dev/lcd (hardware). Untuk panel palsu, JANGAN hardcode di
+  // sini — jalankan lewat launcher: `/opt/plcd/launcher test-LM6029 [cmd]`.
   // ── Semua akses lewat lcdLib (FD + ioctl diurus di dalam) ──
   try {
     // Pastikan device ada DAN panelnya benar-benar siap.
     if (!(await lcd.isAvailable())) {
-      await std.error(`❌ ${LCD_DEVICE_PATH} belum siap (available=false).`);
+      await std.error(`❌ ${lcd.devicePath} belum siap (available=false).`);
       await std.error("   Cek: SPI aktif? paket lm6029acw sudah terpasang?");
       await std.error("   Lihat /var/log/syslog (driver mencatat alasannya).");
       return;
@@ -369,7 +369,7 @@ export const main = Program(async (args: string[]) => {
 
     const info = await lcd.getInfo();
     await std.println(
-      `✔ ${LCD_DEVICE_PATH} siap — ${info?.width}x${info?.height}, ` +
+      `✔ ${lcd.devicePath} siap — ${info?.width}x${info?.height}, ` +
         `SPI ${(Number(info?.spiSpeed) / 1e6).toFixed(2)} MHz, ` +
         `kontras ${info?.contrast}, backlight ${info?.backlight}` +
         (info?.spiDevice ? `\n   bus ${info.spiDevice}` : ""),
