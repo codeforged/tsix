@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Craving Tracker 0-3</title>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --card-bg: #161b22;
+            --border-color: #30363d;
+            --text-color: #c9d1d9;
+            --text-muted: #8b949e;
+            --primary: #58a6ff;
+            --state-0: #21262d;
+            --state-1: #0e4429;
+            --state-2: #006d32;
+            --state-3: #26a641;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+            color: #fff;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            margin-bottom: 25px;
+            font-size: 14px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        select, input, textarea {
+            width: 100%;
+            padding: 8px;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-color);
+            box-sizing: border-box;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        textarea {
+            resize: vertical;
+            height: 60px;
+        }
+
+        button {
+            background-color: #238636;
+            color: white;
+            border: 1px solid rgba(240,246,252,0.1);
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        button:hover {
+            background-color: #2ea44f;
+        }
+
+        /* Simulasi Grid Kontribusi Ala GitHub */
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(35px, 1fr));
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .grid-box {
+            aspect-ratio: 1;
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: bold;
+            color: rgba(255,255,255,0.7);
+            position: relative;
+        }
+
+        .box-0 { background-color: var(--state-0); border: 1px solid var(--border-color); }
+        .box-1 { background-color: var(--state-1); }
+        .box-2 { background-color: var(--state-2); }
+        .box-3 { background-color: var(--state-3); }
+
+        .log-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            max-height: 250px;
+            overflow-y: auto;
+        }
+
+        .log-item {
+            border-bottom: 1px solid var(--border-color);
+            padding: 10px 0;
+            font-size: 13px;
+        }
+
+        .log-item:last-child {
+            border-bottom: none;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Craving Tracker (0-3)</h1>
+    <div class="subtitle">Log aktivitas & hasrat koding tanpa rokok demi si bungsu.</div>
+
+    <!-- Form Input Log -->
+    <div class="card">
+        <form id="logForm">
+            <label for="stateSelect">Skala Hasrat (State)</label>
+            <select id="stateSelect" required>
+                <option value="0">0 - Tidak ada hasrat / Lupa</option>
+                <option value="1">1 - Ada rasa ingin, langsung hilang</option>
+                <option value="2">2 - Ingin banget (Hampir bakar kalau ada di meja)</option>
+                <option value="3">3 - Jebol (Bela-belain beli lalu dibakar)</option>
+            </select>
+
+            <label for="contextInput">Konteks Koding / Kendala Bug</label>
+            <input type="text" id="contextInput" placeholder="Misal: Debugging async loop, refactoring tsix, dll.">
+
+            <button type="submit">Submit Log Aktivitas</button>
+        </form>
+    </div>
+
+    <!-- Visualisasi Grid Kontribusi -->
+    <div class="card">
+        <label>Visualisasi Tren (Matriks Kontribusi Harian)</label>
+        <div id="contributionGrid" class="grid-container"></div>
+    </div>
+
+    <!-- Riwayat Log Teknis -->
+    <div class="card">
+        <label>Riwayat Commit Data</label>
+        <ul id="logList" class="log-list">
+            <li class="log-item" style="color: var(--text-muted); text-align: center;">Belum ada data masuk.</li>
+        </ul>
+    </div>
+</div>
+
+<script>
+    // Struktur Data State Manajemen Sederhana
+    let trackerData = JSON.parse(localStorage.getItem('craving_logs')) || [];
+
+    const logForm = document.getElementById('logForm');
+    const stateSelect = document.getElementById('stateSelect');
+    const contextInput = document.getElementById('contextInput');
+    const contributionGrid = document.getElementById('contributionGrid');
+    const logList = document.getElementById('logList');
+
+    // Definisi Class Warna CSS
+    const stateClasses = ['box-0', 'box-1', 'box-2', 'box-3'];
+    const badgeColors = ['#30363d', '#0e4429', '#006d32', '#26a641'];
+
+    // Inisialisasi awal render komponen UI
+    updateUI();
+
+    logForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        
+        const timestamp = new Date().toLocaleString('id-ID', { hour: '2-digit', minute: '2-digit', second:'2-digit', day:'numeric', month:'short' });
+        const stateValue = parseInt(stateSelect.value);
+        const contextValue = contextInput.value.trim() || "Koding santai / Refactoring biasa";
+
+        // Tambahkan Log Baru (Append Node Data)
+        trackerData.push({
+            state: stateValue,
+            context: contextValue,
+            time: timestamp
+        });
+
+        // Sinkronisasi data ke LocalStorage browser
+        localStorage.setItem('craving_logs', JSON.stringify(trackerData));
+        
+        // Reset form input area
+        contextInput.value = '';
+        stateSelect.value = '0';
+
+        updateUI();
+    });
+
+    function updateUI() {
+        // 1. Render Matriks Grid Kontribusi
+        contributionGrid.innerHTML = '';
+        if (trackerData.length === 0) {
+            // Placeholder jika data kosong
+            for(let i=0; i<12; i++) {
+                const box = document.createElement('div');
+                box.className = 'grid-box box-0';
+                contributionGrid.appendChild(box);
+            }
+        } else {
+            trackerData.forEach(item => {
+                const box = document.createElement('div');
+                box.className = `grid-box ${stateClasses[item.state]}`;
+                box.innerText = item.state;
+                box.title = `${item.time} - ${item.context}`;
+                contributionGrid.appendChild(box);
+            });
+        }
+
+        // 2. Render Daftar Riwayat Log
+        if (trackerData.length === 0) {
+            logList.innerHTML = '<li class="log-item" style="color: var(--text-muted); text-align: center;">Belum ada data masuk.</li>';
+            return;
+        }
+
+        logList.innerHTML = '';
+        // Render terbalik (data terbaru berada di paling atas daftar)
+        [...trackerData].reverse().forEach(item => {
+            const li = document.createElement('li');
+            li.className = 'log-item';
+            
+            const badgesText = ['State 0', 'State 1', 'State 2', 'State 3'];
+            
+            li.innerHTML = `
+                <span class="badge" style="background-color: ${badgeColors[item.state]}; color: #fff;">${badgesText[item.state]}</span>
+                <strong>[${item.time}]</strong> - ${item.context}
+            `;
+            logList.appendChild(li);
+        });
+    }
+</script>
+</body>
+</html>

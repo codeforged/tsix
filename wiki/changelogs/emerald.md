@@ -4,6 +4,39 @@
 
 ---
 
+## 2026-09-16
+
+### ⚠️ Update batched (`updateProps` → `flushNow`) bisa HILANG di ekor rentetan panjang — status: **belum diperbaiki**
+
+- **File:** `src/mirror/lib/emerald.ts` (class `Window`: `updateProps`, `scheduleFlush`, `flushNow`)
+- **Temuan dari:** `wiki/changelogs/craving-tracker.md` (2026-09-16). Workaround dipasang di app tersebut; library belum disentuh.
+- **Gejala:** `label.caption = "..."` / `screen.update(id, { text })` setelah rentetan panjang `await setContent(...)` **tidak sampai** ke browser, sementara node yang di-mount lewat `setContent()` sendiri (sendImmediate) selalu tampil. Label tetap berisi caption awal selamanya.
+- **Bukti (bukan dugaan):**
+  - Inspeksi DOM live: elemen label **ada** (benar posisi & style-nya) tapi `textContent` kosong / masih caption awal → bukan masalah layout, melainkan update yang tidak pernah terpakai.
+  - Perekam WebSocket di browser DOME (`page.addInitScript` + bungkus `window.WebSocket`, lalu reload → menerima replay state): 8.245 `UPDATE_PROPS` diterima (termasuk payload 240 KB `img-child`), jadi jalur Kernel→DOME→browser **tidak** membatasi ukuran dan tidak memblokir; yang hilang spesifik update yang di-set di ekor rentetan.
+  - Update batched **tunggal** (dipicu aksi user, mis. ganti skala → foto berubah) terbukti aman — jadi bukan "batched selalu gagal".
+- **Analisis:** dua mekanisme di `flushNow()` yang bisa membuang update:
+  1. `flushNow()` mengambil snapshot `entries` lalu di akhir memanggil `this.dirtyProps.clear()`. Update yang masuk **saat flush sedang berjalan** (menunggu `await sendImmediate`) ikut terhapus, padahal belum terkirim. Sementara `scheduleFlush()` menolak menjadwalkan flush baru karena `this.batchPromise` masih hidup → update itu tidak punya kesempatan terkirim.
+  2. `flushNow()` `return` lebih awal ketika `dirtyProps.size === 0` **tanpa** mereset `batchPromise`/`batchTimer`. Bila kondisi itu terjadi, semua `scheduleFlush()` berikutnya hanya `return` (selamanya tidak ada flush) — update batched hilang diam-diam. Hal serupa terjadi bila ada `sendImmediate` yang melempar di tengah loop (promise tidak pernah di-resolve & state batch tidak direset).
+- **Saran patch (belum diterapkan, perlu diuji di app lain: asteracea/krisan/file-cruiser):**
+  ```ts
+  private async flushNow(): Promise<void> {
+    if (this.dirtyProps.size === 0) {
+      this.batchPromise = null; this.batchTimer = null;   // WAJIB: jangan tinggalkan batch terkunci
+      return;
+    }
+    for (const [targetId, props] of Array.from(this.dirtyProps.entries())) {
+      this.dirtyProps.delete(targetId);                   // hapus HANYA yang sudah diambil
+      try { await this.sendImmediate(GUIAction.UPDATE_PROPS, targetId, undefined, props); }
+      catch (e) { /* jangan tinggalkan batch terkunci */ }
+    }
+    this.batchPromise = null; this.batchTimer = null;
+  }
+  ```
+- **Workaround yang dipakai app:** tulis teks lewat jalur immediate `screen.setContent(hostId, { tag: "span", props: { text } })` (helper `writeText()`/`writeStatus()` di app craving-tracker), dan isi teks awal **sebelum mount** supaya ikut payload `MOUNT_NODE` pertama.
+- **Dampak:** Perilaku saat ini: app yang mengandalkan `screen.update()` untuk teks bisa menampilkan nilai basi setelah rentetan render panjang. Belum ada perubahan perilaku di library.
+- **Oleh:** Copilot · **Laporan/reproduksi:** kakang
+
 ## 2026-09-04
 
 ### `image()` siap diklik — `onClickId` + cursor pointer untuk `<img>`
