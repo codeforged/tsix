@@ -15,7 +15,7 @@
  * Tombol di bawah panel berfungsi sebagai test-bench: semuanya menulis ke
  * `/dev/plcd` lewat `lcdLib` (jalur yang sama dengan app sungguhan), jadi
  * sekaligus membuktikan driver pseudo-nya bekerja.
- *
+ * 
  * Jalankan: plcd-emulator
  * PASTIKAN DOME SUDAH RUNNING: dome
  * DEPLOY: sync VFS (`scripts/sync-vfs.ts`) + restart kernel (driver
@@ -38,7 +38,7 @@ export const appMode = "gui";
 // ================================================================
 const PANEL_W = 128;
 const PANEL_H = 64;
-const SCALE = 3;
+const SCALE = 4;
 const PHYS_W = PANEL_W * SCALE;
 const PHYS_H = PANEL_H * SCALE;
 
@@ -109,7 +109,7 @@ export const main = Program(async (_args: string[]) => {
         padding: "6px",
         borderRadius: "8px",
         border: "1px solid #000",
-        background: "#0b0d08",
+        background: "#8a9e66",
         boxShadow: "inset 0 2px 10px rgba(0,0,0,0.85)",
     });
 

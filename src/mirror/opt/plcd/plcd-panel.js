@@ -32,7 +32,7 @@ DDC.onInit(function (ctx) {
     var W = ctx.width;
     var H = ctx.height;
     var c2 = ctx.canvas.getContext("2d");
-    var state = { invert: false, displayOn: true, backlight: true, trail: false, pixelGap: false };
+    var state = { invert: false, displayOn: true, backlight: true, trail: false, pixelGap: true };
 
     // ── PALET (disamakan dengan ddc-sample/graphcalc.js) ──
     // Kaca LCD = dua stop hijau metalik; tiap baris diambil warnanya lewat
@@ -114,7 +114,7 @@ DDC.onInit(function (ctx) {
         }
     }
 
-    /**
+    /** 
      * Luruhkan level sisa-nyala satu langkah (dipanggil per RAF).
      * Piksel yang ON di frame terakhir → level penuh; sisanya turun FADE.
      * Return true selama masih ada bayangan yang perlu diluruhkan.
@@ -217,12 +217,16 @@ DDC.onInit(function (ctx) {
         c2.fillRect(0, 0, W, H);
         c2.imageSmoothingEnabled = false;
 
+        // --- AKTIFKAN BLUR TIPIS ---
+        // Gunakan nilai px yang kecil (misal: 1px atau 1.5px) untuk efek blur tipis.
+        c2.save(); 
+        c2.filter = "blur(.8px)"; 
+
         // 1. Gambar canvas offscreen ke canvas utama terlebih dahulu
         c2.drawImage(off, offX, offY, PANEL_W * scale, PANEL_H * scale);
 
         // 2. Overlay Grid Efek Celah (Hanya aktif jika state.pixelGap bernilai TRUE dan skala > 1)
         if (state.pixelGap && scale > 1) {
-            c2.save();
             // Catatan: Gunakan #0b0d08 (warna latar emulator) agar celahnya transparan memotong piksel.
             // Jika kamu sengaja memakai warna menyala seperti #ffd54f untuk efek neon grid, silakan ganti kembali warnanya.
             c2.fillStyle = "#dbddd8";
@@ -235,10 +239,13 @@ DDC.onInit(function (ctx) {
             for (var y = 1; y < PANEL_H; y++) {
                 c2.fillRect(offX, offY + y * scale, PANEL_W * scale, 1);
             }
-            c2.restore();
         }
+        
+        // --- MATIKAN BLUR ---
+        // c2.restore() akan mengembalikan status filter ke 'none' (normal)
+        c2.restore(); 
 
-        // Bingkai tipis tepi panel (biar batas kaca terlihat).
+        // Bingkai tipis tepi panel (biar batas kaca terlihat). Tidak ikut blur.
         c2.strokeStyle = "rgba(0,0,0,0.6)";
         c2.lineWidth = 1;
         c2.strokeRect(offX - 0.5, offY - 0.5, PANEL_W * scale + 1, PANEL_H * scale + 1);
@@ -261,6 +268,7 @@ DDC.onInit(function (ctx) {
             c2.fillText("⌁ backlight off", offX + 4, offY + 4);
         }
     }
+
 
     ctx.onMessage = function (msg) {
         if (!msg) return;

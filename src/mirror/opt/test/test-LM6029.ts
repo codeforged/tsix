@@ -356,7 +356,7 @@ export const main = Program(async (args: string[]) => {
   await std.println("╔════════════════════════════════════════════╗");
   await std.println("║ 🖥️  test-LM6029 — LCD 128x64 via /dev/lcd   ║");
   await std.println("╚════════════════════════════════════════════╝");
-
+  await lcd.setDevicePath("/dev/plcd");
   // ── Semua akses lewat lcdLib (FD + ioctl diurus di dalam) ──
   try {
     // Pastikan device ada DAN panelnya benar-benar siap.
