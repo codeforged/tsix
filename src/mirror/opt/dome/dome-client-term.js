@@ -309,14 +309,34 @@
         " !important; }";
       el.appendChild(style);
     }
-    term.onData(function (data) {
+    function sendTermInput(data) {
       TSIX.send({
         wid: el._xtermWid,
         targetId: el._xtermNodeId,
         eventType: "term_input",
         value: data,
       });
+    }
+    term.onData(sendTermInput);
+
+    // --- Ctrl+/ → US (0x1F) --------------------------------------------------
+    // xterm.js TIDAK menerjemahkan Ctrl+/ jadi apa pun: di evaluateKeyboardEvent,
+    // cabang "ctrl saja" hanya memetakan keyCode 65-90 (A-Z), 32 (Space), 51-56,
+    // 219-221 — keyCode 191 ("/") tidak ada, jadi tak ada data yang dikirim.
+    // Akibatnya app TUI (mis. atto: toggle komentar "//") yang jalan di
+    // pixelterm/retroterm tidak pernah menerima Ctrl+/, padahal console native
+    // (xterm/gnome/VS Code) mengirim US (0x1F) untuk kombinasi ini.
+    // Intersep di layer widget supaya SEMUA app berbasis <xterm> ikut benar.
+    term.attachCustomKeyEventHandler(function (ev) {
+      if (ev.type !== "keydown") return true;
+      if (ev.altKey) return true;
+      if (!ev.ctrlKey && !ev.metaKey) return true;
+      if (ev.key !== "/" && ev.key !== "?" && ev.code !== "Slash") return true;
+      ev.preventDefault(); // cegah shortcut default browser
+      sendTermInput("\x1f");
+      return false; // jangan diteruskan ke xterm (memang tidak ada outputnya)
     });
+
     el._xterm = term;
     // Auto-focus jika ada permintaan focus sebelum xterm siap
     if (el._pendingFocus) {
