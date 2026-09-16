@@ -4,6 +4,37 @@
 
 ---
 
+## 2026-09-16
+
+### Perbaikan: Alt+1..6 tidak lagi memindahkan TTY di console native (regresi `fd3be6e`) + dukungan macOS & Ctrl+1..6
+
+- **File:** `src/kernel/Kernel.ts` (`handleKeyboardHotkey`), `src/kernel/Kernel.test.ts`.
+- **Gejala:** di console native (host terminal), `Alt+1..6` sudah tidak memindahkan TTY, padahal dulu bisa. `Ctrl+1..6` juga tidak.
+- **Akar masalah (dibuktikan dengan `git log -S`):** commit **`fd3be6e` "switch tty hotkey in mac keyboard"** (2026-08-28) **mengganti** — bukan menambah — enam entri `"\x1b1".."\x1b6"` (ESC + digit, bentuk yang dikirim xterm / GNOME Terminal / VS Code / iTerm2 untuk Alt+digit) dengan enam karakter macOS `¡ ™ £ ¢ ∞ §`. Sejak commit itu, Alt+digit hanya cocok di Terminal.app (opsi *Use Option as Meta key* mati), dan di Linux tak ada lagi entri yang cocok. `Ctrl+digit` **tidak pernah** ada di kode mana pun (`git log -S 'Ctrl+1' --all` → kosong), jadi itu memang belum pernah didukung.
+- **Perubahan 1 — Alt+digit dikembalikan, macOS tetap:** `"\x1b" + d` (Alt+digit native) **dan** `¡™£¢∞§` sama-sama dipetakan, jadi kedua platform jalan bersamaan tanpa saling mengorbankan.
+- **Perubahan 2 — Ctrl+1..6 untuk terminal modern:** ditambah varian **CSI-u** (`\x1b[<49-54>;5u` untuk Ctrl, `;3u` untuk Alt) dan **modifyOtherKeys=2** (`\x1b[27;5;<49-54>~` / `\x1b[27;3;<49-54>~`) — dipakai kitty, wezterm, Ghostty, foot, iTerm2 (Report modifiers), dan xterm dengan `modifyOtherKeys=2`.
+- **Perubahan 3 — Ctrl+4..6 lewat caret notation:** `0x1C/0x1D/0x1E` (FS/GS/RS) → TTY 4/5/6. Ini byte yang **benar-benar** dikirim terminal klasik (xterm, GNOME Terminal, Terminal.app) untuk Ctrl+4..Ctrl+6. Karena byte-nya sama, `Ctrl+\`, `Ctrl+]`, `Ctrl+^` ikut memindahkan TTY — tidak ada userland TSIX yang memakai ketiganya, jadi alokasinya aman (dan ini konsekuensi bawaan caret notation, bukan pilihan kita).
+- **Sengaja TIDAK dipetakan** (tak mau menabrak tombol inti aplikasi): `Ctrl+3` = `0x1B` (ESC — dipakai atto/vim), `Ctrl+2` = `0x00` (NUL — sama dengan `Ctrl+Space`/`Ctrl+@`), `Ctrl+8` = `0x7F` (DEL — sama dengan Backspace), `Ctrl+7` = `0x1F` (US — sama dengan `Ctrl+/`), dan `Ctrl+1` (terminal tidak mengirim byte apa pun untuk ini).
+- **Perubahan 4 — Ctrl+Alt+1..6.** Terukur di xterm.js 5.3.0 (mesin yang sama dengan dome/pixelterm **dan** VS Code): `Ctrl+Alt+1` → `1b 31` (`\x1b1`), `Ctrl+Alt+4` → `1b 34` (`\x1b4`, **bukan** FS seperti `Ctrl+4`), `Ctrl+Alt+A` → `1b 01` — jadi di sana encoding Ctrl+Alt+digit **identik dengan Alt+digit** (modifier Alt menang, Ctrl diabaikan untuk tombol digit) dan sudah tertangani entri `"\x1b" + d`. Di VTE/GNOME Terminal hanya `Ctrl+Alt+1` yang begini; sisanya jadi caret notation (lihat tabel pengukuran di bawah). Untuk terminal ber-protokol keyboard ditambah **CSI-u `;7u`** dan **modifyOtherKeys `27;7;<code>~`** (modifier 7 = 1 + Alt 2 + Ctrl 4).
+- **Perubahan 5 — lookup map tidak lagi menelan kata warisan prototype:** pengecekan diganti dari `if (hotkeys[seq])` menjadi `typeof targetTtyId === "number"`. Sebelumnya, satu chunk input yang kebetulan berisi `"constructor"`/`"toString"` menghasilkan nilai truthy dari `Object.prototype` → dianggap hotkey (tombol ditelan tanpa efek).
+- **Verifikasi:** `npx vitest run src/kernel/Kernel.test.ts` → **13 lulus** (9 lama + 4 baru): A3.12 Alt+digit + urutan tujuan TTY `1,2,3,4,5,6`; A3.13 tabel 21 encoding (macOS, Alt+F1..F6, CSI-u `;3u/;5u/;7u`, modifyOtherKeys `;3/;5/;7`, caret notation) lewat `ttyManager.switch` palsu; A3.14 Ctrl+Alt+digit = encoding Alt+digit; A3.15 `ESC` tunggal, tombol biasa, dan `"constructor"` tetap diteruskan ke aplikasi (harus `false`, `switch` tidak pernah dipanggil).
+- **Deploy:** file kernel (bukan `src/mirror/**`) → tidak perlu sync VFS, cukup restart `npm start`.
+- **Catatan lapangan — `Ctrl+digit` telanjang memang tidak bisa dipakai:** GNOME Terminal (Ubuntu) memakainya untuk pindah tab dan VS Code untuk "focus editor group"; **meng-unbind shortcut-nya pun tidak menolong**, karena byte yang sampai sudah kehilangan info modifier. Terukur di **GNOME Terminal/VTE** dengan `cat -v` (laporan andriansah, 2026-09-16):
+
+  | Kombinasi | Byte | Hasil di TSIX |
+  |---|---|---|
+  | `Alt+1..6` | `^[1` .. `^[6` (ESC + digit) | **TTY 1..6** — jalur utama yang dipakai |
+  | `Ctrl+Alt+1` | `^[1` | TTY 1 ✅ (VTE memperlakukan sama seperti Alt+1) |
+  | `Ctrl+Alt+4/5/6` | `^\` `^]` `^^` (FS/GS/RS) | TTY 4/5/6 ✅ lewat caret notation |
+  | `Ctrl+Alt+2` / `Ctrl+Alt+3` | `^@` (NUL) / `^[` (ESC) | sengaja tidak dipetakan |
+  | `Ctrl+1` | `1` | mustahil: tak terbedakan dari mengetik "1" |
+  | `Ctrl+2` / `Ctrl+3` / `Ctrl+4` | `^@` / `^[` / `^\` | caret notation; `^\` (0x1C) = **SIGQUIT** → `Quit (core dumped)` di shell biasa |
+
+  SIGQUIT itu urusan line discipline host, bukan TSIX: TSIX men-set `stdin.setRawMode(true)` (lihat `KeyboardDevice`), jadi `0x1C` tiba sebagai data dan dipakai untuk pindah TTY — bukan membunuh proses. Di browser (pixelterm/retroterm) xterm.js hanya mengirim `Ctrl+3..7` (ESC/FS/GS/RS/US): `Ctrl+4..6` bekerja, `Ctrl+1/2` tidak. **Kesimpulan:** pakai `Alt+1..6` (dan biarkan GNOME Terminal 1 tab per window); `Ctrl+Alt+1` serta `Ctrl+4..6` ikut jalan sebagai bonus.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
+---
+
 ## 2026-09-14
 
 ### Perbaikan: `ps --mem` / `mem --per-proc` kosong di macOS & Ubuntu (Node < 22.16)

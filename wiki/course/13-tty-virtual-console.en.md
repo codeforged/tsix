@@ -96,7 +96,7 @@ The scheduler maintains the mapping `ttyForegroundPids: Map<ttyId, pid>` — one
 
 ### Keyboard
 
-- **Hotkey** Alt+F1–F6 → `TTYManager.switch` (also Alt+1–6 for macOS).
+- **Hotkey** Alt+F1–F6 → `TTYManager.switch`. Console switching also works with **Alt+1–6** and **Ctrl+Alt+1–6** on every terminal (both arrive as ESC+digit; `¡ ™ £ ¢ ∞ §` on macOS Terminal) plus **Ctrl+1–6** where the terminal reports modifiers (CSI-u / modifyOtherKeys); `Ctrl+4–6` is additionally recognised via caret notation (FS/GS/RS). Bare `Ctrl+1–6` cannot work: GNOME Terminal uses it to switch tabs and VS Code to focus editor groups, and the bytes no longer carry modifier information.
 - **Ctrl+C** → `SIGINT` to the foreground process of the active TTY.
 - **Console switch** → `SIGWINCH` to the foreground process of the newly active TTY.
 - **Host window resize** → update `LINES`/`COLUMNS` in the env of all processes + `SIGWINCH` broadcast + `TTYManager.handleResize()`.
@@ -369,25 +369,38 @@ const newPcb = this.scheduler.createProcess(binaryName, {
 });
 ```
 
-### Hotkey Alt+F1..6 (`src/kernel/Kernel.ts`)
+### Console-switch hotkeys (Alt+F1..6, Alt+1..6, Ctrl+Alt+1..6) (`src/kernel/Kernel.ts`)
 
 ```ts
 private handleKeyboardHotkey(seq: string): boolean {
     const hotkeys: Record<string, number> = {
-        // Alt+F1..F6 (Xterm, iTerm2, Terminal.app)
+        // Alt+F1..F6 (xterm, iTerm2, Terminal.app)
         "\x1b\x1bOP": 1,   "\x1b[1;3P": 1,   "\x1b[11;3~": 1,
         "\x1b\x1bOQ": 2,   "\x1b[1;3Q": 2,   "\x1b[12;3~": 2,
         "\x1b\x1bOR": 3,   "\x1b[1;3R": 3,   "\x1b[13;3~": 3,
         "\x1b\x1bOS": 4,   "\x1b[1;3S": 4,   "\x1b[14;3~": 4,
         "\x1b\x1b[15~": 5, "\x1b[15;3~": 5,  "\x1b[1;3;15~": 5,
         "\x1b\x1b[17~": 6, "\x1b[17;3~": 6,  "\x1b[1;3;17~": 6,
-        // Alt+1..6 (macOS saat Option bertindak sebagai Meta)
-        "\x1b1": 1, "\x1b2": 2, "\x1b3": 3,
-        "\x1b4": 4, "\x1b5": 5, "\x1b6": 6,
+        // Option+1..6 (macOS Terminal with "Option as Meta" OFF)
+        "¡": 1, "™": 2, "£": 3, "¢": 4, "∞": 5, "§": 6,
+        // Ctrl+4..6 — caret notation (FS/GS/RS)
+        "\x1c": 4, "\x1d": 5, "\x1e": 6,
     };
-    if (hotkeys[seq]) {
-        // FIRE AND FORGET: jangan await agar tidak memblokir input keyboard
-        this.ttyManager?.switch(hotkeys[seq]);
+    for (let d = 1; d <= 6; d++) {
+        const cp = 48 + d;                    // '1' = 49 ... '6' = 54
+        hotkeys["\x1b" + d] = d;              // Alt+digit & Ctrl+Alt+digit
+        hotkeys[`\x1b[${cp};3u`] = d;         // Alt+digit (CSI-u)
+        hotkeys[`\x1b[${cp};5u`] = d;         // Ctrl+digit (CSI-u)
+        hotkeys[`\x1b[${cp};7u`] = d;         // Ctrl+Alt+digit (CSI-u)
+        hotkeys[`\x1b[27;3;${cp}~`] = d;      // Alt+digit (modifyOtherKeys)
+        hotkeys[`\x1b[27;5;${cp}~`] = d;      // Ctrl+digit (modifyOtherKeys)
+        hotkeys[`\x1b[27;7;${cp}~`] = d;      // Ctrl+Alt+digit (modifyOtherKeys)
+    }
+    const targetTtyId = hotkeys[seq];
+    // typeof check: words like "constructor"/"toString" must not be swallowed
+    if (typeof targetTtyId === "number") {
+        // FIRE AND FORGET: don't await, otherwise keyboard input gets blocked
+        this.ttyManager?.switch(targetTtyId);
         return true; // handled
     }
     return false;

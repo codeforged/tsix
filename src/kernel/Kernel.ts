@@ -35,7 +35,7 @@ import { std } from "@tsix/Application";
 export class Kernel {
   // Versi kernel saat ini
   private codename: string = "Dinawari";
-  private version: string = "0.2.7.20260914.1";
+  private version: string = "0.2.8.20260916.1";
 
   public getCodename(): string {
     return this.codename;
@@ -459,7 +459,43 @@ export class Kernel {
   }
 
   /**
-   * handleKeyboardHotkey(): Deteksi Alt+F1..F6 untuk pindah TTY.
+   * handleKeyboardHotkey(): Deteksi hotkey pindah TTY
+   * (Alt+F1..F6, Alt+1..6, Ctrl+1..6, Ctrl+Alt+1..6).
+   *
+   * Tiap terminal mengirim byte berbeda untuk kombinasi yang sama, jadi tabel
+   * ini memuat semua varian yang lazim dipakai:
+   *
+   *   Alt+F1..F6   → ESC ESC O P / ESC [ 1;3P / ESC [ 11;3~ (xterm, iTerm2,
+   *                  Terminal.app)
+   *   Alt+1..6     → ESC + digit ("\x1b1".."\x1b6") — bentuk standar xterm,
+   *                  GNOME Terminal, VS Code, dan Terminal.app saat opsi
+   *                  "Use Option as Meta key" aktif.
+   *   Ctrl+Alt+1..6 → di xterm.js (VS Code, dome/pixelterm) selalu ESC + digit,
+   *                  sama seperti Alt+digit: modifier Alt menang, Ctrl diabaikan
+   *                  untuk tombol digit (terukur: Ctrl+Alt+1 → "\x1b1",
+   *                  Ctrl+Alt+4 → "\x1b4", bukan FS). Di VTE/GNOME Terminal
+   *                  hanya Ctrl+Alt+1 yang begini; Ctrl+Alt+2..6 jatuh ke caret
+   *                  notation (NUL / ESC / FS / GS / RS) persis seperti
+   *                  Ctrl+digit telanjang — jadi Ctrl+Alt+4..6 tetap jalan
+   *                  lewat entri 0x1C..0x1E di bawah. Kombo ini berguna kalau
+   *                  terminal sudah mencaplok Ctrl+1..6 (GNOME Terminal: pindah
+   *                  tab; VS Code: focus editor group).
+   *   Option+1..6  → "¡ ™ £ ¢ ∞ §" (macOS Terminal dengan opsi Meta MATI)
+   *   Ctrl/Alt+digit (CSI-u)          → ESC [ <49-54> ; 5u (Ctrl) / ; 3u (Alt)
+   *                  / ; 7u (Ctrl+Alt) — kitty, wezterm, Ghostty, foot, iTerm2
+   *                  (Report modifiers)
+   *   Ctrl/Alt+digit (modifyOtherKeys) → ESC [ 27 ; 5 ; <49-54> ~ (Ctrl) / ; 3~
+   *                  / ; 7;~ (Ctrl+Alt) — xterm modifyOtherKeys=2, iTerm2 legacy
+   *   Ctrl+4..6 (caret notation)       → 0x1C/0x1D/0x1E (FS/GS/RS). Ini byte
+   *                  yang benar-benar dikirim terminal klasik untuk Ctrl+4..6
+   *                  (Ctrl+3 = ESC, Ctrl+7 = 0x1F, Ctrl+8 = DEL).
+   *
+   * Sengaja TIDAK dipetakan (takut menabrak tombol inti aplikasi):
+   *   - Ctrl+3 = 0x1B (ESC) — dipakai semua TUI (atto, vim)
+   *   - Ctrl+2 = 0x00 (NUL) — sama dengan Ctrl+Space / Ctrl+@
+   *   - Ctrl+8 = 0x7F (DEL) — sama dengan Backspace
+   * Catatan: 0x1C/0x1D/0x1E juga berarti Ctrl+\ , Ctrl+] , Ctrl+^ — tidak ada
+   * userland TSIX yang memakainya, jadi aman dialokasikan untuk pindah TTY.
    */
   private handleKeyboardHotkey(seq: string): boolean {
     // Alt+F1..F6 sequences vary by terminal, but common ones are:
@@ -487,18 +523,40 @@ export class Kernel {
       "\x1b[17;3~": 6,
       "\x1b[1;3;17~": 6,
 
-      // Alt+1..6 (Common macOS alternative when Option acts as Meta)
+      // Option+1..6 di macOS Terminal (opsi "Use Option as Meta key" MATI —
+      // kalau opsi itu AKTIF, yang datang justru ESC+digit di bawah)
       "¡": 1,
       "™": 2,
       "£": 3,
       "¢": 4,
       "∞": 5,
       "§": 6,
+
+      // Ctrl+4..6 — caret notation (FS/GS/RS)
+      "\x1c": 4,
+      "\x1d": 5,
+      "\x1e": 6,
     };
 
-    if (hotkeys[seq]) {
+    // Alt+1..6 & Ctrl+Alt+1..6 (keduanya ESC+digit) + varian CSI-u /
+    // modifyOtherKeys untuk Alt, Ctrl, dan Ctrl+Alt.
+    for (let d = 1; d <= 6; d++) {
+      const cp = 48 + d; // '1' = 49 ... '6' = 54
+      hotkeys["\x1b" + d] = d; // Alt+digit & Ctrl+Alt+digit (xterm, GNOME, VS Code, iTerm2, macOS)
+      hotkeys[`\x1b[${cp};3u`] = d; // Alt+digit (CSI-u)
+      hotkeys[`\x1b[${cp};5u`] = d; // Ctrl+digit (CSI-u)
+      hotkeys[`\x1b[${cp};7u`] = d; // Ctrl+Alt+digit (CSI-u)
+      hotkeys[`\x1b[27;3;${cp}~`] = d; // Alt+digit (modifyOtherKeys)
+      hotkeys[`\x1b[27;5;${cp}~`] = d; // Ctrl+digit (modifyOtherKeys)
+      hotkeys[`\x1b[27;7;${cp}~`] = d; // Ctrl+Alt+digit (modifyOtherKeys)
+    }
+
+    const targetTtyId = hotkeys[seq];
+    // typeof check (bukan `if (hotkeys[seq])`) supaya kata yang kebetulan sama
+    // dengan properti prototype ("constructor", "toString") tidak ikut ditelan.
+    if (typeof targetTtyId === "number") {
       // FIRE AND FORGET: Jangan await agar tidak nge-block input keyboard
-      this.ttyManager?.switch(hotkeys[seq]);
+      this.ttyManager?.switch(targetTtyId);
       return true; // Handled
     }
 
