@@ -1374,6 +1374,14 @@ class SimpleTextEditor {
       return;
     }
 
+    // Ctrl+/ (terminal mengirim 0x1F, alias Ctrl+_) → toggle komentar "//"
+    // pada baris yang terseleksi. Ditaruh SEBELUM finalizeSelection supaya
+    // selection tidak dibatalkan/di-copy lebih dulu.
+    if (char === "\u001f" && !this.findMode) {
+      await this.toggleComment();
+      return;
+    }
+
     // Jika selection aktif dan user menekan tombol non-arrow, salin lalu akhiri selection
     if (this.selectionActive) {
       this.finalizeSelection();
@@ -2012,6 +2020,76 @@ class SimpleTextEditor {
     await this.render();
   }
 
+  /**
+   * Toggle komentar "//" untuk baris-baris yang terseleksi (Ctrl+/).
+   * Aturan (mengikuti editor umum):
+   *   - Kalau SEMUA baris target sudah berkomentar → buang "//" (uncomment).
+   *   - Kalau tidak → tambahkan "// " (setelah indentasi) pada baris yang
+   *     belum berkomentar saja.
+   * Baris kosong / hanya spasi dilewati. Selection tetap aktif supaya Ctrl+/
+   * bisa ditekan berulang. Kalau tidak ada selection, berlaku untuk baris kursor.
+   */
+  private async toggleComment() {
+    // Rentang baris: selection kalau aktif, kalau tidak baris kursor
+    let lineStart: number;
+    let lineEnd: number;
+    if (this.selectionActive && this.selectionStart && this.selectionEnd) {
+      const a = this.selectionStart;
+      const b = this.selectionEnd;
+      lineStart = Math.min(a.line, b.line);
+      lineEnd = Math.max(a.line, b.line);
+    } else {
+      lineStart = lineEnd = this.cursorY + this.offsetY;
+    }
+
+    // Lewati baris kosong (hanya spasi) — tidak perlu dikomentari
+    const targets: number[] = [];
+    for (let i = lineStart; i <= lineEnd; i++) {
+      if (i < 0 || i >= this.lines.length) continue;
+      if ((this.lines[i] || "").trim() !== "") targets.push(i);
+    }
+    if (targets.length === 0) return;
+
+    const isCommented = (i: number) => /^\s*\/\//.test(this.lines[i]);
+    const uncomment = targets.every(isCommented);
+
+    this.captureState(true);
+    const deltas = new Map<number, number>();
+    for (const i of targets) {
+      const line = this.lines[i];
+      if (uncomment) {
+        // Buang "//" (plus satu spasi setelahnya kalau ada)
+        const m = /^(\s*)\/\/ ?/.exec(line)!;
+        this.lines[i] = m[1] + line.slice(m[0].length);
+        deltas.set(i, m[1].length - m[0].length); // negatif
+      } else {
+        if (isCommented(i)) continue; // sudah berkomentar → biarkan
+        const indent = /^[ \t]*/.exec(line)![0];
+        this.lines[i] = indent + "// " + line.slice(indent.length);
+        deltas.set(i, 3); // panjang "// "
+      }
+    }
+
+    // Geser kolom anchor/end + kursor sesuai perubahan per baris
+    const shift = (pos: { line: number; col: number } | null) => {
+      if (!pos) return;
+      const d = deltas.get(pos.line);
+      if (d !== undefined) pos.col = Math.max(0, pos.col + d);
+    };
+    shift(this.selectionStart);
+    shift(this.selectionEnd);
+    const curLine = this.cursorY + this.offsetY;
+    const d = deltas.get(curLine);
+    if (d !== undefined) {
+      this.cursorX = Math.max(0, this.cursorX + d);
+      this.monoPos = this.cursorX;
+    }
+
+    this.changed = true;
+    this.checkModified();
+    await this.render();
+  }
+
   private async deleteLine() {
     this.captureState(true);
     const lineIdx = this.cursorY + this.offsetY;
@@ -2252,13 +2330,14 @@ class SimpleTextEditor {
   private async showHelp() {
     const helpText = [
       "┌────────────────────────────────────────────────────────────────────────┐",
-      "│                          ATTO Text Editor v1.86                        │",
+      "│                          ATTO Text Editor v1.87                        │",
       "├────────────────────────────────────────────────────────────────────────┤",
       "│ Ctrl+S: Save          │ Ctrl+F: Find     │ Ctrl+L: Find Next           │",
       "│ Ctrl+W: Save & Exit   │ Alt+R:  Replace  │ F1:     Help                │",
       "│ Shift+Arrow: Select   │ Ctrl+V: Paste    │ Ctrl+X: Copy & Cut          │",
       "│ Ctrl+C: Exit          │ Ctrl+Z: Undo     │ Ctrl+A/E: Begin/End of Line │",
       "│ Ctrl+K: Delete Line   │ Ctrl+Y: Redo     │ Ctrl+←/→: Word              │",
+      "│ Ctrl+/: Toggle Cmt    │ Tab: Indent Line │ Shift+Tab: Unindent Line    │",
       "│ Home: Begin of Col    │ End: End of Col  │ Ctrl+Home: Begin of file    │",
       "│ Ctrl+End: End of file │ PgUp: Page Up    │ PgDn: Page Down             │",
       "├────────────────────────────────────────────────────────────────────────┤",
