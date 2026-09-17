@@ -21,10 +21,11 @@
 - **Akar masalah:** `rc.local.ts` legacy **menghapus** `/var/run/dome.ready` DULU sebelum start DOME (perubahan “Boot readiness” di `changelogs/dome.md`), supaya marker yang ditunggu benar-benar fresh. Langkah itu hilang saat migrasi ke skrip, sedangkan `/var/run` ada di VFS **persisten** → marker boot sebelumnya masih ada → `waitfile` lolos seketika.
 - **Perbaikan 1 (di skrip):** `rm -f /var/run/dome.ready` sebelum `/opt/dome/dome.js`, lalu `waitfile /var/run/dome.ready 10000`, baru `/opt/asteracea/asteracea.js`.
 - **Perbaikan 2 (`rm.ts`):** TSIX belum punya `-f`; sekarang `rm -f` (beserta flag gabungan `-rf`/`-fr`) didukung — file yang tidak ada tidak lagi menghasilkan error yang mengotori boot log.
-- **Perbaikan 3 (akar sistemik):** `/var/run` kini di-mount **ramfs** pada instalasi baru (`FSTAB_FRESH`) — state runtime jadi volatile seperti `/run` (tmpfs) di Linux, sehingga marker tidak pernah basi. Node lama menambahkan entry fstab yang sama (lihat `wiki/RC_LOCAL.md`).
+- **Perbaikan 3 (akar sistemik):** kernel **menjamin** `/var/run` volatile — `Kernel.ensureVolatileRunDir()` memasang ramfs bila fstab tidak memount-nya (lihat `changelogs/kernel.md`); instalasi baru juga menulis entry `/var/run` eksplisit di `FSTAB_FRESH`. Node lama **tidak perlu** mengedit fstab.
 - **Sengaja TIDAK memindahkan penanda ke `/tmp`:** meski `/tmp` sudah ramfs, ia di-mount `0o1777` (world-writable) sehingga penanda bisa dibuat user mana pun — boot akan menganggap DOME siap dan bug yang sama bisa dipicu sengaja. Pembaca penanda hanya `rc.local` (Asteracea tidak memeriksanya), jadi lokasi `/var/run` tetap dipilih karena root-only.
 - **Verifikasi:** `rm -f /tidak-ada` → tanpa output; `rm /tidak-ada` → `cannot remove ... No such file or directory`; `rm -rf /tidak-ada` → tanpa output; `rm -f` pada file yang ada → terhapus. Diuji headless lewat harness DME (`scripts/test/worker-dme-smoke.mjs` + syscall `UNLINK`).
-- **Oleh:** Copilot
+- **Verifikasi lapangan (2026-09-17 · andriansah):** `/etc/rc.local` bergaya skrip menjalankan seluruh daemon + `rm -f` + `waitfile` + Asteracea **normal tanpa mengubah fstab** — urutan dome → asteracea terpenuhi dan tidak ada perintah yang menggantung.
+- **Oleh:** Copilot · **Laporan:** andriansah
 
 ---
 

@@ -14,7 +14,8 @@
 - **Alasan di kernel, bukan hanya fstab:** kesalahan ini (marker basi) mahal dan sulit dilacak — gejalanya muncul jauh di hilir (Asteracea gagal tanpa sebab jelas), sementara akar penyebabnya ada di storage. Linux menyelesaikannya dengan `/run` = tmpfs; TSIX meniru itu supaya tiap node benar secara bawaan, termasuk node yang fstab-nya tidak pernah disentuh.
 - **Kegagalan mount tidak menggagalkan boot:** error dicatat sebagai boot log gagal, boot lanjut.
 - **Dampak:** marker kesiapan (`/var/run/dome.ready`) selalu fresh tiap boot tanpa konfigurasi; `rm -f` di `/etc/rc.local` menjadi sabuk pengaman tambahan (tetap benar, tidak lagi wajib). Instalasi baru juga menulis entry `/var/run` eksplisit di `fstab` fresh.
-- **Oleh:** Copilot
+- **Verifikasi lapangan (2026-09-17 · andriansah):** node dengan `/etc/fstab.json` **tidak diubah** (tanpa entry `/var/run`) — setelah `npm run install` + reboot, boot log menampilkan `VFS: /var/run → ramfs (state runtime volatile)` dan **Asteracea start normal** (marker fresh, urutan dome → asteracea terpenuhi). Membuktikan jaminan kernel bekerja tanpa konfigurasi admin.
+- **Oleh:** Copilot · **Laporan:** andriansah
 
 ### EXEC mendukung shebang — skrip executable dijalankan lewat interpreter-nya
 

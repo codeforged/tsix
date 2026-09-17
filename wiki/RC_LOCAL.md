@@ -124,6 +124,11 @@ ls -l /var/run/dome.ready     # siapa pemilik marker + kapan dibuat
 ps                             # process 'dome' harus RUNNING sebelum 'asteracea'
 ```
 
+> **Terverifikasi di lapangan (2026-09-17):** pada node yang `/etc/fstab.json`-nya
+> **tidak** memuat entry `/var/run`, jaminan kernel di atas sudah cukup — boot log
+> menampilkan `VFS: /var/run → ramfs (state runtime volatile)` dan Asteracea start
+> normal. Tidak ada konfigurasi manual yang diperlukan.
+
 ## Gaya 2 — Legacy `/etc/rc.local.js`
 
 ```typescript
