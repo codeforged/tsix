@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-09-17
+
+### `/etc/rc.local` bergaya skrip dipasang installer (0755) dan tidak ditimpa
+
+- **File:** `scripts/install.ts`, `src/mirror/etc/rc.local` (baru), `src/mirror/etc/rc.local.ts` + `rc.local.js` (dihapus)
+- **Perubahan:** rootfs kini mengirim **skrip** `/etc/rc.local` (shebang `#!/bin/tsh`) sebagai ganti class `rc.local.ts`. Karena `syncDir()` melewati file tanpa ekstensi, file ini dipasang lewat daftar `CRITICAL_ETC` — dengan dua penyesuaian: `mode: 0o755` (tanpa bit x, init melewatinya) dan `preserveExisting: true`.
+- **Kenapa `preserveExisting`:** isi `/etc/rc.local` khas per-node (daemon + `netfsd --export`), jadi `npm run install` **tidak boleh menimpanya** — kalau file sudah ada, installer mencetak `[INSTALL] /etc/rc.local sudah ada — dibiarkan (milik admin)`. Pemasangan hanya terjadi di image fresh. Perilaku file `CRITICAL_ETC` lain (passwd/group/shadow/dll) tidak berubah.
+- **Hapus legacy dari repo:** `src/mirror/etc/rc.local.ts` dan sidecar `.js`-nya di-`git rm`, supaya instalasi baru tidak menjalankan daemon dua kali (init menjalankan skrip lebih dulu, lalu legacy bila ada). Node lama yang masih menyimpan `/etc/rc.local.js` di BKFS tetap jalan, tetapi `install` tidak lagi menghapusnya — hapus manual setelah pindah ke skrip.
+- **Dampak:** migrasi rc.local → skrip jadi permanen (tidak kembali setiap `npm run install`), sementara file yang sudah dikustomisasi di node tetap aman.
+- **Oleh:** Copilot
+
+---
+
 ## 2026-09-12
 
 ### Prompt root password kini minta konfirmasi (anti salah ketik)

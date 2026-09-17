@@ -655,6 +655,40 @@ export class main implements IProgram {
     return outputs.join("\n");
   }
 
+  /**
+   * startScriptWaitHint(): Peringatan SEKALI kalau sebuah perintah di dalam
+   * SKRIP berjalan lama.
+   *
+   * Menutup jebakan paling mahal saat boot: perintah interaktif (mis.
+   * `/bin/login.js`) atau daemon yang belum selesai start membuat skrip
+   * menggantung — dan semua baris SESUDAHNYA tidak pernah dijalankan, tanpa
+   * pesan apa pun. Dengan peringatan ini, penyebabnya kelihatan di layar.
+   *
+   * Hanya aktif di dalam skrip (`scriptDepth > 0`) supaya console interaktif
+   * tidak berisik. Ambang bisa diatur lewat env `TSH_WAIT_HINT_MS`
+   * (default 15000 ms; 0 = matikan).
+   */
+  private async startScriptWaitHint(cmd: string): Promise<any> {
+    if (this.scriptDepth === 0) return undefined;
+
+    const envMs = await this.shell.getenv("TSH_WAIT_HINT_MS");
+    const timeoutMs =
+      envMs === null || envMs === undefined || envMs === ""
+        ? 15000
+        : parseInt(envMs, 10);
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return undefined;
+
+    const timer = setTimeout(() => {
+      void this.std.print(
+        `\n${this.name}: '${cmd}' masih berjalan setelah ${Math.round(timeoutMs / 1000)}s — ` +
+          `kalau ini daemon, pastikan ia men-daemonize sendiri atau jalankan dengan '&'; ` +
+          `kalau perintah interaktif (mis. /bin/login.js), jangan dipakai di dalam skrip.\n`,
+      );
+    }, timeoutMs);
+    (timer as any)?.unref?.();
+    return timer;
+  }
+
   private async redrawCurrentLine() {
     if (!this.std) return;
     await this.std.print(
@@ -1125,6 +1159,7 @@ export class main implements IProgram {
         "Skrip    : ./skrip.sh [args]        — butuh bit x (`chmod +x skrip.sh`)\n" +
         "           tsh skrip.sh [args]     — non-interaktif (cron/rc.local/background)\n" +
         "           di skrip: $0, $1..$9, $@, $#, komentar '#', '\\' untuk sambung baris\n" +
+        "Builtin  : waitfile <path> [ms]     — tunggu file muncul (kesiapan daemon)\n" +
         "Console  : akhiri baris dengan '\\' lalu Enter untuk menyambung perintah";
       exitCode = 0;
     } else if (cmd === "cd") {
@@ -1154,6 +1189,39 @@ export class main implements IProgram {
           await this.shell.setenv(pair[0], pair[1]);
           exitCode = 0;
         } else {
+          exitCode = 1;
+        }
+      }
+    } else if (cmd === "waitfile") {
+      // Tunggu sampai sebuah file muncul — pengganti polling manual di skrip
+      // (mis. DOME menulis /var/run/dome.ready sebelum Asteracea boleh start).
+      if (args.length === 0) {
+        result = "Usage: waitfile <path> [timeout_ms]";
+        exitCode = 1;
+      } else {
+        const waitTarget = args[0];
+        const parsedTimeout = args[1] ? parseInt(args[1], 10) : 10000;
+        const waitMs =
+          Number.isFinite(parsedTimeout) && parsedTimeout > 0
+            ? parsedTimeout
+            : 10000;
+        const deadline = Date.now() + waitMs;
+        let appeared = false;
+
+        for (;;) {
+          const found = await this.fs.stat(waitTarget).catch(() => null);
+          if (found) {
+            appeared = true;
+            break;
+          }
+          if (Date.now() >= deadline) break;
+          await new Promise((r) => setTimeout(r, 200));
+        }
+
+        if (appeared) {
+          exitCode = 0;
+        } else {
+          result = `-${this.name}: waitfile: ${waitTarget} tidak muncul dalam ${waitMs}ms`;
           exitCode = 1;
         }
       }
@@ -1264,7 +1332,9 @@ export class main implements IProgram {
 
         // Foreground: Wait for process
         this.foregroundPid = pid;
+        const waitHint = await this.startScriptWaitHint(cmd);
         const exitCode = await this.shell.waitpid(pid);
+        if (waitHint) clearTimeout(waitHint);
         this.foregroundPid = null;
         await this.shell.setenv("ERROR_LEVEL", exitCode.toString());
         await this.shell.setenv("?", exitCode.toString());

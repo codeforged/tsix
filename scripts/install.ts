@@ -579,23 +579,39 @@ async function main() {
 
     // File /etc tanpa ekstensi tidak ikut filter ekstensi syncDir.
     // Sync eksplisit agar image fresh lengkap & konsisten (passwd/group/shadow, dll).
-    const CRITICAL_ETC = [
-      "crontab",
-      "fstab.md",
-      "group",
-      "motd",
-      "passwd",
-      "pkg-demo.conf",
-      "profile",
-      "shadow",
+    const CRITICAL_ETC: Array<{
+      name: string;
+      mode?: number;
+      /** Jangan timpa file yang sudah ada — isinya milik admin (per-node). */
+      preserveExisting?: boolean;
+    }> = [
+      { name: "crontab" },
+      { name: "fstab.md" },
+      { name: "group" },
+      { name: "motd" },
+      { name: "passwd" },
+      { name: "pkg-demo.conf" },
+      { name: "profile" },
+      // Skrip boot gaya Unix (shebang `#!/bin/tsh`). Mode 0o755 penting: tanpa
+      // bit x, init akan MELEWATI-nya (dan melaporkan alasannya saat boot).
+      // TIDAK ditimpa kalau sudah ada: isinya khas node ini (daemon + export).
+      { name: "rc.local", mode: 0o755, preserveExisting: true },
+      { name: "shadow", mode: 0o640 },
     ];
-    for (const name of CRITICAL_ETC) {
-      const hostFile = path.join(MIRROR_ROOT, "etc", name);
+    for (const entry of CRITICAL_ETC) {
+      const hostFile = path.join(MIRROR_ROOT, "etc", entry.name);
       if (!fs.existsSync(hostFile)) continue;
+
+      if (entry.preserveExisting && bkfs.exists(`/etc/${entry.name}`)) {
+        console.log(
+          `[INSTALL] /etc/${entry.name} sudah ada — dibiarkan (milik admin)`,
+        );
+        continue;
+      }
+
       const content = fs.readFileSync(hostFile, "utf8");
-      const mode = name === "shadow" ? 0o640 : 0o644;
-      bkfs.touch(`/etc/${name}`, content, 0, 0, mode);
-      console.log(`[INSTALL] sync /etc/${name}`);
+      bkfs.touch(`/etc/${entry.name}`, content, 0, 0, entry.mode ?? 0o644);
+      console.log(`[INSTALL] sync /etc/${entry.name}`);
     }
 
     // Image fresh: fstab hanya berisi /tmp sebagai RAMFS (esensial),

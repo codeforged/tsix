@@ -8,8 +8,14 @@ Ada **dua gaya** yang keduanya didukung (backward compatible):
 
 | Gaya | File | Isi | Cocok untuk |
 |---|---|---|---|
-| **Skrip (baru)** | `/etc/rc.local` | skrip shell ber-shebang `#!/bin/tsh` + bit `x` | daftar perintah sederhana, cepat dibaca |
-| **Legacy** | `/etc/rc.local.js` | class TypeScript `export default class` | logika kompleks (polling, kondisi, IPC) |
+| **Skrip (disarankan)** | `/etc/rc.local` | skrip shell ber-shebang `#!/bin/tsh` + bit `x` | daftar perintah sederhana, cepat dibaca |
+| **Legacy** | `/etc/rc.local.js` | class TypeScript `export default class` | logika kompleks (kondisi/IPC) — didukung untuk node lama |
+
+> **Repo TSIX kini hanya mengirim `/etc/rc.local` (skrip).** `scripts/install.ts`
+> memasangnya dengan mode `0o755`, dan **tidak menimpa** kalau file itu sudah ada
+> (isinya khas node ini: daemon + export). Node lama yang masih punya
+> `/etc/rc.local.js` tetap dijalankan (init menjalankan skrip lalu legacy) — hapus
+> file `.js`-nya setelah migrasi agar daemon tidak dobel.
 
 Saat boot, `init` menjalankan **skrip `/etc/rc.local` lebih dulu** (kalau ada), lalu legacy `/etc/rc.local.js`. Kalau keduanya ada, init mencetak catatan supaya tidak bingung — hapus `.js` setelah migrasi selesai.
 
@@ -50,8 +56,32 @@ chmod +x /etc/rc.local      # wajib — tanpa ini init melewatinya
 ```
 
 Yang tersedia di dalam skrip: perintah apa pun yang dikenal `tsh` (builtin, aplikasi,
-pipa `|`, redirection `>`, background `&`, wildcard), komentar `#`, sambung baris `\`.
-Belum ada `if`/`for`/`while` — kalau butuh logika bercabang, tetap pakai gaya legacy.
+pipa `|`, redirection `>`, wildcard), komentar `#`, sambung baris `\`, dan builtin
+khusus boot:
+
+```sh
+waitfile <path> [timeout_ms]     # tunggu file muncul (exit 0), timeout → exit 1
+```
+
+`waitfile` menggantikan polling manual — contohnya menunggu kesiapan DOME sebelum
+Asteracea start:
+
+```sh
+/opt/dome/dome.js
+waitfile /var/run/dome.ready 10000
+/opt/asteracea/asteracea.js
+```
+
+Belum ada `if`/`for`/`while` — kalau butuh logika bercabang, pakai gaya legacy.
+
+### Jebakan yang sering bikin boot “diam”
+
+| Jebakan | Akibat | Solusi |
+|---|---|---|
+| Perintah interaktif di skrip (mis. `/bin/login.js`) | menunggu input selamanya → baris sesudahnya tak pernah jalan | jangan taruh; init sudah men-spawn login per TTY |
+| Daemon “lupa `&`” | sebenarnya **tidak masalah** di TSIX: daemon memanggil `daemonize()` → `waitpid` langsung kembali (detach) | — |
+| Urutan tanpa penungguan (dome → asteracea) | Asteracea ditolak kernel (“DOME engine is not running”) → layar blank | pakai `waitfile`, atau tambahkan `sleep <detik>` |
+| Perintah yang gantung tanpa pesan | sulit dilacak | tsh mencetak peringatan otomatis setelah 15s (atur via `TSH_WAIT_HINT_MS`, `0` = mati) |
 
 ## Gaya 2 — Legacy `/etc/rc.local.js`
 

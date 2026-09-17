@@ -35,6 +35,14 @@
 - **Dampak:** perintah panjang dengan banyak `--flag` bisa ditulis rapi tanpa harus mengandalkan scroll horizontal; `help` kini menjelaskan skrip + sambung baris.
 - **Oleh:** Copilot
 
+### Builtin `waitfile` + peringatan perintah skrip yang menggantung
+
+- **File:** `src/mirror/bin/tsh.ts`
+- **Perubahan 1 — `waitfile <path> [timeout_ms]`:** menunggu sebuah file muncul (polling 200 ms, default timeout 10 s), exit 0 kalau muncul dan exit 1 dengan pesan jelas kalau tidak. Ini pengganti polling manual di skrip boot: `waitfile /var/run/dome.ready 10000` sebelum Asteracea start (sebelumnya hanya ada di `rc.local.ts` legacy sebagai loop `while`).
+- **Perubahan 2 — peringatan 15 detik:** kalau sebuah perintah **di dalam skrip** masih berjalan setelah 15 s, tsh mencetak pesan sekali: bisa jadi daemon yang belum selesai atau perintah interaktif yang tidak boleh ada di skrip. Sebelumnya skrip bisa menggantung tanpa petunjuk apa pun — tepatnya yang terjadi saat `/bin/login.js` ikut masuk `/etc/rc.local` dan membuat semua daemon sesudahnya tidak pernah start. Ambang diatur lewat `TSH_WAIT_HINT_MS` (`0` = mati); peringatan hanya aktif di skrip, bukan console interaktif.
+- **Verifikasi:** harness DME (fixture `smoke-waitfile.sh`) — timeout → `-tsh: waitfile: /tmp/... tidak muncul dalam 300ms`, `ERROR_LEVEL=1`, dan skrip **tetap lanjut** ke baris berikutnya (tanpa `set -e`); jalur sukses (file ada) → `ERROR_LEVEL=0` tanpa output.
+- **Oleh:** Copilot
+
 ### Batasan yang diketahui (belum ada di `tsh`)
 
 - Belum ada struktur kontrol (`if`, `for`, `while`), fungsi, `$()`/backtick, dan `set -e` — skrip saat ini adalah **daftar perintah** (dengan `;`, `|`, `>`, `&`, wildcard, variabel, dan argumen posisional). Jadi `.sh` gaya Linux kompleks belum bisa dijalankan apa adanya.
