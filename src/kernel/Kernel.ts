@@ -41,7 +41,8 @@ import { std } from "@tsix/Application";
 export class Kernel {
   // Versi kernel saat ini
   private codename: string = "Dinawari";
-  private version: string = "0.2.8.20260916.1";
+  private version: string = "0.3.0.20260917.1";
+  // 0.3.0 adalah fitur netfs di tsix diimplementasikan, setiap node tsix bisa mengakses storage ke node tsix yang lain! canggih bukan?
 
   public getCodename(): string {
     return this.codename;
