@@ -6,6 +6,42 @@
 
 ## 2026-09-17
 
+### Mesin skrip: kutip/escape, `for`, `$(...)`, `&&`/`||`, `VAR=nilai`
+
+- **File:** `src/mirror/bin/tsh.ts`, `src/mirror/lib/ShellScript.ts`, `src/mirror/lib/ShellScript.test.ts` (10 test baru `S1.40`–`S1.55`), `scripts/test/tsh-script-harness.ts` (baru), `scripts/test/fixtures/sample-script.sh` (baru).
+- **Gejala yang dilaporkan:** menjalankan `sample.sh admin 123` menghasilkan `Nama Skrip (\./sample.sh)`, blok FOR LOOP kosong, dan header `5. PENGUJIAN PIPELINE (|) & REDIRECTION (>)` terpotong jadi `5. PENGUJIAN PIPELINE (`.
+
+**Akar masalah (semuanya soal tanda kutip yang tidak dihormati):**
+
+1. **`>` di dalam tanda kutip dianggap redirection.** Deteksi lama memakai `trimmedInput.includes(">")`, jadi `echo " -> Starting service: $SERVICE..."` diperlakukan sebagai `echo " -` **>** `Starting service: ...` — output FOR LOOP ditulis ke file bernama sisanya, bukan ke layar. Itu sebabnya loop terlihat "tidak jalan" padahal loopnya benar.
+2. **`|` di dalam tanda kutip dianggap pipeline.** `echo " 5. PENGUJIAN PIPELINE (|) & REDIRECTION (>)"` dipecah jadi pipeline palsu.
+3. **`;` di dalam tanda kutip dianggap pemisah perintah.**
+4. **Escape tidak dikenal.** `echo "Nama Skrip (\$0)"` menghasilkan `\` + nilai `$0`, bukan literal `$0` — karena ekspansi lama memakai regex `\$VAR` tanpa tahu arti `\$`.
+5. **`$(...)` berisi spasi pecah saat tokenisasi.** `export COUNTER=$(expr $COUNTER - 1)` menjadi kata `COUNTER=$(expr`, `$COUNTER`, `-`, `1)` → `COUNTER` berisi `$(expr` dan loop WHILE hanya jalan sekali (substitusi dulu ditangani di level baris lewat regex non-greedy, yang juga tidak tahan `;`/kutip/nesting).
+6. **`VAR=nilai` tanpa `export`** dicari sebagai binary → `-tsh: i=0: command not found`.
+
+**Perbaikan (satu jalur tokenisasi yang sadar kutip):**
+
+- Util baru di `@tsix/ShellScript` (murni, ada test): `splitRawWords()` (kata mentah, kutip & escape dipertahankan), `splitTopLevel()` / `findTopLevelOperator()` / `findTopLevelOperators()` (operator HANYA di luar tanda kutip). Semuanya melewati `$( ... )` sebagai satu potongan, jadi `$(a; b)` dan `$(cat > f)` tidak memecah perintah luar.
+- `tsh`: `expandWord()` menggantikan `expandVariables()` — ekspansi **satu pass** untuk kutip, escape, `$VAR`/`${VAR}`, dan `$(...)` (boleh bersarang, `expr` tetap cepat-track). Satu pass itu wajib: `\$VAR` → literal `$VAR`, sedangkan `\\$VAR` → `\` + nilai VAR. `'...'` benar-benar literal (`'$0'` tidak di-expand), `"..."` mengekspansi variabel, dan `"*"`/`'~'` tidak di-glob.
+- Redirection & background (`&`) dicari dengan pemindai kutip; target `>` ikut di-expand (`> /tmp/out-$A.txt`, `~`).
+- `for VAR in ...`: item di-expand per kata (kutip dihormati), wildcard di-glob (`for f in /b*`), dan `$@`/`$*` dipecah jadi satu item per argumen skrip.
+- `if`/`while`/`while`: tiap operand kondisi di-expand sendiri (bukan satu string lalu dipecah ulang), jadi `[ "$1" = "" ]` benar-benar membandingkan string kosong. Tambahan operator: `-z`, `-n`, `-e`, `-f`, `-d`, `-r`, `-w`, `-x`, `[ "$X" ]`, dan kondisi majemuk `[ ... ] && [ ... ]` / `||` (short-circuit, rekursif).
+- Baru: rantai `&&`/`||` di luar `if` (`make && echo ok || echo gagal`) dengan prioritas benar (`a | b && c` = `(a|b) && c`) dan `$?` yang tidak berubah saat segmen di-skip; penugasan `VAR=nilai` dan bentuk prefix `VAR=nilai perintah`.
+- `help` kini menyebut kontrol yang didukung; `expandVariables()` + `processCommandSubstitutions()` yang lama dihapus.
+
+**Verifikasi:** harness baru `scripts/test/tsh-script-harness.ts` menjalankan mesin skrip tanpa boot TSIX (mocked std/fs/shell, fd nyata supaya `>`/`>>` benar-benar menulis file):
+
+```
+node -r esbuild-register -r tsconfig-paths/register \
+  scripts/test/tsh-script-harness.ts scripts/test/fixtures/sample-script.sh admin 123
+```
+
+Hasil `sample-script.sh` sekarang: `Nama Skrip ($0) : ...`, `Jumlah Argumen ($#): 2`, 3 baris `-> Starting service: ...`, countdown 3-2-1, isi `/tmp/test_output.txt` terbaca `cat`, dan `/b*` → `/bin /boot`. Unit test `ShellScript.test.ts` 23/23 hijau; smoke DME (`worker-dme-smoke.mjs`) tetap `GREETING=halo`, `ALL_ARGS=halo dunia`, `ARG_COUNT=2`.
+
+- **Dampak:** skrip `.sh` gaya Linux (sample dari user) kini jalan apa adanya. Deploy: `/bin/tsh.ts` + `/lib/ShellScript.ts` → `npm run install`, restart shell.
+- **Oleh:** Copilot
+
 ### `tsh` bisa menjalankan skrip `.sh` (butuh bit `x`)
 
 - **File:** `src/mirror/bin/tsh.ts`, `src/mirror/lib/ShellScript.ts` (baru), `src/mirror/lib/ShellScript.test.ts` (baru), `scripts/test/fixtures/smoke-script.sh` (baru), `scripts/test/worker-dme-smoke.mjs` (diperluas).
@@ -25,11 +61,11 @@
 - **File:** `src/mirror/bin/tsh.ts` (`readLogicalLine()`), `src/mirror/lib/ShellScript.ts` (`splitTrailingContinuation()`).
 - **Perubahan:** menulis `\` lalu Enter menyambung perintah ke baris berikutnya dengan prompt lanjutan `> ` (bisa diubah lewat env `PROMPT2`), persis kebiasaan shell Unix:
 
-  ```
-  root@tsix# netfsd --export /mnt/sbak/ \
-  > --label databank --port 7777 \
-  > --key c50f67b7...
-  ```
+    ```
+    root@tsix# netfsd --export /mnt/sbak/ \
+    > --label databank --port 7777 \
+    > --key c50f67b7...
+    ```
 
 - **Detail semantik:** `\` tunggal di akhir baris dibuang bersama newline-nya (karena itu spasi sebelum `\` berfungsi sebagai pemisah argumen); `\\` (jumlah genap) berarti backslash literal dan **tidak** menyambung; Ctrl+C atau Enter kosong membatalkan seluruh perintah logis; pagar 128 baris sambungan. Histori mencatat perintah logis lengkap (satu entri, bukan per-potongan).
 - **Dampak:** perintah panjang dengan banyak `--flag` bisa ditulis rapi tanpa harus mengandalkan scroll horizontal; `help` kini menjelaskan skrip + sambung baris.
@@ -44,6 +80,8 @@
 - **Oleh:** Copilot
 
 ### Batasan yang diketahui (belum ada di `tsh`)
+
+> **Diperbarui 2026-09-17 (entri teratas):** `if/elif/else`, `for`, `while`, `$(...)`, `&&`/`||`, dan `VAR=nilai` **sudah ada**. Yang masih belum: backtick (`` `cmd` ``), fungsi, `set -e`, `case`, dan `local`.
 
 - Belum ada struktur kontrol (`if`, `for`, `while`), fungsi, `$()`/backtick, dan `set -e` — skrip saat ini adalah **daftar perintah** (dengan `;`, `|`, `>`, `&`, wildcard, variabel, dan argumen posisional). Jadi `.sh` gaya Linux kompleks belum bisa dijalankan apa adanya.
 - Skrip di background memakai proses `tsh` baru → perubahan environment di dalamnya tidak kembali ke shell induk.
