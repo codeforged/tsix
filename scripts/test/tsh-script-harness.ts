@@ -56,6 +56,7 @@ const std: any = {
     },
     setRawMode: async () => {},
     getChar: async () => "",
+    readLine: async () => null,
 };
 
 const fs: any = {

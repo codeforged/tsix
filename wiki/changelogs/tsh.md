@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-09-18
+
+### Builtin `read` dan Struktur Kontrol `case`
+
+- **File:** `src/mirror/bin/tsh.ts`, `scripts/test/fixtures/sample-script.sh`
+- **Perubahan 1 — Builtin `read`:** Mengimplementasikan perintah `read [-p prompt] [var...]` untuk membaca input dari stdin (mendukung *cooked mode* native via `this.std.readLine()`). Perbaikan ini menyelesaikan masalah pencetakan prompt ganda di skrip shell yang sebelumnya terjadi karena pemanggilan fungsi `this.readLine()` milik shell interaktif.
+- **Perubahan 2 — Struktur Kontrol `case`:** Mengimplementasikan blok `case $VAR in ... esac`. Mendukung pola wildcard (`*`, `?`), penutup ganda (`;;`), penutup implisit tanpa `;;` (saat menjumpai baris pola `pattern)` baru), dan eksekusi perintah per-branch yang sesuai.
+- **Dampak:** Skrip menu / interaktif bergaya Linux (seperti cek kuota / isi pulsa di `sample-script.sh`) sekarang berjalan dengan baik secara native di TSIX.
+- **Oleh:** Copilot
+
+---
+
 ## 2026-09-17
 
 ### Mesin skrip: kutip/escape, `for`, `$(...)`, `&&`/`||`, `VAR=nilai`
@@ -81,8 +93,8 @@ Hasil `sample-script.sh` sekarang: `Nama Skrip ($0) : ...`, `Jumlah Argumen ($#)
 
 ### Batasan yang diketahui (belum ada di `tsh`)
 
-> **Diperbarui 2026-09-17 (entri teratas):** `if/elif/else`, `for`, `while`, `$(...)`, `&&`/`||`, dan `VAR=nilai` **sudah ada**. Yang masih belum: backtick (`` `cmd` ``), fungsi, `set -e`, `case`, dan `local`.
+> **Diperbarui 2026-09-18 (entri teratas):** `if/elif/else`, `for`, `while`, `case`, `$(...)`, `&&`/`||`, dan `VAR=nilai` **sudah ada**. Yang masih belum: backtick (`` `cmd` ``), fungsi, `set -e`, dan `local`.
 
-- Belum ada struktur kontrol (`if`, `for`, `while`), fungsi, `$()`/backtick, dan `set -e` — skrip saat ini adalah **daftar perintah** (dengan `;`, `|`, `>`, `&`, wildcard, variabel, dan argumen posisional). Jadi `.sh` gaya Linux kompleks belum bisa dijalankan apa adanya.
+- Belum ada struktur fungsi, `$()`/backtick, dan `set -e` — skrip saat ini adalah **daftar perintah** (dengan `;`, `|`, `>`, `&`, wildcard, variabel, dan argumen posisional). Jadi `.sh` gaya Linux kompleks belum bisa dijalankan apa adanya.
 - Skrip di background memakai proses `tsh` baru → perubahan environment di dalamnya tidak kembali ke shell induk.
 - `sourceProfile()` (`/etc/profile`, `~/.tsixrc`) masih memakai parser terbatas (hanya `export`/`echo`) dan **belum** dialihkan ke mesin skrip baru — sengaja tidak diubah agar perilaku login tidak berisiko; kandidat penyatuan berikutnya.

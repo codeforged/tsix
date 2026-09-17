@@ -342,7 +342,12 @@ export class main implements IProgram {
             }
 
             // Normal Processing
-            if (char === "\r" || char === "\n") {
+            if (!char) {
+                // EOF (null / empty string dari getChar) — kembalikan buffer apa adanya.
+                // Terjadi di mode non-interaktif (harness, pipe) sehingga `read` builtin
+                // tidak berputar selamanya.
+                return this.lineBuffer;
+            } else if (char === "\r" || char === "\n") {
                 // Enter
                 await this.std.print("\n");
                 return this.lineBuffer;
@@ -860,7 +865,129 @@ export class main implements IProgram {
                         }
                     }
                 }
-                // 3. PERINTAH REGULER
+                // 3. BLOK CASE ... ESAC
+                else if (cmdStr.startsWith("case ") || cmdStr === "case") {
+                    const header = cmdStr
+                        .replace(/^case\s+/, "")
+                        .replace(/;\s*in$/, "")
+                        .replace(/\s+in$/, "")
+                        .trim();
+                    const targetVal = (await this.expandWord(header)).value;
+
+                    let depth = 1;
+                    const caseLines: string[] = [];
+
+                    i++;
+                    while (i < cmds.length && depth > 0) {
+                        const innerCmd = cmds[i].trim();
+                        if (innerCmd.startsWith("case ") || innerCmd === "case") {
+                            depth++;
+                        } else if (innerCmd === "esac") {
+                            depth--;
+                        }
+
+                        if (depth === 0) break;
+                        caseLines.push(innerCmd);
+                        i++;
+                    }
+
+                    const branches: { patterns: string[]; body: string[] }[] = [];
+                    let currentPatterns: string[] | null = null;
+                    let currentBody: string[] = [];
+
+                    // Helper: deteksi apakah sebuah baris adalah awalan pola baru `pat)`
+                    const isPatternLine = (line: string): boolean => {
+                        const t = line.trim();
+                        // Pastikan ada ")" dan bagian sebelum ")" tidak mengandung spasi
+                        // yang menunjukkan ini adalah perintah biasa, bukan awal pola.
+                        const closeIdx = t.indexOf(")");
+                        if (closeIdx === -1) return false;
+                        const patPart = t.slice(0, closeIdx).trim().replace(/^\(/, "");
+                        // Pola tidak boleh mengandung spasi kecuali di antara alternatif `|`
+                        return /^[^\s(]+(\s*\|\s*[^\s(]+)*$/.test(patPart);
+                    };
+
+                    for (const line of caseLines) {
+                        const trimmed = line.trim();
+                        if (!trimmed || trimmed === "in") continue;
+
+                        // `;;` berdiri sendiri → tutup branch saat ini
+                        if (trimmed === ";;") {
+                            if (currentPatterns !== null) {
+                                branches.push({ patterns: currentPatterns, body: currentBody });
+                                currentPatterns = null;
+                                currentBody = [];
+                            }
+                            continue;
+                        }
+
+                        // Baris berakhir dengan `;;` (inline, misal `echo "x";;`)
+                        if (trimmed.endsWith(";;")) {
+                            const cmd = trimmed.slice(0, -2).trim();
+                            if (currentPatterns !== null) {
+                                if (cmd) currentBody.push(cmd);
+                                branches.push({ patterns: currentPatterns, body: currentBody });
+                                currentPatterns = null;
+                                currentBody = [];
+                            } else if (isPatternLine(cmd + ")")) {
+                                // Edge case: pola inline sekaligus `;;`
+                            }
+                            continue;
+                        }
+
+                        // Deteksi baris pola baru: `N)` atau `pat1 | pat2)`
+                        if (isPatternLine(trimmed)) {
+                            const closeIdx = trimmed.indexOf(")");
+                            // Tutup branch sebelumnya secara implisit (tanpa `;;`)
+                            if (currentPatterns !== null) {
+                                branches.push({ patterns: currentPatterns, body: currentBody });
+                            }
+                            const patPart = trimmed.slice(0, closeIdx).trim().replace(/^\(/, "");
+                            currentPatterns = patPart.split("|").map((p) => p.trim());
+                            currentBody = [];
+
+                            // Ada perintah inline setelah `)` → tambahkan ke body
+                            const rest = trimmed.slice(closeIdx + 1).trim();
+                            if (rest) {
+                                if (rest.endsWith(";;")) {
+                                    const cmd = rest.slice(0, -2).trim();
+                                    if (cmd) currentBody.push(cmd);
+                                    branches.push({ patterns: currentPatterns, body: currentBody });
+                                    currentPatterns = null;
+                                    currentBody = [];
+                                } else {
+                                    currentBody.push(rest);
+                                }
+                            }
+                        } else {
+                            // Baris biasa → tambahkan ke body branch saat ini
+                            if (currentPatterns !== null) {
+                                currentBody.push(trimmed);
+                            }
+                        }
+                    }
+
+                    // Flush branch terakhir yang belum ditutup (tanpa `;;`)
+                    if (currentPatterns !== null) {
+                        branches.push({ patterns: currentPatterns, body: currentBody });
+                    }
+
+                    for (const branch of branches) {
+                        let matched = false;
+                        for (const pat of branch.patterns) {
+                            const expandedPat = (await this.expandWord(pat)).value;
+                            if (this.matchCasePattern(targetVal, expandedPat)) {
+                                matched = true;
+                                break;
+                            }
+                        }
+                        if (matched) {
+                            await executeBlock(branch.body);
+                            break;
+                        }
+                    }
+                }
+                // 4. PERINTAH REGULER
                 else {
                     const result = await this.handleCommand(cmdStr);
                     if (result) outputs.push(result);
@@ -876,6 +1003,41 @@ export class main implements IProgram {
         }
 
         return outputs.join("\n");
+    }
+
+    /**
+     * matchCasePattern(): Pencocokan pola shell (wildcard * dan ? atau string persis)
+     * untuk pernyataan `case`.
+     */
+    private matchCasePattern(target: string, pattern: string): boolean {
+        if (pattern === "*" || pattern === target) return true;
+        if (/[\*\?\[\]]/.test(pattern)) {
+            let regStr = "^";
+            let inClass = false;
+            for (let k = 0; k < pattern.length; k++) {
+                const ch = pattern[k];
+                if (ch === "*" && !inClass) {
+                    regStr += ".*";
+                } else if (ch === "?" && !inClass) {
+                    regStr += ".";
+                } else if (ch === "[" && !inClass) {
+                    inClass = true;
+                    regStr += "[";
+                } else if (ch === "]" && inClass) {
+                    inClass = false;
+                    regStr += "]";
+                } else {
+                    regStr += ch.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+                }
+            }
+            regStr += "$";
+            try {
+                return new RegExp(regStr).test(target);
+            } catch (e) {
+                return false;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1068,7 +1230,7 @@ export class main implements IProgram {
      */
     private async completeCommandName(lastWord: string): Promise<string[]> {
         const result: string[] = [];
-        const builtIns = ["cd", "exit", "help", "version", "export", "echo", "history"];
+        const builtIns = ["cd", "exit", "help", "version", "export", "echo", "history", "read"];
         builtIns.forEach((b) => {
             if (b.startsWith(lastWord)) result.push(b + " ");
         });
@@ -1439,12 +1601,13 @@ export class main implements IProgram {
         // 4. Handle Built-ins
         if (cmd === "help") {
             result =
-                "Available commands: cd, exit, export, version, help, history, ps, whoami\n" +
+                "Available commands: cd, exit, export, version, help, history, read, ps, whoami\n" +
                 "Skrip    : ./skrip.sh [args]        — butuh bit x (`chmod +x skrip.sh`)\n" +
                 "           tsh skrip.sh [args]     — non-interaktif (cron/rc.local/background)\n" +
                 "           di skrip: $0, $1..$9, $@, $#, komentar '#', '\\' untuk sambung baris\n" +
-                "           kontrol: if/elif/else, for, while, $(...), &&/||, VAR=nilai\n" +
+                "           kontrol: if/elif/else, for, while, case, $(...), &&/||, VAR=nilai\n" +
                 "Builtin  : waitfile <path> [ms]     — tunggu file muncul (kesiapan daemon)\n" +
+                "           read [-p prompt] [VAR]   — baca input dari TTY/user\n" +
                 "Console  : akhiri baris dengan '\\' lalu Enter untuk menyambung perintah";
             exitCode = 0;
         } else if (cmd === "cd") {
@@ -1550,6 +1713,48 @@ export class main implements IProgram {
                 result = `-${this.name}: expr: gunakan: expr <angka> <op> <angka>`;
                 exitCode = 2;
             }
+        } else if (cmd === "read") {
+            let promptStr = "";
+            const varNames: string[] = [];
+            let idx = 0;
+            while (idx < args.length) {
+                const arg = args[idx];
+                if (arg === "-p" && idx + 1 < args.length) {
+                    promptStr = args[idx + 1];
+                    idx += 2;
+                } else if (arg.startsWith("-p")) {
+                    promptStr = arg.substring(2);
+                    idx++;
+                } else if (arg.startsWith("-")) {
+                    idx++;
+                } else {
+                    varNames.push(arg);
+                    idx++;
+                }
+            }
+            if (varNames.length === 0) {
+                varNames.push("REPLY");
+            }
+
+            if (promptStr) {
+                await this.std.print(promptStr);
+            }
+            const inputLine = await this.std.readLine();
+            const lineVal = inputLine ?? "";
+            if (varNames.length === 1) {
+                await this.setEnv(varNames[0], lineVal);
+            } else {
+                const words = lineVal.trim().split(/\s+/);
+                for (let vIdx = 0; vIdx < varNames.length; vIdx++) {
+                    if (vIdx === varNames.length - 1) {
+                        const rest = words.slice(vIdx).join(" ");
+                        await this.setEnv(varNames[vIdx], rest);
+                    } else {
+                        await this.setEnv(varNames[vIdx], words[vIdx] || "");
+                    }
+                }
+            }
+            exitCode = 0;
         } else if (cmd === "history") {
             result = await this.handleBuiltinHistory(args);
             exitCode = 0;

@@ -3,7 +3,7 @@
 # SAMPLE TEST SCRIPT UNTUK TSH (TSIX SHELL)
 # ==============================================================================
 # Menguji: Shebang, Komentar, Parameter ($0, $1, $#, $@), Variables, If/Elif/Else,
-# For Loop, While Loop, Piping, Redirection, Wildcards, dan Builtin Commands.
+# For Loop, While Loop, Case Statement, Read Builtin, Piping, Redirection, Wildcards, dan Builtin Commands.
 #
 # Jalankan tanpa boot TSIX:
 #   node -r esbuild-register -r tsconfig-paths/register \
@@ -44,11 +44,11 @@ echo ""
 echo "=========================================="
 echo " 4. PENGUJIAN PERULANGAN WHILE LOOP"
 echo "=========================================="
-export COUNTER=3
+COUNTER=3
 echo "Hitung mundur (While):"
 while [ $COUNTER -gt 0 ]; do
     echo " Countdown: $COUNTER"
-    export COUNTER=$(expr $COUNTER - 1)
+    COUNTER=$(expr $COUNTER - 1)
 done
 echo " Boom! Selesai loop."
 echo ""
@@ -72,6 +72,26 @@ echo "Lokasi direktori saat ini:"
 cd /
 echo "Cek isi direktori root dengan wildcard /b*:"
 echo /b*
+cd ~
+
+echo ""
+echo "=========================================="
+echo " 7. PENGUJIAN READ & CASE STATEMENT"
+echo "=========================================="
+# `read` membaca satu baris input dari user dan menyimpan ke variabel.
+# Di mode non-interaktif (test harness), input langsung EOF → variabel kosong.
+read -p "Masukkan pilihan (1/2/3): " PILIHAN
+
+case $PILIHAN in
+    1)
+        echo " -> Opsi 1: Cek Kuota";;
+    2)
+        echo " -> Opsi 2: Isi Pulsa";;
+    3)
+        echo " -> Opsi 3: Keluar";;
+    *)
+        echo " -> Opsi tidak valid";;
+esac
 
 echo ""
 echo "=========================================="
