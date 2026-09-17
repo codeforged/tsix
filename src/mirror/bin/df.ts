@@ -45,6 +45,9 @@ export default Program(async (args) => {
         onDiskSize = usage.diskSize ? formatSize(usage.diskSize) : "VIRT";
       } else if (m.type === "ramfs") {
         onDiskSize = "RAM";
+      } else if (m.type === "netfs") {
+        // Kapasitas fisik ada di node storage host, bukan di sini.
+        onDiskSize = (m as any).stale ? "STALE" : "NET";
       } else {
         onDiskSize = "HOST";
       }
@@ -53,8 +56,9 @@ export default Program(async (args) => {
       files = usage.files;
       dirs = usage.dirs;
     } catch (e: any) {
-      onDiskSize = "err";
-      dataSize = "err";
+      // netfs: peer mati/timeout → tandai jelas, jangan bikin df gagal total.
+      onDiskSize = m.type === "netfs" ? "STALE" : "err";
+      dataSize = "-";
     }
 
     const fsRow =

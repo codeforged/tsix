@@ -121,6 +121,11 @@ export class MountManager {
       readOnly: m.readOnly,
       uid: m.uid,
       gid: m.gid,
+      // Driver jaringan (NetFS) melaporkan kondisinya; driver lokal undefined.
+      stale:
+        typeof (m.vfs as any).isStale === "boolean"
+          ? (m.vfs as any).isStale
+          : undefined,
     }));
   }
 }

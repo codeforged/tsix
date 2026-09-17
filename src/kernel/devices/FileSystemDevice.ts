@@ -27,6 +27,8 @@ export class FileSystemDevice implements IDevice {
 
     read() {
         if (!this.currentPath) return null;
+        // Driver bisa sinkron (BKFS/HostVFS) atau async (NetFS) — pemanggil
+        // (syscall dispatcher) selalu `await`, jadi keduanya aman.
         return this.vfs.read(this.currentPath);
     }
 

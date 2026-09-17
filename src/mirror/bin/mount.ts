@@ -1,5 +1,13 @@
 import { Program, fs, std, shell } from "@tsix/Application";
 
+/** valueOf(): Ambil nilai setelah flag (`--via 7778` → "7778"). */
+function valueOf(args: string[], flag: string): string | undefined {
+  const idx = args.indexOf(flag);
+  if (idx === -1) return undefined;
+  const v = args[idx + 1];
+  return v && !v.startsWith("--") ? v : undefined;
+}
+
 /**
  * MOUNT Utility
  *
@@ -8,10 +16,18 @@ import { Program, fs, std, shell } from "@tsix/Application";
 export default Program(async (args) => {
   if (args.includes("--help") || args.includes("-h")) {
     await std.print(
-      "Usage: mount [vfs_path host_path] [--ro] [--bkfs] [--ramfs] [--uid N] [--gid N]\n" +
+      "Usage: mount [vfs_path host_path] [--ro] [--bkfs] [--ramfs] [--netfs] [--uid N] [--gid N]\n" +
         "  mount <path> --ramfs                  Mount RAM-only filesystem (no host path needed)\n" +
         "  mount <path> <source> --bkfs          Mount BKFS (SQLite) database\n" +
         "  mount <path> <source>                 Mount host directory\n" +
+        "  mount <path> <addr[:port]> --netfs    Mount filesystem node TSIX lain (NetFS via MQTNL)\n" +
+        "     --via <port>       Lewat daemon klien lokal (netfsd --client), port-nya di sini\n" +
+        "     --direct           Kernel bicara langsung ke SL di node tujuan\n" +
+        "     --key <64 hex>     Aktifkan enkripsi (harus SAMA dengan netfsd)\n" +
+        "     --agent <nama>     Agent enkripsi (default: chacha20)\n" +
+        "     --timeout <ms>     Timeout satu operasi (default: 5000)\n" +
+        "     --cache <ms>       TTL cache ls/stat (default: 0 = mati)\n" +
+        "     --iface <nama>     Interface MQTNL lokal (default: interface default)\n" +
         "  mount <path> <source> --uid 1000      Mount with specific owner UID\n" +
         "  mount <path> <source> --gid 1000      Mount with specific group GID\n" +
         "List mounts if no arguments provided.\n",
@@ -43,6 +59,7 @@ export default Program(async (args) => {
 
   const isRamfs = args.includes("--ramfs");
   const isBkfs = args.includes("--bkfs");
+  const isNetfs = args.includes("--netfs");
 
   // RamFS hanya butuh vfsPath (tanpa host_path)
   if (isRamfs) {
@@ -72,8 +89,52 @@ export default Program(async (args) => {
     fsType = "ramfs";
   } else if (isBkfs) {
     fsType = "bkfs";
+  } else if (isNetfs) {
+    fsType = "netfs";
   } else {
     fsType = "host";
+  }
+
+  // Opsi khusus NetFS — diteruskan apa adanya ke syscall MOUNT.
+  // Tanpa --via maupun --direct: default lewat daemon klien lokal bila ada,
+  // kalau tidak ada mount akan gagal cepat dengan pesan yang menjelaskan.
+  const netfsOptions: Record<string, any> = {};
+  if (isNetfs) {
+    const viaRaw = valueOf(args, "--via");
+    if (viaRaw) {
+      const viaPort = parseInt(viaRaw, 10);
+      if (!Number.isInteger(viaPort) || viaPort <= 0 || viaPort > 65535) {
+        await std.print(`mount: --via port tidak valid: ${viaRaw}\n`);
+        return;
+      }
+      netfsOptions.via = viaPort;
+    }
+    const key = valueOf(args, "--key");
+    if (key) netfsOptions.key = key;
+    const agent = valueOf(args, "--agent");
+    if (agent) netfsOptions.agent = agent;
+    const iface = valueOf(args, "--iface");
+    if (iface) netfsOptions.iface = iface;
+
+    const timeoutRaw = valueOf(args, "--timeout");
+    if (timeoutRaw) {
+      const timeoutMs = parseInt(timeoutRaw, 10);
+      if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+        await std.print(`mount: --timeout tidak valid: ${timeoutRaw}\n`);
+        return;
+      }
+      netfsOptions.timeoutMs = timeoutMs;
+    }
+    const cacheRaw = valueOf(args, "--cache");
+    if (cacheRaw) {
+      const cacheTtlMs = parseInt(cacheRaw, 10);
+      if (!Number.isInteger(cacheTtlMs) || cacheTtlMs < 0) {
+        await std.print(`mount: --cache tidak valid: ${cacheRaw}\n`);
+        return;
+      }
+      netfsOptions.cacheTtlMs = cacheTtlMs;
+    }
+    if (args.includes("--direct")) netfsOptions.direct = true;
   }
 
   try {
@@ -89,10 +150,21 @@ export default Program(async (args) => {
       return;
     }
 
-    const ok = await fs.mount(vfsPath, hostPath, isReadOnly, fsType, uid, gid);
+    const ok = await fs.mount(
+      vfsPath,
+      hostPath,
+      isReadOnly,
+      fsType,
+      uid,
+      gid,
+      netfsOptions,
+    );
     if (ok) {
+      const viaInfo = netfsOptions.via
+        ? ` (via localhost:${netfsOptions.via})`
+        : "";
       await std.print(
-        `Successfully mounted ${hostPath} to ${vfsPath}${isReadOnly ? " (read-only)" : ""}\n`,
+        `Successfully mounted ${hostPath}${viaInfo} to ${vfsPath}${isReadOnly ? " (read-only)" : ""}\n`,
       );
     } else {
       await std.print(`Failed to mount ${hostPath} to ${vfsPath}\n`);

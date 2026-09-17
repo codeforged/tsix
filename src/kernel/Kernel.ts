@@ -21,6 +21,12 @@ import { MountManager } from "./MountManager";
 import { IVFS } from "../vfs/IVFS";
 import { HostVFS } from "../vfs/HostVFS";
 import { RamFS } from "../vfs/RamFS";
+import { NetFS } from "../vfs/NetFS";
+import { MQTNLNetFSChannel } from "./netfs/MQTNLNetFSChannel";
+import {
+  formatNetFSSpec,
+  parseNetFSSpec,
+} from "../common/netfs/NetFSProtocol";
 import { GUIRegistry } from "./GUIRegistry";
 
 import path from "path";
@@ -402,8 +408,11 @@ export class Kernel {
 
   /**
    * runInit(): Mempersiapkan dan men-spawn proses init (PID 1).
+   *
+   * async karena konten binary init dibaca lewat kontrak IVFS (`MaybePromise`) —
+   * penting kalau suatu saat `/bin` berada di filesystem jaringan (NetFS).
    */
-  public runInit(): void {
+  public async runInit(): Promise<void> {
     const cfg = Config.get();
     this.bootLogStart("Init: Starting system entry service (init)");
 
@@ -421,7 +430,7 @@ export class Kernel {
       const initPath = "/bin/" + cfg.scheduler.bootEntry;
       const res = this.mountManager.resolve(initPath);
       // Gunakan vfs.read() sesuai kontrak IVFS, bukan stat().content
-      const raw = res.vfs.read(res.relativePath);
+      const raw = await res.vfs.read(res.relativePath);
       if (raw) initContent = raw;
     } catch (e: any) {
       this.logger.error(`Failed to read init content: ${e.message}`);
@@ -943,6 +952,57 @@ export class Kernel {
           // RamFS tidak butuh hostPath — murni di RAM
           const label = vfsPath.replace(/\//g, "_").replace(/^_/, "");
           driver = new RamFS(label, uid, gid, dirMode);
+        } else if (type === "netfs") {
+          // --- NETFS dari fstab: filesystem node lain lewat MQTNL ---
+          // Contoh entri:
+          //   { vfsPath: "/mnt/net", hostPath: "tsix_2:7777", type: "netfs",
+          //     via: 7778, key: "<64 hex>", timeoutMs: 5000 }
+          // `via` = port daemon klien lokal (netfsd --client); tanpa `via`
+          // kernel bicara langsung ke SL (--direct).
+          try {
+            const spec = parseNetFSSpec(hostPath);
+            const viaPort = (entry as any).via;
+            const target = viaPort
+              ? typeof viaPort === "number"
+                ? { address: "localhost", port: viaPort }
+                : parseNetFSSpec(String(viaPort))
+              : spec;
+
+            const channel = MQTNLNetFSChannel.open(this, {
+              address: target.address,
+              port: target.port,
+              iface: (entry as any).iface,
+              key: (entry as any).key,
+              agent: (entry as any).agent,
+              procName: `netfs:${vfsPath}`,
+            });
+            const netfs = new NetFS({
+              channel,
+              timeoutMs: (entry as any).timeoutMs,
+              cacheTtlMs: (entry as any).cacheTtlMs,
+              readOnly: readOnly === true,
+              label: vfsPath,
+            });
+
+            await netfs.handshake();
+            this.bootLogStart(`FSTAB: Mounting ${vfsPath} (netfs)`);
+            this.mountManager.mount(
+              vfsPath,
+              netfs,
+              "netfs",
+              formatNetFSSpec(spec.address, spec.port),
+              readOnly || false,
+              uid,
+              gid,
+            );
+            this.bootLogEnd(true);
+          } catch (e: any) {
+            // NetFS tidak boleh menggagalkan boot: node peer mungkin sedang
+            // mati. Mount bisa dilakukan manual nanti setelah peer hidup.
+            this.bootLogStart(`FSTAB: Mounting ${vfsPath} (netfs)`);
+            this.bootLogEnd(false, `NetFS gagal: ${e.message}`);
+          }
+          continue;
         } else {
           driver = new HostVFS(hostPath, readOnly || false, uid, gid, dirMode);
         }

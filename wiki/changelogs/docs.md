@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-09-17
+
+### Dokumentasi NetFS (filesystem antar-node) + changelog subsistem
+
+- **File:** `wiki/netfs.md` (baru), `wiki/changelogs/netfs.md` (baru), `wiki/changelogs/vfs.md`, `wiki/Virtual-File-System.md`, `wiki/Home.md`
+- **Perubahan:** halaman baru `netfs.md` menjelaskan mount filesystem antar-node lewat MQTNL: peta komponen (driver kernel ↔ SL/daemon userland), alur satu operasi, quick start tiga skenario (`--direct`, lewat daemon klien, `fstab`), tabel protokol NetFS v1 + kode error, lapisan keamanan, batasan, dan panduan diagnosa (`netfs info/ls/cat/status`, `lsblk`, `df`). Tabel backend VFS + diagram arsitektur diperbarui (tambah NetFS), dan `netfs.md` didaftarkan di `Home.md` (tabel **Quick Navigation** + **Complete Wiki**). Riwayat: `changelogs/netfs.md` (baru) + entri kontrak `IVFS` di `changelogs/vfs.md`.
+- **Dampak:** fitur filesystem jaringan kini punya dokumentasi mandiri (konsep → protokol → operasional → diagnosa), terpisah dari dokumentasi VFS lokal.
+- **Oleh:** Copilot
+
 ## 2026-09-15
 
 ### Dokumentasi bus SPI portabel (Pi ↔ Orange Pi)

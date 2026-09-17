@@ -27,6 +27,7 @@
 | 🏗️ **Architecture**    | [Arsitektur-Sistem.md](Arsitektur-Sistem.md)             |
 | ⚙️ **Kernel**          | [Kernel-dan-Scheduler.md](Kernel-dan-Scheduler.md)       |
 | 💾 **Filesystem**      | [Virtual-File-System.md](Virtual-File-System.md)         |
+| 🌐 **NetFS**           | [netfs.md](netfs.md)                                     |
 | 🌐 **Networking**      | [Networking-MQTNL.md](Networking-MQTNL.md)               |
 | 🔧 **Commands**        | [Perintah-Sistem.md](Perintah-Sistem.md)                 |
 | 📦 **Package Manager** | [Package-Manager-TPKG.md](Package-Manager-TPKG.md)       |
@@ -52,6 +53,7 @@ VFS TSIX menyediakan **multiple backends** untuk abstraksi filesystem:
 - **RAM VFS** — In-memory tree (root filesystem, seperti tmpfs)
 - **BKFS** — SQLite-backed persistent VFS (analog ext4, tapi di database)
 - **HostVFS** — Bridge ke host filesystem (`/mnt/host`, seperti 9p atau NFS)
+- **NetFS** — Filesystem node TSIX lain lewat MQTNL (`/mnt/net`, seperti NFS tapi tanpa IP publik) — [detail](netfs.md)
 - **Mount Manager** — Overlay multi-VFS, bind mount, union mount
 
 **2. Distributed by Design**  
@@ -281,6 +283,7 @@ tsix/
 | [Arsitektur-Sistem.md](Arsitektur-Sistem.md)                         | Ring 1/2 architecture, boot process, execution flow    |
 | [Kernel-dan-Scheduler.md](Kernel-dan-Scheduler.md)                   | Kernel internals, process management, syscalls         |
 | [Virtual-File-System.md](Virtual-File-System.md)                     | BKFS SQLite-backed VFS, permission model, mount system |
+| [netfs.md](netfs.md)                                                 | NetFS — filesystem antar-node lewat MQTNL (NFS-style)  |
 | [Networking-MQTNL.md](Networking-MQTNL.md)                           | MQTT Network Layer, remote access, IoT connectivity    |
 | [Perintah-Sistem.md](Perintah-Sistem.md)                             | Daftar lengkap 80+ user-land commands                  |
 | [Package-Manager-TPKG.md](Package-Manager-TPKG.md)                   | Package management, repository, dan update system      |

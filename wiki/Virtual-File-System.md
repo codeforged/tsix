@@ -7,6 +7,12 @@ TSIX menggunakan arsitektur **Virtual File System (VFS)** berlapis — mendukung
 | **BKFS** | `BKFS.ts` | SQLite (`system.db`) | ✅ Persistent | Root filesystem `/` |
 | **HostVFS** | `HostVFS.ts` | Host physical disk | ✅ Persistent | Mount folder host (`/mnt/shared`) |
 | **RamFS** | `RamFS.ts` | RAM (volatile) | ❌ Volatile | File sementara (`/tmp`, `/run`) |
+| **NetFS** | `NetFS.ts` | Node TSIX lain (MQTNL) | ✅ Persistent (remote) | Mount filesystem node lain (`/mnt/net`) — [detail](netfs.md) |
+
+> **Duabelas method, satu kontrak.** Semua method `IVFS` bertipe
+> `MaybePromise<T>`: driver lokal menjawab sinkron, driver jaringan (NetFS)
+> menjawab lewat Promise. Pemakai di kernel selalu `await`, jadi keduanya
+> transparan — lihat [netfs.md](netfs.md).
 
 ---
 
@@ -49,12 +55,14 @@ graph TD
         BKFS["BKFS<br/>SQLite-backed"]
         RamFS["RamFS<br/>RAM-only (volatile)"]
         HostVFS["HostVFS<br/>Host filesystem bridge"]
+        NetFS["NetFS<br/>node lain via MQTNL"]
     end
 
     subgraph Storage ["Storage Backends"]
         DB[("system.db")]
         RAM[("RAM")]
         DISK[("Host Disk")]
+        REMOTE[("Node TSIX lain")]
     end
 
     App --> SC
@@ -63,9 +71,11 @@ graph TD
     MM -->|"/" → BKFS| BKFS
     MM -->|"/tmp" → RamFS| RamFS
     MM -->|"/mnt/*" → HostVFS| HostVFS
+    MM -->|"/mnt/net" → NetFS| NetFS
     BKFS --> DB
     RamFS --> RAM
     HostVFS --> DISK
+    NetFS --> REMOTE
 ```
 
 ### Komponen VFS

@@ -19,7 +19,7 @@ async function main() {
     await kernel.boot();
 
     // 2. Jalankan Init (PID 1)
-    kernel.runInit();
+    await kernel.runInit();
 
     // 3. Keep-alive: Jangan biarkan main thread mati
     // Kita perkecil intervalnya biar respon shutdown lebih cepet dan gak re-login.

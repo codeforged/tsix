@@ -190,39 +190,39 @@ describe("MountManager", () => {
     // ============================================================
     // A4.17–A4.19: Cross-VFS Operations
     // ============================================================
-    it("A4.17 Cross-VFS file op – read from one, write to another", () => {
+    it("A4.17 Cross-VFS file op – read from one, write to another", async () => {
         mountManager.mount("/mnt", mntVFS as any);
         rootVFS.touch("/file.txt", "data");
         
         const srcRes = mountManager.resolve("/file.txt");
         const destRes = mountManager.resolve("/mnt/file_copy.txt");
 
-        const data = srcRes.vfs.read(srcRes.relativePath);
+        const data = await srcRes.vfs.read(srcRes.relativePath);
         expect(data).toBe("data");
-        destRes.vfs.touch(destRes.relativePath, data!);
-        expect(destRes.vfs.read(destRes.relativePath)).toBe("data");
+        await destRes.vfs.touch(destRes.relativePath, data!);
+        expect(await destRes.vfs.read(destRes.relativePath)).toBe("data");
     });
 
-    it("A4.18 Cross-VFS file op – stat across mounts", () => {
+    it("A4.18 Cross-VFS file op – stat across mounts", async () => {
         mountManager.mount("/mnt", mntVFS as any);
         const resRoot = mountManager.resolve("/file.txt");
         const resMnt = mountManager.resolve("/mnt/file.txt");
 
-        expect(resRoot.vfs.stat(resRoot.relativePath)).toBeDefined();
-        expect(resMnt.vfs.stat(resMnt.relativePath)).toBeDefined();
+        expect(await resRoot.vfs.stat(resRoot.relativePath)).toBeDefined();
+        expect(await resMnt.vfs.stat(resMnt.relativePath)).toBeDefined();
     });
 
-    it("A4.19 Cross-VFS file op – chunked I/O across mounts", () => {
+    it("A4.19 Cross-VFS file op – chunked I/O across mounts", async () => {
         mountManager.mount("/mnt", mntVFS as any);
         rootVFS.touch("/source.bin", "hello world");
         
         const src = mountManager.resolve("/source.bin");
         const dest = mountManager.resolve("/mnt/dest.bin");
 
-        const chunk = src.vfs.readChunk(src.relativePath, 6, 5);
+        const chunk = await src.vfs.readChunk(src.relativePath, 6, 5);
         expect(chunk).toBe("world");
-        dest.vfs.writeChunk(dest.relativePath, chunk!, 0);
-        expect(dest.vfs.read(dest.relativePath)).toBe("world");
+        await dest.vfs.writeChunk(dest.relativePath, chunk!, 0);
+        expect(await dest.vfs.read(dest.relativePath)).toBe("world");
     });
 
     // ============================================================

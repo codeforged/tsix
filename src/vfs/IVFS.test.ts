@@ -38,10 +38,10 @@ describe.each(makeImplementations())("IVFS Contract [$name]", ({ vfs, cleanup })
         vfs.touch("/test.txt", "new");
         expect(vfs.read("/test.txt")).toBe("new");
     });
-    it("B4.03 mkdir + ls", () => {
-        vfs.mkdir("/mydir");
-        vfs.touch("/mydir/file.txt", "data");
-        const items = vfs.ls("/mydir");
+    it("B4.03 mkdir + ls", async () => {
+        await vfs.mkdir("/mydir");
+        await vfs.touch("/mydir/file.txt", "data");
+        const items = await vfs.ls("/mydir");
         expect(items.length).toBe(1);
         expect(items[0].name).toBe("file.txt");
     });

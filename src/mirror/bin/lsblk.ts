@@ -21,7 +21,9 @@ export default Program(async (args) => {
         const mountPoint = m.vfsPath.padEnd(20);
         const type = m.type.padEnd(10);
         const source = m.source.padEnd(25);
-        const opts = m.readOnly ? "ro" : "rw";
+        // Mount jaringan (netfs) bisa "stale": peer tidak merespons.
+        const stale = (m as any).stale ? ",stale" : "";
+        const opts = `${m.readOnly ? "ro" : "rw"}${stale}`;
 
         await std.println(`${mountPoint} ${type} ${source} ${opts}`);
     }

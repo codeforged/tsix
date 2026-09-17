@@ -962,6 +962,8 @@ export class FsLib {
     type: string = "host",
     uid?: number,
     gid?: number,
+    /** Opsi tambahan per-jenis FS (mis. netfs: { via, key, timeoutMs }). */
+    options: Record<string, any> = {},
   ): Promise<boolean> {
     return await this.dispatch(SyscallCode.MOUNT, {
       vfsPath,
@@ -970,6 +972,7 @@ export class FsLib {
       type,
       uid,
       gid,
+      ...options,
     });
   }
 

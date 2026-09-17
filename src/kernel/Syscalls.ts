@@ -24,6 +24,12 @@ import { HostVFS } from "../vfs/HostVFS";
 import { RamFS } from "../vfs/RamFS";
 import { GUIAction, IGUIPayload } from "../common/GUITypes";
 import { v4 as uuidv4 } from "uuid";
+import { NetFS } from "../vfs/NetFS";
+import { MQTNLNetFSChannel } from "./netfs/MQTNLNetFSChannel";
+import {
+  formatNetFSSpec,
+  parseNetFSSpec,
+} from "../common/netfs/NetFSProtocol";
 
 /**
  * SYSCALL DISPATCHER
@@ -420,7 +426,7 @@ export class SyscallDispatcher {
           "/";
         const { vfs: parentVfs, relativePath: parentRelativePath } =
           this.mountManager.resolve(parentPath);
-        const parentNode = parentVfs.stat(parentRelativePath);
+        const parentNode = await parentVfs.stat(parentRelativePath);
 
         if (
           parentNode &&
@@ -430,7 +436,7 @@ export class SyscallDispatcher {
             "Permission Denied: Cannot write to parent directory.",
           );
         }
-        return vfs.mkdir(relativePath, pcb.uid, pcb.gid, 493);
+        return await vfs.mkdir(relativePath, pcb.uid, pcb.gid, 493);
       }
 
       case SyscallCode.LS: {
@@ -481,7 +487,7 @@ export class SyscallDispatcher {
 
         const { vfs, relativePath } = this.mountManager.resolve(absoluteLsPath);
         // Cek permission: user harus punya READ access ke direktori
-        const lsNode = vfs.stat(relativePath);
+        const lsNode = await vfs.stat(relativePath);
         if (!lsNode) {
           throw new Error(
             `ls: cannot access '${absoluteLsPath}': No such file or directory`,
@@ -492,7 +498,7 @@ export class SyscallDispatcher {
             `ls: cannot open directory '${absoluteLsPath}': Permission denied`,
           );
         }
-        return vfs.ls(relativePath);
+        return await vfs.ls(relativePath);
       }
 
       case SyscallCode.OPEN: {
@@ -519,7 +525,7 @@ export class SyscallDispatcher {
             : Permission.READ;
 
         // Existence Check
-        const node = vfs.stat(relativePath);
+        const node = await vfs.stat(relativePath);
 
         if (node) {
           // Check File Permission
@@ -547,7 +553,7 @@ export class SyscallDispatcher {
               ) || "/";
             const { vfs: parentVfs, relativePath: parentRelativePath } =
               this.mountManager.resolve(parentDir);
-            const parentNode = parentVfs.stat(parentRelativePath);
+            const parentNode = await parentVfs.stat(parentRelativePath);
             if (parentNode) {
               if (!this.satpam.check(pcb, parentNode, Permission.WRITE)) {
                 throw new Error(
@@ -561,7 +567,7 @@ export class SyscallDispatcher {
             !node &&
             !absoluteOpenPath.startsWith("/dev/")
           ) {
-            vfs.touch(relativePath, "", pcb.uid, pcb.gid, 420); // 644 equivalent
+            await vfs.touch(relativePath, "", pcb.uid, pcb.gid, 420); // 644 equivalent
           }
 
           // Truncate if Opening with 'w' (Write) and NOT 'a' (Append)
@@ -572,7 +578,7 @@ export class SyscallDispatcher {
             !absoluteOpenPath.startsWith("/dev/")
           ) {
             // Keep existing mode/owner, just empty the content
-            vfs.touch(relativePath, "", node.uid, node.gid, node.mode);
+            await vfs.touch(relativePath, "", node.uid, node.gid, node.mode);
           }
         }
 
@@ -668,7 +674,7 @@ export class SyscallDispatcher {
           !flags.includes("a") &&
           !flags.includes("+")
         ) {
-          vfs.touch(relativePath, "", pcb.uid, pcb.gid, 420);
+          await vfs.touch(relativePath, "", pcb.uid, pcb.gid, 420);
         }
 
         const fd = pcb.fdTable.length;
@@ -697,7 +703,7 @@ export class SyscallDispatcher {
 
         const { vfs, relativePath } =
           this.mountManager.resolve(absoluteStatPath);
-        return vfs.stat(relativePath);
+        return await vfs.stat(relativePath);
       }
 
       case SyscallCode.CHMOD: {
@@ -714,10 +720,10 @@ export class SyscallDispatcher {
         }
 
         const { vfs, relativePath } = this.mountManager.resolve(absolutePath);
-        const node = vfs.stat(relativePath);
+        const node = await vfs.stat(relativePath);
         if (!node) return false;
         if (pcb.uid !== 0 && pcb.uid !== node.uid) return false;
-        return vfs.chmod(relativePath, mode);
+        return await vfs.chmod(relativePath, mode);
       }
 
       case SyscallCode.CHOWN: {
@@ -740,28 +746,28 @@ export class SyscallDispatcher {
 
         if (!this.isRoot(pcb)) return false;
         const { vfs, relativePath } = this.mountManager.resolve(absolutePath);
-        return vfs.chown(relativePath, targetUid, targetGid);
+        return await vfs.chown(relativePath, targetUid, targetGid);
       }
 
       case SyscallCode.UNLINK: {
         const absolutePath = PathResolver.resolve(pcb.cwd, args as string);
         const { vfs, relativePath } = this.mountManager.resolve(absolutePath);
-        const node = vfs.stat(relativePath);
+        const node = await vfs.stat(relativePath);
         if (!node) throw new Error("File not found");
         if (!this.satpam.check(pcb, node, Permission.WRITE))
           throw new Error("Permission Denied");
-        return vfs.unlink(relativePath);
+        return await vfs.unlink(relativePath);
       }
 
       case SyscallCode.RMDIR: {
         const absolutePath = PathResolver.resolve(pcb.cwd, args as string);
         const { vfs, relativePath } = this.mountManager.resolve(absolutePath);
-        const node = vfs.stat(relativePath);
+        const node = await vfs.stat(relativePath);
         if (!node || node.type !== "DIRECTORY")
           throw new Error("Not a directory");
         if (!this.satpam.check(pcb, node, Permission.WRITE))
           throw new Error("Permission Denied");
-        return vfs.rmdir(relativePath);
+        return await vfs.rmdir(relativePath);
       }
 
       case SyscallCode.WRITE: {
@@ -792,7 +798,7 @@ export class SyscallDispatcher {
             );
             return entry.device.ioctl(0x2001, content);
           }
-          return entry.device.write(content);
+          return await entry.device.write(content);
         }
 
         const { fd, content } = args;
@@ -809,7 +815,7 @@ export class SyscallDispatcher {
           throw new Error("Bad File Descriptor: Not open for writing");
         }
 
-        return entry.device.write(content);
+        return await entry.device.write(content);
       }
 
       case SyscallCode.READ: {
@@ -841,13 +847,13 @@ export class SyscallDispatcher {
               );
             return output;
           }
-          return entry.device.read();
+          return await entry.device.read();
         }
 
         const fd = args as number;
         const entry = pcb.fdTable[fd];
         if (!entry) throw new Error(`FD NOT FOUND: ${fd}`);
-        return entry.device.read();
+        return await entry.device.read();
       }
 
       case SyscallCode.CLOSE: {
@@ -1079,7 +1085,7 @@ export class SyscallDispatcher {
         let absoluteExecPath = PathResolver.resolve(pcb.cwd, execPath);
 
         let { vfs, relativePath } = this.mountManager.resolve(absoluteExecPath);
-        let node = vfs.stat(relativePath);
+        let node = await vfs.stat(relativePath);
 
         // Prioritize .js over .ts for performance
         if (!node) {
@@ -1090,7 +1096,7 @@ export class SyscallDispatcher {
             const altPath = absoluteExecPath + ext;
             const { vfs: altVfs, relativePath: altRelativePath } =
               this.mountManager.resolve(altPath);
-            const altNode = altVfs.stat(altRelativePath);
+            const altNode = await altVfs.stat(altRelativePath);
             if (altNode) {
               absoluteExecPath = altPath;
               node = altNode;
@@ -1122,7 +1128,7 @@ export class SyscallDispatcher {
           // Gunakan vfs.read() sesuai kontrak IVFS (stat = metadata, read = konten)
           // Jangan mengandalkan node.content karena tidak semua IVFS menyertakan
           // konten di stat() (BKFS kebetulan return full DB row, RamFS/HostVFS tidak)
-          appContent = vfs.read(relativePath) ?? undefined;
+          appContent = (await vfs.read(relativePath)) ?? undefined;
         }
 
         this.logger.debug(
@@ -1226,7 +1232,7 @@ export class SyscallDispatcher {
         const targetPath = PathResolver.resolve(pcb.cwd, args as string);
         const { vfs, relativePath } = this.mountManager.resolve(targetPath);
 
-        const node = vfs.stat(relativePath);
+        const node = await vfs.stat(relativePath);
         if (!node) return false; // not found
         if (!this.satpam.check(pcb, node, Permission.EXECUTE))
           throw new Error(`cd: permission denied: ${targetPath}`);
@@ -1239,7 +1245,7 @@ export class SyscallDispatcher {
       case SyscallCode.PRINT: {
         const entry = pcb.fdTable[1];
         if (!entry) return -1;
-        entry.device.write(args as string);
+        await entry.device.write(args as string);
         return 0;
       }
 
@@ -1826,7 +1832,7 @@ export class SyscallDispatcher {
         }
 
         const { vfs, relativePath } = this.mountManager.resolve(vfsPath);
-        const content = vfs.read(relativePath);
+        const content = await vfs.read(relativePath);
         if (content === null)
           throw new Error(`Source file not found in VFS: ${vfsPath}`);
 
@@ -1902,7 +1908,7 @@ export class SyscallDispatcher {
         const vfsDir = "/" + vfsDirParts.join("/");
 
         if (vfsDir !== "/") {
-          vfs.mkdir(vfsDir, pcb.uid, pcb.gid);
+          await vfs.mkdir(vfsDir, pcb.uid, pcb.gid);
         }
 
         // --- SMART PERMISSIONS ---
@@ -1916,7 +1922,7 @@ export class SyscallDispatcher {
         }
 
         // Driver uses touch for writing/updating file content
-        vfs.touch(relativePath, content, pcb.uid, pcb.gid, mode);
+        await vfs.touch(relativePath, content, pcb.uid, pcb.gid, mode);
         this.logger.info(
           `[SYNC] Pulled HOST:${hostPath} -> VFS:${cleanVfsPath} (Mode: ${mode.toString(8)})`,
         );
@@ -1968,6 +1974,74 @@ export class SyscallDispatcher {
           this.logger.info(`Mounting RamFS: ${fullVfsPath}`);
           const label = fullVfsPath.replace(/\//g, "_").replace(/^_/, "");
           driver = new RamFS(label, uid, gid);
+        } else if (fsType === "netfs") {
+          // --- NETFS: filesystem milik node TSIX lain, lewat MQTNL ---
+          // hostPath = spec peer storage host, mis. "tsix_2:7777".
+          // Opsi tambahan: { via, direct, key, agent, timeoutMs, cacheTtlMs }.
+          const opts = (args ?? {}) as {
+            via?: string | number;
+            iface?: string;
+            key?: string;
+            agent?: string;
+            timeoutMs?: number;
+            cacheTtlMs?: number;
+          };
+          const spec = parseNetFSSpec(hostPath);
+
+          // Dua jalur transport (keduanya MQTNL):
+          //   - via daemon klien (default): kernel → localhost:<port netfsd --client>
+          //   - langsung ke SL: kernel → <alamat peer>:<port>
+          const target = opts.via
+            ? typeof opts.via === "number"
+              ? { address: "localhost", port: opts.via }
+              : parseNetFSSpec(String(opts.via))
+            : spec;
+
+          const channel = MQTNLNetFSChannel.open(this.kernel, {
+            address: target.address,
+            port: target.port,
+            iface: opts.iface,
+            key: opts.key,
+            agent: opts.agent,
+            procName: `netfs:${fullVfsPath}`,
+          });
+
+          const netfs = new NetFS({
+            channel,
+            timeoutMs: opts.timeoutMs,
+            cacheTtlMs: opts.cacheTtlMs,
+            readOnly: readOnly === true,
+            label: fullVfsPath,
+          });
+
+          try {
+            // Handshake: gagal cepat kalau peer mati / bukan netfsd,
+            // supaya tidak ada mount "setengah hidup".
+            const info = await netfs.handshake();
+            this.logger.info(
+              `Mounting NetFS: ${formatNetFSSpec(spec.address, spec.port)} -> ${fullVfsPath}` +
+                `${target.address === "localhost" ? ` (via localhost:${target.port})` : " (direct)"}` +
+                `${info.readOnly ? " [server read-only]" : ""}`,
+            );
+          } catch (e: any) {
+            await netfs.close().catch(() => {});
+            throw new Error(
+              `mount: netfs ${formatNetFSSpec(spec.address, spec.port)} tidak merespons ` +
+                `(${e?.message ?? e}). Pastikan 'netfsd --export' jalan di node tujuan` +
+                `${target.address === "localhost" ? " dan 'netfsd --client' jalan di node ini (atau pakai --direct)" : ""}.`,
+            );
+          }
+
+          this.mountManager.mount(
+            fullVfsPath,
+            netfs,
+            fsType,
+            formatNetFSSpec(spec.address, spec.port),
+            readOnly || false,
+            uid,
+            gid,
+          );
+          return true;
         } else {
           this.logger.info(`Mounting Host Path: ${hostPath} -> ${fullVfsPath}`);
           driver = new HostVFS(hostPath, readOnly || false, uid, gid);
@@ -1997,7 +2071,26 @@ export class SyscallDispatcher {
           throw new Error("Cannot unmount root filesystem.");
         }
 
-        return this.mountManager.unmount(fullVfsPath);
+        // Lepas resource driver (netfs: port MQTNL + session key mount lama).
+        // resolve() bisa melempar kalau path memang tidak termount — di situ
+        // unmount() tetap harus mengembalikan false seperti perilaku lama.
+        let driver: any = null;
+        try {
+          driver = this.mountManager.resolve(fullVfsPath).vfs;
+        } catch (e) {
+          driver = null;
+        }
+        const unmounted = this.mountManager.unmount(fullVfsPath);
+        if (unmounted && typeof driver?.close === "function") {
+          try {
+            await driver.close();
+          } catch (e: any) {
+            this.logger.warn(
+              `umount ${fullVfsPath}: gagal menutup driver (${e?.message ?? e})`,
+            );
+          }
+        }
+        return unmounted;
       }
 
       case SyscallCode.GET_SYSPATH: {
@@ -2048,12 +2141,12 @@ export class SyscallDispatcher {
 
         // Permission Check: harus punya READ access
         const { vfs, relativePath } = this.mountManager.resolve(absolutePath);
-        const node = vfs.stat(relativePath);
+        const node = await vfs.stat(relativePath);
         if (!node) throw new Error(`File not found: ${absolutePath}`);
         if (!this.satpam.check(pcb, node, Permission.READ)) {
           throw new Error(`Permission Denied: Cannot read ${absolutePath}`);
         }
-        return vfs.readChunk(relativePath, offset, length);
+        return await vfs.readChunk(relativePath, offset, length);
       }
 
       case SyscallCode.WRITE_CHUNK: {
@@ -2065,7 +2158,7 @@ export class SyscallDispatcher {
         const absolutePath = PathResolver.resolve(pcb.cwd, chunkPath);
 
         const { vfs, relativePath } = this.mountManager.resolve(absolutePath);
-        const node = vfs.stat(relativePath);
+        const node = await vfs.stat(relativePath);
 
         if (node) {
           // File exists — check write permission
@@ -2080,7 +2173,7 @@ export class SyscallDispatcher {
             absolutePath.substring(0, absolutePath.lastIndexOf("/")) || "/";
           const { vfs: parentVfs, relativePath: parentRel } =
             this.mountManager.resolve(parentDir);
-          const parentNode = parentVfs.stat(parentRel);
+          const parentNode = await parentVfs.stat(parentRel);
           if (
             parentNode &&
             !this.satpam.check(pcb, parentNode, Permission.WRITE)
@@ -2090,7 +2183,7 @@ export class SyscallDispatcher {
             );
           }
         }
-        return vfs.writeChunk(relativePath, chunk, offset);
+        return await vfs.writeChunk(relativePath, chunk, offset);
       }
 
       case SyscallCode.GET_SIZE: {
@@ -2098,10 +2191,10 @@ export class SyscallDispatcher {
         const absolutePath = PathResolver.resolve(pcb.cwd, sizePath);
 
         const { vfs, relativePath } = this.mountManager.resolve(absolutePath);
-        const node = vfs.stat(relativePath);
+        const node = await vfs.stat(relativePath);
         if (!node) throw new Error(`File not found: ${absolutePath}`);
         // Tidak perlu permission khusus — ukuran file bukan data sensitif
-        return vfs.getSize(relativePath);
+        return await vfs.getSize(relativePath);
       }
 
       case SyscallCode.SET_IDENTITY: {

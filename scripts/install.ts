@@ -113,6 +113,11 @@ function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string): void {
       continue;
     }
 
+    // Unit test (vitest) BUKAN bagian dari image sistem: tidak dieksekusi
+    // runtime, tapi kalau ikut disalin dia masuk ke cache pre-compile `/lib`
+    // yang dikirim ke SETIAP worker. Jadi lebih baik dilewati di sini.
+    if (item.endsWith(".test.ts") || item.endsWith(".spec.ts")) continue;
+
     const isTarget =
       item.endsWith(".ts") ||
       item.endsWith(".js") ||

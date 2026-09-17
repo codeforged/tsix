@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-09-17
+
+### Kontrak `IVFS` jadi `MaybePromise` — backend filesystem jaringan (NetFS)
+
+- **File:** `src/vfs/IVFS.ts`, `src/vfs/NetFS.ts` (baru), `src/common/MaybePromise.ts` (baru), `src/kernel/Syscalls.ts`, `src/kernel/Kernel.ts`, `src/kernel/devices/IDevice.ts`, `src/kernel/devices/FileSystemDevice.ts`
+- **Perubahan:** semua method `IVFS` (dan `IDevice.write()`) bertipe `MaybePromise<T>`, sehingga satu kontrak yang sama bisa dipenuhi backend sinkron (VFS/BKFS/HostVFS/RamFS) **dan** backend yang butuh I/O jaringan (NetFS). Pemakai di kernel kini `await` hasilnya — driver lama tidak perlu diubah karena `await` pada nilai biasa mengembalikan nilai itu apa adanya. `Kernel.runInit()` ikut jadi `async`.
+- **Alasan:** filesystem antar-node (`mount /mnt/net tsix_2:7777 --netfs`, lihat `wiki/changelogs/netfs.md`) tidak bisa menjawab sinkron; tanpa perubahan kontrak, opsi satu-satunya adalah memblokir kernel.
+- **Dampak:** satu tipe mount baru (`netfs`) di `MountManager`/`fstab`/`mount`/`lsblk`/`df`. Efek samping yang perlu diketahui: setiap call-site IVFS di kernel wajib `await` (kalau lupa, hasilnya jadi Promise dan pemakaian berikutnya salah tipe).
+- **Oleh:** Copilot
+
+---
+
 ## 2026-09-12
 
 ### Peluang terbuka: resolve `.ts` `/lib` dari sidecar `.js` (belum dikerjakan)
