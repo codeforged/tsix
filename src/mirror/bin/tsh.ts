@@ -1,5 +1,11 @@
 import { IProgram, OSContext } from "@tsix/IProgram";
 import { StdLib, FsLib, ShellLib } from "@tsix/UserLib";
+import {
+  isKnownShell,
+  parseScriptLines,
+  scriptShebang,
+  splitTrailingContinuation,
+} from "@tsix/ShellScript";
 
 interface CompletionState {
   active: boolean;
@@ -24,6 +30,12 @@ export class main implements IProgram {
   private hostname: string = "dinawari";
   private isRunning: boolean = true;
   private history: string[] = [];
+
+  // Argumen skrip: [$0=path, $1, $2, ...] — kosong saat mode interaktif.
+  private scriptArgs: string[] = [];
+  // Kedalaman skrip bersarang — pagar supaya skrip yang memanggil dirinya
+  // sendiri tidak membuat shell berputar tanpa henti.
+  private scriptDepth: number = 0;
 
   // Default env vars
   private rows: number = 24;
@@ -53,6 +65,27 @@ export class main implements IProgram {
     if (args.includes("-v") || args.includes("--version")) {
       await lib.std.print(`TSIX Shell v${this.version} (Dinawari)\n`);
       return `Shell version ${this.version}`;
+    }
+
+    // --- MODE NON-INTERAKTIF: `tsh <skrip.sh> [args...]` ---
+    // Menjalankan skrip lalu keluar (tanpa prompt). Dipakai juga saat skrip
+    // dijalankan di background — shell men-spawn dirinya sendiri sebagai
+    // subshell, bukan meniru fork/exec yang tidak ada di TSIX.
+    const firstArg = args.find((a) => !a.startsWith("-"));
+    if (firstArg) {
+      const candidate = await this.resolveBinary(firstArg);
+      if (candidate && (await this.detectScript(candidate)).isScript) {
+        const rest = args.slice(args.indexOf(firstArg) + 1);
+        const output = await this.runScriptCommand(candidate, rest, {
+          redirectPath: null,
+          isBackground: false,
+          isPipelinePart: false,
+        });
+        if (typeof output === "string" && output) {
+          await lib.std.print(output + "\n");
+        }
+        return `Script ${firstArg} finished.`;
+      }
     }
 
     // --- CLI ARGUMENT HANDLING: shell <username> → login as that user ---
@@ -121,7 +154,7 @@ export class main implements IProgram {
       await this.std.setRawMode(true);
 
       const prompt = await this.renderPrompt();
-      const input = await this.readLine(prompt);
+      const input = await this.readLogicalLine(prompt);
 
       if (input && input.trim()) {
         await this.addToHistory(input.trim());
@@ -467,6 +500,159 @@ export class main implements IProgram {
         await this.redrawCurrentLine();
       }
     }
+  }
+
+  /**
+   * readLogicalLine(): Baca satu PERINTAH LOGIS — mendukung sambung baris (`\`).
+   *
+   *   root@tsix# netfsd --export /mnt/sbak/ \
+   *   > --label databank --port 7777 \
+   *   > --key c50f...
+   *
+   * Semantiknya sama seperti shell Unix: `\` + Enter membuang backslash DAN
+   * newline-nya, jadi potongan-potongan itu menjadi SATU perintah (karena itu
+   * biasakan menulis spasi SEBELUM `\`). Hanya backslash tunggal di akhir baris
+   * yang menyambung; `\\` berarti backslash literal. Prompt lanjutan bisa
+   * diubah lewat env `PROMPT2`.
+   */
+  private async readLogicalLine(prompt: string): Promise<string> {
+    const ps2 =
+      (await this.shell.getenv("PROMPT2")) || "\u001b[90m> \u001b[0m";
+    let logical = "";
+    let depth = 0;
+
+    for (;;) {
+      const line = await this.readLine(logical === "" ? prompt : ps2);
+
+      // Baris kosong (Enter polos) atau Ctrl+C → batalkan perintah logis.
+      if (line === "") return "";
+
+      const { text, continues } = splitTrailingContinuation(line);
+      logical += text;
+
+      if (!continues) return logical;
+
+      depth++;
+      if (depth > 128) {
+        await this.std.print(
+          `${this.name}: sambung baris terlalu panjang — dibatalkan\n`,
+        );
+        return "";
+      }
+    }
+  }
+
+  /**
+   * detectScript(): Apakah file ini SKRIP SHELL (bukan aplikasi TSIX)?
+   *
+   *   - `.ts`/`.js` → aplikasi (jalur lama, tidak diubah)
+   *   - punya shebang (`#!/bin/tsh`, `#!/bin/sh`) → skrip
+   *   - berakhiran `.sh` → skrip (walau tanpa shebang)
+   *
+   * Sisanya bukan skrip → biarkan kernel yang menentukan (bisa jadi app).
+   */
+  private async detectScript(
+    path: string,
+  ): Promise<{ isScript: boolean; interpreter: string | null }> {
+    if (/\.(ts|js)$/i.test(path)) return { isScript: false, interpreter: null };
+
+    const content = await this.fs.readFile(path).catch(() => null);
+    if (content === null || content === undefined) {
+      return { isScript: false, interpreter: null };
+    }
+
+    const interpreter = scriptShebang(content);
+    if (interpreter) return { isScript: true, interpreter };
+    if (/\.sh$/i.test(path)) return { isScript: true, interpreter: null };
+    return { isScript: false, interpreter: null };
+  }
+
+  /**
+   * runScriptCommand(): Jalankan skrip shell dari sebuah perintah.
+   *
+   * Background (`./skrip.sh &`) di-spawn sebagai subshell `tsh <skrip>` supaya
+   * shell tetap responsif; foreground dijalankan di shell yang sama (seperti
+   * `source`) agar `cd`/`export`/variabel benar-benar terasa efeknya.
+   */
+  private async runScriptCommand(
+    path: string,
+    args: string[],
+    opts: {
+      stdoutFd?: number;
+      redirectPath: string | null;
+      isBackground: boolean;
+      isPipelinePart: boolean;
+    },
+  ): Promise<string | { pid: number; name: string }> {
+    // Bit eksekusi WAJIB dimiliki skrip — sama seperti Linux. Pemeriksaan
+    // ditaruh di sini (bukan hanya di executeSingleCommand) supaya jalur
+    // non-interaktif `tsh skrip.sh` juga tidak bisa menembusnya.
+    const info = await this.fs.stat(path).catch(() => null);
+    if (info && (info.mode & 0o111) === 0) {
+      await this.shell.setenv("ERROR_LEVEL", "126");
+      await this.shell.setenv("?", "126");
+      return `-${this.name}: ${path}: Permission denied (butuh bit x: chmod +x ${path})`;
+    }
+
+    if (opts.isBackground) {
+      const execResult = await this.shell.exec(
+        "/bin/tsh.js",
+        [path, ...args],
+        opts.stdoutFd,
+      );
+      if (execResult && typeof execResult === "object" && "pid" in execResult) {
+        const { pid } = execResult as { pid: number };
+        await this.std.print(`[${pid}] ${path} &\n`);
+        return { pid, name: path };
+      }
+      return typeof execResult === "string" ? execResult : "";
+    }
+
+    if (this.scriptDepth >= 16) {
+      return `-${this.name}: ${path}: skrip bersarang terlalu dalam (maksimum 16)`;
+    }
+
+    const savedArgs = this.scriptArgs;
+    this.scriptArgs = [path, ...args];
+
+    try {
+      return await this.runScriptFile(path);
+    } catch (e: any) {
+      return `-${this.name}: ${path}: ${e?.message ?? e}`;
+    } finally {
+      this.scriptArgs = savedArgs;
+    }
+  }
+
+  /**
+   * runScriptFile(): Eksekusi isi skrip di shell yang sedang berjalan.
+   *
+   * Tiap baris dikirim ke `handleCommand()` — jadi skrip otomatis mewarisi
+   * seluruh kemampuan shell (builtin, pipeline, redirection, wildcard, `;`).
+   * `exit` di dalam skrip menghentikan sisa barisnya.
+   */
+  private async runScriptFile(path: string): Promise<string> {
+    const content = await this.fs.readFile(path);
+    if (content === null || content === undefined) {
+      throw new Error("skrip tidak bisa dibaca");
+    }
+
+    const commands = parseScriptLines(content);
+    if (commands.length === 0) return "";
+
+    this.scriptDepth++;
+    const outputs: string[] = [];
+    try {
+      for (const cmd of commands) {
+        const result = await this.handleCommand(cmd.text);
+        if (result) outputs.push(result);
+        if (!this.isRunning) break;
+      }
+    } finally {
+      this.scriptDepth--;
+    }
+
+    return outputs.join("\n");
   }
 
   private async redrawCurrentLine() {
@@ -935,7 +1121,11 @@ export class main implements IProgram {
     // 4. Handle Built-ins
     if (cmd === "help") {
       result =
-        "Available commands: cd, exit, export, version, help, history, ps, whoami";
+        "Available commands: cd, exit, export, version, help, history, ps, whoami\n" +
+        "Skrip    : ./skrip.sh [args]        — butuh bit x (`chmod +x skrip.sh`)\n" +
+        "           tsh skrip.sh [args]     — non-interaktif (cron/rc.local/background)\n" +
+        "           di skrip: $0, $1..$9, $@, $#, komentar '#', '\\' untuk sambung baris\n" +
+        "Console  : akhiri baris dengan '\\' lalu Enter untuk menyambung perintah";
       exitCode = 0;
     } else if (cmd === "cd") {
       const target = args[0] || "/";
@@ -1013,6 +1203,41 @@ export class main implements IProgram {
         await this.shell.setenv("ERROR_LEVEL", "126");
         await this.shell.setenv("?", "126");
         return `-${this.name}: ${binPath}: Permission denied`;
+      }
+
+      // --- SKRIP SHELL (.sh / ber-shebang) ---
+      // Dijalankan di shell yang sama (seperti `source`) supaya `cd`, `export`,
+      // dan variabel tetap terasa — inilah yang membuat perintah panjang cukup
+      // disimpan sekali lalu dipanggil `./start-netfs.sh`.
+      const script = await this.detectScript(binPath);
+      if (script.isScript) {
+        if (script.interpreter && !isKnownShell(script.interpreter)) {
+          if (redirectPath && stdoutFd !== undefined)
+            await this.fs.close(stdoutFd);
+          await this.shell.setenv("ERROR_LEVEL", "126");
+          await this.shell.setenv("?", "126");
+          return `-${this.name}: ${binPath}: interpreter tidak didukung: ${script.interpreter}`;
+        }
+
+        const scriptOutput = await this.runScriptCommand(binPath, args, {
+          stdoutFd,
+          redirectPath,
+          isBackground: !!isBackground,
+          isPipelinePart,
+        });
+
+        // Skrip di background sudah di-spawn sebagai subshell → kembalikan
+        // { pid } apa adanya supaya pemanggil bisa waitpid.
+        if (typeof scriptOutput !== "string") return scriptOutput;
+
+        // Foreground: output diperlakukan sama seperti output builtin —
+        // ditulis ke fd bila ada redirection/pipe, kalau tidak ke pemanggil.
+        if (stdoutFd !== undefined) {
+          if (scriptOutput) await this.fs.write(stdoutFd, scriptOutput + "\n");
+          if (redirectPath || !isPipelinePart) await this.fs.close(stdoutFd);
+          return "";
+        }
+        return scriptOutput;
       }
 
       // Jalankan binary dengan meneruskan stdinFd dan stdoutFd
@@ -1094,14 +1319,31 @@ export class main implements IProgram {
   }
 
   private async expandVariables(text: string): Promise<string> {
-    const regex = /\$([a-zA-Z0-9_]+|\?)/g;
+    // $VAR, $?, $0..$9 (argumen skrip), $@ / $* (semua argumen), $# (jumlah).
+    const regex = /\$([a-zA-Z_][a-zA-Z0-9_]*|[0-9]+|[@#?*])/g;
     let result = text;
-    const matches = text.matchAll(regex);
-    for (const match of matches) {
+
+    for (const match of text.matchAll(regex)) {
+      const token = match[0];
       const varName = match[1];
-      const value = (await this.shell.getenv(varName)) || "";
-      result = result.replace(match[0], value);
+
+      let value: string;
+      if (/^[0-9]+$/.test(varName)) {
+        // $0 = path skrip, $1.. = argumen; di luar skrip semuanya string kosong.
+        value = this.scriptArgs[Number(varName)] ?? "";
+      } else if (varName === "@" || varName === "*") {
+        value = this.scriptArgs.slice(1).join(" ");
+      } else if (varName === "#") {
+        value = String(Math.max(this.scriptArgs.length - 1, 0));
+      } else {
+        value = (await this.shell.getenv(varName)) || "";
+      }
+
+      // Function replacer: `$&`/`$1` di dalam VALUE tidak boleh ditafsirkan
+      // sebagai pola pengganti (perilaku lama bisa merusak nilai seperti itu).
+      result = result.replace(token, () => value);
     }
+
     return result;
   }
 

@@ -18,6 +18,12 @@
  *   node scripts/test/worker-dme-smoke.mjs [path-app-relatif] [-- args...]
  * Contoh:
  *   node scripts/test/worker-dme-smoke.mjs src/mirror/sbin/netfsd.ts -- --help
+ *   SMOKE_FILES="/tmp/x.sh=./fixtures/x.sh" \
+ *     node scripts/test/worker-dme-smoke.mjs src/mirror/bin/tsh.ts -- /tmp/x.sh halo
+ *
+ * Env opsional:
+ *   SMOKE_FILES=<vfsPath>=<hostPath>[;...]  — file yang “ada” di VFS palsu
+ *   SMOKE_FILE_MODE=<oktal>                — mode file fixture (default 755)
  *
  * Exit code 0 = modul termuat & app mulai jalan; 1 = gagal (detail dicetak).
  */
@@ -36,9 +42,28 @@ const appRel = (sep === -1 ? argv[0] : argv[0]) || "src/mirror/sbin/netfsd.ts";
 const appArgs = sep === -1 ? ["--help"] : argv.slice(sep + 1);
 const APP_HOST = path.join(ROOT, appRel);
 // Path "BKFS" untuk app (dipakai WorkerEntry untuk __filename + stack trace).
-const APP_VFS = appRel.startsWith("src/mirror/")
+// Selalu pakai nama `.js`: runtime mengeksekusi sidecar hasil transpile.
+const APP_VFS = (appRel.startsWith("src/mirror/")
   ? "/" + appRel.slice("src/mirror/".length)
-  : "/" + path.basename(appRel);
+  : "/" + path.basename(appRel)
+).replace(/\.ts$/, ".js");
+
+/** File yang “ada” di VFS palsu: `SMOKE_FILES="/tmp/a.sh=/host/a.sh;..."`. */
+const fixtures = new Map();
+for (const pair of (process.env.SMOKE_FILES || "").split(";").filter(Boolean)) {
+  const eq = pair.indexOf("=");
+  if (eq <= 0) continue;
+  fixtures.set(pair.slice(0, eq), fs.readFileSync(pair.slice(eq + 1), "utf8"));
+}
+
+// State sederhana ala kernel: env, cwd, tabel fd.
+const env = { PATH: "/bin", HOME: "/root", LINES: "24", COLUMNS: "80" };
+const setenvLog = [];
+const fdTable = new Map();
+// Mode file fixture — 0o644 dipakai untuk menguji penolakan skrip tanpa bit x.
+const fileMode = parseInt(process.env.SMOKE_FILE_MODE || "755", 8);
+let cwd = "/";
+let nextFd = 3;
 
 /** Transpile seperti kernel (`esbuild.transformSync`, tanpa bundling). */
 function transpile(file) {
@@ -72,14 +97,68 @@ function answerSyscall(code, args, printed) {
     case 1: // PRINT
       printed.push(typeof args === "string" ? args : JSON.stringify(args));
       return 0;
+    case 5: {
+      // OPEN: path string atau { path, flags }
+      const p = typeof args === "string" ? args : args?.path;
+      if (!fixtures.has(p)) return -1;
+      const fd = nextFd++;
+      fdTable.set(fd, fixtures.get(p));
+      return fd;
+    }
+    case 6: {
+      // READ: fd numerik → seluruh isi file
+      const fd = typeof args === "number" ? args : args?.fd;
+      return fdTable.has(fd) ? fdTable.get(fd) : null;
+    }
+    case 8: {
+      // CLOSE
+      fdTable.delete(typeof args === "number" ? args : args?.fd);
+      return true;
+    }
     case 9: // SCREEN_INFO
       return { rows: 24, columns: 80 };
+    case 13: // CHDIR
+      cwd = String(args ?? "/");
+      return true;
     case 14: // GETCWD
-      return "/";
+      return cwd;
     case 17: // WHOAMI
-      return { uid: 0, gid: 0, username: "root", name: "root", groups: [0] };
+      return {
+        uid: 0,
+        gid: 0,
+        ruid: 0,
+        groups: [0],
+        username: "root",
+        name: "root",
+      };
     case 18: // GETENV
-      return "";
+      return env[String(args)] ?? null;
+    case 19: {
+      // SETENV: { name, value }
+      const name = args?.name;
+      const value = args?.value;
+      if (typeof name === "string") {
+        env[name] = String(value ?? "");
+        setenvLog.push(`${name}=${env[name]}`);
+      }
+      return true;
+    }
+    case 20: {
+      // STAT — hanya file fixture yang dianggap ada
+      const p = String(args);
+      if (!fixtures.has(p)) return null;
+      return {
+        name: path.basename(p),
+        type: "FILE",
+        size: fixtures.get(p).length,
+        mode: fileMode,
+        uid: 0,
+        gid: 0,
+        modified_at: Date.now(),
+      };
+    }
+    case 25: // WAITPID
+      return 0;
     default:
       return 0;
   }
@@ -124,7 +203,10 @@ const done = (code) => {
   const ok = !loadError;
 
   console.log(`[smoke] syscall PRINT diterima: ${printed.length}`);
-  if (printed[0]) console.log(`--- output app ---\n${printed[0].split("\n").slice(0, 4).join("\n")}\n------------------`);
+  if (printed[0]) console.log(`--- output app ---\n${printed[0].split("\n").slice(0, 8).join("\n")}\n------------------`);
+  if (setenvLog.length) {
+    console.log(`[smoke] SETENV: ${setenvLog.join(" | ")}`);
+  }
   if (stderr.trim()) console.log(`[smoke] stderr:\n${stderr.trim()}`);
 
   if (ok) {

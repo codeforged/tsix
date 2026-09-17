@@ -159,6 +159,29 @@ await lib.shell.exec("/sbin/netfsd.js", ["--client", "--to", "tsix_2:7777", "--p
 
 ---
 
+## 4.5 Simpan perintah panjang jadi skrip
+
+Perintah `netfsd` yang panjang cukup ditulis sekali di file skrip:
+
+```bash
+# /mnt/sbak/start-netfs.sh
+#!/bin/tsh
+netfsd --export /mnt/sbak/ --label databank --port 7777 \
+  --key c50f67b70e2f0dcf5246ccde04cb1297742ea20a51355eb61807137e003b5c65
+```
+
+```bash
+chmod +x /mnt/sbak/start-netfs.sh   # wajib — skrip tanpa bit x ditolak (126)
+./start-netfs.sh                    # jalankan dari mana saja
+tsh start-netfs.sh                  # non-interaktif (cron / rc.local)
+./start-netfs.sh &                  # background (subshell tsh terpisah)
+```
+
+Di dalam skrip tersedia `$0`, `$1..$9`, `$@`, `$#`; komentar `#`; dan `\` untuk
+sambung baris. Detail + batasan: [`changelogs/tsh.md`](changelogs/tsh.md).
+
+---
+
 ## 5. Protokol (NetFS v1)
 
 Satu request = satu paket MQTNL, satu balasan = satu paket.
