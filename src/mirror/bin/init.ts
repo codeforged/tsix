@@ -2,6 +2,67 @@ import { UserLib } from "@tsix/UserLib";
 import { SecurityAgent } from "@common/SecurityAgent";
 
 export default class Init {
+    /** true kalau /etc/rc.local (skrip) sudah dijalankan — untuk pesan migrasi. */
+    private rcScriptRan = false;
+
+    /**
+     * runRcLocalScript(): Jalankan `/etc/rc.local` bergaya SKRIP (Unix style).
+     *
+     * Syaratnya seperti Linux: file ada, punya bit `x`, dan diawali shebang
+     * (`#!/bin/tsh`). Interpreter-nya diurus kernel (jalur EXEC shebang), jadi
+     * di sini cuma soal urutan boot + pesan yang jelas kalau syaratnya belum
+     * terpenuhi — bukan gagal senyap.
+     */
+    private async runRcLocalScript(lib: UserLib, ok: string): Promise<void> {
+        const RC_SCRIPT = "/etc/rc.local";
+        try {
+            const node = await lib.fs.stat(RC_SCRIPT).catch(() => null);
+            if (!node || node.type !== "FILE") return; // tidak ada — pakai legacy
+
+            if (((node.mode ?? 0) & 0o111) === 0) {
+                await lib.std.print(
+                    `${ok} [INIT] ${RC_SCRIPT} dilewati: belum executable (jalankan 'chmod +x ${RC_SCRIPT}').\n`,
+                );
+                return;
+            }
+
+            const content = (await lib.fs.readFile(RC_SCRIPT)) ?? "";
+            const firstLine = content.split("\n", 1)[0].trim();
+            if (!firstLine.startsWith("#!")) {
+                await lib.std.print(
+                    `${ok} [INIT] ${RC_SCRIPT} dilewati: shebang tidak ditemukan (contoh baris pertama: #!/bin/tsh).\n`,
+                );
+                return;
+            }
+
+            await lib.std.print(
+                `${ok} [INIT] Running startup script ${RC_SCRIPT} (${firstLine})...\n`,
+            );
+            const result = await lib.shell.exec(
+                RC_SCRIPT,
+                [],
+                undefined,
+                undefined,
+                undefined,
+            );
+            if (result && result.pid) {
+                this.rcScriptRan = true;
+                const exitCode = await lib.shell.waitpid(result.pid);
+                if (exitCode === 0) {
+                    await lib.std.print(`${ok} [INIT] Startup script completed.\n`);
+                } else {
+                    await lib.std.print(
+                        `Init: Warning - ${RC_SCRIPT} exited with code ${exitCode}\n`,
+                    );
+                }
+            }
+        } catch (e: any) {
+            await lib.std.print(
+                `Init: Warning - Failed to run ${RC_SCRIPT}: ${e.message}\n`,
+            );
+        }
+    }
+
     async execute(lib: UserLib, args: string[]) {
         const green = "\x1b[92m";
         const white = "\x1b[97m";
@@ -83,6 +144,13 @@ export default class Init {
         if (safeMode) {
             await lib.std.print(`${ok} [INIT] SAFE MODE active — skipping /etc/rc.local (startup daemons disabled).\n`);
         } else {
+            // --- 1.7a. Skrip /etc/rc.local (gaya Unix, shebang) ---
+            // Kalau admin menaruh skrip executable ber-shebang `#!/bin/tsh`,
+            // itulah yang dijalankan lebih dulu. Kernel yang menerjemahkan
+            // shebang → `/bin/tsh.js <skrip>` (lihat kasus EXEC di Syscalls.ts).
+            await this.runRcLocalScript(lib, ok);
+
+            // --- 1.7b. Legacy: /etc/rc.local.js (TypeScript/JavaScript) ---
             try {
                 const rcLocalPath = "/etc/rc.local.js";
                 let rcLocalExists = false;
@@ -92,6 +160,11 @@ export default class Init {
                 } catch (e) { }
 
                 if (rcLocalExists) {
+                    if (this.rcScriptRan) {
+                        await lib.std.print(
+                            `${ok} [INIT] Catatan: /etc/rc.local (skrip) DAN /etc/rc.local.js (legacy) sama-sama dijalankan — hapus .js setelah migrasi selesai.\n`,
+                        );
+                    }
                     await lib.std.print(`${ok} [INIT] Executing startup scripts (/etc/rc.local)...\n`);
                     const result = await lib.shell.exec(rcLocalPath, [], undefined, undefined, undefined);
                     if (result) {

@@ -1,8 +1,14 @@
+// Import RELATIF (bukan `@common/...`): vitest repo ini tanpa config alias,
+// jadi modul yang ikut di-unit-test harus relative. Di worker, WorkerEntry
+// tetap me-rewrite otomatis (`/common/` → `@common/`), jadi keduanya jalan.
+import { isShellInterpreter, parseShebang } from "../../common/Shebang";
+
 /**
  * ShellScript — util murni untuk skrip shell TSIX (dipakai `tsh`)
  *
- * Semua fungsi di sini **tanpa dependency dan tanpa efek samping** supaya bisa
- * ditest langsung dan dipakai ulang (mis. oleh `source`/rc.local di masa depan).
+ * Semua fungsi di sini **tanpa efek samping** supaya bisa ditest langsung dan
+ * dipakai ulang. Parsing shebang sendiri tinggal di `@common/Shebang` supaya
+ * KERNEL (jalur EXEC) dan userland memakai aturan yang sama persis.
  *
  * Aturan yang diikuti (subset Unix yang bisa dipertanggungjawabkan):
  *   - Komentar `#` hanya bila berada di AWAL kata dan di luar tanda kutip.
@@ -68,14 +74,10 @@ export function splitTrailingContinuation(line: string): {
 
 /**
  * scriptShebang(): Ambil interpreter dari baris pertama, atau null.
- * Contoh: `#!/bin/tsh` → `/bin/tsh`; `#!/usr/bin/env tsh` → `/usr/bin/env tsh`.
+ * Contoh: `#!/bin/tsh` → `/bin/tsh`; `#!/usr/bin/env tsh` → `tsh`.
  */
 export function scriptShebang(content: string): string | null {
-  if (!content) return null;
-  const first = content.replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0] ?? "";
-  if (!first.startsWith("#!")) return null;
-  const interpreter = first.substring(2).trim();
-  return interpreter.length > 0 ? interpreter : null;
+  return parseShebang(content)?.interpreter ?? null;
 }
 
 /**
@@ -86,9 +88,7 @@ export function scriptShebang(content: string): string | null {
  * mendukung subset perintahnya.
  */
 export function isKnownShell(interpreter: string): boolean {
-  const tokens = interpreter.trim().split(/\s+/);
-  const last = tokens[tokens.length - 1] || "";
-  return /(^|\/)(tsh|sh|bash)(\.js)?$/.test(last);
+  return isShellInterpreter(interpreter);
 }
 
 /**

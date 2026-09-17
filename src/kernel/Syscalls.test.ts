@@ -1267,6 +1267,83 @@ describe("SyscallDispatcher (A1)", () => {
         }),
       ).rejects.toThrow("Permission Denied");
     });
+
+    // --- SHEBANG: skrip executable (mis. /etc/rc.local ber-`#!/bin/tsh`) ---
+
+    it("A1.114b EXEC – skrip ber-shebang dijalankan lewat interpreter", async () => {
+      vfs.mkdir("/bin", 0, 0, 493);
+      vfs.mkdir("/etc", 0, 0, 493);
+      // Runtime mengeksekusi sidecar `.js`, jadi `#!/bin/tsh` harus menemukan
+      // /bin/tsh.js walau file `/bin/tsh` sendiri tidak ada.
+      vfs.touch("/bin/tsh.js", "// shell stub", 0, 0, 493);
+      vfs.touch("/etc/rc.local", "#!/bin/tsh\nversion\n", 0, 0, 493);
+
+      // Spy dipakai (bukan getProcess) karena worker yang di-spawn bisa
+      // langsung exit — PCB-nya cepat hilang dari tabel proses.
+      const spawnSpy = vi.spyOn(scheduler, "createProcess");
+      const pcb = createTestProcess();
+      const result = await dispatcher.dispatch(pcb.pid, SyscallCode.EXEC, {
+        path: "/etc/rc.local",
+        args: [],
+      });
+
+      expect(result.pid).toBeGreaterThan(0);
+      expect(result.name).toBe("tsh.js");
+
+      const lastCall = spawnSpy.mock.calls[spawnSpy.mock.calls.length - 1];
+      expect(lastCall[0]).toBe("tsh.js");
+      // Path skrip disisipkan sebagai argumen pertama untuk interpreter.
+      expect(lastCall[1]?.args).toEqual(["/etc/rc.local"]);
+      spawnSpy.mockRestore();
+    });
+
+    it("A1.114c EXEC – argumen diteruskan ke skrip", async () => {
+      vfs.mkdir("/bin", 0, 0, 493);
+      vfs.mkdir("/etc", 0, 0, 493);
+      vfs.touch("/bin/tsh.js", "// shell stub", 0, 0, 493);
+      vfs.touch("/etc/rc.local", "#!/bin/tsh\n", 0, 0, 493);
+
+      const spawnSpy = vi.spyOn(scheduler, "createProcess");
+      const pcb = createTestProcess();
+      await dispatcher.dispatch(pcb.pid, SyscallCode.EXEC, {
+        path: "/etc/rc.local",
+        args: ["halo", "dunia"],
+      });
+
+      const lastCall = spawnSpy.mock.calls[spawnSpy.mock.calls.length - 1];
+      expect(lastCall[1]?.args).toEqual([
+        "/etc/rc.local",
+        "halo",
+        "dunia",
+      ]);
+      spawnSpy.mockRestore();
+    });
+
+    it("A1.114d EXEC – interpreter tidak didukung → gagal jelas", async () => {
+      vfs.mkdir("/etc", 0, 0, 493);
+      vfs.touch("/etc/rc.local", "#!/usr/bin/python3\nprint('x')\n", 0, 0, 493);
+
+      const pcb = createTestProcess();
+      await expect(
+        dispatcher.dispatch(pcb.pid, SyscallCode.EXEC, {
+          path: "/etc/rc.local",
+          args: [],
+        }),
+      ).rejects.toThrow(/interpreter tidak didukung/);
+    });
+
+    it("A1.114e EXEC – interpreter shell tidak ada di VFS → gagal jelas", async () => {
+      vfs.mkdir("/etc", 0, 0, 493);
+      vfs.touch("/etc/rc.local", "#!/bin/tsh\n", 0, 0, 493);
+
+      const pcb = createTestProcess();
+      await expect(
+        dispatcher.dispatch(pcb.pid, SyscallCode.EXEC, {
+          path: "/etc/rc.local",
+          args: [],
+        }),
+      ).rejects.toThrow(/interpreter tidak ditemukan/);
+    });
   });
 
   describe("PIPE / DUP", () => {

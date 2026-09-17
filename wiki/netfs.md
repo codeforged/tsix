@@ -180,6 +180,11 @@ tsh start-netfs.sh                  # non-interaktif (cron / rc.local)
 Di dalam skrip tersedia `$0`, `$1..$9`, `$@`, `$#`; komentar `#`; dan `\` untuk
 sambung baris. Detail + batasan: [`changelogs/tsh.md`](changelogs/tsh.md).
 
+Skrip yang sama bisa dipakai sebagai **startup boot**: salin ke `/etc/rc.local`,
+`chmod +x`, dan init akan menjalankannya saat TSIX start (lihat
+[RC_LOCAL.md](RC_LOCAL.md)) — jadi node SH bisa otomatis meng-export storage
+setiap kali hidup.
+
 ---
 
 ## 5. Protokol (NetFS v1)

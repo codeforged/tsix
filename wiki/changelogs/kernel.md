@@ -6,6 +6,23 @@
 
 ## 2026-09-17
 
+### EXEC mendukung shebang — skrip executable dijalankan lewat interpreter-nya
+
+- **File:** `src/common/Shebang.ts` (baru), `src/common/Shebang.test.ts` (baru), `src/kernel/Syscalls.ts` (kasus `EXEC` + `resolveShebangInterpreter()`).
+- **Perubahan:** kalau file yang di-`exec` **bukan** aplikasi `.ts`/`.js` (jadi tidak dibaca sebagai program) tapi isinya diawali `#!`, kernel menjalankan interpreter-nya — persis `execve` di Unix:
+
+  ```
+  exec("/etc/rc.local")  →  exec("/bin/tsh.js", ["/etc/rc.local", ...args])
+  exec("./start-netfs.sh") →  exec("/bin/tsh.js", ["./start-netfs.sh", ...args])
+  ```
+
+- **Detail resolusi interpreter:** `#!/bin/tsh` boleh menunjuk file yang belum ada namanya — runtime mengeksekusi sidecar `.js` sedangkan source-nya `.ts`, jadi tiap kandidat dicoba apa adanya, lalu `.js`, lalu `.ts` (preferensi sama dengan EXEC biasa). Nama telanjang (`#!/bin/tsh` vs `#!/usr/bin/env tsh`) dinormalkan, dan direktori `/bin`, `/usr/bin`, `/sbin` dicoba untuk interpreter tanpa path.
+- **Urutan & keamanan:** permission `EXECUTE` diperiksa pada **skrip** (seperti sebelumnya), lalu juga pada **interpreter** — jadi setuid/izin `/bin/tsh.js` tidak bisa dilewati lewat skrip. `appContent` yang dimuat adalah milik interpreter (DME tetap jalan), sedangkan path skrip disisipkan sebagai argumen pertama sehingga `tsh` masuk mode non-interaktif.
+- **Gagal jelas, bukan aneh:** interpreter di luar `tsh`/`sh`/`bash` ditolak `interpreter tidak didukung: '<x>' (didukung: tsh, sh, bash)`; kalau interpreter tidak ada di VFS → `interpreter tidak ditemukan untuk '<x>' (path)`.
+- **Verifikasi:** `Shebang.test.ts` (13 test: shebang dasar, argumen, idiom `env`, BOM/CRLF, kandidat path) + 4 test kernel di `Syscalls.test.ts` (`A1.114b` skrip shebang → spawn `tsh.js` dengan args `["/etc/rc.local"]`; `A1.114c` argumen diteruskan; `A1.114d/e` dua jalur gagal yang spesifik). Catatan: PCB anak cepat hilang karena worker stub langsung exit, jadi asersi memakai spy `scheduler.createProcess` — bukan `getProcess()`.
+- **Dampak:** semua jalur peluncuran (init saat boot, `tsh`, cron, Asteracea) bisa menjalankan skrip executable tanpa tahu isinya. Boot: `init` memakai ini untuk `/etc/rc.local` gaya skrip (lihat changelog init).
+- **Oleh:** Copilot
+
 ### Perbaikan: import relatif modul framework BERSARANG gagal (`Cannot find module './X'`)
 
 - **File:** `src/userland/WorkerEntry.ts`, `src/userland/WorkerEntry.js`, `scripts/test/worker-dme-smoke.mjs` (baru).

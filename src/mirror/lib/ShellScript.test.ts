@@ -61,7 +61,10 @@ describe("ShellScript — sambung baris (S1.2)", () => {
 describe("ShellScript — shebang (S1.3)", () => {
   it("S1.20 mengenali shebang umum dan bentuk env", () => {
     expect(scriptShebang("#!/bin/tsh\nls\n")).toBe("/bin/tsh");
-    expect(scriptShebang("#!/usr/bin/env tsh\n")).toBe("/usr/bin/env tsh");
+    // Bentuk `env` dinormalkan jadi nama shell (`tsh`) — aturan yang SAMA
+    // dipakai kernel di jalur EXEC (lihat @common/Shebang), supaya skrip yang
+    // dijalankan lewat `./x.sh` dan lewat `exec()` tidak berbeda tafsir.
+    expect(scriptShebang("#!/usr/bin/env tsh\n")).toBe("tsh");
     expect(scriptShebang("ls\n")).toBe(null);
     expect(scriptShebang("# komentar biasa")).toBe(null);
   });

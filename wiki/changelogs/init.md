@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-09-17
+
+### Boot menjalankan `/etc/rc.local` bergaya SKRIP (shebang), legacy `.js` tetap jalan
+
+- **File:** `src/mirror/bin/init.ts`
+- **Perubahan:** sebelum legacy `/etc/rc.local.js`, init kini menjalankan `/etc/rc.local` sebagai **skrip Unix** — syaratnya file ada, punya bit `x`, dan ber-shebang (`#!/bin/tsh`). Interpreter diterjemahkan kernel (lihat changelog kernel: dukungan shebang di `EXEC`), jadi init cukup `lib.shell.exec("/etc/rc.local")` lalu `waitpid` seperti biasa.
+- **Backward compatible:** kalau `/etc/rc.local` tidak ada, alur lama (`/etc/rc.local.js`) persis seperti sebelumnya. Kalau keduanya ada, keduanya dijalankan (skrip dulu) dan init mencetak catatan agar admin menghapus `.js` setelah migrasi.
+- **Gagal senyap dihindari:** tiap syarat yang belum terpenuhi menghasilkan pesan jelas — “belum executable (jalankan chmod +x)”, “shebang tidak ditemukan”, lalu error EXEC yang spesifik (`interpreter tidak didukung` / `interpreter tidak ditemukan`).
+- **Dampak:** daemon start-up bisa ditulis sebagai daftar perintah sederhana (`netfsd --export ... --key ...`) tanpa class TypeScript; rc.local.ts yang panjang tetap bisa dipakai untuk logika kompleks. Dokumentasi lengkap + resep migrasi: `wiki/RC_LOCAL.md`.
+- **Oleh:** Copilot
+
+---
+
 ## 2026-09-12
 
 ### Seed `/etc/passwd` memakai sidecar `/bin/tsh.js` (bukan `.ts`)

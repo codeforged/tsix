@@ -30,6 +30,11 @@ import {
   formatNetFSSpec,
   parseNetFSSpec,
 } from "../common/netfs/NetFSProtocol";
+import {
+  interpreterCandidates,
+  isShellInterpreter,
+  parseShebang,
+} from "../common/Shebang";
 
 /**
  * SYSCALL DISPATCHER
@@ -401,6 +406,42 @@ export class SyscallDispatcher {
           throw new Error(`${SyscallCode[code]} requires vfsPath and hostPath`);
         break;
     }
+  }
+
+  /**
+   * resolveShebangInterpreter(): Cari file interpreter skrip di VFS.
+   *
+   * `#!/bin/tsh` boleh menunjuk file yang belum ada namanya — runtime TSIX
+   * mengeksekusi sidecar `.js`, sedangkan source-nya `.ts`. Jadi tiap kandidat
+   * dicoba apa adanya, lalu `.js`, lalu `.ts` (preferensi sama dengan EXEC biasa).
+   *
+   * @returns { path, content, node } file interpreter, atau null kalau tidak ada.
+   * @throws  kalau interpreternya bukan shell yang didukung (gagal jelas).
+   */
+  private async resolveShebangInterpreter(
+    interpreter: string,
+  ): Promise<{ path: string; content: string; node: any } | null> {
+    if (!isShellInterpreter(interpreter)) {
+      throw new Error(
+        `EXEC: interpreter tidak didukung: '${interpreter}' (didukung: tsh, sh, bash)`,
+      );
+    }
+
+    for (const base of interpreterCandidates(interpreter)) {
+      for (const candidate of [base, base + ".js", base + ".ts"]) {
+        try {
+          const { vfs, relativePath } = this.mountManager.resolve(candidate);
+          const node = await vfs.stat(relativePath);
+          if (node && node.type === "FILE") {
+            const content = (await vfs.read(relativePath)) ?? "";
+            return { path: candidate, content, node };
+          }
+        } catch (e) {
+          /* kandidat berikutnya */
+        }
+      }
+    }
+    return null;
   }
 
   public async dispatch(
@@ -1083,6 +1124,9 @@ export class SyscallDispatcher {
           ptyId?: number;
         };
         let absoluteExecPath = PathResolver.resolve(pcb.cwd, execPath);
+        // Argumen final bisa berubah bila file ini ternyata SKRIP ber-shebang
+        // (skrip disisipkan sebagai argumen pertama untuk interpreter-nya).
+        let finalArgs = commandArgs;
 
         let { vfs, relativePath } = this.mountManager.resolve(absoluteExecPath);
         let node = await vfs.stat(relativePath);
@@ -1119,7 +1163,7 @@ export class SyscallDispatcher {
           );
         }
 
-        const binaryName = execPath.split("/").pop() || execPath;
+        let binaryName = execPath.split("/").pop() || execPath;
         // --- EXECUTION PRIORITIZATION ---
 
         let appContent: string | undefined = undefined;
@@ -1129,6 +1173,38 @@ export class SyscallDispatcher {
           // Jangan mengandalkan node.content karena tidak semua IVFS menyertakan
           // konten di stat() (BKFS kebetulan return full DB row, RamFS/HostVFS tidak)
           appContent = (await vfs.read(relativePath)) ?? undefined;
+        }
+
+        // --- SHEBANG: file executable yang BUKAN aplikasi .ts/.js ---
+        // Contoh nyata: `/etc/rc.local` berisi `#!/bin/tsh` lalu dijalankan init
+        // saat boot, atau `./skrip.sh` dari shell. Perilakunya seperti execve:
+        //   exec("/etc/rc.local") → exec("/bin/tsh.js", ["/etc/rc.local", ...])
+        if (appContent && !/\.(ts|js)$/i.test(absoluteExecPath)) {
+          const shebang = parseShebang(appContent);
+          if (shebang) {
+            const interpreter = await this.resolveShebangInterpreter(
+              shebang.interpreter,
+            );
+            if (!interpreter) {
+              throw new Error(
+                `EXEC: interpreter tidak ditemukan untuk '${shebang.interpreter}' (${absoluteExecPath})`,
+              );
+            }
+            if (!this.satpam.check(pcb, interpreter.node, Permission.EXECUTE)) {
+              throw new Error(
+                `Permission Denied: Cannot execute ${interpreter.path}`,
+              );
+            }
+
+            this.logger.info(
+              `[EXEC] shebang: ${absoluteExecPath} → ${interpreter.path}`,
+            );
+            finalArgs = [absoluteExecPath, ...commandArgs];
+            absoluteExecPath = interpreter.path;
+            appContent = interpreter.content;
+            binaryName = interpreter.path.split("/").pop() || binaryName;
+            node = interpreter.node;
+          }
         }
 
         this.logger.debug(
@@ -1191,7 +1267,7 @@ export class SyscallDispatcher {
         const newPcb = this.scheduler.createProcess(binaryName, {
           fds: [stdinDevice, stdoutDevice, stderrDevice],
           appName: binaryName,
-          args: commandArgs,
+          args: finalArgs,
           appPath: undefined,
           stackBkfsPath: absoluteExecPath,
           appContent: appContent,
