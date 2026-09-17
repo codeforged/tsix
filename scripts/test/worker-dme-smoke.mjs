@@ -157,6 +157,10 @@ function answerSyscall(code, args, printed) {
         modified_at: Date.now(),
       };
     }
+    case 21: // UNLINK
+      return fixtures.delete(String(args));
+    case 22: // RMDIR
+      return fixtures.delete(String(args));
     case 25: // WAITPID
       return 0;
     default:

@@ -7,12 +7,23 @@
 ## 2026-09-17
 
 ### Boot menjalankan `/etc/rc.local` bergaya SKRIP (shebang), legacy `.js` tetap jalan
-
 - **File:** `src/mirror/bin/init.ts`
 - **Perubahan:** sebelum legacy `/etc/rc.local.js`, init kini menjalankan `/etc/rc.local` sebagai **skrip Unix** — syaratnya file ada, punya bit `x`, dan ber-shebang (`#!/bin/tsh`). Interpreter diterjemahkan kernel (lihat changelog kernel: dukungan shebang di `EXEC`), jadi init cukup `lib.shell.exec("/etc/rc.local")` lalu `waitpid` seperti biasa.
 - **Backward compatible:** kalau `/etc/rc.local` tidak ada, alur lama (`/etc/rc.local.js`) persis seperti sebelumnya. Kalau keduanya ada, keduanya dijalankan (skrip dulu) dan init mencetak catatan agar admin menghapus `.js` setelah migrasi.
 - **Gagal senyap dihindari:** tiap syarat yang belum terpenuhi menghasilkan pesan jelas — “belum executable (jalankan chmod +x)”, “shebang tidak ditemukan”, lalu error EXEC yang spesifik (`interpreter tidak didukung` / `interpreter tidak ditemukan`).
 - **Dampak:** daemon start-up bisa ditulis sebagai daftar perintah sederhana (`netfsd --export ... --key ...`) tanpa class TypeScript; rc.local.ts yang panjang tetap bisa dipakai untuk logika kompleks. Dokumentasi lengkap + resep migrasi: `wiki/RC_LOCAL.md`.
+- **Oleh:** Copilot
+
+### Marker basi `/var/run/dome.ready` bikin Asteracea start sebelum DOME (regresi migrasi ke skrip)
+
+- **File:** `src/mirror/etc/rc.local`, `scripts/install.ts` (`FSTAB_FRESH`), `src/mirror/bin/rm.ts` (`-f`).
+- **Gejala (dilaporkan dari lapangan):** setelah migrasi ke rc.local bergaya skrip, Asteracea dijalankan tetapi instans DOME belum ada sehingga GUI-nya gagal — persis gejala yang dulu hilang saat masih memakai `rc.local.ts`.
+- **Akar masalah:** `rc.local.ts` legacy **menghapus** `/var/run/dome.ready` DULU sebelum start DOME (perubahan “Boot readiness” di `changelogs/dome.md`), supaya marker yang ditunggu benar-benar fresh. Langkah itu hilang saat migrasi ke skrip, sedangkan `/var/run` ada di VFS **persisten** → marker boot sebelumnya masih ada → `waitfile` lolos seketika.
+- **Perbaikan 1 (di skrip):** `rm -f /var/run/dome.ready` sebelum `/opt/dome/dome.js`, lalu `waitfile /var/run/dome.ready 10000`, baru `/opt/asteracea/asteracea.js`.
+- **Perbaikan 2 (`rm.ts`):** TSIX belum punya `-f`; sekarang `rm -f` (beserta flag gabungan `-rf`/`-fr`) didukung — file yang tidak ada tidak lagi menghasilkan error yang mengotori boot log.
+- **Perbaikan 3 (akar sistemik):** `/var/run` kini di-mount **ramfs** pada instalasi baru (`FSTAB_FRESH`) — state runtime jadi volatile seperti `/run` (tmpfs) di Linux, sehingga marker tidak pernah basi. Node lama menambahkan entry fstab yang sama (lihat `wiki/RC_LOCAL.md`).
+- **Sengaja TIDAK memindahkan penanda ke `/tmp`:** meski `/tmp` sudah ramfs, ia di-mount `0o1777` (world-writable) sehingga penanda bisa dibuat user mana pun — boot akan menganggap DOME siap dan bug yang sama bisa dipicu sengaja. Pembaca penanda hanya `rc.local` (Asteracea tidak memeriksanya), jadi lokasi `/var/run` tetap dipilih karena root-only.
+- **Verifikasi:** `rm -f /tidak-ada` → tanpa output; `rm /tidak-ada` → `cannot remove ... No such file or directory`; `rm -rf /tidak-ada` → tanpa output; `rm -f` pada file yang ada → terhapus. Diuji headless lewat harness DME (`scripts/test/worker-dme-smoke.mjs` + syscall `UNLINK`).
 - **Oleh:** Copilot
 
 ---

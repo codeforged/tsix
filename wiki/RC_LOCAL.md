@@ -83,6 +83,39 @@ Belum ada `if`/`for`/`while` — kalau butuh logika bercabang, pakai gaya legacy
 | Urutan tanpa penungguan (dome → asteracea) | Asteracea ditolak kernel (“DOME engine is not running”) → layar blank | pakai `waitfile`, atau tambahkan `sleep <detik>` |
 | Perintah yang gantung tanpa pesan | sulit dilacak | tsh mencetak peringatan otomatis setelah 15s (atur via `TSH_WAIT_HINT_MS`, `0` = mati) |
 
+### Kenapa marker kesiapan di `/var/run`, bukan `/tmp`?
+
+Marker `/var/run/dome.ready` bisa dibaca **basi** karena `/var/run` ikut VFS
+persisten, sementara boot sebelumnya sudah mempertahankan isinya. Ada dua cara
+membereskan — dan keduanya sudah dipakai:
+
+1. **Buat `/var/run` volatile.** Instalasi baru otomatis mendapat mount ramfs di
+   `/etc/fstab.json`; node lama tinggal menambahkan:
+
+   ```json
+   { "vfsPath": "/var/run", "hostPath": "RAM", "type": "ramfs",
+     "readOnly": false, "uid": 0, "gid": 0, "mode": 493, "active": true }
+   ```
+
+   Ini yang dilakukan Linux: `/run` (dahulu `/var/run`) adalah **tmpfs** — state
+   runtime hilang saat reboot, sementara `/etc` & `/var` tetap persisten.
+2. **Hapus marker sebelum start DOME** (`rm -f /var/run/dome.ready`) — sudah ada di
+   `/etc/rc.local` sebagai sabuk pengaman untuk node yang belum punya mount itu.
+
+**Kenapa tidak memindahkan penanda ke `/tmp/dome.ready` saja?** Secara teknis bisa
+(`/tmp` memang sudah ramfs), tetapi `/tmp` di-mount `0o1777` — **world-writable +
+sticky** — sehingga **siapa pun bisa membuat `/tmp/dome.ready`**, dan boot akan
+menganggap DOME sudah siap → Asteracea dijalankan sebelum DOME hidup. Itu bug yang
+sama, malah bisa dipicu sengaja. `/var/run` milik root dengan mode `0755`, jadi
+penanda tidak bisa dipalsukan.
+
+### Cara memeriksa urutan dome → asteracea
+
+```bash
+ls -l /var/run/dome.ready     # siapa pemilik marker + kapan dibuat
+ps                             # process 'dome' harus RUNNING sebelum 'asteracea'
+```
+
 ## Gaya 2 — Legacy `/etc/rc.local.js`
 
 ```typescript

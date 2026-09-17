@@ -22,12 +22,15 @@
 # --- Database service ---
 /opt/mysqld/mysqld.js
 
-# --- IoT stack (listener + device-bank + distribu tor) ---
+# --- IoT stack (listener + device-bank + distributor) ---
 /opt/lantana/lantana.js
 
 # --- Display server lalu Window Manager ---
-# Asteracea menolak CREATE_WINDOW kalau DOME belum siap, jadi tunggu marker
-# /var/run/dome.ready (DOME menulisnya setelah HTTP/WS-nya listening).
+# PENTING: hapus dulu marker basi SEBELUM DOME start. `/var/run` ada di VFS
+# persisten, jadi marker dari boot sebelumnya masih ada → `waitfile` akan lolos
+# seketika dan Asteracea start sebelum DOME siap (gejalanya: Asteracea jalan tapi
+# instans DOME belum ada → CREATE_WINDOW ditolak).
+rm -f /var/run/dome.ready
 /opt/dome/dome.js
 waitfile /var/run/dome.ready 10000
 /opt/asteracea/asteracea.js

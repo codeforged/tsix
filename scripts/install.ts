@@ -614,9 +614,13 @@ async function main() {
       console.log(`[INSTALL] sync /etc/${entry.name}`);
     }
 
-    // Image fresh: fstab hanya berisi /tmp sebagai RAMFS (esensial),
-    // mount dev-specific (/mnt/shared, /mnt/sbak) TIDAK dibawa.
-    // Crontab dikosongkan (tidak membawa jadwal bawaan developer).
+    // Image fresh: fstab hanya berisi mount esensial.
+    //   /tmp      → ramfs (sticky) — file sementara
+    //   /var/run  → ramfs — state runtime (marker/PID). WAJIB volatile: kalau
+    //               ikut persisten, marker seperti /var/run/dome.ready dari boot
+    //               sebelumnya terbaca sebagai "sudah siap" (Asteracea lalu start
+    //               sebelum DOME hidup). Ini juga yang dilakukan Linux (tmpfs).
+    // Mount dev-specific (/mnt/shared, /mnt/sbak) TIDAK dibawa.
     const FSTAB_FRESH = JSON.stringify(
       [
         {
@@ -629,12 +633,25 @@ async function main() {
           mode: 0o1777, // 1023 = drwxrwxrwt (sticky)
           active: true,
         },
+        {
+          vfsPath: "/var/run",
+          hostPath: "RAM",
+          type: "ramfs",
+          readOnly: false,
+          uid: 0,
+          gid: 0,
+          mode: 0o755,
+          active: true,
+        },
       ],
       null,
       2,
     );
     bkfs.touch("/etc/fstab.json", FSTAB_FRESH + "\n", 0, 0, 0o644);
-    console.log("[INSTALL] /etc/fstab.json: hanya /tmp (ramfs), mount dev dihapus");
+    console.log(
+      "[INSTALL] /etc/fstab.json: /tmp + /var/run (ramfs); mount dev dihapus",
+    );
+    // Crontab dikosongkan (tidak membawa jadwal bawaan developer).
     bkfs.touch(
       "/etc/crontab",
       "# /etc/crontab — kosong untuk instalasi baru.\n" +
