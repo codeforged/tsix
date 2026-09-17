@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-09-17
+
+### Perbaikan: import relatif modul framework BERSARANG gagal (`Cannot find module './X'`)
+
+- **File:** `src/userland/WorkerEntry.ts`, `src/userland/WorkerEntry.js`, `scripts/test/worker-dme-smoke.mjs` (baru).
+- **Gejala (dilaporkan dari lapangan):** menjalankan `netfsd` → `[Worker 14] Direct Execution Error: Cannot find module './NetFSProtocol'`, dengan require stack `@common_netfs/NetFSServer.js` → `/sbin/netfsd.js`.
+- **Akar masalah:** saat memuat modul framework dari memory (DME), `WorkerEntry` men-_compile() modul dengan nama file buatan: `path.join(cwd, normalizedRequest.replace("/", "_") + ".js")`. `String.replace("/", "_")` **hanya mengganti garis miring PERTAMA**, jadi id `@common/netfs/NetFSServer` menjadi folder `@common_netfs/` + file `NetFSServer.js`. Untuk import relatif, kode lama memakai `path.basename(parent.filename)` dan mencocokkan awalan `@tsix_`/`@common_`: pada modul bersarang basename-nya **tidak** berawalan itu, sehingga `./NetFSProtocol` dibiarkan apa adanya dan diserahkan ke `require()` Node → tidak ketemu. Modul bersarang lain di repo (`@common/protocols/*`, mis. `TSSHProtocol`) selama ini aman **hanya karena** file-nya tidak punya import relatif di dalamnya — jadi bug ini laten, menunggu modul bersarang pertama yang punya import relatif (yaitu `@common/netfs/NetFSServer`, dipakai NetFS).
+- **Perbaikan:** resolusi relatif dipindah ke **ruang module-id**, bukan nama file:
+  - peta `moduleIdByFile` (dummyFilename → id, mis. `@common/netfs/NetFSServer`);
+  - helper `resolveRelativeModuleId(parentId, request)` yang melipat `./` dan `../` di ruang id (`@common/netfs/NetFSServer` + `./NetFSProtocol` → `@common/netfs/NetFSProtocol`; `../Logger` → `@common/Logger`), dengan penjaga agar segmen scope (`@tsix`/`@common`) tidak pernah habis terlipat;
+  - peta didaftarkan **SEBELUM** `_compile()` — kesalahan pertama saat mengerjakan ini adalah mendaftarkannya sesudah, padahal isi modul me-require anaknya **saat** `_compile` berjalan;
+  - logika lama (basename) tetap dipakai sebagai fallback bila parent tidak dikenal (mis. modul dimuat `require()` biasa).
+- **Verifikasi (dengan reproduksi lebih dulu):** harness baru `scripts/test/worker-dme-smoke.mjs` menjalankan `WorkerEntry.js` **asli** di worker thread dengan `vfsCache` yang dibangun dari source repo (persis cara kernel: `mirror/lib`→`/lib`, `common`→`/lib/common`, app ditranspile seperti sidecar `.js`), lalu menjawab syscall minimal (PRINT/SCREEN_INFO/WHOAMI/GETCWD). Sebelum perbaikan harness **mereproduksi persis** error lapangan; sesudah perbaikan `netfsd --help` ✅ (mencetak usage), dan tidak ada regresi untuk jalur lama: `netfs --help`, `lsblk --help`, `scpd --help`, `iot-listener --help` semuanya ✅. `npm run typecheck` bersih untuk `src/userland/**`; 37 test NetFS tetap lulus.
+- **Dampak:** semua modul framework bersarang (`@common/<dir>/<mod>`) kini boleh memakai import relatif pada kedalaman berapa pun; jalur top-level (`@tsix/Application` → `./Emerald`, dsb.) tidak berubah. Catat juga: error loader dikirim ke parent lewat syscall `PRINT` (bukan stderr), jadi harness/skrip apa pun harus memeriksa keduanya — kalau tidak, kegagalan lolos sebagai “sukses”.
+- **Deploy:** `WorkerEntry.js` dibaca dari **host** (`sysconfig.scheduler.workerEntryPath` = `../userland/WorkerEntry.js`), bukan dari VFS → cukup restart `npm start` (tidak perlu `npm run install`).
+- **Oleh:** Copilot
+
+---
+
 ## 2026-09-16
 
 ### Perbaikan: Alt+1..6 tidak lagi memindahkan TTY di console native (regresi `fd3be6e`) + dukungan macOS & Ctrl+1..6

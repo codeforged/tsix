@@ -29,10 +29,46 @@ const hostRequire = typeof require !== "undefined" ? require : null;
 const path = hostRequire ? hostRequire("path") : null;
 const Module = hostRequire ? hostRequire("module") : null;
 
+/**
+ * resolveRelativeModuleId(): Menerjemahkan import relatif MILIK MODUL
+ * FRAMEWORK ke module-id (`@tsix/x`, `@common/a/b`).
+ *
+ * Kenapa perlu: WorkerEntry me-_compile() modul framework dari memory dengan
+ * nama file buatan (`@common_netfs/NetFSServer.js`), jadi `./NetFSProtocol`
+ * hanya bisa di-resolve kalau kita tahu id modul induknya. Cara lama memakai
+ * `path.basename(parent.filename)`:
+ *
+ *   - `@tsix_Application.js`      → basename cocok, `./x` → `@tsix/x`   ✅
+ *   - `NetFSServer.js` (bersarang) → basename TIDAK cocok, `./NetFSProtocol`
+ *     dibiarkan apa adanya → `Cannot find module './NetFSProtocol'`  ❌
+ *
+ * Dengan resolusi di ruang module-id, kedalaman berapa pun tetap benar:
+ *   `@common/netfs/NetFSServer` + `./NetFSProtocol` → `@common/netfs/NetFSProtocol`
+ *   `@common/netfs/NetFSServer` + `../Logger`       → `@common/Logger`
+ */
+function resolveRelativeModuleId(parentId: string, request: string): string {
+    const parts = parentId.split("/");
+    parts.pop(); // buang nama modul induk
+    for (const seg of request.split("/")) {
+        if (seg === "" || seg === ".") continue;
+        if (seg === "..") {
+            // Sisakan segmen scope (`@tsix` / `@common`) — jangan pernah habis.
+            if (parts.length > 1) parts.pop();
+            continue;
+        }
+        parts.push(seg);
+    }
+    return parts.join("/");
+}
+
 if (Module && path) {
     const originalLoad = Module._load;
     const vfsCache = (workerData as any).vfsCache || {};
     const moduleCache: Record<string, any> = {};
+    // Peta dummyFilename → module-id (`@tsix/x`, `@common/a/b`). Dipakai untuk
+    // menerjemahkan import RELATIF milik modul framework (lihat
+    // resolveRelativeModuleId).
+    const moduleIdByFile: Record<string, string> = {};
 
     Module._load = function (request: string, parent: any, isMain: boolean) {
         let normalizedRequest = request;
@@ -44,11 +80,18 @@ if (Module && path) {
             } else if (request.includes("/lib/")) {
                 normalizedRequest = "@tsix/" + request.split("/lib/")[1];
             } else if (parent && parent.filename) {
-                const basename = path!.basename(parent.filename);
-                if (basename.startsWith("@tsix_") && request.startsWith("./")) {
-                    normalizedRequest = "@tsix/" + request.substring(2);
-                } else if (basename.startsWith("@common_") && request.startsWith("./")) {
-                    normalizedRequest = "@common/" + request.substring(2);
+                const parentId = moduleIdByFile[parent.filename];
+                if (parentId) {
+                    // Modul framework yang kita muat sendiri: resolusi relatif
+                    // dilakukan di ruang module-id (benar untuk semua kedalaman).
+                    normalizedRequest = resolveRelativeModuleId(parentId, request);
+                } else {
+                    const basename = path!.basename(parent.filename);
+                    if (basename.startsWith("@tsix_") && request.startsWith("./")) {
+                        normalizedRequest = "@tsix/" + request.substring(2);
+                    } else if (basename.startsWith("@common_") && request.startsWith("./")) {
+                        normalizedRequest = "@common/" + request.substring(2);
+                    }
                 }
             }
         }
@@ -71,6 +114,10 @@ if (Module && path) {
             const newMod = new Module(dummyFilename, parent);
             newMod.filename = dummyFilename;
             newMod.paths = Module._nodeModulePaths(process.cwd());
+
+            // PENTING: daftarkan SEBELUM _compile — isi modul me-require anaknya
+            // saat _compile berjalan, jadi peta ini harus sudah terisi.
+            moduleIdByFile[dummyFilename] = normalizedRequest;
 
             // Framework modules are now pre-compiled in Kernel.
             // Direct execution for maximum performance.

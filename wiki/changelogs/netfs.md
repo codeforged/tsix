@@ -36,3 +36,12 @@ Dokumentasi lengkap: [`wiki/netfs.md`](../netfs.md).
 - **Perubahan:** relay memakai `id` sendiri (naik monoton) untuk tiap request yang diteruskan ke SH, lalu **memulihkan `id` asli** milik kernel saat membalas.
 - **Dampak:** satu `netfsd --client` aman melayani beberapa mount sekaligus.
 - **Oleh:** Copilot
+
+### `netfsd` gagal dimuat — bug loader worker (import relatif modul bersarang)
+
+- **File:** `src/userland/WorkerEntry.ts`, `src/userland/WorkerEntry.js`, `scripts/test/worker-dme-smoke.mjs` (baru)
+- **Gejala:** `netfsd` → `Direct Execution Error: Cannot find module './NetFSProtocol'` (require stack: `@common_netfs/NetFSServer.js`).
+- **Akar masalah:** loader DME di `WorkerEntry` hanya menerjemahkan import relatif untuk modul **top-level** (nama file buatan `@common_x.js`); untuk modul **bersarang** (`@common/netfs/NetFSServer` → file `@common_netfs/NetFSServer.js`) `./NetFSProtocol` dibiarkan mentah → `require()` gagal. NetFS adalah modul bersarang pertama di repo yang punya import relatif, jadi bug laten ini baru muncul sekarang.
+- **Perbaikan:** resolusi relatif dilakukan di ruang module-id (`moduleIdByFile` + `resolveRelativeModuleId()`), dan peta didaftarkan **sebelum** `_compile()` karena `require` anak terjadi di dalam `_compile`. Detail lengkap + verifikasi: `wiki/changelogs/kernel.md` (2026-09-17).
+- **Catatan:** ini bug framework, bukan NetFS. `netfsd`/`netfs` sendiri tidak diubah — setelah loader diperbaiki keduanya jalan (diverifikasi dengan harness `scripts/test/worker-dme-smoke.mjs`).
+- **Oleh:** Copilot

@@ -3,10 +3,36 @@ const realExit = process.exit.bind(process);
 const hostRequire = typeof require !== "undefined" ? require : null;
 const path = hostRequire ? hostRequire("path") : null;
 const Module = hostRequire ? hostRequire("module") : null;
+
+/**
+ * resolveRelativeModuleId(): Terjemahkan import relatif MODUL FRAMEWORK ke
+ * module-id (`@tsix/x`, `@common/a/b`).
+ *
+ * Modul framework di-_compile() dari memory dengan nama file buatan
+ * (`@common_netfs/NetFSServer.js`), jadi `./NetFSProtocol` hanya bisa
+ * di-resolve kalau id modul induknya diketahui. Cara lama memakai basename
+ * parent — benar hanya untuk modul top-level (`@tsix_Application.js`); modul
+ * bersarang gagal dengan "Cannot find module './X'".
+ */
+function resolveRelativeModuleId(parentId, request) {
+  const parts = parentId.split("/");
+  parts.pop();
+  for (const seg of request.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      if (parts.length > 1) parts.pop();
+      continue;
+    }
+    parts.push(seg);
+  }
+  return parts.join("/");
+}
+
 if (Module && path) {
   const originalLoad = Module._load;
   const vfsCache = import_worker_threads.workerData.vfsCache || {};
   const moduleCache = {};
+  const moduleIdByFile = {};
   Module._load = function(request, parent, isMain) {
     let normalizedRequest = request;
     if (request.startsWith(".")) {
@@ -15,11 +41,16 @@ if (Module && path) {
       } else if (request.includes("/lib/")) {
         normalizedRequest = "@tsix/" + request.split("/lib/")[1];
       } else if (parent && parent.filename) {
-        const basename = path.basename(parent.filename);
-        if (basename.startsWith("@tsix_") && request.startsWith("./")) {
-          normalizedRequest = "@tsix/" + request.substring(2);
-        } else if (basename.startsWith("@common_") && request.startsWith("./")) {
-          normalizedRequest = "@common/" + request.substring(2);
+        const parentId = moduleIdByFile[parent.filename];
+        if (parentId) {
+          normalizedRequest = resolveRelativeModuleId(parentId, request);
+        } else {
+          const basename = path.basename(parent.filename);
+          if (basename.startsWith("@tsix_") && request.startsWith("./")) {
+            normalizedRequest = "@tsix/" + request.substring(2);
+          } else if (basename.startsWith("@common_") && request.startsWith("./")) {
+            normalizedRequest = "@common/" + request.substring(2);
+          }
         }
       }
     }
@@ -36,6 +67,7 @@ if (Module && path) {
       const newMod = new Module(dummyFilename, parent);
       newMod.filename = dummyFilename;
       newMod.paths = Module._nodeModulePaths(process.cwd());
+      moduleIdByFile[dummyFilename] = normalizedRequest;
       newMod._compile(content, dummyFilename);
       moduleCache[normalizedRequest] = newMod.exports;
       return newMod.exports;
