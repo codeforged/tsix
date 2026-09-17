@@ -6,6 +6,16 @@
 
 ## 2026-09-17
 
+### Jaminan `/var/run` volatile — boot tidak lagi bisa "tertipu" marker basi
+
+- **File:** `src/kernel/Kernel.ts` (`ensureVolatileRunDir()`, dipanggil setelah `processFstab()`).
+- **Latar:** `/var/run` menyimpan **state runtime** (marker kesiapan daemon, PID). Karena `/var/run` ada di VFS persisten (BKFS) dan fstab tidak memount-nya, marker `/var/run/dome.ready` dari boot sebelumnya tetap ada → `waitfile` lolos seketika → Asteracea dijalankan sebelum DOME hidup (GUI gagal). Ini yang dilaporkan dari lapangan setelah migrasi rc.local ke skrip.
+- **Perubahan:** kernel kini **menjamin** `/var/run` volatile — kalau admin tidak memount-nya di fstab, kernel memasang `RamFS` di sana dan mencatat `VFS: /var/run → ramfs (state runtime volatile)`. Kalau fstab sudah memount `/var/run` (jenis apa pun), keputusan admin dihormati (`VFS: /var/run → mengikuti fstab`) dan tidak ada yang ditimpa.
+- **Alasan di kernel, bukan hanya fstab:** kesalahan ini (marker basi) mahal dan sulit dilacak — gejalanya muncul jauh di hilir (Asteracea gagal tanpa sebab jelas), sementara akar penyebabnya ada di storage. Linux menyelesaikannya dengan `/run` = tmpfs; TSIX meniru itu supaya tiap node benar secara bawaan, termasuk node yang fstab-nya tidak pernah disentuh.
+- **Kegagalan mount tidak menggagalkan boot:** error dicatat sebagai boot log gagal, boot lanjut.
+- **Dampak:** marker kesiapan (`/var/run/dome.ready`) selalu fresh tiap boot tanpa konfigurasi; `rm -f` di `/etc/rc.local` menjadi sabuk pengaman tambahan (tetap benar, tidak lagi wajib). Instalasi baru juga menulis entry `/var/run` eksplisit di `fstab` fresh.
+- **Oleh:** Copilot
+
 ### EXEC mendukung shebang — skrip executable dijalankan lewat interpreter-nya
 
 - **File:** `src/common/Shebang.ts` (baru), `src/common/Shebang.test.ts` (baru), `src/kernel/Syscalls.ts` (kasus `EXEC` + `resolveShebangInterpreter()`).

@@ -89,8 +89,16 @@ Marker `/var/run/dome.ready` bisa dibaca **basi** karena `/var/run` ikut VFS
 persisten, sementara boot sebelumnya sudah mempertahankan isinya. Ada dua cara
 membereskan — dan keduanya sudah dipakai:
 
-1. **Buat `/var/run` volatile.** Instalasi baru otomatis mendapat mount ramfs di
-   `/etc/fstab.json`; node lama tinggal menambahkan:
+1. **Buat `/var/run` volatile — dijamin kernel.** Saat boot, kalau `/var/run`
+   **tidak** ada di `fstab`, kernel memasang ramfs di sana dan mencatatnya:
+
+   ```
+   [  OK  ] VFS: /var/run → ramfs (state runtime volatile)
+   ```
+
+   Jadi admin **tidak wajib** menyentuh `/etc/fstab.json`. Kalau ingin eksplisit
+   (atau memakai backing lain), tambahkan entry berikut dan keputusan itu dihormati
+   (kernel akan menulis `VFS: /var/run → mengikuti fstab`):
 
    ```json
    { "vfsPath": "/var/run", "hostPath": "RAM", "type": "ramfs",

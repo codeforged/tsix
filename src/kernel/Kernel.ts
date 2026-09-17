@@ -673,6 +673,9 @@ export class Kernel {
     // 2a. Process Auto-mounts (fstab) — termasuk /tmp sebagai ramfs
     await this.processFstab();
 
+    // 2b. Jaminan state runtime volatile (/var/run).
+    this.ensureVolatileRunDir();
+
     // 3. Inisialisasi Scheduler
     this.bootLogStart("Core: Process Scheduler (Worker Threads)");
     this.scheduler = new Scheduler();
@@ -901,6 +904,53 @@ export class Kernel {
       this.bootLogStart("VFS: Initializing /tmp...");
       this.bkfs.mkdir("/tmp", 0, 0, 0o755);
       this.bootLogEnd(true);
+    }
+  }
+
+  /**
+   * ensureVolatileRunDir(): Jaminan `/var/run` selalu VOLATILE (ramfs).
+   *
+   * Kenapa kernel yang menjamin, bukan hanya fstab? Karena kesalahannya mahal
+   * dan sulit dilacak: `/var/run` menyimpan state runtime (marker kesiapan
+   * daemon, PID). Kalau direktori itu ikut VFS persisten, marker seperti
+   * `/var/run/dome.ready` dari boot sebelumnya terbaca sebagai "sudah siap",
+   * sehingga dependen-nya (Asteracea) dijalankan sebelum DOME hidup dan gagal.
+   *
+   * Linux menyelesaikannya dengan `/run` = **tmpfs**. Kernel meniru itu: kalau
+   * admin sudah memount `/var/run` sendiri di fstab (jenis apa pun), keputusan
+   * itu dihormati dan fungsi ini tidak melakukan apa-apa.
+   */
+  private ensureVolatileRunDir(): void {
+    const RUN_DIR = "/var/run";
+    if (!this.bkfs) return;
+
+    const alreadyMounted = this.mountManager
+      .listMounts()
+      .some((m) => m.vfsPath === RUN_DIR);
+    if (alreadyMounted) {
+      this.bootLogStart(`VFS: ${RUN_DIR} → mengikuti fstab`);
+      this.bootLogEnd(true);
+      return;
+    }
+
+    this.bootLogStart(`VFS: ${RUN_DIR} → ramfs (state runtime volatile)`);
+    try {
+      if (!this.bkfs.exists(RUN_DIR)) {
+        this.bkfs.mkdir(RUN_DIR, 0, 0, 0o755);
+      }
+      this.mountManager.mount(
+        RUN_DIR,
+        new RamFS("var-run", 0, 0, 0o755),
+        "ramfs",
+        "RAM",
+        false,
+        0,
+        0,
+      );
+      this.bootLogEnd(true);
+    } catch (e: any) {
+      // Jangan gagalkan boot hanya karena ini — cukup catat.
+      this.bootLogEnd(false, e?.message ?? String(e));
     }
   }
 
