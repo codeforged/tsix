@@ -4,6 +4,7 @@ import { NetFSBackend } from "@tsix/NetFSBackend";
 import {
   NETFS_DEFAULT_CLIENT_PORT,
   NETFS_DEFAULT_PORT,
+  parseNetFSPayload,
   parseNetFSSpec,
 } from "@common/netfs/NetFSProtocol";
 
@@ -87,15 +88,18 @@ function parseCommon(args: string[], defaultPort: number): CommonOpts {
   };
 }
 
-/** Parse JSON payload MQTNL tanpa melempar (payload liar dari jaringan). */
+/**
+ * safeParse(): Parse JSON payload MQTNL tanpa melempar (payload liar dari
+ * jaringan).
+ *
+ * WAJIB pakai `parseNetFSPayload()`: payload bisa tiba sebagai **Buffer** kalau
+ * driver memilih framing biner untuk port ini (mis. port kita belum di-pin,
+ * atau ada trafik Binfeo lain di node yang sama yang menggeser protocol
+ * default). Pola lama `typeof raw === "object" && return raw` membuat Buffer
+ * dianggap "sudah diparse" → `req.id` undefined → request DIBUANG DIAM-DIAM.
+ */
 function safeParse(raw: any): any {
-  if (raw === null || raw === undefined) return null;
-  if (typeof raw === "object") return raw;
-  try {
-    return JSON.parse(raw);
-  } catch (e) {
-    return null;
-  }
+  return parseNetFSPayload(raw);
 }
 
 const HELP = `NetFS daemon — filesystem lewat MQTNL (tanpa IP publik)
@@ -188,6 +192,10 @@ async function runExport(args: string[]): Promise<string | void> {
     port: opts.port,
     iface: opts.iface,
     key: opts.key,
+    // EKSPLISIT: SL NetFS berbicara JSON v1.0. Walau NetSocket sudah meng-pin
+    // "JSON" saat open(), menyebutkannya di sini bikin kontrak wire terlihat
+    // dari daemon-nya — dan mencegah port ini mewarisi framing biner node.
+    protocol: "JSON",
     autoCleanup: true,
   });
   sock.onError = (err) => void std.log(`error: ${err.message}`, "netfsd");
@@ -242,6 +250,10 @@ async function runClient(args: string[]): Promise<string | void> {
     port: opts.port,
     iface: opts.iface,
     key: opts.key,
+    // EKSPLISIT "JSON" (lihat catatan di mode export): jangan bergantung pada
+    // protocol default node — port ini wajib JSON supaya relay & kernel selalu
+    // sepakat soal framing, apa pun trafik lain yang lewat di node ini.
+    protocol: "JSON",
     autoCleanup: true,
   });
 
@@ -250,6 +262,7 @@ async function runClient(args: string[]): Promise<string | void> {
     port: 0,
     iface: opts.iface,
     key: opts.key,
+    protocol: "JSON",
     autoCleanup: true,
   });
 

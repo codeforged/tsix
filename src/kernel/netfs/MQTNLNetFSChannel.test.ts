@@ -160,13 +160,27 @@ describe("MQTNLNetFSChannel (N4)", () => {
       agent: "aes-gcm",
     });
 
-    expect(ioctls).toHaveLength(1);
-    expect(ioctls[0].cmd).toBe(0x1001); // SMQTNL_IOCTL_UPGRADE_SECURITY
-    expect(ioctls[0].port).toBe(ch.port);
-    expect(ioctls[0].sessionKey).toBe(key);
-    expect(ioctls[0].agent).toBe("aes-gcm");
+    // 2 ioctl: pin protocol JSON per-port (selalu) + upgrade security (bila key).
+    expect(ioctls).toHaveLength(2);
+    expect(ioctls[0]).toMatchObject({ cmd: 0x1002, port: ch.port, protocol: "JSON" });
+    expect(ioctls[1].cmd).toBe(0x1001); // SMQTNL_IOCTL_UPGRADE_SECURITY
+    expect(ioctls[1].port).toBe(ch.port);
+    expect(ioctls[1].sessionKey).toBe(key);
+    expect(ioctls[1].agent).toBe("aes-gcm");
 
     void ch.close();
+  });
+
+  it("N4.08 open() mem-pin protocol JSON per-port, close() melepasnya", async () => {
+    // Regresi konflik netfsd ↔ tssh: port channel TIDAK boleh mewarisi protocol
+    // dari `protocolRegistry`/`activeProtocol` — NetFS selalu JSON.
+    const ch = MQTNLNetFSChannel.open(kernel, { address: "tsix_2", port: 7777 });
+
+    expect(ioctls).toEqual([{ cmd: 0x1002, port: ch.port, protocol: "JSON" }]);
+
+    await ch.close();
+
+    expect(ioctls[1]).toEqual({ cmd: 0x1002, port: ch.port, enabled: false });
   });
 
   it("N4.07 alamat node lokal juga bisa dipakai sebagai 'iface'", () => {

@@ -211,6 +211,73 @@ export function decodeContent(payload: any): string | null {
   return null;
 }
 
+// ==================== DECODER PAYLOAD ====================
+
+/**
+ * parseNetFSPayload(): Decode payload mentah dari MQTNL menjadi objek pesan.
+ *
+ * KENAPA INI PENTING (jangan diganti jadi `JSON.parse` polos):
+ * driver MQTNL memilih framing berdasarkan protocol per-port, dan penerima
+ * TIDAK mengontrol protocol yang dipakai pengirim. Untuk port yang di-pin
+ * "JSON" payload tiba sebagai **string**; tapi untuk port yang jatuh ke
+ * framing biner (Binfeo/Binary — mis. port yang belum di-pin, atau ada
+ * trafik biner lain di node yang sama) payload tiba sebagai **Buffer**
+ * (lebih-lebih kalau port punya session key → hasil dekripsi =
+ * `Buffer.securePacketInRawBuffer`).
+ *
+ * Pola lama `typeof raw === "string" ? JSON.parse(raw) : raw` membuat Buffer
+ * dianggap "sudah diparse" → `req.id`/`res.id` undefined → request DIBUANG
+ * DIAM-DIAM (mount tampak hang sampai timeout, tanpa error apa pun di log).
+ * Karena itu semua titik masuk NetFS memakai helper ini.
+ *
+ * Menerima: string JSON, Buffer (utf8 JSON), objek `{type:"Buffer",data:[]}`,
+ * dan objek yang sudah diparse. Return null kalau tidak bisa di-decoded.
+ */
+export function parseNetFSPayload(raw: any): any | null {
+  if (raw === null || raw === undefined) return null;
+
+  // Buffer langsung (framing biner Binfeo/Binary) — kasus yang dulu hilang.
+  if (Buffer.isBuffer(raw)) {
+    try {
+      return JSON.parse(raw.toString("utf8"));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // String JSON (framing JSON v1.0) atau payload kosong.
+  if (typeof raw === "string") {
+    const text = raw.trim();
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Artefak serialisasi IPC: { type: "Buffer", data: [..] } atau { "0": .. }
+  if (typeof raw === "object") {
+    if (raw.type === "Buffer" && Array.isArray(raw.data)) {
+      try {
+        return JSON.parse(Buffer.from(raw.data).toString("utf8"));
+      } catch (e) {
+        return null;
+      }
+    }
+    if (typeof raw[0] === "number" && !Array.isArray(raw)) {
+      try {
+        return JSON.parse(Buffer.from(Object.values(raw) as number[]).toString("utf8"));
+      } catch (e) {
+        return null;
+      }
+    }
+    return raw; // sudah objek (diparse pemanggil / IPC)
+  }
+
+  return null;
+}
+
 // ==================== ERROR MAPPING ====================
 
 /**

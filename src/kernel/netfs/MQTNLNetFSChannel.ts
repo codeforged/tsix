@@ -137,6 +137,14 @@ export class MQTNLNetFSChannel implements INetFSChannel {
     });
     driver.bindProcess(localPort, opts.procName ?? "netfs");
 
+    // Protocol per-port DI-PIN ke JSON — NetFS selalu berbicara JSON v1.0.
+    // Tanpa pin ini, port channel mewarisi `protocolRegistry` (protocol
+    // "terakhir dipakai peer/diri sendiri") atau `activeProtocol` global;
+    // pernah kejadian request NetFS ikut ter-frame Binfeo karena ada trafik
+    // tssh/tsshd di node yang sama → payload sampai sebagai Buffer → dibuang
+    // diam-diam oleh netfsd (mount hang sampai timeout).
+    driver.ioctl(0x1002, { port: localPort, protocol: "JSON" });
+
     if (opts.key) {
       // Enkripsi per-port: sisi penerima memakai key yang sama untuk mendekripsi.
       driver.ioctl(0x1001, {
@@ -212,6 +220,13 @@ export class MQTNLNetFSChannel implements INetFSChannel {
       this.driver.unregisterPortSecurity(this.localPort);
     } catch (e) {
       /* tidak ada security terpasang — aman diabaikan */
+    }
+    try {
+      // Lepas pin protocol port ini supaya nomor port yang dipakai ulang tidak
+      // mewarisi framing lama.
+      this.driver.ioctl(0x1002, { port: this.localPort, enabled: false });
+    } catch (e) {
+      /* pin tidak ada — aman diabaikan */
     }
     this.portManager.releasePort?.(this.localPort);
     this.logger.info(`channel ditutup (port ${this.localPort} dilepas)`);

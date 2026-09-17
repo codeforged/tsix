@@ -5,6 +5,7 @@ import {
   NetFSExportInfo,
   NetFSOp,
   decodeContent,
+  parseNetFSPayload,
   parseNetFSSpec,
 } from "../../common/netfs/NetFSProtocol";
 
@@ -156,13 +157,13 @@ export class NetFSClient {
   }
 }
 
-/** Parse JSON payload dari jaringan tanpa melempar. */
+/**
+ * safeParse(): Parse payload dari jaringan tanpa melempar.
+ *
+ * Delegasi ke `parseNetFSPayload()` (dipakai bersama SL & driver kernel) supaya
+ * payload yang tiba sebagai **Buffer** — akibat framing per-port bukan JSON —
+ * tetap terbaca, bukan dibuang diam-diam.
+ */
 function safeParse(raw: any): any {
-  if (raw === null || raw === undefined) return null;
-  if (typeof raw === "object") return raw;
-  try {
-    return JSON.parse(raw);
-  } catch (e) {
-    return null;
-  }
+  return parseNetFSPayload(raw);
 }

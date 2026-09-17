@@ -11,6 +11,7 @@ import {
   decodeContent,
   netfsErrorCodeOf,
   netfsErrorMessage,
+  parseNetFSPayload,
 } from "../common/netfs/NetFSProtocol";
 
 /**
@@ -375,14 +376,14 @@ export class NetFS implements IVFS {
 
   /** onMessage(): Cocokkan balasan dengan request yang menunggu (by id). */
   private onMessage(raw: any): void {
-    let res: NetFSResponse | null = null;
-    try {
-      res = typeof raw === "string" ? JSON.parse(raw) : raw;
-    } catch (e) {
+    // `parseNetFSPayload()` menerima string JSON **dan** Buffer (framing biner)
+    // — balasan Buffer tidak boleh dibuang, itu penyebab "mount hang" tanpa error.
+    const res: NetFSResponse | null = parseNetFSPayload(raw);
+    if (!res) {
       this.logger.warn(`Balasan bukan JSON valid — dibuang.`);
       return;
     }
-    if (!res || typeof res.id !== "number") return;
+    if (typeof res.id !== "number") return;
 
     const p = this.pending.get(res.id);
     if (!p) {

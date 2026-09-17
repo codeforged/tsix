@@ -65,6 +65,23 @@ describe("NetFSServer — SL core (N1)", () => {
     expect(decodeContent(res.result)).toBe("halo netfs");
   });
 
+  it("N1.03b payload Buffer (framing biner Binfeo) tetap diproses", async () => {
+    // Regresi: dulu Buffer dianggap "sudah diparse" → op jadi undefined →
+    // jawaban EBADOP walau request-nya sebenarnya valid.
+    const res = await server.handle(Buffer.from(req(31, "info"), "utf8"));
+
+    expect(res.ok).toBe(true);
+    expect(res.id).toBe(31);
+    expect(res.result.label).toBe("shared");
+  });
+
+  it("N1.03c payload biner yang bukan JSON → EBADREQ (jelas, bukan hang)", async () => {
+    const res = await server.handle(Buffer.from([0x00, 0xff, 0x01]));
+
+    expect(res.ok).toBe(false);
+    expect(res.code).toBe("EBADREQ");
+  });
+
   it("N1.04 touch round-trip konten biner-safe (byte 0..255)", async () => {
     const binary = Array.from({ length: 256 }, (_, i) => String.fromCharCode(i)).join("");
     const docPath = "/docs/bytes.txt";

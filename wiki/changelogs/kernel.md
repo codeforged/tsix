@@ -6,6 +6,23 @@
 
 ## 2026-09-17
 
+### Driver MQTNL — gema paket sendiri tidak lagi "menular" ke port lain (fix konflik NetFS ↔ tssh)
+
+- **File:** `src/kernel/devices/SimpleMQTNLDriver.ts`, `src/kernel/netfs/MQTNLNetFSChannel.ts`.
+- **Laporan lapangan:** mount NetFS ke node A (`jatitsix`) sudah normal baca-tulis, lalu begitu `tssh` dari node yang sama ke node B (`mactsix`) dijalankan, jalur NetFS ke node A **terganggu** (request tidak dijawab, mount timeout) padahal node A tidak terlibat sama sekali.
+- **Akar masalah (bukan aplikasinya):** `protocolRegistry` — peta "protocol terakhir dipakai peer" yang dipakai driver saat memilih framing — diisi **sebelum** filter alamat, jadi termasuk untuk paket yang datang dari **alamat kita sendiri**:
+  - **gema broker**: semua node subscribe `mqtnl@1.x/#`, jadi paket yang kita publish dipantulkan balik ke kita;
+  - **loopback** antar-socket lokal (relay netfsd ↔ channel NetFS kernel).
+  Akibatnya `protocolRegistry[<alamat sendiri>]` berubah jadi **Binfeo** begitu ada trafik tsshd/tssh keluar — dan port channel NetFS kernel (yang dulu **tidak** di-pin protocolnya, sementara socket userland selalu di-pin oleh `NetSocket.open()`) ikut mewarisi framing itu. Request NetFS yang harusnya JSON terkirim sebagai Binfeo → tiba di `netfsd` sebagai **Buffer** → dibuang diam-diam → mount hang sampai timeout.
+- **Perubahan:**
+  1. `protocolRegistry` hanya diisi untuk paket dari **peer lain** (`srcAddress !== localAddress`) — registry memang untuk mempelajari protocol PEER, bukan diri sendiri. Fitur multi-proto untuk peer tetap utuh.
+  2. `unregisterHandler()` kini juga membuang **pin protocol per-port** (`portProtocols`) — sebelumnya pin tertinggal dan bisa diwarisi socket baru yang memakai ulang nomor port itu (`PortManager` melepas nomor saat `CLOSE`).
+  3. `MQTNLNetFSChannel.open()` **mem-pin protocol port channel ke JSON** (`ioctl 0x1002`), dan `close()` melepasnya — NetFS tidak lagi bergantung pada `protocolRegistry`/`activeProtocol` global.
+- **Diagnosa:** jalur ini hanya rusak kalau port pengirim **tidak** di-pin. Socket `NetSocket` aman; channel kernel dulu tidak.
+- **Dampak:** satu node boleh mencampur trafik JSON (NetFS, SCP, ping) dan biner (tssh/tsshd, scanif/nmap, OTA) tanpa saling merusak — batas isolasi kini per-**port**, bukan per-node.
+- **Test:** `SimpleMQTNLDriver.protocol.test.ts` (N7: gema diri sendiri, registry peer, pin per-port, pembersihan pin) + `MQTNLNetFSChannel.test.ts` N4.06/N4.08 diperbarui (pin JSON saat open, dilepas saat close).
+- **Oleh:** Copilot · **Laporan:** andriansah
+
 ### Jaminan `/var/run` volatile — boot tidak lagi bisa "tertipu" marker basi
 
 - **File:** `src/kernel/Kernel.ts` (`ensureVolatileRunDir()`, dipanggil setelah `processFstab()`).

@@ -191,8 +191,22 @@ export class SimpleMQTNLDriver implements IDevice {
 
       packet = proto.unpack(message);
 
-      // [MULTI-PROTO] Register protocol for this sender
-      this.protocolRegistry.set(packet.header.srcAddress, proto);
+      // [MULTI-PROTO] Catat protocol pengirim — TAPI JANGAN untuk paket yang
+      // datang dari alamat kita SENDIRI.
+      //
+      // Semua node subscribe `mqtnl@1.x/#`, jadi setiap paket yang KITA publish
+      // dipantulkan balik oleh broker (gema) — dan loopback antar-socket lokal
+      // juga lewat sini. Keduanya ber-srcAddress = alamat lokal. Kalau gema itu
+      // ikut dicatat, "protocol kita sendiri" menular ke semua port lain yang
+      // belum di-pin protocol-nya (mis. port channel NetFS kernel): begitu ada
+      // trafik tsshd/tssh (Binfeo) keluar, jalur NetFS yang seharusnya JSON ikut
+      // di-frame Binfeo → payload sampai di daemon sebagai Buffer → request
+      // dibuang diam-diam (mount hang sampai timeout).
+      //
+      // Registry ini untuk mempelajari protocol PEER, bukan diri sendiri.
+      if (packet.header.srcAddress !== this.localAddress) {
+        this.protocolRegistry.set(packet.header.srcAddress, proto);
+      }
 
       // --- PACKET FILTERING ---
       const localAddr = this.localAddress;
@@ -482,6 +496,11 @@ export class SimpleMQTNLDriver implements IDevice {
     this.onMessageHandlers.delete(port);
     this.portProcess.delete(port);
     this.unregisterPortSecurity(port); // Prevent security settings from persisting
+    // Pin protocol per-port juga harus dibuang: PortManager melepas nomor port
+    // ini saat CLOSE, jadi nomor itu bisa dipakai ulang — kalau pin-nya
+    // tertinggal, socket baru mewarisi framing lama (mis. Binfeo) padahal dia
+    // minta JSON.
+    this.portProtocols.delete(port);
     this.logger.debug(`Handler for port ${port} unregistered.`);
   }
 

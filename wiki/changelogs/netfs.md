@@ -8,6 +8,24 @@ Dokumentasi lengkap: [`wiki/netfs.md`](../netfs.md).
 
 ## 2026-09-17
 
+### NetFS — payload Buffer diterima (fix "terganggu saat tssh jalan") + protocol di-pin eksplisit
+
+- **File:** `src/common/netfs/NetFSProtocol.ts` (`parseNetFSPayload()` baru), `src/common/netfs/NetFSServer.ts`, `src/vfs/NetFS.ts`, `src/mirror/sbin/netfsd.ts`, `src/mirror/lib/NetFSClient.ts`, `src/kernel/netfs/MQTNLNetFSChannel.ts`.
+- **Gejala:** mount NetFS jalan normal, lalu jalur NetFS "terganggu" (operasi menggantung / timeout) begitu ada trafik biner lain di node yang sama — mis. `tssh` ke node lain. Yang terganggu justru jalur ke node yang sama sekali tidak terlibat.
+- **Dua sebab (diperbaiki keduanya):**
+  1. **Kernel:** port channel NetFS tidak di-pin protocolnya, sehingga mewarisi framing dari trafik biner node (gema paket sendiri masuk ke `protocolRegistry`). Diperbaiki di driver + `MQTNLNetFSChannel.open()` (lihat `wiki/changelogs/kernel.md`).
+  2. **Userland:** semua titik masuk NetFS memakai pola `typeof raw === "string" ? JSON.parse(raw) : raw`. Kalau driver memilih framing biner untuk port itu (Binfeo/Binary), payload tiba sebagai **Buffer** — pola di atas menganggapnya "sudah diparse", `req.id`/`res.id` jadi `undefined`, lalu:
+     - di `netfsd` (relay): request **dibuang diam-diam** → mount hang sampai timeout, tanpa error di log;
+     - di SL/driver kernel: jawaban `EBADOP "op tidak dikenal: undefined"` walau request-nya valid.
+- **Perubahan:**
+  - Helper baru **`parseNetFSPayload()`** di `@common/netfs/NetFSProtocol` — menerima string JSON, **Buffer** (utf8), artefak IPC `{type:"Buffer",data:[]}`, atau objek yang sudah diparse. Dipakai di **semua** titik masuk: `NetFSServer.handle()`, `NetFS.onMessage()` (driver kernel), `NetFSClient`, dan `netfsd`.
+  - Pagar ukuran request (`NETFS_MAX_REQUEST_CHARS`) kini dihitung dari panjang payload mentah, apa pun framingnya (string/Buffer).
+  - `netfsd` menyebut **`protocol: "JSON"` eksplisit** di ketiga socket (SL + relay `local` + relay `upstream`) — kontrak wire jadi terbaca dari daemon-nya, tidak bergantung pada default node.
+  - `MQTNLNetFSChannel` mem-pin port channel ke JSON (open) dan melepasnya (close).
+- **Catatan penting:** `NetSocket` sudah meng-pin protocol saat `open()`, jadi socket daemon sebenarnya aman — yang rapuh adalah (a) port channel kernel yang tidak di-pin, dan (b) parser yang mengasumsikan payload selalu string. Keduanya kini dijaga.
+- **Test:** `NetFSProtocol.test.ts` (N6 — decoder: string/Buffer/IPC/garbage), `NetFSServer.test.ts` N1.03b/N1.03c (payload Buffer diproses, payload rusak → `EBADREQ` jelas), `SimpleMQTNLDriver.protocol.test.ts` (N7), `MQTNLNetFSChannel.test.ts` N4.06/N4.08.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
 ### NetFS — filesystem antar-node lewat MQTNL (driver + SL + daemon klien)
 
 - **File (baru):**

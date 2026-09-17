@@ -282,8 +282,21 @@ Gejala umum:
 | --- | --- |
 | mount gagal "tidak merespons" | `netfsd --export` tidak jalan di SH, atau `--client` belum jalan di klien (pakai `--direct`) |
 | timeout terus / `stale` | alamat/port salah, node beda broker, **key tidak sama**, atau **`--iface` berbeda** antara daemon klien dan mount |
+| mount normal, lalu **mendadak** timeout begitu `tssh`/`scanif`/OTA jalan di node itu | framing protocol per-port (lihat di bawah) — sudah diperbaiki: port channel NetFS di-pin `JSON`, payload Buffer diterima di semua titik masuk NetFS |
 | `EROFS` saat menulis | `netfsd --export --ro`, atau mount dipasang `--ro` |
 | `EACCES` | uid `netfsd` tidak punya hak di folder export |
+
+> **Kenapa protocol wajib di-pin eksplisit?** MQTNL memilih **framing per-port**
+> (JSON v1.0 / Binfeo v1.2 / OTA v1.1) dan penerima tidak mengontrol pilihan
+> pengirim. Port yang tidak di-pin akan mewarisi protocol "terakhir dipakai"
+> (`protocolRegistry`) atau default global — jadi aplikasi di node yang sama
+> bisa saling mengubah framing. Aturan praktisnya, untuk tiap socket baru:
+>
+> 1. **Pengirim:** sebutkan `protocol` (atau `binary`) — `NetSocket` sudah
+>    melakukannya otomatis; port buatan kernel wajib `ioctl 0x1002` sendiri.
+> 2. **Penerima:** jangan asumsikan payload berupa string — pakai
+>    `parseNetFSPayload()` (NetFS) atau `NetworkLib.toBuffer()` untuk biner,
+>    supaya payload Buffer tidak dibuang diam-diam.
 
 ---
 
@@ -296,10 +309,14 @@ npx vitest run src/common/netfs src/vfs/NetFS.test.ts \
 
 | Suite | Cakupan |
 | --- | --- |
-| `NetFSServer.test.ts` (N1/N3) | op, prefix, read-only, allow, `..` escape, codec, parsing spec |
+| `NetFSServer.test.ts` (N1/N3) | op, prefix, read-only, allow, `..` escape, codec, parsing spec, payload Buffer |
 | `NetFS.test.ts` (N2) | driver klien lewat channel loopback in-memory: op, chunk I/O, timeout→stale, pemulihan, cache, close |
-| `MQTNLNetFSChannel.test.ts` (N4) | alokasi port kernel, registrasi handler, srcPort, pelepasan resource, key→ioctl |
+| `MQTNLNetFSChannel.test.ts` (N4) | alokasi port kernel, registrasi handler, srcPort, pelepasan resource, key→ioctl, pin protocol JSON |
+| `NetFSProtocol.test.ts` (N6) | decoder payload: string JSON, Buffer, artefak IPC, payload rusak |
 | `NetFSBackend.test.ts` (N5) | adapter userland: mode, error mapping, append, getUsage root |
+
+Isolasi protocol diuji terpisah di `src/kernel/devices/SimpleMQTNLDriver.protocol.test.ts`
+(N7): gema paket sendiri, registry peer, pin per-port, pembersihan pin.
 
 Tidak ada broker MQTT yang dibutuhkan untuk test — transport diganti channel
 loopback / spy.

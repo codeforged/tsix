@@ -16,6 +16,7 @@ import {
   isNetFSOp,
   netfsErrorCodeOf,
   netfsErrorMessage,
+  parseNetFSPayload,
 } from "./NetFSProtocol";
 
 /**
@@ -134,8 +135,10 @@ export class NetFSServer {
   /**
    * handle(): Entry point SL.
    *
-   * @param raw  Payload mentah dari NetSocket (`pkt.data`) — string JSON atau
-   *             object yang sudah diparse.
+   * @param raw  Payload mentah dari NetSocket (`pkt.data`) — string JSON,
+   *             Buffer (framing biner), atau object yang sudah diparse.
+   *             Decoding lewat `parseNetFSPayload()` supaya payload biner
+   *             tidak berakhir jadi "op tidak dikenal: undefined".
    * @param ctx  Konteks transport (siapa pengirimnya), dipakai filter `allow`.
    * @returns    Balasan siap dikirim balik via `NetSocket.reply()`.
    */
@@ -143,13 +146,12 @@ export class NetFSServer {
     raw: any,
     ctx: { src?: string } = {},
   ): Promise<NetFSResponse> {
-    let req: NetFSRequest;
-    try {
-      req = typeof raw === "string" ? JSON.parse(raw) : raw;
-    } catch (e) {
+    const parsed = parseNetFSPayload(raw);
+    if (!parsed) {
       this.failed++;
       return this.err(0, "EBADREQ", "payload bukan JSON valid");
     }
+    const req = parsed as NetFSRequest;
 
     const id = typeof req?.id === "number" ? req.id : 0;
 
@@ -179,12 +181,18 @@ export class NetFSServer {
     }
 
     // --- Pagar ukuran request (konten besar harus lewat writeChunk) ---
-    if (typeof raw === "string" && raw.length > NETFS_MAX_REQUEST_CHARS) {
+    // Dihitung dari panjang payload mentah, apa pun framingnya (string/Buffer).
+    const rawSize = Buffer.isBuffer(raw)
+      ? raw.length
+      : typeof raw === "string"
+        ? raw.length
+        : 0;
+    if (rawSize > NETFS_MAX_REQUEST_CHARS) {
       this.failed++;
       return this.err(
         id,
         "ETOOBIG",
-        `request ${raw.length} char melebihi batas ${NETFS_MAX_REQUEST_CHARS}`,
+        `request ${rawSize} char melebihi batas ${NETFS_MAX_REQUEST_CHARS}`,
       );
     }
 
