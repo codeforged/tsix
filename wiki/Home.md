@@ -21,20 +21,21 @@
 
 ## 📋 Quick Navigation
 
-| Section                | Link                                                     |
-| ---------------------- | -------------------------------------------------------- |
-| 🏁 **Getting Started** | [Memulai.md](Memulai.md)                                 |
-| 🏗️ **Architecture**    | [Arsitektur-Sistem.md](Arsitektur-Sistem.md)             |
-| ⚙️ **Kernel**          | [Kernel-dan-Scheduler.md](Kernel-dan-Scheduler.md)       |
-| 💾 **Filesystem**      | [Virtual-File-System.md](Virtual-File-System.md)         |
-| 🌐 **NetFS**           | [netfs.md](netfs.md)                                     |
-| 🌐 **Networking**      | [Networking-MQTNL.md](Networking-MQTNL.md)               |
-| 🔧 **Commands**        | [Perintah-Sistem.md](Perintah-Sistem.md)                 |
-| 📦 **Package Manager** | [Package-Manager-TPKG.md](Package-Manager-TPKG.md)       |
-| 🔐 **Security**        | [Keamanan-dan-Sandboxing.md](Keamanan-dan-Sandboxing.md) |
-| 🖥️ **GUI Toolkit**     | [emerald-in-a-nutshell.md](emerald-in-a-nutshell.md)     |
+| Section                 | Link                                                     |
+| ----------------------- | -------------------------------------------------------- |
+| 🏁 **Getting Started**  | [Memulai.md](Memulai.md)                                 |
+| 🏗️ **Architecture**     | [Arsitektur-Sistem.md](Arsitektur-Sistem.md)             |
+| ⚙️ **Kernel**           | [Kernel-dan-Scheduler.md](Kernel-dan-Scheduler.md)       |
+| 💾 **Filesystem**       | [Virtual-File-System.md](Virtual-File-System.md)         |
+| 🌐 **NetFS**            | [netfs.md](netfs.md)                                     |
+| 🌐 **Networking**       | [Networking-MQTNL.md](Networking-MQTNL.md)               |
+| 🔧 **Commands**         | [Perintah-Sistem.md](Perintah-Sistem.md)                 |
+| 📦 **Package Manager**  | [Package-Manager-TPKG.md](Package-Manager-TPKG.md)       |
+| 🔐 **Security**         | [Keamanan-dan-Sandboxing.md](Keamanan-dan-Sandboxing.md) |
+| 🖥️ **GUI Toolkit**      | [emerald-in-a-nutshell.md](emerald-in-a-nutshell.md)     |
 | 🥜 **Cashew Framework** | [cashew-in-a-nutshell.md](cashew-in-a-nutshell.md)       |
-| �️ **DDC (Native JS)**  | [ddc-in-a-nutshell.md](ddc-in-a-nutshell.md)             |
+| 🧾 **Text Tables**      | [tablelib.md](tablelib.md)                               |
+| �️ **DDC (Native JS)**   | [ddc-in-a-nutshell.md](ddc-in-a-nutshell.md)             |
 | �📖 **Developer Guide** | [Panduan-Developer.md](Panduan-Developer.md)             |
 
 ---
@@ -130,15 +131,15 @@ sequenceDiagram
 
 ### Kernel
 
-| Feature                | Details                                                                                |
-| ---------------------- | -------------------------------------------------------------------------------------- |
-| **Syscall Dispatcher** | 60+ POSIX-inspired syscalls (OPEN, READ, WRITE, FORK, EXEC, WAITPID, SIGNAL, CHMOD...) |
-| **Scheduler**          | Process manager: PCB states (READY/RUNNING/BLOCKED/EXITED), wait queue, signals — processes run in own Worker Threads     |
-| **Permission Manager** | UID/GID, rwx bits, root bypass, capabilities (CAP_SETUID, CAP_NET_BIND, CAP_KILL...)   |
-| **Mount Manager**      | Mount/unmount multiple VFS backends, nested mount points, longest-prefix resolution    |
-| **Port Manager**       | TCP/UDP port binding, privileged port enforcement, SO_REUSEADDR, ephemeral allocation  |
-| **GUI Registry**       | Window → PID mapping, event forwarding (click/input/keydown) to worker                 |
-| **Process Tree**       | Parent-child links, zombie detection, auto-reparent to init on parent exit             |
+| Feature                | Details                                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **Syscall Dispatcher** | 60+ POSIX-inspired syscalls (OPEN, READ, WRITE, FORK, EXEC, WAITPID, SIGNAL, CHMOD...)                                |
+| **Scheduler**          | Process manager: PCB states (READY/RUNNING/BLOCKED/EXITED), wait queue, signals — processes run in own Worker Threads |
+| **Permission Manager** | UID/GID, rwx bits, root bypass, capabilities (CAP_SETUID, CAP_NET_BIND, CAP_KILL...)                                  |
+| **Mount Manager**      | Mount/unmount multiple VFS backends, nested mount points, longest-prefix resolution                                   |
+| **Port Manager**       | TCP/UDP port binding, privileged port enforcement, SO_REUSEADDR, ephemeral allocation                                 |
+| **GUI Registry**       | Window → PID mapping, event forwarding (click/input/keydown) to worker                                                |
+| **Process Tree**       | Parent-child links, zombie detection, auto-reparent to init on parent exit                                            |
 
 ### Filesystem (VFS)
 
@@ -176,18 +177,18 @@ sequenceDiagram
 
 ### Devices
 
-| Device              | Description                                                                       |
-| ------------------- | --------------------------------------------------------------------------------- |
-| **TTY**             | 6 virtual terminals, raw/cooked mode, ANSI escape, CLEAR_SCREEN, TIOCGWINSZ       |
-| **Pipe**            | FIFO buffer, multiple readers/writers, reference counting, EPIPE on closed reader |
-| **Socket**          | TCP/UDP sockets, bind/listen/connect/accept, packet send/recv                     |
-| **Null**            | `/dev/null` (discard), `/dev/zero` (null bytes), `/dev/random` (entropy)          |
-| **Keyboard/Screen** | Virtual input/output devices                                                      |
-| **Serial**          | I2C-like device with configurable baud rate                                       |
-| **MCP23017**        | GPIO extender (I2C), auto-registration                                            |
-| **LM6029 LCD**      | LCD mono 128×64 (SPI0 + 2× 74HC595), auto-registration — [lcd-lm6029.md](lcd-lm6029.md) |
-| **MySQL** *(eksperimental)* | Database device (POC) — integrasi eksternal via HAL, bukan pola utama akses DB (lihat kurikulum `DbLib`) |
-| **SimpleMQTNL**     | MQTT-like network layer device                                                    |
+| Device                      | Description                                                                                              |
+| --------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **TTY**                     | 6 virtual terminals, raw/cooked mode, ANSI escape, CLEAR_SCREEN, TIOCGWINSZ                              |
+| **Pipe**                    | FIFO buffer, multiple readers/writers, reference counting, EPIPE on closed reader                        |
+| **Socket**                  | TCP/UDP sockets, bind/listen/connect/accept, packet send/recv                                            |
+| **Null**                    | `/dev/null` (discard), `/dev/zero` (null bytes), `/dev/random` (entropy)                                 |
+| **Keyboard/Screen**         | Virtual input/output devices                                                                             |
+| **Serial**                  | I2C-like device with configurable baud rate                                                              |
+| **MCP23017**                | GPIO extender (I2C), auto-registration                                                                   |
+| **LM6029 LCD**              | LCD mono 128×64 (SPI0 + 2× 74HC595), auto-registration — [lcd-lm6029.md](lcd-lm6029.md)                  |
+| **MySQL** _(eksperimental)_ | Database device (POC) — integrasi eksternal via HAL, bukan pola utama akses DB (lihat kurikulum `DbLib`) |
+| **SimpleMQTNL**             | MQTT-like network layer device                                                                           |
 
 ---
 
@@ -246,7 +247,7 @@ tsix/
 │   ├── vfs/           — Filesystem backends — [🔗 Wiki](Virtual-File-System.md)
 │   ├── mirror/        — Userland (Ring 4)
 │   │   ├── bin/       — 80+ Applications — [🔗 Wiki](Perintah-Sistem.md)
-│   │   ├── lib/       — Libraries (Emerald, UserLib) — [🔗 Wiki](emerald-in-a-nutshell.md)
+│   │   ├── lib/       — Libraries (Emerald, UserLib, tableLib) — [🔗 Wiki](emerald-in-a-nutshell.md)
 │   │   └── etc/       — System config
 │   └── tests/         — Unit tests — [🔗 Report](../unit-test-plan.md)
 ├── docs/              — Documentation
@@ -277,33 +278,34 @@ tsix/
 
 ## 📚 Complete Wiki
 
-| Page                                                                 | Description                                            |
-| -------------------------------------------------------------------- | ------------------------------------------------------ |
-| [Memulai.md](Memulai.md)                                             | Instalasi, konfigurasi, dan menjalankan TSIX           |
-| [Arsitektur-Sistem.md](Arsitektur-Sistem.md)                         | Ring 1/2 architecture, boot process, execution flow    |
-| [Kernel-dan-Scheduler.md](Kernel-dan-Scheduler.md)                   | Kernel internals, process management, syscalls         |
-| [Virtual-File-System.md](Virtual-File-System.md)                     | BKFS SQLite-backed VFS, permission model, mount system |
-| [netfs.md](netfs.md)                                                 | NetFS — filesystem antar-node lewat MQTNL (NFS-style)  |
-| [Networking-MQTNL.md](Networking-MQTNL.md)                           | MQTT Network Layer, remote access, IoT connectivity    |
-| [Perintah-Sistem.md](Perintah-Sistem.md)                             | Daftar lengkap 80+ user-land commands                  |
-| [Package-Manager-TPKG.md](Package-Manager-TPKG.md)                   | Package management, repository, dan update system      |
-| [Keamanan-dan-Sandboxing.md](Keamanan-dan-Sandboxing.md)             | Multi-layer security, worker isolation, permission     |
-| [Panduan-Developer.md](Panduan-Developer.md)                         | Cara membuat aplikasi & device driver baru             |
-| [emerald-in-a-nutshell.md](emerald-in-a-nutshell.md)                 | Emerald GUI Toolkit reference                          |
-| [cashew-in-a-nutshell.md](cashew-in-a-nutshell.md)                   | Cashew Delphi-style GUI Framework                      |
-| [ASTERACEA_WM.md](ASTERACEA_WM.md)                                   | Window Manager architecture                            |
-| [PIXELSPACE_DEVELOPER_GUIDE.md](PIXELSPACE_DEVELOPER_GUIDE.md)       | PixelSpace Display Protocol                            |
-| [DEVELOPER_GUIDE_DEVICES.md](DEVELOPER_GUIDE_DEVICES.md)             | Panduan membuat device driver                          |
-| [DEVELOPER_GUIDE_SCRIPTING-V2.md](DEVELOPER_GUIDE_SCRIPTING-V2.md)   | Scripting guide v2                                     |
-| [RC_LOCAL.md](RC_LOCAL.md)                                           | rc.local boot script spec                              |
-| [SPEC_AIRTERM_V2.md](SPEC_AIRTERM_V2.md)                             | AirTerm specification                                  |
-| [mqtnl-ota.md](mqtnl-ota.md)                                         | OTA update protocol                                    |
-| [mqtnl_binary_ota.md](mqtnl_binary_ota.md)                           | Binary OTA format                                      |
-| [mcp23017-registration.md](mcp23017-registration.md)                 | MCP23017 GPIO extender                                 |
-| [lcd-lm6029.md](lcd-lm6029.md)                                       | LCD mono 128×64 LM6029ACW (`/dev/lcd` + `@tsix/lcdLib`) |
-| [identity_guid_ipc_walkthrough.md](identity_guid_ipc_walkthrough.md) | Identity & IPC walkthrough                             |
-| [boot_sequence.md](boot_sequence.md)                                 | Boot sequence details                                  |
-| [ARCHITECTURE_RINGS.md](ARCHITECTURE_RINGS.md)                       | Architecture rings detail                              |
+| Page                                                                 | Description                                                 |
+| -------------------------------------------------------------------- | ----------------------------------------------------------- |
+| [Memulai.md](Memulai.md)                                             | Instalasi, konfigurasi, dan menjalankan TSIX                |
+| [Arsitektur-Sistem.md](Arsitektur-Sistem.md)                         | Ring 1/2 architecture, boot process, execution flow         |
+| [Kernel-dan-Scheduler.md](Kernel-dan-Scheduler.md)                   | Kernel internals, process management, syscalls              |
+| [Virtual-File-System.md](Virtual-File-System.md)                     | BKFS SQLite-backed VFS, permission model, mount system      |
+| [netfs.md](netfs.md)                                                 | NetFS — filesystem antar-node lewat MQTNL (NFS-style)       |
+| [Networking-MQTNL.md](Networking-MQTNL.md)                           | MQTT Network Layer, remote access, IoT connectivity         |
+| [Perintah-Sistem.md](Perintah-Sistem.md)                             | Daftar lengkap 80+ user-land commands                       |
+| [Package-Manager-TPKG.md](Package-Manager-TPKG.md)                   | Package management, repository, dan update system           |
+| [Keamanan-dan-Sandboxing.md](Keamanan-dan-Sandboxing.md)             | Multi-layer security, worker isolation, permission          |
+| [Panduan-Developer.md](Panduan-Developer.md)                         | Cara membuat aplikasi & device driver baru                  |
+| [emerald-in-a-nutshell.md](emerald-in-a-nutshell.md)                 | Emerald GUI Toolkit reference                               |
+| [tablelib.md](tablelib.md)                                           | Tabel teks + warna ANSI (`@tsix/tableLib`, `@tsix/ansiLib`) |
+| [cashew-in-a-nutshell.md](cashew-in-a-nutshell.md)                   | Cashew Delphi-style GUI Framework                           |
+| [ASTERACEA_WM.md](ASTERACEA_WM.md)                                   | Window Manager architecture                                 |
+| [PIXELSPACE_DEVELOPER_GUIDE.md](PIXELSPACE_DEVELOPER_GUIDE.md)       | PixelSpace Display Protocol                                 |
+| [DEVELOPER_GUIDE_DEVICES.md](DEVELOPER_GUIDE_DEVICES.md)             | Panduan membuat device driver                               |
+| [DEVELOPER_GUIDE_SCRIPTING-V2.md](DEVELOPER_GUIDE_SCRIPTING-V2.md)   | Scripting guide v2                                          |
+| [RC_LOCAL.md](RC_LOCAL.md)                                           | rc.local boot script spec                                   |
+| [SPEC_AIRTERM_V2.md](SPEC_AIRTERM_V2.md)                             | AirTerm specification                                       |
+| [mqtnl-ota.md](mqtnl-ota.md)                                         | OTA update protocol                                         |
+| [mqtnl_binary_ota.md](mqtnl_binary_ota.md)                           | Binary OTA format                                           |
+| [mcp23017-registration.md](mcp23017-registration.md)                 | MCP23017 GPIO extender                                      |
+| [lcd-lm6029.md](lcd-lm6029.md)                                       | LCD mono 128×64 LM6029ACW (`/dev/lcd` + `@tsix/lcdLib`)     |
+| [identity_guid_ipc_walkthrough.md](identity_guid_ipc_walkthrough.md) | Identity & IPC walkthrough                                  |
+| [boot_sequence.md](boot_sequence.md)                                 | Boot sequence details                                       |
+| [ARCHITECTURE_RINGS.md](ARCHITECTURE_RINGS.md)                       | Architecture rings detail                                   |
 
 ---
 
