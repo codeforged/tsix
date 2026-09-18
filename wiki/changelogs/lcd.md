@@ -64,6 +64,101 @@
   saat boot).
 - **Oleh:** Copilot · **Laporan:** andriansah
 
+### Demo baru `lcd-objs` — stress animasi (banyak objek, tetap 1 syscall/frame)
+
+- **File:** `src/mirror/opt/test/lcd-objs.ts` **(baru)**.
+- **Tujuan:** membuktikan jalur cepat LCD tetap kencang saat layar dipenuhi
+  objek bergerak — melengkapi `test-LM6029 fps` dengan beban _render_ nyata,
+  bukan sekadar loop ioctl.
+- **Isi:** kotak terisi & segitiga terisi yang memantul di tepi area main,
+  bars di band bawah yang tingginya naik-turun lalu balik arah, dan HUD 3x5
+  lokal (FPS aktual + jumlah objek). Semua matematika trivial (tambah + balik
+  tanda), tanpa trigonometri.
+- **Kunci performa:** semua objek diraster LOKAL di `LcdFramebuffer` — termasuk
+  `fillTri()` scanline lokal, **bukan** ioctl `LCD_FILL_TRIANGLE` — lalu present
+  **satu** `blit()` per frame. 10+ objek bergerak tetap 1 round-trip IPC/frame;
+  kalau memakai ioctl per objek, biayanya jadi 10+ syscall/frame.
+- **Pemakaian:** `lcd-objs [detik] [--sq N] [--tri N] [--bars N] [--fps N]`
+  (`--fps 0` = tanpa jeda). `lcd-objs --help` / `-h` mencetak panduan lengkap
+  tanpa perlu buka source; flag tak dikenal atau nilai yang hilang dilaporkan
+  (bukan diam-diam dianggap "jalan terus"). Tanpa hardware:
+  `/opt/plcd/launcher /opt/test/lcd-objs.ts 10`.
+- **Verifikasi:** `npx tsc --noEmit` bersih; FPS aktual tampil di HUD panel.
+- **Deploy:** `node -r esbuild-register scripts/sync-vfs.ts src/mirror/opt/test/lcd-objs.ts`.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
+### Viewer PLCD: hentikan frame-skip agresif (anti-tumpuk + grid di-cache)
+
+- **File:** `src/mirror/opt/plcd/plcd-emulator.ts`,
+  `src/mirror/opt/plcd/plcd-panel.js`, `src/mirror/opt/test/lcd-objs.ts`.
+- **Laporan:** animasi di PLCD emulator terasa "skip agresif" — kalah halus
+  dibanding panel asli di Raspberry Pi, padahal host-nya MacBook Air i5.
+- **Akar masalah (tiga hal — bukan CPU host):**
+    1. `setInterval(POLL_MS)` menembak `pull()` **tanpa guard**. Satu `pull()`
+       = 3 round-trip IPC (`GET_REV` + `GET_FRAME` + `shell.send` ke DOME) + WS;
+       begitu lebih lambat dari interval, pull **menumpuk** → frame datang
+       beruntun lalu macet. Inilah yang terasa sebagai "skip makin parah".
+    2. `plcd-panel.js` menggambar grid celah dengan ~190 `fillRect` **per frame
+       saat `ctx.filter = "blur(...)"` masih aktif**. Tiap operasi ber-filter
+       memicu pass blur sendiri → biaya terbesar di viewer; GPU terintegrasi
+       langsung jatuh di bawah 30 fps.
+    3. App demo berlari tanpa jeda (default lama `--fps 0`): ratusan fps hanya
+       disampling ~60 Hz oleh viewer → objek melompat (aliasing temporal).
+- **Perubahan:**
+    1. `pull()` diberi guard `pulling` → maksimum **satu** pull in-flight; laju
+       pull menyesuaikan kemampuan pipeline, tidak menumpuk.
+    2. `POLL_MS` 33 → 16 ms (≈60 Hz sampling) agar animasi cepat tidak
+       ter-aliasing. Status bar kini menampilkan **present fps** + **total frame
+       ter-skip** (lonjakan `rev`), jadi "skip" jadi angka — bukan cuma perasaan.
+    3. `plcd-panel.js`: grid celah di-render **sekali per layout** ke canvas
+       sendiri, lalu **1× `drawImage`** per frame (dari ~190 `fillRect`
+       ber-filter). Tampilan tidak berubah (tetap di dalam blok blur).
+    4. `lcd-objs`: pacing default **30 fps** (`--fps 0` tetap tersedia untuk
+       stress/benchmark) supaya demo halus saat dilihat lewat emulator.
+- **Kenapa Pi terasa lebih halus:** di panel asli, SPI memang membatasi app ke
+  ~28 fps — jadi setiap frame yang digambar juga ditampilkan. Emulator tidak
+  punya "rem" itu, sehingga pacing harus eksplisit dan sampling harus rapat.
+- **Verifikasi:** `npx tsc --noEmit` bersih; `node --check plcd-panel.js` OK.
+  Angka `present fps`/`skip` langsung terbaca di status bar emulator.
+- **Deploy:** `scripts/sync-vfs.ts` untuk `plcd-emulator.ts`, `plcd-panel.js`,
+  `lcd-objs.ts`, lalu **jalankan ulang app `plcd-emulator`** (NJ dibaca ulang
+  saat setup, jadi tidak perlu hard-reload browser).
+- **Oleh:** Copilot · **Laporan:** andriansah
+
+### Teks inversi tidak tampil di hardware — workaround + diagnostik `invtest`
+
+- **File:** `src/mirror/opt/test/test-LM6029.ts`, `wiki/lcd-lm6029.md` (§8).
+- **Laporan:** scene teks inversi tampil benar di PLCD, tapi di **panel fisik**
+  layar jadi rata tanpa teks ("tulisan putihnya tidak tampak").
+- **Akar masalah — di ADDON, bukan di TSIX.** `sceneInverted` memakai
+  `setTextColor(0, 1)` + `printText` (mode opaque: latar 1, glyph 0). Addon
+  `lm6029acw` pada jalur teks hanya **menyalakan** piksel untuk bit glyph dan
+  **tidak mengosongkan piksel untuk warna `0`** — jadi huruf tidak pernah
+  terbentuk, sementara latar tetap penuh. PLCD tampak benar karena ia mengikuti
+  semantik Adafruit_GFX (mengosongkan piksel untuk fg=0).
+  Sisi TSIX sudah diverifikasi bersih: driver meneruskan argumen apa adanya
+  (`SET_TEXT_COLOR {color:0,bg:1}` → `lcd.setTextColor(0, 1)`), dijaga tes C10.x
+  di `LM6029Device.test.ts` — jadi tidak ada yang perlu diperbaiki di driver.
+- **Perubahan 1 — workaround di scene 3.** Jangan bergantung pada tulis `0`:
+  gambar teks **normal** (`setTextColor(1)`, tinta gelap di atas kaca terang),
+  lalu balik panel dengan `SET_INVERT(true)`. Hasil akhir identik dengan tujuan
+  scene (teks terang di atas latar gelap) dan **kini seragam di PLCD maupun
+  hardware**. Panel dikembalikan `SET_INVERT(false)` di akhir scene supaya scene
+  berikutnya tidak ikut terbalik.
+- **Perubahan 2 — perintah diagnostik `test-LM6029 invtest`.** 5 langkah
+  berlabel (masing-masing 1,8 s) untuk memastikan keterbatasan addon di panel
+  fisik: (A) `fillScreen(1)`, (B) `drawPixel(…,0)`, (C) `fillRect(…,0)`,
+  (D) `printText` fg=0 bg=1, (E) workaround teks normal + `SET_INVERT`.
+  Kalau A tampil tapi B/C/D tidak ⇒ addon memang mengabaikan tulis `0`.
+- **Verifikasi:** `npx tsc --noEmit` bersih untuk `test-LM6029.ts`.
+- **Deploy:** `node -r esbuild-register scripts/sync-vfs.ts src/mirror/opt/test/test-LM6029.ts`,
+  lalu di panel fisik jalankan `test-LM6029 invtest` (diagnosa) dan
+  `test-LM6029` (suite — scene 3 kini benar).
+- **Tindak lanjut (opsi):** perbaikan sebenarnya ada di repo addon
+  (`lm6029acw`) — jalur teksnya perlu mengosongkan piksel saat warna `0`,
+  bukan hanya menyalakan saat warna `1`.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
 ---
 
 ## 2026-09-16
@@ -211,12 +306,10 @@ yOffset]` + `first/last/yAdvance`. Jalankan ulang kalau font di addon
   `glyphW/cellH/advance/lineHeight/glyphCount/source`). Raster di `PLCDDevice`
   memakai byte itu **apa adanya** (bit0 = baris paling atas), sama dengan
   `_displayBuffer[page*128+x] |= 1 << (y%8)` di addon.
-- **Dua perilaku Adafruit yang ikut ditiru:**
-    1. **Kuirk `_cp437 = false`** — addon tidak pernah memanggil `cp437(true)`,
-       jadi kode ≥ 176 digeser +1 sebelum dicari (`if (!_cp437 && (c >= 176))
-c++`). Byte 0xB0 di panel fisik dirender dengan glyph tabel ke-177.
-    2. **Sel 8 baris + kolom gap** — descender (`g`, `y`) turun sampai baris 7,
-       dan mode opaque mengisi seluruh sel 6x8 (5 kolom glyph + kolom pemisah).
+- **Dua perilaku Adafruit yang ikut ditiru:** 1. **Kuirk `_cp437 = false`** — addon tidak pernah memanggil `cp437(true)`,
+  jadi kode ≥ 176 digeser +1 sebelum dicari (`if (!_cp437 && (c >= 176))
+c++`). Byte 0xB0 di panel fisik dirender dengan glyph tabel ke-177. 2. **Sel 8 baris + kolom gap** — descender (`g`, `y`) turun sampai baris 7,
+  dan mode opaque mengisi seluruh sel 6x8 (5 kolom glyph + kolom pemisah).
 - **Temuan penting (menghemat kode):** font sample pabrik
   `ori-from-lcd-factory/defaultFont.h` — yang dulu berniat dipakai sebagai
   "font ori pabrik" — ternyata **font yang sama** dengan glcdfont, hanya

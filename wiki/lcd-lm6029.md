@@ -20,12 +20,12 @@ graph LR
     E --> F["Panel LM6029ACW 128×64"]
 ```
 
-| Lapisan | File | Tanggung jawab |
-| --- | --- | --- |
-| Aplikasi | `src/mirror/opt/**` | memakai `lcd.*` — tidak pernah menyentuh ioctl/hardware |
-| Library | `src/mirror/lib/lcdLib.ts` | bungkus FD + ioctl jadi API ala Adafruit_GFX |
-| Driver (HAL) | `src/kernel/devices/aux-devices/LM6029Device.ts` | kontrak `IDevice`, terjemahan ioctl, refcount FD, hotplug |
-| Native addon | paket npm **`lm6029acw`** | bit-shifting 74HC595, urutan command, algoritma gambar, font |
+| Lapisan      | File                                             | Tanggung jawab                                               |
+| ------------ | ------------------------------------------------ | ------------------------------------------------------------ |
+| Aplikasi     | `src/mirror/opt/**`                              | memakai `lcd.*` — tidak pernah menyentuh ioctl/hardware      |
+| Library      | `src/mirror/lib/lcdLib.ts`                       | bungkus FD + ioctl jadi API ala Adafruit_GFX                 |
+| Driver (HAL) | `src/kernel/devices/aux-devices/LM6029Device.ts` | kontrak `IDevice`, terjemahan ioctl, refcount FD, hotplug    |
+| Native addon | paket npm **`lm6029acw`**                        | bit-shifting 74HC595, urutan command, algoritma gambar, font |
 
 > **Aturan HAL:** driver `/dev/lcd` hanya jembatan. Semua kerja hardware ada di
 > addon. Kalau addon tidak terpasang, TSIX tetap boot normal — node `/dev/lcd`
@@ -109,7 +109,7 @@ TSIX_LCD_DEV=/dev/plcd node app.js
 
 > ⚠️ **Jangan hardcode pembelokan di dalam app.** Aplikasi harus tetap menulis
 > ke `/dev/lcd` (atau tidak menyebut device sama sekali); memindahkan node
-> adalah urusan *deployment* dan itu tugas `/opt/plcd/launcher`
+> adalah urusan _deployment_ dan itu tugas `/opt/plcd/launcher`
 > (`src/mirror/opt/plcd/launcher.ts`).
 
 Detail: `wiki/changelogs/lcd.md` (2026-09-16) · viewer DDC: `wiki/changelogs/ddc.md`.
@@ -122,40 +122,40 @@ Detail: `wiki/changelogs/lcd.md` (2026-09-16) · viewer DDC: `wiki/changelogs/dd
 import { lcd, LcdFont } from "@tsix/lcdLib";
 
 if (await lcd.isAvailable()) {
-  await lcd.setContrast(40);
-  await lcd.clear();
-  await lcd.setFont(LcdFont.FREE_SANS_BOLD_12);
-  await lcd.printText("Halo TSIX", 0, 20, 1);
-  await lcd.drawRect(0, 0, 128, 64);
-  await lcd.flush();               // kirim buffer ke panel
+    await lcd.setContrast(40);
+    await lcd.clear();
+    await lcd.setFont(LcdFont.FREE_SANS_BOLD_12);
+    await lcd.printText("Halo TSIX", 0, 20, 1);
+    await lcd.drawRect(0, 0, 128, 64);
+    await lcd.flush(); // kirim buffer ke panel
 }
 ```
 
 ### 3.1 Grafis
 
-| Method | Keterangan |
-| --- | --- |
-| `drawPixel(x, y, color?)` | 1 piksel (`color` 1 = nyala, 0 = mati) |
-| `fillScreen(color?)` | seluruh layar |
-| `drawLine(x0, y0, x1, y1, color?)` | garis |
-| `drawRect` / `fillRect(x, y, w, h, color?)` | kotak outline / terisi |
-| `drawCircle` / `fillCircle(x, y, r, color?)` | lingkaran |
-| `drawTriangle` / `fillTriangle(x0,y0,x1,y1,x2,y2, color?)` | segitiga |
-| `drawRoundRect` / `fillRoundRect(x, y, w, h, r, color?)` | sudut membulat |
-| `drawBitmap(x, y, data, w, h, color?)` | bitmap 1 bpp MSB-first |
+| Method                                                     | Keterangan                             |
+| ---------------------------------------------------------- | -------------------------------------- |
+| `drawPixel(x, y, color?)`                                  | 1 piksel (`color` 1 = nyala, 0 = mati) |
+| `fillScreen(color?)`                                       | seluruh layar                          |
+| `drawLine(x0, y0, x1, y1, color?)`                         | garis                                  |
+| `drawRect` / `fillRect(x, y, w, h, color?)`                | kotak outline / terisi                 |
+| `drawCircle` / `fillCircle(x, y, r, color?)`               | lingkaran                              |
+| `drawTriangle` / `fillTriangle(x0,y0,x1,y1,x2,y2, color?)` | segitiga                               |
+| `drawRoundRect` / `fillRoundRect(x, y, w, h, r, color?)`   | sudut membulat                         |
+| `drawBitmap(x, y, data, w, h, color?)`                     | bitmap 1 bpp MSB-first                 |
 
 ### 3.2 Teks
 
-| Method | Keterangan |
-| --- | --- |
-| `setFont(id)` | `LcdFont.DEFAULT`(5×7) / `FREE_SANS_9` / `FREE_SANS_BOLD_12` / `FREE_MONO_9` |
-| `setTextColor(color, bg?)` | isi `bg` → mode opaque |
-| `setTextSize(n)` | perbesaran (1 = normal) |
-| `setTextWrap(bool)` | word-wrap otomatis |
-| `setCursor(x, y)` | posisi kursor |
-| `print(text)` | cetak di kursor |
-| `printText(text, x, y, size?)` | cetak sekali di posisi tertentu |
-| `printCentered(text, y, size?)` | rata tengah (estimasi lebar font default) |
+| Method                          | Keterangan                                                                   |
+| ------------------------------- | ---------------------------------------------------------------------------- |
+| `setFont(id)`                   | `LcdFont.DEFAULT`(5×7) / `FREE_SANS_9` / `FREE_SANS_BOLD_12` / `FREE_MONO_9` |
+| `setTextColor(color, bg?)`      | isi `bg` → mode opaque                                                       |
+| `setTextSize(n)`                | perbesaran (1 = normal)                                                      |
+| `setTextWrap(bool)`             | word-wrap otomatis                                                           |
+| `setCursor(x, y)`               | posisi kursor                                                                |
+| `print(text)`                   | cetak di kursor                                                              |
+| `printText(text, x, y, size?)`  | cetak sekali di posisi tertentu                                              |
+| `printCentered(text, y, size?)` | rata tengah (estimasi lebar font default)                                    |
 
 **Sumber data font (biar tidak "kira-kira").** Glyph-nya bukan gambar ulang:
 `setFont(0)` memakai byte asli `raspi-lcd-addon/src/glcdfont.c` (font bawaan
@@ -169,17 +169,17 @@ Detail & verifikasi: `wiki/changelogs/lcd.md` (2026-09-16).
 
 ### 3.3 Kontrol tampilan & lifecycle
 
-| Method | Keterangan |
-| --- | --- |
-| `clear()` / `flush()` / `display()` / `reset()` | buffer & panel |
-| `setAutoFlush(bool)` | bila ON, `print()`/`blit()` langsung tampil |
-| `setContrast(0..63)` / `getContrast()` | EVR — default 31, nyaman 28–38 |
-| `setBacklight(bool)` / `getBacklight()` | pin LED di 74HC595 |
-| `setInvert(bool)` / `getInvert()` | tukar piksel nyala ⇄ mati |
-| `setDisplayOn(bool)` / `isDisplayOn()` | isi buffer aman saat OFF |
-| `setSpiSpeed(hz)` / `getSpiSpeed()` | clock SPI aktual |
-| `setRotation(0..3)` | rotasi tampilan |
-| `getInfo()` / `isAvailable()` / `close()` | status & FD |
+| Method                                          | Keterangan                                  |
+| ----------------------------------------------- | ------------------------------------------- |
+| `clear()` / `flush()` / `display()` / `reset()` | buffer & panel                              |
+| `setAutoFlush(bool)`                            | bila ON, `print()`/`blit()` langsung tampil |
+| `setContrast(0..63)` / `getContrast()`          | EVR — default 31, nyaman 28–38              |
+| `setBacklight(bool)` / `getBacklight()`         | pin LED di 74HC595                          |
+| `setInvert(bool)` / `getInvert()`               | tukar piksel nyala ⇄ mati                   |
+| `setDisplayOn(bool)` / `isDisplayOn()`          | isi buffer aman saat OFF                    |
+| `setSpiSpeed(hz)` / `getSpiSpeed()`             | clock SPI aktual                            |
+| `setRotation(0..3)`                             | rotasi tampilan                             |
+| `getInfo()` / `isAvailable()` / `close()`       | status & FD                                 |
 
 ---
 
@@ -189,12 +189,12 @@ Untuk animasi penuh-layar, menggambar di memori lalu mengirim 1024 byte
 sekali jauh lebih hemat daripada ratusan ioctl:
 
 ```typescript
-const fb = lcd.framebuffer();     // LcdFramebuffer, 1024 byte
+const fb = lcd.framebuffer(); // LcdFramebuffer, 1024 byte
 fb.clear();
 fb.line(0, 0, 127, 63);
 fb.fillCircle(64, 32, 20);
 fb.setPixel(10, 10, 1);
-await lcd.blit(fb);               // kirim 1 frame penuh (mengganti isi layar)
+await lcd.blit(fb); // kirim 1 frame penuh (mengganti isi layar)
 ```
 
 **`blit()` mengganti, bukan menumpuk.** Driver membersihkan buffer panel lebih
@@ -206,7 +206,7 @@ dulu, lalu menggambar frame baru di atasnya. Konsekuensinya:
   menghapus apa pun.
 - Animasi tidak meninggalkan "hantu" piksel dari frame sebelumnya.
 - Ukuran wajib tepat **1024 byte**; `blit()` melempar error bila bukan 1 frame
-  penuh (buffer berukuran lain akan diperlakukan driver sebagai *teks*).
+  penuh (buffer berukuran lain akan diperlakukan driver sebagai _teks_).
 
 > **Present ke panel mengikuti `setAutoFlush()`.** Bila auto-flush OFF, panggil
 > `flush()` sendiri setelah `blit()` — kalau tidak, frame tetap di buffer dan
@@ -233,11 +233,11 @@ bit       = 0x80 >> (x & 7)        // bit MSB = piksel paling kiri
 
 Driver menerima tiga bentuk data:
 
-| Data | Efek |
-| --- | --- |
-| `Buffer`/`Uint8Array` **1024 byte** | blit 1 frame penuh — **mengganti** seluruh isi layar (buffer panel dibersihkan dulu; frame kosong = clear) |
-| `Buffer` pendek / `string` | dicetak sebagai teks di kursor |
-| `{ op: "fillRect", args: [1,1,2,2,1] }` | panggil primitive GFX |
+| Data                                    | Efek                                                                                                       |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `Buffer`/`Uint8Array` **1024 byte**     | blit 1 frame penuh — **mengganti** seluruh isi layar (buffer panel dibersihkan dulu; frame kosong = clear) |
+| `Buffer` pendek / `string`              | dicetak sebagai teks di kursor                                                                             |
+| `{ op: "fillRect", args: [1,1,2,2,1] }` | panggil primitive GFX                                                                                      |
 
 Buffer yang melewati syscall/IPC (ternormalisasi jadi
 `{ type: "Buffer", data: [...] }`) tetap dikenali.
@@ -250,13 +250,13 @@ Kalau perlu kontrol di bawah `lcdLib` — mis. dari bahasa lain atau shell —
 namespace-nya sudah dipesan agar tidak bentrok dengan driver lain
 (joystick `0x4A`, httpd `0x51`, wsd `0x52`, MCP23017 `0x30`).
 
-| Grup | Range | Isi |
-| --- | --- | --- |
-| Lifecycle | `0x4C01`–`0x4C04` | BEGIN, RESET, CLEAR, DISPLAY |
-| Grafis | `0x4C10`–`0x4C1B` | DRAW_PIXEL … DRAW_BITMAP |
-| Teks | `0x4C20`–`0x4C27` | SET_FONT … SET_ROTATION |
+| Grup             | Range             | Isi                              |
+| ---------------- | ----------------- | -------------------------------- |
+| Lifecycle        | `0x4C01`–`0x4C04` | BEGIN, RESET, CLEAR, DISPLAY     |
+| Grafis           | `0x4C10`–`0x4C1B` | DRAW_PIXEL … DRAW_BITMAP         |
+| Teks             | `0x4C20`–`0x4C27` | SET_FONT … SET_ROTATION          |
 | Kontrol tampilan | `0x4C30`–`0x4C39` | kontras, backlight, inversi, SPI |
-| Info & tuning | `0x4C40`–`0x4C44` | GET_INFO, ukuran, auto-flush |
+| Info & tuning    | `0x4C40`–`0x4C44` | GET_INFO, ukuran, auto-flush     |
 
 Argumennya fleksibel: objek bernama (`{ x, y, w, h, color }`) **atau** array
 posisional (`[x, y, w, h, color]`). Definisi lengkap ada di enum `LCDIOCTL`.
@@ -270,20 +270,20 @@ saat `open`/`close` — sama seperti `PipeDevice`.
 
 Utilitas di `/opt/test/test-LM6029.ts` — sekaligus contoh pemakaian `lcdLib`.
 
-| Perintah | Fungsi |
-| --- | --- |
-| `test-LM6029` | suite visual 7 scene (bentuk, font, inversi, font kustom, grafik, bar, framebuffer) |
-| `test-LM6029 --fast` | suite dengan jeda lebih singkat |
-| `test-LM6029 info` | status lengkap driver (termasuk bus SPI terpakai) |
-| `test-LM6029 text "Halo"` | cetak teks |
-| `test-LM6029 graph` | plot gelombang sinus |
-| `test-LM6029 fb` | kirim framebuffer 1024 byte |
-| `test-LM6029 contrast [0-63]` | set / sweep kontras |
-| `test-LM6029 backlight on\|off` | backlight |
-| `test-LM6029 invert on\|off` | inversi |
-| `test-LM6029 display on\|off` | display on/off |
-| `test-LM6029 speed [hz]` | set / sweep clock SPI + pola integritas |
-| `test-LM6029 fps [detik]` | benchmark 4 fase (render / flush / full / blit) |
+| Perintah                        | Fungsi                                                                              |
+| ------------------------------- | ----------------------------------------------------------------------------------- |
+| `test-LM6029`                   | suite visual 7 scene (bentuk, font, inversi, font kustom, grafik, bar, framebuffer) |
+| `test-LM6029 --fast`            | suite dengan jeda lebih singkat                                                     |
+| `test-LM6029 info`              | status lengkap driver (termasuk bus SPI terpakai)                                   |
+| `test-LM6029 text "Halo"`       | cetak teks                                                                          |
+| `test-LM6029 graph`             | plot gelombang sinus                                                                |
+| `test-LM6029 fb`                | kirim framebuffer 1024 byte                                                         |
+| `test-LM6029 contrast [0-63]`   | set / sweep kontras                                                                 |
+| `test-LM6029 backlight on\|off` | backlight                                                                           |
+| `test-LM6029 invert on\|off`    | inversi                                                                             |
+| `test-LM6029 display on\|off`   | display on/off                                                                      |
+| `test-LM6029 speed [hz]`        | set / sweep clock SPI + pola integritas                                             |
+| `test-LM6029 fps [detik]`       | benchmark 4 fase (render / flush / full / blit)                                     |
 
 Tanpa panel fisik, jalankan lewat launcher (node device dibelokkan otomatis):
 
@@ -330,6 +330,37 @@ Bottleneck-nya biasanya overhead syscall, bukan SPI. Pakai `blit()` framebuffer
 (1 kali kirim 1024 byte) daripada ratusan ioctl gambar. Bandingkan angkanya
 dengan `test-LM6029 fps`.
 
+**Teks inversi (`setTextColor(0, 1)`) tidak tampil di panel fisik**
+Gejala: di PLCD terlihat normal, tapi di hardware layar jadi rata (gelap/putih)
+tanpa teks — hurufnya hilang. Ini keterbatasan **addon native** `lm6029acw`:
+jalur teksnya hanya _menyalakan_ piksel untuk bit glyph dan **tidak
+mengosongkan piksel untuk warna `0`**, jadi mode opaque (fg=0, bg=1) tidak
+menghasilkan huruf. Sisi TSIX sudah benar — driver meneruskan `setTextColor(0, 1)`
+apa adanya (dijaga tes C10.x di `LM6029Device.test.ts`).
+
+Workaround yang bekerja di hardware **maupun** PLCD: gambar teks normal
+(`setTextColor(1)`) lalu balik panel dengan `SET_INVERT` — hasil akhirnya sama,
+teks terang di atas latar gelap:
+
+```ts
+await lcd.clear();
+await lcd.setTextColor(1);
+await lcd.printText("INVERTED TEXT", 4, 24, 1);
+await lcd.setInvert(true); // → teks terang di atas latar gelap
+await lcd.flush();
+```
+
+Diagnosa cepat di panel fisik (5 langkah berlabel, lihat mana yang tampil):
+
+```
+test-LM6029 invtest
+```
+
+Kalau langkah **A** tampil tapi **B/C/D** tidak ⇒ addon memang mengabaikan
+tulis `0` (clear). Contoh nyata: `sceneInverted` di
+`src/mirror/opt/test/test-LM6029.ts` sudah memakai workaround ini, jadi suite
+visual tampil seragam di PLCD dan hardware.
+
 **Frame framebuffer tidak muncul / ada sisa gambar lama ("hantu" piksel)**
 Dua penyebab paling umum:
 
@@ -349,14 +380,14 @@ melewatinya (addon ini `os: ["linux"]`).
 
 ## 9. Referensi
 
-| Apa | Di mana |
-| --- | --- |
-| Driver | `src/kernel/devices/aux-devices/LM6029Device.ts` |
-| Library | `src/mirror/lib/lcdLib.ts` |
-| Demo / CLI | `src/mirror/opt/test/test-LM6029.ts` |
-| Unit test | `LM6029Device.test.ts`, `lcdLib.test.ts` |
-| Native addon (source) | <https://github.com/codeforged/lm6029acw> |
-| Native addon (npm) | <https://www.npmjs.com/package/lm6029acw> |
+| Apa                   | Di mana                                          |
+| --------------------- | ------------------------------------------------ |
+| Driver                | `src/kernel/devices/aux-devices/LM6029Device.ts` |
+| Library               | `src/mirror/lib/lcdLib.ts`                       |
+| Demo / CLI            | `src/mirror/opt/test/test-LM6029.ts`             |
+| Unit test             | `LM6029Device.test.ts`, `lcdLib.test.ts`         |
+| Native addon (source) | <https://github.com/codeforged/lm6029acw>        |
+| Native addon (npm)    | <https://www.npmjs.com/package/lm6029acw>        |
 
 Lihat juga: [`DEVELOPER_GUIDE_DEVICES.md`](DEVELOPER_GUIDE_DEVICES.md) untuk pola
 umum membuat driver, dan [`mcp23017-registration.md`](mcp23017-registration.md)

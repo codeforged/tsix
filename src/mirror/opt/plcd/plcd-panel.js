@@ -64,11 +64,29 @@ DDC.onInit(function (ctx) {
     var octx = off.getContext("2d");
     var imgData = octx.createImageData(PANEL_W, PANEL_H);
 
+    // Grid celah antar-piksel di-render SEKALI per layout ke canvas sendiri.
+    // Sebelumnya 190 `fillRect` dijalankan tiap frame SAAT `ctx.filter` (blur)
+    // masih aktif — tiap operasi ber-filter memicu pass blur sendiri, dan itu
+    // biaya terbesar di viewer (bikin laju efektif jatuh di GPU terintegrasi).
+    var gridCanvas = document.createElement("canvas");
+    var gctx = gridCanvas.getContext("2d");
+
+    function buildGrid() {
+        gridCanvas.width = PANEL_W * scale;
+        gridCanvas.height = PANEL_H * scale;
+        gctx.clearRect(0, 0, gridCanvas.width, gridCanvas.height);
+        if (!state.pixelGap || scale <= 1) return;
+        gctx.fillStyle = "#dbddd8";
+        for (var x = 1; x < PANEL_W; x++) gctx.fillRect(x * scale, 0, 1, gridCanvas.height);
+        for (var y = 1; y < PANEL_H; y++) gctx.fillRect(0, y * scale, gridCanvas.width, 1);
+    }
+
     function layout() {
         scale = Math.max(1, Math.floor(Math.min(W / PANEL_W, H / PANEL_H)));
         offX = Math.floor((W - PANEL_W * scale) / 2);
         offY = Math.floor((H - PANEL_H * scale) / 2);
         c2.imageSmoothingEnabled = false;
+        buildGrid();
     }
 
     /**
@@ -225,20 +243,11 @@ DDC.onInit(function (ctx) {
         // 1. Gambar canvas offscreen ke canvas utama terlebih dahulu
         c2.drawImage(off, offX, offY, PANEL_W * scale, PANEL_H * scale);
 
-        // 2. Overlay Grid Efek Celah (Hanya aktif jika state.pixelGap bernilai TRUE dan skala > 1)
+        // 2. Overlay Grid Efek Celah (hanya jika state.pixelGap TRUE dan skala > 1)
+        //    Diambil dari canvas yang SUDAH jadi → 1x drawImage, bukan 190x fillRect.
+        //    Masih di dalam blok filter blur supaya tampilannya sama seperti sebelumnya.
         if (state.pixelGap && scale > 1) {
-            // Catatan: Gunakan #0b0d08 (warna latar emulator) agar celahnya transparan memotong piksel.
-            // Jika kamu sengaja memakai warna menyala seperti #ffd54f untuk efek neon grid, silakan ganti kembali warnanya.
-            c2.fillStyle = "#dbddd8";
-
-            // Gambar garis vertikal antar piksel
-            for (var x = 1; x < PANEL_W; x++) {
-                c2.fillRect(offX + x * scale, offY, 1, PANEL_H * scale);
-            }
-            // Gambar garis horizontal antar piksel
-            for (var y = 1; y < PANEL_H; y++) {
-                c2.fillRect(offX, offY + y * scale, PANEL_W * scale, 1);
-            }
+            c2.drawImage(gridCanvas, offX, offY);
         }
 
         // --- MATIKAN BLUR ---

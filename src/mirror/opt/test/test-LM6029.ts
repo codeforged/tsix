@@ -20,6 +20,7 @@
  *   test-LM6029 display on|off        → display on/off
  *   test-LM6029 speed                 → sweep kecepatan SPI
  *   test-LM6029 speed 32000000        → set kecepatan SPI
+ *   test-LM6029 invtest               → diagnostik teks inversi (tulis 0 / clear)
  *   test-LM6029 fps [detik]           → benchmark FPS 5 fase
  *
  * Konstanta ioctl sudah dibungkus src/mirror/lib/lcdLib.ts — aplikasi cukup
@@ -76,22 +77,39 @@ async function sceneDefaultFont(pause: number) {
     await sleep(pause);
 }
 
-/** Scene 3 — teks ter-inversi di atas latar nyala penuh. */
+/**
+ * Scene 3 — teks ter-inversi (teks TERANG di atas latar GELAP).
+ *
+ * ⚠️ JANGAN kembali memakai `setTextColor(0, 1)` di sini. Jalur teks addon
+ * `lm6029acw` hanya MENYALAKAN piksel untuk bit glyph; tulis warna 0 tidak
+ * dikosongkan (bukan bug TSIX — driver sudah benar, lihat C10.x di
+ * LM6029Device.test.ts). Akibatnya di panel fisik layar jadi gelap total tanpa
+ * teks, sedangkan di PLCD tampak benar (PLCD mengikuti semantik Adafruit_GFX).
+ *
+ * Solusi yang bekerja di HARDWARE maupun PLCD: gambar teks NORMAL (tinta gelap
+ * di atas kaca terang), lalu balik panel dengan SET_INVERT. Hasil akhir sama:
+ * teks terang di atas latar gelap — dan hasilnya kini seragam dengan PLCD.
+ * Untuk membuktikan diagnosis addon, jalankan `test-LM6029 invtest`.
+ */
 async function sceneInverted(pause: number) {
-    await std.println("3. Teks inversi (bg = piksel nyala)...");
+    await std.println("3. Teks inversi (panel negatif)...");
+    await lcd.setInvert(false);
     await lcd.clear();
-    await lcd.fillScreen(1); // latar putih
-    await lcd.setTextColor(0, 1);
+    await lcd.setTextColor(1);
     await lcd.printText("INVERTED TEXT", 4, 24, 1);
-    await lcd.printText("bg=1 fg=0", 4, 36, 1);
-    // Garis putus-putus gelap di tepi atas & bawah.
+    await lcd.printText("bg lit / fg dark", 4, 36, 1);
+    // Garis putus-putus di tepi atas & bawah (jadi terang setelah panel dibalik).
     for (let x = 0; x < W; x += 4) {
-        await lcd.drawPixel(x, 0, 0);
-        await lcd.drawPixel(x, H - 1, 0);
+        await lcd.drawPixel(x, 0, 1);
+        await lcd.drawPixel(x, H - 1, 1);
     }
+    await lcd.setInvert(true); // panel negatif → teks terang, latar gelap
     await lcd.flush();
     await sleep(pause);
-    await lcd.setTextColor(1); // balik ke normal
+    await lcd.setInvert(false); // balik normal untuk scene berikutnya
+    await lcd.setTextColor(1);
+    await lcd.flush();
+    await sleep(200);
 }
 
 /** Scene 4 — font Adafruit kustom. */
@@ -272,6 +290,69 @@ async function cmdSpeed(value?: string) {
     }
 }
 
+/**
+ * `invtest` — diagnostik teks inversi / operasi "tulis 0".
+ *
+ * Tujuan: menentukan primitif mana yang DIHORMATI addon `lm6029acw` di panel
+ * fisik. Jalur pembersihan piksel (warna 0) di addon diduga tidak berfungsi,
+ * sehingga `setTextColor(0, 1)` bikin layar gelap tanpa teks. Tiap langkah
+ * ditahan 1,8 detik dan diberi label di console — cukup lihat layar.
+ */
+async function cmdInvTest() {
+    await lcd.setAutoFlush(true);
+    await lcd.setInvert(false);
+    await lcd.setTextColor(1);
+
+    await std.println("Diagnostik teks inversi (5 langkah, masing-masing 1,8s)");
+    await std.println("Amati layar dan catat langkah mana yang tampil.\n");
+
+    await std.println("A) fillScreen(1) — harus tampil latar PENUH (gelap)...");
+    await lcd.clear();
+    await lcd.fillScreen(1);
+    await lcd.flush();
+    await sleep(1800);
+
+    await std.println("B) drawPixel(x, y, 0) — garis putus-putus harus MENGHAPUS piksel...");
+    for (let x = 0; x < W; x += 4) {
+        await lcd.drawPixel(x, 8, 0);
+        await lcd.drawPixel(x, 56, 0);
+    }
+    await lcd.flush();
+    await sleep(1800);
+
+    await std.println("C) fillRect(10, 20, 40, 20, 0) — blok harus kosong...");
+    await lcd.fillRect(10, 20, 40, 20, 0);
+    await lcd.flush();
+    await sleep(1800);
+
+    await std.println("D) printText fg=0 bg=1 (mode opaque) — kasus yang dilaporkan...");
+    await lcd.setTextColor(0, 1);
+    await lcd.printText("ABC 123", 8, 30, 1);
+    await lcd.flush();
+    await sleep(1800);
+
+    await std.println("E) workaround: teks normal + SET_INVERT(true)...");
+    await lcd.setInvert(false);
+    await lcd.clear();
+    await lcd.setTextColor(1);
+    await lcd.printText("ABC 123", 8, 30, 1);
+    await lcd.flush();
+    await lcd.setInvert(true);
+    await lcd.flush();
+    await sleep(1800);
+
+    await lcd.setInvert(false);
+    await lcd.setTextColor(1);
+    await lcd.clear();
+    await lcd.flush();
+
+    await std.println("");
+    await std.println("Ringkasan yang diharapkan:");
+    await std.println("   A tampil, B/C/D TIDAK ⇒ addon mengabaikan tulis warna 0 (clear).");
+    await std.println("   E tampil ⇒ workaround SET_INVERT valid (dipakai scene 3).");
+    await std.println("   Kalau A juga tidak tampil, laporkan — berarti polanya beda.");
+}
+
 async function cmdFps(seconds: number) {
     const dur = Math.max(1, seconds) * 1000;
     await std.println(`Benchmark FPS ${seconds}s (5 fase)...`);
@@ -444,6 +525,10 @@ export const main = Program(async (args: string[]) => {
                 break;
             }
 
+            case "invtest":
+                await cmdInvTest();
+                break;
+
             case "display": {
                 const on = (positional[1] || "on").toLowerCase() !== "off";
                 await lcd.setDisplayOn(on);
@@ -462,7 +547,7 @@ export const main = Program(async (args: string[]) => {
             default:
                 await std.println(`❓ Perintah tidak dikenal: ${cmd}`);
                 await std.println("   suite | info | clear | text | graph | fb | contrast");
-                await std.println("   backlight | invert | display | speed | fps");
+                await std.println("   backlight | invert | display | speed | fps | invtest");
                 break;
         }
     } catch (e: any) {

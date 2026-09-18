@@ -43,11 +43,12 @@ const PHYS_W = PANEL_W * SCALE;
 const PHYS_H = PANEL_H * SCALE;
 
 /**
- * Interval polling revisi panel (ms). GET_REV sangat murah, jadi ini
- * plafon laju tampil viewer: 33 ms ≈ 30 fps (dulu 80 ms ≈ 12 fps).
- * Panel yang tidak berubah tetap nol tarik-frame — polling hanya membaca rev.
+ * Interval polling revisi panel (ms). GET_REV sangat murah, jadi ini plafon
+ * laju SAMPLING viewer: 16 ms ≈ 60 Hz (dulu 33 ms ≈ 30 fps, awal 80 ms ≈ 12).
+ * Sampling lebih rapat = animasi cepat tidak terlihat "melompat" (aliasing).
+ * Pull tidak akan menumpuk — lihat guard `pulling` di `pull()`.
  */
-const POLL_MS = 33;
+const POLL_MS = 16;
 
 const NJ_PATH = "/opt/plcd/plcd-panel.js";
 
@@ -242,6 +243,22 @@ export const main = Program(async (_args: string[]) => {
     let timer: ReturnType<typeof setInterval> | null = null;
     let lastRev = -1;
     let njScale = SCALE;
+    /**
+     * Anti-tumpuk: hanya boleh ada SATU pull berjalan.
+     * Satu pull = 3 round-trip IPC (GET_REV + GET_FRAME + shell.send ke DOME)
+     * + WebSocket. Tanpa guard ini, `setInterval(POLL_MS)` tetap menembak saat
+     * pull sebelumnya belum selesai → pull menumpuk, frame datang beruntun lalu
+     * macet, dan justru terlihat "skip" makin parah. Guard membuat laju pull
+     * menyesuaikan diri dengan kemampuan pipeline.
+     */
+    let pulling = false;
+    /** Permintaan paksa yang tertunda (dijalankan setelah pull berjalan selesai). */
+    let pendingForce = false;
+    /** Telemetri: frame yang benar-benar dikirim ke browser + yang terlewat. */
+    let sentInWindow = 0;
+    let shownFps = 0;
+    let skippedFrames = 0;
+    let fpsWindowStart = Date.now();
 
     function setStatus(text: string) {
         lblStatus.caption = text;
@@ -249,34 +266,65 @@ export const main = Program(async (_args: string[]) => {
 
     async function pull(force = false) {
         if (!anim) return;
-        const rev = await plcd.getFrameRev();
-        if (rev === null) {
-            setStatus(
-                "❌ /dev/plcd tidak merespons — apakah driver PLCDDevice ter-load? (restart kernel setelah sync)",
-            );
+        if (pulling) {
+            // Jangan buang permintaan PAKSA: tombol Invert/Backlight/Display hanya
+            // mengubah properti tampilan dan TIDAK menaikkan `rev` — kalau dibuang,
+            // perubahannya tidak akan pernah terkirim ke browser. Antre satu saja
+            // (bukan tumpukan) dan jalankan setelah pull yang berjalan selesai.
+            if (force) pendingForce = true;
             return;
         }
-        if (!force && rev === lastRev) return;
+        pulling = true;
+        try {
+            const rev = await plcd.getFrameRev();
+            if (rev === null) {
+                setStatus(
+                    "❌ /dev/plcd tidak merespons — apakah driver PLCDDevice ter-load? (restart kernel setelah sync)",
+                );
+                return;
+            }
+            if (!force && rev === lastRev) return;
 
-        const frame = await plcd.getFrame();
-        if (!frame) return;
-        lastRev = frame.rev;
-        await anim.send({
-            t: "frame",
-            fb: frame.fb,
-            invert: frame.invert,
-            displayOn: frame.displayOn,
-            backlight: frame.backlight,
-            contrast: frame.contrast,
-            rev: frame.rev,
-        });
-        setStatus(
-            `✅ ${LCD_PSEUDO_DEVICE_PATH} rev ${frame.rev} • frame ${frame.frames} • ` +
-                `${frame.width}×${frame.height} @×${njScale} • kontras ${frame.contrast} • ` +
-                `backlight ${frame.backlight ? "ON" : "OFF"} • display ${frame.displayOn ? "ON" : "OFF"} • ` +
-                `invert ${frame.invert ? "ON" : "OFF"} • autoFlush ${frame.autoFlush ? "ON" : "OFF"} • ` +
-                `poll ${POLL_MS}ms`,
-        );
+            // `rev` naik 1 tiap flush. Lonjakan > 1 = frame yang tidak sempat
+            // ditampilkan (didekimasi) — angka ini bikin "skip" terukur, bukan cuma terasa.
+            if (!force && lastRev >= 0 && rev > lastRev + 1) skippedFrames += rev - lastRev - 1;
+
+            const frame = await plcd.getFrame();
+            if (!frame) return;
+            lastRev = frame.rev;
+            sentInWindow++;
+
+            const now = Date.now();
+            if (now - fpsWindowStart >= 1000) {
+                shownFps = Math.round((sentInWindow * 1000) / (now - fpsWindowStart));
+                sentInWindow = 0;
+                fpsWindowStart = now;
+            }
+
+            await anim.send({
+                t: "frame",
+                fb: frame.fb,
+                invert: frame.invert,
+                displayOn: frame.displayOn,
+                backlight: frame.backlight,
+                contrast: frame.contrast,
+                rev: frame.rev,
+            });
+            setStatus(
+                `✅ ${LCD_PSEUDO_DEVICE_PATH} rev ${frame.rev} • present ${shownFps} fps • skip ${skippedFrames} • ` +
+                    `${frame.width}×${frame.height} @×${njScale} • kontras ${frame.contrast} • ` +
+                    `backlight ${frame.backlight ? "ON" : "OFF"} • display ${frame.displayOn ? "ON" : "OFF"} • ` +
+                    `invert ${frame.invert ? "ON" : "OFF"} • autoFlush ${frame.autoFlush ? "ON" : "OFF"} • ` +
+                    `poll ${POLL_MS}ms`,
+            );
+        } finally {
+            pulling = false;
+            // Layanan permintaan paksa yang tadi diantre (maksimum satu).
+            if (pendingForce) {
+                pendingForce = false;
+                void pull(true);
+            }
+        }
     }
 
     // ================================================================
