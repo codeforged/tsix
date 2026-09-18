@@ -1,3 +1,4 @@
+import { std } from "@tsix/Application";
 import { IProgram, OSContext } from "../lib/IProgram";
 
 /**
@@ -768,16 +769,16 @@ class SimpleTextEditor {
         const selStart =
           this.selectionFg || this.selectionBg
             ? "\x1b[" +
-              [this.selectionFg, this.selectionBg].filter(Boolean).join(";") +
-              "m"
+            [this.selectionFg, this.selectionBg].filter(Boolean).join(";") +
+            "m"
             : "\x1b[7m";
         const selEnd =
           this.selectionFg || this.selectionBg
             ? "\x1b[" +
-              [this.selectionFg ? "39" : "", this.selectionBg ? "49" : ""]
-                .filter(Boolean)
-                .join(";") +
-              "m"
+            [this.selectionFg ? "39" : "", this.selectionBg ? "49" : ""]
+              .filter(Boolean)
+              .join(";") +
+            "m"
             : "\x1b[27m";
         text =
           before +
@@ -2050,23 +2051,65 @@ class SimpleTextEditor {
     }
     if (targets.length === 0) return;
 
-    const isCommented = (i: number) => /^\s*\/\//.test(this.lines[i]);
+    // Deteksi ekstensi file dan Shebang secara aman (cek null/undefined)
+    const fileExtension = this.filename.split(".").pop()?.toLowerCase() || "";
+    const firstLine = this.lines[0] || "";
+    const isShellScript: boolean = (fileExtension === "sh") || (firstLine.startsWith("#!") && firstLine.includes("sh"));
+
+    std.log(`[DEBUG] toggleComment: fileExtension=${fileExtension}, isShellScript=${isShellScript}`);
+
+    // Aturan deteksi komentar: Shell = rata kiri murni (`^#`), TS/JS = berbasis spasi (`^\s*\/\/`)
+    const isCommented = isShellScript
+      ? (i: number) => /^#/.test(this.lines[i])
+      : (i: number) => /^\s*\/\//.test(this.lines[i]);
+
     const uncomment = targets.every(isCommented);
+
+    // Untuk TS/JS, cari spasi terkecil (min indentation) agar posisi // sejajar tegak lurus
+    let minIndentStr = "";
+    if (!uncomment && !isShellScript) {
+      let minIndentLen = Infinity;
+      for (const i of targets) {
+        const match = /^[ \t]*/.exec(this.lines[i]);
+        const len = match ? match[0].length : 0;
+        if (len < minIndentLen) {
+          minIndentLen = len;
+          minIndentStr = match ? match[0] : "";
+        }
+      }
+    }
 
     this.captureState(true);
     const deltas = new Map<number, number>();
+
     for (const i of targets) {
       const line = this.lines[i];
       if (uncomment) {
-        // Buang "//" (plus satu spasi setelahnya kalau ada)
-        const m = /^(\s*)\/\/ ?/.exec(line)!;
-        this.lines[i] = m[1] + line.slice(m[0].length);
-        deltas.set(i, m[1].length - m[0].length); // negatif
+        if (isShellScript) {
+          // Buang 1 karakter '#' di indeks paling depan
+          this.lines[i] = line.slice(1);
+          deltas.set(i, -1);
+        } else {
+          // Buang "//" (plus satu spasi setelahnya kalau ada)
+          const m = /^(\s*)\/\/ ?/.exec(line)!;
+          this.lines[i] = m[1] + line.slice(m[0].length);
+          deltas.set(i, m[1].length - m[0].length); // Pergeseran negatif ke kiri
+        }
       } else {
-        if (isCommented(i)) continue; // sudah berkomentar → biarkan
-        const indent = /^[ \t]*/.exec(line)![0];
-        this.lines[i] = indent + "// " + line.slice(indent.length);
-        deltas.set(i, 3); // panjang "// "
+        // Jangan di-continue jika sudah ada komentar agar block tetap seragam!
+        if (isShellScript) {
+          // Langsung taruh '#' di paling depan baris (rata kiri murni)
+          this.lines[i] = "#" + line;
+          deltas.set(i, 1);
+        } else {
+          // Masukkan "// " pada minIndentStr agar lurus vertikal
+          // Jika baris memiliki indentasi lebih dalam dari minIndentStr, sisa indentasinya tetap dipertahankan
+          const currentIndentLen = /^[ \t]*/.exec(line)![0].length;
+          this.lines[i] = minIndentStr + "// " + line.slice(minIndentStr.length);
+
+          // Hitung delta pergeseran kolom kursor yang presisi
+          deltas.set(i, 3);
+        }
       }
     }
 
@@ -2089,6 +2132,8 @@ class SimpleTextEditor {
     this.checkModified();
     await this.render();
   }
+
+
 
   private async deleteLine() {
     this.captureState(true);
@@ -2422,7 +2467,7 @@ export class main implements IProgram {
         content = rawContent || "";
         await os.fs.close(fd);
       }
-    } catch (e) {}
+    } catch (e) { }
 
     const editor = new SimpleTextEditor(content, os, filename);
     await editor.init();
