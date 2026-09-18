@@ -92,24 +92,20 @@ async function sceneDefaultFont(pause: number) {
  * Untuk membuktikan diagnosis addon, jalankan `test-LM6029 invtest`.
  */
 async function sceneInverted(pause: number) {
-    await std.println("3. Teks inversi (panel negatif)...");
-    await lcd.setInvert(false);
+    await std.println("3. Teks inversi (bg = piksel nyala)...");
     await lcd.clear();
-    await lcd.setTextColor(1);
+    await lcd.fillScreen(1); // latar putih
+    await lcd.setTextColor(0, 1);
     await lcd.printText("INVERTED TEXT", 4, 24, 1);
-    await lcd.printText("bg lit / fg dark", 4, 36, 1);
-    // Garis putus-putus di tepi atas & bawah (jadi terang setelah panel dibalik).
+    await lcd.printText("bg=1 fg=0", 4, 36, 1);
+    // Garis putus-putus gelap di tepi atas & bawah.
     for (let x = 0; x < W; x += 4) {
-        await lcd.drawPixel(x, 0, 1);
-        await lcd.drawPixel(x, H - 1, 1);
+        await lcd.drawPixel(x, 0, 0);
+        await lcd.drawPixel(x, H - 1, 0);
     }
-    await lcd.setInvert(true); // panel negatif → teks terang, latar gelap
     await lcd.flush();
     await sleep(pause);
-    await lcd.setInvert(false); // balik normal untuk scene berikutnya
-    await lcd.setTextColor(1);
-    await lcd.flush();
-    await sleep(200);
+    await lcd.setTextColor(1); // balik ke normal
 }
 
 /** Scene 4 — font Adafruit kustom. */
