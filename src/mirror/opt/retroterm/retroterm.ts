@@ -1,15 +1,24 @@
 /**
- *  RetroTerm — Terminal Emulator CRT / Fosfor Hijau untuk TSIX
- *  Version 0.2
+ *  RetroTerm — Terminal Emulator CRT untuk TSIX
+ *  Version 0.3
  *
  *  Saudara dari PixelTerm: fungsinya sama (terminal emulator penuh di atas PTY),
  *  tapi tampilannya dibuat menyerupai monitor CRT jadul:
  *    - scanlines horizontal
  *    - vignette (tabung gelap di tepi)
- *    - tint hijau fosfor
+ *    - tint fosfor (hijau / amber) atau warna asli
  *    - efek cembung (ilusi kaca tabung: inset shadow + kilau)
  *    - flicker sangat halus
  *    - font bitmap era 80-an (opt-in, lihat FONT_FILES)
+ *
+ *  ── PROFIL WARNA ──
+ *    retroterm green     → fosfor hijau P1 (default)
+ *    retroterm amber     → fosfor amber P3 (monitor monokrom tahun 80-an)
+ *    retroterm color     → CRT berwarna (palet ANSI normal, tanpa tint fosfor)
+ *
+ *  Nama profil boleh ditulis sebagai argumen biasa (posisi bebas), atau
+ *  eksplisit: `--profile amber` / `--theme amber` / `-p amber`.
+ *  Profil TIDAK ikut tema sistem — supaya nuansa tabung tetap konsisten.
  *
  *  Console mengisi SELURUH form (tanpa frame gambar) — resize window langsung
  *  mengubah COLUMNS/LINES, sama seperti PixelTerm.
@@ -62,19 +71,239 @@ const FONT_FAMILY = "TSIXRetroMono";
 /** Ukuran font konsol (px). Bitmap Tandy ~8x16, jadi 16px = kelipatan pas. */
 const FONT_SIZE = 16;
 
-/** Palet fosfor hijau (monokrom amber-ke-hijau ala P1 phosphor). */
-const PHOSPHOR = {
-    // Latar tabung: hitam kehijauan sangat gelap, bukan hitam murni.
-    screenBg: "#03130a",
-    // Warna utama teks fosfor.
-    fg: "#33ff66",
-    // Glow: warna lebih terang untuk highlight/cursor.
-    glow: "#ccffdd",
+/**
+ * PROFIL WARNA TABUNG.
+ *
+ * Tiga nuansa CRT yang bisa dipilih dari argumen (lihat resolveProfileArg):
+ *   green → fosfor hijau P1 (default, perilaku lama)
+ *   amber → fosfor amber P3 (monitor monokrom amber era 80-an)
+ *   color → CRT berwarna (palet ANSI normal, tint fosfor dimatikan)
+ *
+ * Nama properti di `term` sengaja SAMA dengan opsi xterm, jadi getTermTheme()
+ * cukup menyalinnya tanpa pemetaan.
+ */
+type ProfileName = "green" | "amber" | "color";
+
+interface CrtProfile {
+    /** Latar tabung — dipakai juga sebagai `cursorAccent` xterm. */
+    screenBg: string;
+    /** Tint fosfor tipis di overlay CRT ("" = tanpa tint → warna asli). */
+    tint: string;
+    /** Warna highlight seleksi teks. */
+    selection: string;
+    /**
+     * Warna kilau kaca cembung: "r,g,b" untuk layer kiri-atas & kanan-bawah.
+     * Dibaca applyCrtFx() di dome-client-term.js (default hijau bila kosong).
+     */
+    specular: { top: string; bottom: string };
+    /** Palet xterm (nama properti = nama opsi xterm). */
+    term: {
+        foreground: string;
+        cursor: string;
+        white: string;
+        brightWhite: string;
+        black: string;
+        brightBlack: string;
+        red: string;
+        brightRed: string;
+        green: string;
+        brightGreen: string;
+        yellow: string;
+        brightYellow: string;
+        blue: string;
+        brightBlue: string;
+        magenta: string;
+        brightMagenta: string;
+        cyan: string;
+        brightCyan: string;
+    };
+}
+
+const PROFILES: Record<ProfileName, CrtProfile> = {
+    // ── Fosfor hijau P1 (default) ── perilaku lama, nilainya jangan diubah ──
+    green: {
+        screenBg: "#03130a",
+        tint: "rgba(0,255,120,0.045)",
+        selection: "rgba(51,255,102,0.28)",
+        specular: { top: "190,255,210", bottom: "120,255,170" },
+        term: {
+            foreground: "#33ff66",
+            cursor: "#ccffdd",
+            white: "#33ff66",
+            brightWhite: "#ccffdd",
+            black: "#0a2a15",
+            brightBlack: "#1f6b3a",
+            red: "#4dff88",
+            brightRed: "#7dffb0",
+            green: "#33ff66",
+            brightGreen: "#ccffdd",
+            yellow: "#8fff9f",
+            brightYellow: "#c8ffd4",
+            blue: "#2fd97a",
+            brightBlue: "#5cf0a0",
+            magenta: "#43e58a",
+            brightMagenta: "#77f5ae",
+            cyan: "#39f090",
+            brightCyan: "#6dffb8",
+        },
+    },
+
+    // ── Fosfor amber P3 ── monokrom hangat, kontras tinggi di tabung gelap ──
+    amber: {
+        screenBg: "#170d02",
+        tint: "rgba(255,170,0,0.05)",
+        selection: "rgba(255,176,0,0.30)",
+        specular: { top: "255,224,168", bottom: "255,178,88" },
+        term: {
+            foreground: "#ffb000",
+            cursor: "#ffe0a0",
+            white: "#ffb000",
+            brightWhite: "#ffe8b8",
+            black: "#2a1a05",
+            brightBlack: "#6b4a12",
+            red: "#d98f00",
+            brightRed: "#f5ae3d",
+            green: "#ffb000",
+            brightGreen: "#ffd98a",
+            yellow: "#ffc233",
+            brightYellow: "#ffe6b3",
+            blue: "#c48000",
+            brightBlue: "#e8a53d",
+            magenta: "#b8760a",
+            brightMagenta: "#dd9a2e",
+            cyan: "#e0a01a",
+            brightCyan: "#ffcf70",
+        },
+    },
+
+    // ── CRT berwarna ── palet ANSI normal; tint dimatikan agar warna asli ──
+    color: {
+        screenBg: "#04070c",
+        tint: "",
+        selection: "rgba(255,255,255,0.25)",
+        specular: { top: "255,255,255", bottom: "190,215,255" },
+        term: {
+            foreground: "#cccccc",
+            cursor: "#ffffff",
+            white: "#cccccc",
+            brightWhite: "#f2f2f2",
+            black: "#0c0c0c",
+            brightBlack: "#767676",
+            red: "#c50f1f",
+            brightRed: "#e74856",
+            green: "#13a10e",
+            brightGreen: "#16c60c",
+            yellow: "#c19c00",
+            brightYellow: "#f9f1a5",
+            blue: "#0037da",
+            brightBlue: "#3b78ff",
+            magenta: "#881798",
+            brightMagenta: "#b4009e",
+            cyan: "#3a96dd",
+            brightCyan: "#61d6d6",
+        },
+    },
 };
+
+/** Profil default = perilaku lama (fosfor hijau). */
+const DEFAULT_PROFILE: ProfileName = "green";
+
+/** Validasi nama profil (dipakai parser argumen). */
+function isProfileName(v: string): v is ProfileName {
+    return Object.prototype.hasOwnProperty.call(PROFILES, v);
+}
+
+/**
+ * Tentukan profil dari argumen:
+ *   1. eksplisit — `--profile amber`, `--theme amber`, `-p amber` (juga `=amber`)
+ *   2. bare argumen — `retroterm amber` (posisi bebas)
+ *   3. fallback — DEFAULT_PROFILE
+ * `invalid` diisi bila user menulis `--profile X` dengan X tidak dikenal, supaya
+ * pemanggil bisa memberi peringatan (bukan diam-diam mengabaikan).
+ */
+function resolveProfileArg(args: string[]): {
+    name: ProfileName;
+    explicit: boolean;
+    invalid?: string;
+} {
+    for (let i = 0; i < args.length; i++) {
+        const a = args[i];
+
+        const eq = /^--(?:profile|theme)=(.+)$/.exec(a);
+        if (eq) {
+            const v = eq[1].trim().toLowerCase();
+            if (isProfileName(v)) return { name: v, explicit: true };
+            return { name: DEFAULT_PROFILE, explicit: false, invalid: v };
+        }
+
+        if (a === "--profile" || a === "--theme" || a === "-p") {
+            const v = (args[i + 1] || "").trim().toLowerCase();
+            if (isProfileName(v)) return { name: v, explicit: true };
+            return { name: DEFAULT_PROFILE, explicit: false, invalid: v };
+        }
+    }
+
+    for (const a of args) {
+        const v = a.trim().toLowerCase();
+        if (!v.startsWith("-") && isProfileName(v)) {
+            return { name: v, explicit: true };
+        }
+    }
+
+    return { name: DEFAULT_PROFILE, explicit: false };
+}
+
+const HELP = `RetroTerm — terminal emulator CRT untuk TSIX
+
+Usage: retroterm [profil] [opsi] [command]
+
+Profil warna (default: green):
+  green     fosfor hijau P1 (default)
+  amber     fosfor amber P3 (monitor monokrom 80-an)
+  color     CRT berwarna — palet ANSI normal, tanpa tint fosfor
+
+Profil boleh ditulis langsung sebagai argumen, atau eksplisit:
+  --profile NAMA | --theme NAMA | -p NAMA
+
+Opsi:
+  -h, --help         tampilkan bantuan ini
+  -hue, --huponexit  kirim SIGHUP + bunuh anak proses saat window ditutup
+                     (tanpa ini, anak proses di-reparent ke init)
+
+Command (opsional) langsung diketik ke shell setelah terminal siap.
+
+Contoh:
+  retroterm                       hijau, shell interaktif
+  retroterm amber                 fosfor amber
+  retroterm color -hue            berwarna, bunuh anak saat window ditutup
+  retroterm --theme amber /opt/test/table-demo.js`;
 
 export const main = Program(async (args: string[]) => {
     await std.log("=== RetroTerm ===");
-    const appTitle = "RetroTerm";
+
+    // ── Bantuan ─────────────────────────────────────────────────────────────
+    if (args.includes("--help") || args.includes("-h")) {
+        await std.println(HELP);
+        return;
+    }
+
+    // ── Profil warna (green | amber | color) ────────────────────────────────
+    // Diparse SEBELUM apa pun karena menentukan judul window & seluruh palet.
+    const { name: profileName, explicit: profileExplicit, invalid: profileInvalid } = resolveProfileArg(args);
+    const profile = PROFILES[profileName];
+    if (profileInvalid !== undefined) {
+        const shown = profileInvalid === "" ? "(kosong)" : `'${profileInvalid}'`;
+        await std.println(
+            `[retroterm] Profil ${shown} tidak dikenal — memakai '${profileName}'. ` +
+                `Pilihan: ${Object.keys(PROFILES).join(", ")} (lihat --help).`,
+        );
+    }
+
+    // Judul menampilkan nama profil HANYA bila diminta eksplisit, supaya window
+    // default tetap "RetroTerm" (judul ini juga dipakai deteksi command di title bar).
+    const appTitle = profileExplicit ? `RetroTerm [${profileName}]` : "RetroTerm";
+    await std.log(`[retroterm] Profil warna: ${profileName}${profileExplicit ? "" : " (default)"}`, "retroterm");
+
     await theme.loadCurrent();
     theme.watch();
 
@@ -92,8 +321,9 @@ export const main = Program(async (args: string[]) => {
     const huponexit = args.includes("--huponexit") || args.includes("-hue");
     await std.log(`[retroterm] huponexit=${huponexit}`, "retroterm");
 
-    // Ambil command dari argumen pertama yang bukan flag
-    const cmdArg = args.find((a: string) => !a.startsWith("-")) || "";
+    // Ambil command dari argumen pertama yang bukan flag & BUKAN nama profil
+    // (kalau tidak, `retroterm amber` akan mengirim "amber" ke shell).
+    const cmdArg = args.find((a: string) => !a.startsWith("-") && !isProfileName(a.trim().toLowerCase())) || "";
 
     const lib = (global as any)._tsixLib;
 
@@ -105,34 +335,18 @@ export const main = Program(async (args: string[]) => {
     // ==========================================================================
 
     // ==========================================================================
-    // TEMA TERMINAL: dipaksa fosfor hijau, TIDAK ikut tema sistem. Tujuannya
-    // supaya nuansa CRT tetap konsisten walau user mengganti theme di Asteracea.
-    // Nilai ANSI di-map ke gradasi hijau agar `ls` berwarna tetap terbaca tapi
-    // tidak keluar dari nuansa monokrom-hijau.
+    // TEMA TERMINAL: mengikuti PROFIL warna yang dipilih (green/amber/color),
+    // TIDAK ikut tema sistem. Tujuannya supaya nuansa CRT tetap konsisten walau
+    // user mengganti theme di Asteracea. Untuk profil monokrom (green/amber),
+    // nilai ANSI di-map ke gradasi fosfor agar `ls` berwarna tetap terbaca tanpa
+    // keluar dari nuansa tabung.
     // ==========================================================================
     function getTermTheme() {
         return {
+            ...profile.term,
             background: "rgba(0,0,0,0)", // transparan — warna tabung dari layer CRT
-            foreground: PHOSPHOR.fg,
-            cursor: PHOSPHOR.glow,
-            cursorAccent: "#03130a",
-            selection: "rgba(51,255,102,0.28)",
-            brightWhite: PHOSPHOR.glow,
-            white: PHOSPHOR.fg,
-            brightBlack: "#1f6b3a",
-            black: "#0a2a15",
-            red: "#4dff88",
-            brightRed: "#7dffb0",
-            green: PHOSPHOR.fg,
-            brightGreen: PHOSPHOR.glow,
-            yellow: "#8fff9f",
-            brightYellow: "#c8ffd4",
-            blue: "#2fd97a",
-            brightBlue: "#5cf0a0",
-            magenta: "#43e58a",
-            brightMagenta: "#77f5ae",
-            cyan: "#39f090",
-            brightCyan: "#6dffb8",
+            cursorAccent: profile.screenBg,
+            selection: profile.selection,
         };
     }
 
@@ -152,13 +366,7 @@ export const main = Program(async (args: string[]) => {
             if (!raw) continue;
             const ext = fname.split(".").pop()!.toLowerCase();
             const mime =
-                ext === "woff2"
-                    ? "font/woff2"
-                    : ext === "woff"
-                        ? "font/woff"
-                        : ext === "otf"
-                            ? "font/otf"
-                            : "font/ttf";
+                ext === "woff2" ? "font/woff2" : ext === "woff" ? "font/woff" : ext === "otf" ? "font/otf" : "font/ttf";
             const b64 = Buffer.from(raw, "latin1").toString("base64");
             fontFaceCss =
                 `@font-face{font-family:'${FONT_FAMILY}';` +
@@ -176,7 +384,7 @@ export const main = Program(async (args: string[]) => {
     if (!fontFaceCss) {
         await std.log(
             `[retroterm] Font bitmap tidak ditemukan di /opt/retroterm/fonts/ — ` +
-            `memakai font monospace sistem. Taruh mis. ${FONT_FILES[0]} di sana.`,
+                `memakai font monospace sistem. Taruh mis. ${FONT_FILES[0]} di sana.`,
             "retroterm",
         );
     }
@@ -185,8 +393,11 @@ export const main = Program(async (args: string[]) => {
     // Console mengisi seluruh window; tidak ada frame gambar monitor.
     const crtTheme = {
         enabled: true,
-        screenBg: PHOSPHOR.screenBg,
-        tint: "rgba(0,255,120,0.045)", // tint fosfor tipis
+        screenBg: profile.screenBg,
+        tint: profile.tint, // tint fosfor tipis ("" pada profil color = warna asli)
+        // Warna kilau kaca cembung — dibaca applyCrtFx() di dome-client-term.js.
+        // Tanpa ini, kilau tetap hijau walau profilnya amber/berwarna.
+        specular: profile.specular,
         vignette: 0.5,
         flicker: true,
         scanline: { period: 3, alpha: 0.3 },
@@ -210,7 +421,7 @@ export const main = Program(async (args: string[]) => {
                     // penuh form supaya resize mengubah COLUMNS/LINES.
                     padding: "0",
                     height: "100%",
-                    background: PHOSPHOR.screenBg,
+                    background: profile.screenBg,
                 },
             },
             {
@@ -227,8 +438,7 @@ export const main = Program(async (args: string[]) => {
     const domePid = dome ? dome.pid : 0;
 
     async function setWinTitle(title: string) {
-        if (domePid)
-            await shell.send(domePid, { type: "WINDOW_TITLE", wid: app.wid, title });
+        if (domePid) await shell.send(domePid, { type: "WINDOW_TITLE", wid: app.wid, title });
     }
 
     async function termWrite(text: string) {
@@ -262,7 +472,7 @@ export const main = Program(async (args: string[]) => {
                     colors,
                     crt: crtTheme,
                 })
-                .catch(() => { });
+                .catch(() => {});
         }
     }
 
@@ -282,10 +492,10 @@ export const main = Program(async (args: string[]) => {
                 try {
                     await std.log(
                         `[retroterm] WARN: cannot open /dev/pts/${ptyId} for TIOCSWINSZ — ${(e as any)?.message || e}. ` +
-                        `Resize falls back to IPC only.`,
+                            `Resize falls back to IPC only.`,
                         "retroterm",
                     );
-                } catch (_) { }
+                } catch (_) {}
             }
         }
     }
@@ -323,11 +533,7 @@ export const main = Program(async (args: string[]) => {
         const timer = setTimeout(() => resolve(null), 400);
         const check = (msg: any) => {
             const ev = msg?.data || msg;
-            if (
-                ev?.type === "GUI_EVENT" &&
-                ev?.targetId === termId &&
-                ev?.eventType === "term_resize"
-            ) {
+            if (ev?.type === "GUI_EVENT" && ev?.targetId === termId && ev?.eventType === "term_resize") {
                 clearTimeout(timer);
                 resolve(JSON.parse(ev.value || "{}"));
             }
@@ -346,28 +552,18 @@ export const main = Program(async (args: string[]) => {
 
     // Spawn shell di PTY slave — sidecar .js (bukan .ts) agar worker tidak
     // memakai preload transpiler (+14.4 MB RSS/worker).
-    const shResult = await shell.exec(
-        "/bin/tsh.js",
-        [],
-        undefined,
-        undefined,
-        undefined,
-        ptyId,
-    );
+    const shResult = await shell.exec("/bin/tsh.js", [], undefined, undefined, undefined, ptyId);
     if (!shResult) {
         await termWrite("Failed to spawn shell\r\n");
         await app.loopUntilClose();
         await freePty();
         return;
     }
-    await std.log(
-        `[retroterm] Shell spawned (PID ${shResult.pid}) on PTY${ptyId}`,
-        "retroterm",
-    );
+    await std.log(`[retroterm] Shell spawned (PID ${shResult.pid}) on PTY${ptyId}`, "retroterm");
 
     // Fokuskan terminal — user langsung bisa mengetik tanpa klik area terminal.
     setTimeout(() => {
-        termFocus().catch(() => { });
+        termFocus().catch(() => {});
     }, 250);
 
     // Jika ada argumen command, kirim ke shell setelah terminal siap
@@ -456,11 +652,11 @@ export const main = Program(async (args: string[]) => {
             if (data === "\x03" || data.includes("\x03")) {
                 try {
                     await shell.write(shResult.pid, "\x03");
-                } catch (e) { }
+                } catch (e) {}
             } else {
                 try {
                     await shell.write(shResult.pid, data);
-                } catch (e) { }
+                } catch (e) {}
             }
         } else if (ev?.eventType === "term_resize") {
             const size = JSON.parse(ev.value || "{}");
@@ -486,10 +682,7 @@ export const main = Program(async (args: string[]) => {
                     while (queue.length > 0) {
                         const parentPid = queue.shift()!;
                         const children = ps2.filter(
-                            (p: any) =>
-                                p.ppid === parentPid &&
-                                p.state !== "EXITED" &&
-                                !visited.has(p.pid),
+                            (p: any) => p.ppid === parentPid && p.state !== "EXITED" && !visited.has(p.pid),
                         );
                         for (const child of children) {
                             visited.add(child.pid);
@@ -527,63 +720,47 @@ export const main = Program(async (args: string[]) => {
             if (shResult?.pid) {
                 try {
                     await shell.kill(shResult.pid, 1);
-                } catch (_) { }
+                } catch (_) {}
                 await new Promise((r) => setTimeout(r, 200));
             }
             while (killQueue.length > 0) {
                 const pid = killQueue.shift();
                 if (!pid || visited.has(pid)) continue;
                 visited.add(pid);
-                const children = ps3.filter(
-                    (p: any) => p.ppid === pid && p.state !== "EXITED",
-                );
+                const children = ps3.filter((p: any) => p.ppid === pid && p.state !== "EXITED");
                 for (const c of children) {
                     if (!visited.has(c.pid)) killQueue.push(c.pid);
                     try {
                         await shell.kill(c.pid, 9);
-                    } catch (_) { }
+                    } catch (_) {}
                 }
             }
             try {
                 await shell.kill(shResult.pid, 9);
-            } catch (_) { }
-        } catch (_) { }
-        await std.log(
-            "[retroterm] huponexit=true — child processes terminated",
-            "retroterm",
-        );
+            } catch (_) {}
+        } catch (_) {}
+        await std.log("[retroterm] huponexit=true — child processes terminated", "retroterm");
     } else {
-        await std.log(
-            "[retroterm] huponexit=false — keeping child processes alive, reparent to init",
-            "retroterm",
-        );
+        await std.log("[retroterm] huponexit=false — keeping child processes alive, reparent to init", "retroterm");
         try {
             const ps4 = await shell.ps();
             const shellPid = shResult?.pid;
             if (shellPid) {
                 const initProc = ps4.find((p: any) => p.pid === 1);
                 if (initProc) {
-                    const children = ps4.filter(
-                        (p: any) => p.ppid === shellPid && p.state !== "EXITED",
-                    );
+                    const children = ps4.filter((p: any) => p.ppid === shellPid && p.state !== "EXITED");
                     for (const child of children) {
                         try {
                             await shell.reparent(child.pid, 1);
-                            await std.log(
-                                `[retroterm] Reparent PID ${child.pid} → init (PPID 1)`,
-                                "retroterm",
-                            );
-                        } catch (_) { }
+                            await std.log(`[retroterm] Reparent PID ${child.pid} → init (PPID 1)`, "retroterm");
+                        } catch (_) {}
                     }
                     try {
                         await shell.reparent(shellPid, 1);
-                        await std.log(
-                            `[retroterm] Reparent shell PID ${shellPid} → init (PPID 1)`,
-                            "retroterm",
-                        );
-                    } catch (_) { }
+                        await std.log(`[retroterm] Reparent shell PID ${shellPid} → init (PPID 1)`, "retroterm");
+                    } catch (_) {}
                 }
             }
-        } catch (_) { }
+        } catch (_) {}
     }
 });
