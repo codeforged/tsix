@@ -82,4 +82,5 @@ export enum SyscallCode {
   // --- PSEUDO TERMINAL (PTY, on-demand) ---
   PTY_ALLOC = 74, // Alokasi PTY baru (args: optional {rows,cols}) → { id, slavePath }
   PTY_FREE = 75, // Bebaskan PTY (args: id)
+  MMAP = 77, // Memory Map (args: fd) → SharedArrayBuffer
 }

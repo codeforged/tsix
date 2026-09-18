@@ -42,6 +42,6 @@
     "vitest": "^4.1.10"
   },
   "optionalDependencies": {
-    "lm6029acw": "^1.0.0"
+    "lm6029acw": "^1.1.0"
   }
 }

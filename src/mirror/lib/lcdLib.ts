@@ -912,6 +912,14 @@ export class LcdLib {
    * `flush()` sendiri setelah `blit()` — kalau tidak, frame tetap di buffer
    * dan panel masih menampilkan gambar lama.
    *
+   * ── ANIMASI: POLA 1 SYSCALL PER FRAME ──
+   * Biarkan auto-flush ON dan panggil `blit()` SAJA. Driver menjalankan
+   * clear + drawBitmap + display di dalam satu `write()`, jadi 1 frame =
+   * 1 round-trip IPC. `blit()` + `flush()` terpisah = 2 round-trip dan lebih
+   * lambat tanpa hasil tambahan (present sudah terjadi di dalam `blit()`).
+   * Jangan menggambar per-piksel lewat ioctl (ratusan round-trip) — gambar di
+   * `LcdFramebuffer` (lokal, gratis) lalu blit sekali.
+   *
    * Menerima `LcdFramebuffer` atau `Uint8Array` mentah 1024 byte.
    */
   public async blit(fb: LcdFramebuffer | Uint8Array): Promise<boolean> {

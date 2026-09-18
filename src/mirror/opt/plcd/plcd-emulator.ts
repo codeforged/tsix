@@ -7,7 +7,7 @@
  * asal diarahkan: `TSIX_LCD_DEV=/dev/plcd`).
  *
  * Cara kerja (polling, bukan push):
- *   setiap 80 ms → ioctl GET_REV (murah) → kalau berubah → ioctl GET_FRAME
+ *   setiap POLL_MS → ioctl GET_REV (murah) → kalau berubah → ioctl GET_FRAME
  *   (base64 1024 byte) → kirim ke NJ (`{ t: "frame", fb, ... }`) untuk
  *   digambar 1 px = 4 px fisik di canvas.
  * `GET_REV` naik HANYA saat flush, jadi panel yang diam = nol trafik.
@@ -42,8 +42,12 @@ const SCALE = 4;
 const PHYS_W = PANEL_W * SCALE;
 const PHYS_H = PANEL_H * SCALE;
 
-/** Interval polling revisi panel (ms) — 80 ms ≈ 12 fps, GET_REV sangat murah. */
-const POLL_MS = 80;
+/**
+ * Interval polling revisi panel (ms). GET_REV sangat murah, jadi ini
+ * plafon laju tampil viewer: 33 ms ≈ 30 fps (dulu 80 ms ≈ 12 fps).
+ * Panel yang tidak berubah tetap nol tarik-frame — polling hanya membaca rev.
+ */
+const POLL_MS = 33;
 
 const NJ_PATH = "/opt/plcd/plcd-panel.js";
 

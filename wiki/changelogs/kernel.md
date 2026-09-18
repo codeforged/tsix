@@ -4,6 +4,35 @@
 
 ---
 
+## 2026-09-18
+
+### Syscall hot path: log DEBUG lazy + scaffolding syscall `MMAP`
+
+- **File:** `src/kernel/Syscalls.ts`, `src/common/SyscallCode.ts`,
+  `src/kernel/devices/IDevice.ts`.
+- **Perubahan 1 — log DEBUG jadi lazy.** `handleRequest()` dulu **selalu**
+  menyusun template string `[IPC] PID … Request: …` + reverse-enum lookup, dan
+  mengalokasikan array `silentCodes` di tiap request, walaupun level log bukan
+  DEBUG. Sekarang keduanya dilewati total kalau `Logger.currentLevel !== DEBUG`,
+  dan daftar syscall senyap jadi `Set` statis (cek O(1), tanpa alokasi array).
+  Berlaku untuk SEMUA syscall, jadi menguntungkan jalur frekuensi tinggi
+  (LCD 30 fps, polling).
+- **Perubahan 2 — plumbing syscall `MMAP` (`SyscallCode.MMAP = 77`).**
+  `IDevice` mendapat method opsional `mmap?(): SharedArrayBuffer | null`;
+  `validateArgs` menerima argumen numerik (fd); `dispatch` mengambil FD lalu
+  memanggil `device.mmap()` bila ada, kalau tidak → `null`.
+  **Status: infrastruktur saja — belum ada driver yang mengimplementasikannya**,
+  jadi syscall ini selalu `null` sampai ada device yang menyediakannya. Sengaja
+  disiapkan sebagai fondasi zero-copy opsional (mis. viewer pseudo-LCD), bukan
+  karena dibutuhkan jalur LCD sekarang — lihat `lcd.md` 2026-09-18.
+- **Dampak:** tidak ada perubahan perilaku syscall yang ada (selain log DEBUG
+  yang kini tidak dibangun sia-sia); tidak ada device yang terpengaruh.
+- **Verifikasi:** `npx tsc --noEmit` bersih untuk file terkait; 111 tes
+  LCD/driver/pseudo lulus.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
+---
+
 ## 2026-09-17
 
 ### Driver MQTNL — gema paket sendiri tidak lagi "menular" ke port lain (fix konflik NetFS ↔ tssh)

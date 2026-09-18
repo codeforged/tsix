@@ -27,6 +27,7 @@ export interface IDevice {
      */
     write(data: any, offset?: number): MaybePromise<boolean>;
     ioctl(cmd: number, arg: any): any;
+    mmap?(): SharedArrayBuffer | null; // Opsional: Zero-copy memory mapping
 
     init?(ctx: KContext): void; // Opsional: Untuk nerima 'suntikan' dari Kernel
     open?(): boolean; // Opsional: Lazy open device hardware
