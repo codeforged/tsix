@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-09-19
+
+### `/bin/ps` — output diubah dari teks sejajar manual ke tabel `@tsix/tableLib`
+
+- **File:** `src/mirror/bin/ps.ts`.
+- **Perubahan:** header + garis `-`.repeat(78) diganti `Table` dari
+  `@tsix/tableLib` (`style: TABLE_THEMES.accent`), sehingga lebar kolom
+  mengikuti TTY (`SCREEN_INFO` → `TIOCGWINSZ`) dan `displayWidth()` yang setia
+  ke `TTY.putChar()` — bukan `process.stdout.columns` yang di worker bukan TTY.
+  Sel yang memuat ANSI (warna status) tetap sejajar.
+- **Opsi baru:** `--charset N` (`box`/`rounded`/`double`/`compact`/`ascii`/
+  `markdown`/`none`), `--width N`, `--no-color`. Warna menghormati `NO_COLOR`
+  dan `TERM=dumb` lewat `detectColor()`; saat non-TTY (`-1`/pipe) default tetap
+  berwarna, matikan dengan `--no-color`.
+- **Perbaikan bug:** deteksi `showAll` dulu memakai `arg.includes("a") ||
+  arg.includes("e")`, jadi `ps --mem` (ada huruf "e") dan `ps --charset box`
+  (ada huruf "a") **diam-diam menampilkan SEMUA proses**. Sekarang hanya pola
+  flag yang cocok: `aux`, `-aux`, `-[aefx]+`.
+- **Selaras:** kolom `STATE` diwarnai semantik (`tone.success`/`warning`/
+  `danger`/`muted`), `TTY` redup, `HEAP(MB)`/`EXT(MB)` rata-kanan. Baris
+  kesimpulan `ps --mem` dibungkus `wrap()` supaya tidak melewati tepi layar.
+  Angka & teks catatan tidak berubah.
+- **Deploy:** `npm run vfs:bootstrap` (regenerasi sidecar `/bin/ps.js`).
+- **Detail:** `wiki/tablelib.md`, `wiki/changelogs/tablelib.md`.
+
 ## 2026-09-18
 
 ### Syscall hot path: log DEBUG lazy + scaffolding syscall `MMAP`
