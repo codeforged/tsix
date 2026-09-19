@@ -234,6 +234,12 @@ src/kernel/devices/aux-devices/
 
 Agar developer aplikasi tidak perlu berurusan dengan FD/ioctl, buat wrapper library:
 
+> [!TIP]
+> Sebelum menulis akses file sendiri, lihat dulu
+> [📄 Operasi File di TSIX](file-operation.md) — di sana ada daftar lengkap `fs` API,
+> kontrak nilai balik (lempar vs `null`), resep baca/tulis potongan untuk file besar,
+> dan demo `/opt/test/file-operation` (`--demo` untuk self-test).
+
 ```typescript
 // Lokasi: src/__root/lib/MyServiceLib.ts
 import { FsLib, StdLib } from "./UserLib";

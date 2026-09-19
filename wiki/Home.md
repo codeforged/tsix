@@ -27,6 +27,7 @@
 | 🏗️ **Architecture**     | [Arsitektur-Sistem.md](Arsitektur-Sistem.md)             |
 | ⚙️ **Kernel**           | [Kernel-dan-Scheduler.md](Kernel-dan-Scheduler.md)       |
 | 💾 **Filesystem**       | [Virtual-File-System.md](Virtual-File-System.md)         |
+| 📄 **File Ops (tutorial)** | [file-operation.md](file-operation.md)                |
 | 🌐 **NetFS**            | [netfs.md](netfs.md)                                     |
 | 🌐 **Networking**       | [Networking-MQTNL.md](Networking-MQTNL.md)               |
 | 🔧 **Commands**         | [Perintah-Sistem.md](Perintah-Sistem.md)                 |
@@ -284,6 +285,7 @@ tsix/
 | [Arsitektur-Sistem.md](Arsitektur-Sistem.md)                         | Ring 1/2 architecture, boot process, execution flow         |
 | [Kernel-dan-Scheduler.md](Kernel-dan-Scheduler.md)                   | Kernel internals, process management, syscalls              |
 | [Virtual-File-System.md](Virtual-File-System.md)                     | BKFS SQLite-backed VFS, permission model, mount system      |
+| [file-operation.md](file-operation.md)                             | Tutorial operasi file: `fs` API, chunked I/O, resep + demo `/opt/test/file-operation` |
 | [netfs.md](netfs.md)                                                 | NetFS — filesystem antar-node lewat MQTNL (NFS-style)       |
 | [Networking-MQTNL.md](Networking-MQTNL.md)                           | MQTT Network Layer, remote access, IoT connectivity         |
 | [Perintah-Sistem.md](Perintah-Sistem.md)                             | Daftar lengkap 80+ user-land commands                       |

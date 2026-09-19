@@ -336,6 +336,13 @@ await lib.fs.close(fd);                             // Tutup FD (wajib!)
 > [!WARNING]
 > Selalu tutup file descriptor setelah selesai dipakai. FD yang bocor akan menjadi "zombie" sehingga resource tidak terbebaskan sampai proses mati.
 
+> [!TIP]
+> **Praktik lengkapnya ada di [📄 Operasi File di TSIX](file-operation.md)** — daftar
+> seluruh method `fs`, kontrak nilai balik (yang mana `null`, yang mana melempar),
+> resep chunked I/O untuk file besar, dan demo yang bisa dijalankan
+> (`/opt/test/file-operation --demo`). Halaman ini fokus pada arsitektur & storage;
+> halaman itu fokus pada cara pakainya dari aplikasi.
+
 ---
 
 **Halaman selanjutnya:** [⚙️ Kernel & Scheduler](Kernel-dan-Scheduler.md)

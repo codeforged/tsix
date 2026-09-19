@@ -6,6 +6,15 @@
 
 ---
 
+## 2026-09-19
+
+### `FsLib` — kontrak operasi file dieksplisitkan + demo uji mandiri
+
+- **File:** `src/mirror/opt/test/file-operation.ts` (baru), `wiki/file-operation.md` (baru)
+- **Perubahan:** tidak ada perubahan API — yang ditambahkan adalah **kontrak tertulis** untuk `FsLib` beserta alat ujinya: tabel nilai balik per method (`stat()`→`null`, `readChunk()`→`null`, `readFile()`/`getSize()`/`open("r")`→melempar ENOENT, `unlink()`/`rmdir()`/`chmod()`→`false`), arti flag `open` (`r`/`w`/`a`/`r+` — ketiganya selain `r` bermuara di `VFS.append()`), semantik `mkdir()` rekursif + idempotent, padding `writeChunk()` saat `offset` melewati akhir isi, dan `getUsage()` yang berlaku per-filesystem (mount), bukan per-path.
+- **Dampak:** aplikasi baru tidak perlu menebak perilaku; yang dulu hanya bisa dibaca dari `Syscalls.ts`/`VFS.ts` sekarang jadi kontrak tertulis yang bisa diulang di node mana pun (`/opt/test/file-operation --demo`, 44 pemeriksaan).
+- **Oleh:** Copilot
+
 ## 2026-09-12
 
 ### `shell.ps({ includeMemory })` + `memoryUsage()` — atribusi memori per-proses

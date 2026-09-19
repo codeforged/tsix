@@ -184,6 +184,9 @@ export class main implements IProgram {
 
 > [!TIP]
 > Untuk baca file sekali jalan, `FsLib` sudah menyediakan `readFile(path)` yang membungkus `open` → `read` → `close`.
+>
+> Referensi lengkap operasi file (termasuk chunked I/O untuk file besar, append,
+> dan jebakan `writeChunk`): [Operasi File di TSIX](../file-operation.md).
 
 ### App CLI — gaya `Program()` (hello)
 

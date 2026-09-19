@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-09-19
+
+### Tutorial operasi file + demo `file-operation`
+
+- **File:** `wiki/file-operation.md` (baru), `src/mirror/opt/test/file-operation.ts` (baru), `wiki/Home.md`, `wiki/Virtual-File-System.md`, `wiki/Panduan-Developer.md`, `wiki/course/24-best-practices.md`
+- **Masalah:** dokumentasi VFS yang ada menjelaskan **arsitektur** (BKFS, permission, mount, FD), tapi tidak ada panduan **cara pakai** — daftar method `fs`, kontrak nilai baliknya, resep file besar/progress, dan contoh yang bisa dijalankan. Akibatnya pertanyaan seperti "mana yang melempar, mana yang `null`?" dan "bagaimana append/copy file besar?" harus dijawab dengan membaca `UserLib.ts` + `Syscalls.ts`.
+- **Perubahan:**
+  - `wiki/file-operation.md` — tutorial lengkap: peta tiga gaya (path-based / FD-based / chunk-based), tabel seluruh API `fs` (signature + nilai balik + perilaku gagal), resep siap pakai (helper anti-try/catch, write/read, FD, append dua cara, chunked read/write, copy + progress, metadata, direktori, permission, mount), padanan perintah shell, tabel path persisten vs volatil, tabel gotcha/troubleshooting, diagnosa, dan daftar fitur yang belum ada.
+  - `src/mirror/opt/test/file-operation.ts` — app demo/uji (`--help` untuk daftar perintah). Semua contoh operasi file lewat CLI: `--write`, `--write-fd`, `--read`, `--append`, `--append-fd`, `--patch`, `--chunk`, `--size`, `--wc`, `--copy` (progress bar), `--info`, `--exists` (exit 1 bila tidak ada), `--ls`, `--usage`, `--mounts`, `--mkdir`, `--rmdir`, `--rm`, `--chmod`, `--chown`, `--touch`, dan **`--demo`** (self-test terhadap `/tmp/file-op-demo`, exit 1 bila ada yang gagal).
+  - Halaman didaftarkan di `Home.md` (Quick Navigation + Complete Wiki) dan ditautkan dari `Virtual-File-System.md`, `Panduan-Developer.md`, serta kursus (`course/24-best-practices.md`).
+- **Akurasi:** setiap klaim semantik diverifikasi ke backend VFS asli (bukan dari komentar kode): `stat()`/`readChunk()` mengembalikan `null`, `readFile()`/`getSize()`/`open("r")` melempar ENOENT, `writeChunk()` mengganti (dan menambah padding spasi bila `offset` melewati akhir isi), `mkdir()` **rekursif + idempotent** (padanan `mkdir -p`), `rmdir()` menolak direktori non-kosong, `r+` berperilaku seperti append. `--demo` dijalankan end-to-end (44 pemeriksaan, semua lulus) dan keluaran aslinya dikutip di wiki.
+- **Dampak:** jalur "aplikasi ↔ file" kini punya satu halaman rujukan + alat uji yang bisa dipakai di node mana pun; `--demo` sekaligus jadi regression check manual setelah `npm run install`.
+- **Oleh:** Copilot
+
 ## 2026-09-17
 
 ### Dokumentasi NetFS (filesystem antar-node) + changelog subsistem
