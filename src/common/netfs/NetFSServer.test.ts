@@ -195,7 +195,7 @@ describe("NetFSServer — SL core (N1)", () => {
         expect(server.stats.failed).toBe(1);
     });
 
-    it("N1.13 frame di atas pagar 64 KiB ditolak ETOOBIG, chunk 31 KiB diterima", async () => {
+    it("N1.13 frame di atas pagar 256 KiB ditolak ETOOBIG, chunk 124 KiB diterima", async () => {
         // Konten besar yang dikirim inline dalam SATU frame (pola lama `cp`)
         // harus ditolak dengan kode jelas — bukan diam-diam atau menggantung.
         const huge = "Z".repeat(NETFS_MAX_REQUEST_BYTES);
@@ -204,7 +204,7 @@ describe("NetFSServer — SL core (N1)", () => {
         expect(rejected.code).toBe("ETOOBIG");
         expect(rejected.id).toBe(15); // id tetap dikutip walau ditolak
 
-        // Jalur yang benar: potongan tepat di batas 31 KiB diterima utuh.
+        // Jalur yang benar: potongan tepat di batas 124 KiB diterima utuh.
         const chunk = "Y".repeat(NETFS_MAX_CHUNK_BYTES);
         const first = await server.handle(req(16, "writeChunk", "/docs/chunked.bin", [blob(chunk), 0]));
         expect(first.ok).toBe(true);

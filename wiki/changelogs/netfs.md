@@ -8,6 +8,21 @@ Dokumentasi lengkap: [`wiki/netfs.md`](../netfs.md).
 
 ## 2026-09-22
 
+### NetFS — chunk 124 KiB (4 fragmen) + temuan bottleneck RTT & O(n²) di bkfs
+
+- **File:** `src/common/netfs/NetFSProtocol.ts`, `src/mirror/lib/UserLib.ts`, `src/mirror/opt/test/file-operation.ts`, `src/common/netfs/NetFSServer.test.ts`.
+- **Gejala (laporan lapangan):** copy file 70 MB ke mount NetFS **jalan tanpa putus** (target: `/mnt/sbak` di SH `jatitsix`), tapi MQTNL traffic monitor menunjukkan TX hanya **~124 KB/s**.
+- **Pengukuran:** `netfs info jatitsix:7777` → **RTT 182 ms**. Aritmetika: 31.744 B ÷ 124 KB/s ≈ 0,256 s per chunk ⇒ satu chunk ≈ satu round-trip. Jadi **biaya dominan = round-trip, bukan byte** (broker 2× traversal + hop relay + batas syscall + backend ≈ 182 ms + ~70 ms).
+- **Akar masalah:** jalur tulis NetFS sekuensial (offset chunk berikutnya bergantung pada hasil chunk sebelumnya) ⇒ `throughput ≈ chunk / RTT`. Chunk 31 KiB (1 fragmen MQTNL) jadi tidak efisien: jaringan menganggur ~99% waktu.
+- **Perubahan:** `NETFS_MAX_CHUNK_BYTES` **31 KB → 124 KB** (4× `packetSize` 32 KiB) dan `NETFS_MAX_REQUEST_BYTES` **64 KB → 256 KB** (2× chunk + overhead). Byte di wire dan jumlah **publish MQTNL tidak berubah** (MQTNL tetap memecah per 32 KB) — yang berkurang hanya jumlah **balasan**, jadi ~4× throughput. `fs.copyWithProgress()` + demo `file-operation` mengikuti plafon 124 KB.
+- **Dampak terukur (RTT 182 ms):** 31 KB → ~124 KB/s; 124 KB → **~500 KB/s**; 70 MB ≈ 10 menit → **~2,4 menit**.
+- **Temuan tambahan (belum diubah, perlu keputusan):**
+    1. **Target export `bkfs` itu O(n²).** BKFS menyimpan isi file di SATU kolom, jadi tiap `writeChunk` append menjalankan `content = IFNULL(content,'') || ?` yang menulis ulang seluruh baris: 70 MB ⇒ ~2.260 chunk × rata-rata 35 MB salinan ≈ **~79 GB** kerja di SH. `host` (HostVFS, `pwrite`) O(1) dan jadi target yang benar untuk export besar. Dicatat di `wiki/netfs.md` §7.1.
+    2. **Pipelining belum ada** — 1 chunk in-flight. Kalau RTT besar, ini plafon berikutnya (opsi `writeOpen`/`writeData` + window).
+    3. Broker di LAN (kalau kedua node sejaringan) menghapus latensi jaringan tanpa mengubah protokol; `--direct` memangkas hop relay.
+- **Test:** 54 test NetFS/VFS/kernel-netfs hijau setelah perubahan konstanta.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
 ### NetFS v2 — protokol BINER (transport Binfeo), JSON + base64 dibuang
 
 - **File:** `src/common/netfs/NetFSProtocol.ts` (codec baru), `src/common/netfs/NetFSServer.ts`, `src/vfs/NetFS.ts`, `src/kernel/netfs/MQTNLNetFSChannel.ts`, `src/mirror/sbin/netfsd.ts`, `src/mirror/lib/NetFSClient.ts`, `src/mirror/lib/UserLib.ts`, `src/mirror/opt/test/file-operation.ts`, + seluruh test NetFS.
@@ -17,7 +32,7 @@ Dokumentasi lengkap: [`wiki/netfs.md`](../netfs.md).
     - **Konten = byte mentah** lewat `blob()`/`blobData()` — tanpa base64, tanpa JSON. `read`/`readChunk` mengembalikan blob; `touch`/`append`/`writeChunk` menerima blob.
     - **Transport dipin ke Binfeo** (`NETFS_WIRE_PROTOCOL`) di empat titik: socket SL, relay `local`, relay `upstream`, dan port channel kernel (`ioctl 0x1002`). Konstanta baru itu mencegah typo nama protocol.
     - **Relay jauh lebih murah:** `netfsd --client` hanya membaca header (`readNetFSFrameHeader`) lalu menambal `id` (`patchNetFSFrameId`) — payload besar tidak lagi di-parse dan di-serialize ulang.
-    - **Batas ukuran dalam byte:** `NETFS_MAX_REQUEST_BYTES` = 64 KB (dulu 96 KB _karakter_), `NETFS_MAX_CHUNK_BYTES` = **31 KB** (dulu 32 KB) supaya satu potongan + IV/tag (28 B) pas **satu** fragmen MQTNL 32 KB. `NETFS_MAX_REQUEST_CHARS` & `NETFS_MAX_INLINE_BYTES` dihapus (pemecahan otomatis di driver tetap jalan, ambangnya kini 31 KB).
+    - **Batas ukuran dalam byte:** `NETFS_MAX_REQUEST_BYTES` = 64 KB (dulu 96 KB _karakter_), `NETFS_MAX_CHUNK_BYTES` = **31 KB** (dulu 32 KB) supaya satu potongan + IV/tag (28 B) pas **satu** fragmen MQTNL 32 KB. `NETFS_MAX_REQUEST_CHARS` & `NETFS_MAX_INLINE_BYTES` dihapus (pemecahan otomatis di driver tetap jalan, ambangnya kini 31 KB). → **Disuperseded hari yang sama:** 31 KB/64 KB dinaikkan jadi **124 KB/256 KB** begitu ketahuan bottleneck-nya round-trip (lihat entry paling atas).
     - **Diagnosa salah-versi:** `toNetFSBuffer()` menormalkan semua bentuk payload (Buffer kernel / Uint8Array lewat IPC / string saat Binfeo tanpa key / artefak `{type:"Buffer",data:[]}`), dan `netfsWireHint()` memberi pesan jelas kalau peer masih mengirim JSON v1 — supaya beda versi tidak terlihat seperti "mount hang".
     - `fs.copyWithProgress()` (userland) ikut memakai plafon 31 KB.
 - **Tanpa backward compat (disengaja):** NetFS baru beberapa hari, jadi v1 tidak didukung lagi; peer lama dijawab `EBADREQ` + petunjuk Binfeo. Entry "`cp` file besar gagal `ETOOBIG`" di bawah berlaku untuk v1 — angka `NETFS_MAX_INLINE_BYTES`/96 KB di sana sudah digantikan angka di atas.

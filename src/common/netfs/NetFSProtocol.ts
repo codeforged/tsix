@@ -15,8 +15,12 @@
  *     `netfsd --client` cukup menambal 4 byte `id` di offset tetap — dulu ia
  *     mem-parse lalu men-serialize ulang setiap request.
  *   - Ukuran frame tidak lagi menggelembung 4/3x, jadi satu chunk bisa
- *     dirancang PAS satu fragmen MQTNL (`NETFS_MAX_CHUNK_BYTES` = 31 KiB,
- *     di bawah `SimpleMQTNLDriver.packetSize` = 32 KiB).
+ *     dirancang PAS kelipatan fragmen MQTNL (`NETFS_MAX_CHUNK_BYTES` = 124 KiB
+ *     = 4 x `SimpleMQTNLDriver.packetSize` 32 KiB).
+ *   - Latensi broker (RTT sering 150–250 ms) adalah biaya DOMINAN: satu chunk =
+ *     satu round-trip. Karena itu chunk dibuat KELIPATAN PENUH fragmen, bukan
+ *     diperkecil: byte di wire & jumlah publish MQTT tidak berubah, tapi jumlah
+ *     balasan turun 4x → throughput naik ~4x tanpa menambah trafik.
  *
  * Transport-nya tetap MQTNL — protocol **Binfeo** (`mqtnl@1.2/`, biner yang
  * bisa dienkripsi) — jadi TIDAK butuh IP publik / sewa VPS: cukup reach-ability
@@ -62,19 +66,31 @@ export const NETFS_DEFAULT_TIMEOUT_MS = 5000;
  * Batas ukuran satu frame request (BYTE, bukan karakter). Konten besar tetap
  * harus lewat `readChunk`/`writeChunk`; pagar ini hanya jaring pengaman supaya
  * peer yang salah bisa ditolak cepat (`ETOOBIG`), bukan mengisi RAM SL.
+ *
+ * 256 KiB = 2x `NETFS_MAX_CHUNK_BYTES` + overhead frame/path/keamanan, jadi
+ * chunk yang sah selalu lolos pagar ini.
  */
-export const NETFS_MAX_REQUEST_BYTES = 64 * 1024;
+export const NETFS_MAX_REQUEST_BYTES = 256 * 1024;
 
 /**
  * Ukuran maksimum konten per potongan (`readChunk`/`writeChunk`) — sekaligus
  * batas konten inline untuk `touch`/`append`/`read`, byte.
  *
- * 31 KiB dipilih supaya SATU potongan (frame + overhead keamanan 28 byte)
- * muat dalam SATU fragmen MQTNL 32 KiB: tanpa ini chunk 32 KiB justru terpecah
- * jadi dua paket. Driver `NetFS` memakai angka ini untuk memutuskan kapan
- * sebuah tulis harus dipecah otomatis.
+ * **Kenapa 124 KiB (4 fragmen MQTNL), bukan 1 fragmen?**
+ *
+ * Karena biaya dominan bukan byte, tapi **round-trip**: jalur tulis bersifat
+ * sekuensial (offset chunk berikutnya bergantung pada chunk sebelumnya), jadi
+ * dengan RTT broker ~180 ms throughput mentok di `chunk / RTT`:
+ *
+ *     31 KiB / 0,25 s ≈ 124 KB/s   ← 1 fragmen per round-trip
+ *     124 KiB / 0,25 s ≈ 500 KB/s  ← 4 fragmen per round-trip
+ *
+ * Ukuran besar di sini **tidak** menambah trafik: MQTNL tetap memecah paket
+ * per 32 KiB, jadi jumlah publish MQTT identik — yang berkurang hanya jumlah
+ * balasan (4x). Batas 124 KiB (bukan lebih) dipilih supaya satu chunk = empat
+ * fragmen bulat + margin (~4 KiB) untuk header dan tag enkripsi 28 byte.
  */
-export const NETFS_MAX_CHUNK_BYTES = 31 * 1024;
+export const NETFS_MAX_CHUNK_BYTES = 124 * 1024;
 
 // ==================== OP ====================
 

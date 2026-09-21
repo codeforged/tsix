@@ -14,17 +14,17 @@
 
 ## 1. Kenapa MQTNL, bukan TCP/IP?
 
-| Alasan                                              | Konsekuensi desain                                |
-| --------------------------------------------------- | ------------------------------------------------- |
-| MQTNL adalah medium network andalan TSIX            | tidak perlu IP publik / port forwarding / VPS     |
-| Routing lewat broker yang sudah ada                 | node baru cukup "numpang" di broker yang sama     |
-| Sudah punya fragmentasi + reassembly                | payload besar (mis. 31 KB) otomatis dipecah 32 KB |
-| Sudah punya security agent per-port                 | `--key <64 hex>` → ChaCha20-Poly1305 / AES-GCM    |
-| Punya protocol **Binfeo** (biner + bisa dienkripsi) | konten file lewat byte mentah — tanpa JSON/base64 |
+| Alasan                                              | Konsekuensi desain                                                |
+| --------------------------------------------------- | ----------------------------------------------------------------- |
+| MQTNL adalah medium network andalan TSIX            | tidak perlu IP publik / port forwarding / VPS                     |
+| Routing lewat broker yang sudah ada                 | node baru cukup "numpang" di broker yang sama                     |
+| Sudah punya fragmentasi + reassembly                | payload besar dipecah per 32 KB (MQTNL), tidak terlihat pemanggil |
+| Sudah punya security agent per-port                 | `--key <64 hex>` → ChaCha20-Poly1305 / AES-GCM                    |
+| Punya protocol **Binfeo** (biner + bisa dienkripsi) | konten file lewat byte mentah — tanpa JSON/base64                 |
 
 Konsekuensi yang diterima: 1 operasi = 1 round-trip, jadi latensi lebih tinggi
 daripada filesystem lokal. File besar ditangani `readChunk`/`writeChunk` per
-31 KB (otomatis di driver), dan tersedia `--cache <ms>` untuk meredam `ls`/
+124 KB (otomatis di driver), dan tersedia `--cache <ms>` untuk meredam `ls`/
 `stat` yang berulang.
 
 ---
@@ -241,15 +241,18 @@ Aturan penting:
 - **Konten = byte mentah (`blob`)**, bukan base64. Jadi byte 0–255 round-trip
   utuh **dan** tidak ada pembengkakan ukuran: v1 menggelembung 4/3x karena
   base64, lalu **2x lagi** saat pakai `--key` (enkripsi payload string
-  menghasilkan hex). v2: satu chunk 31 KB ≈ 32 KB di wire.
+  menghasilkan hex). v2: satu chunk 124 KB ≈ 128 KB di wire (4 fragmen).
 - **Konten besar dipecah otomatis di sisi klien.** `readChunk`/`writeChunk`
-  dibatasi `NETFS_MAX_CHUNK_BYTES` (31 KB) dan frame request di atas
-  `NETFS_MAX_REQUEST_BYTES` (64 KB) ditolak `ETOOBIG`. Driver `NetFS` (kernel)
-  memecah sendiri `touch()`/`append()` yang lebih besar dari 31 KB menjadi
+  dibatasi `NETFS_MAX_CHUNK_BYTES` (124 KB) dan frame request di atas
+  `NETFS_MAX_REQUEST_BYTES` (256 KB) ditolak `ETOOBIG`. Driver `NetFS` (kernel)
+  memecah sendiri `touch()`/`append()` yang lebih besar dari 124 KB menjadi
   `writeChunk` per potongan — jadi `cp`, `writeFile()`, dan redirect shell file
-  besar tetap jalan tanpa pemanggil perlu tahu batas wire. 31 KB dipilih supaya
-  satu potongan (plus 28 byte IV/tag saat terenkripsi) pas **satu** fragmen
-  MQTNL 32 KB. Pemanggil yang butuh progress bar tetap bisa memakai
+  besar tetap jalan tanpa pemanggil perlu tahu batas wire. **124 KB = 4 fragmen
+  MQTNL** (bukan 1) karena biaya dominan adalah **round-trip**, bukan byte:
+  jalur tulis sekuensial, jadi throughput mentok di `chunk / RTT`. Dengan RTT
+  broker ~180 ms: 31 KB → ~124 KB/s, sedangkan 124 KB → ~500 KB/s **dengan
+  jumlah publish MQTNL yang sama** (MQTNL toh memecah per 32 KB); yang berkurang
+  hanya jumlah balasan. Pemanggil yang butuh progress bar tetap bisa memakai
   `readChunk`/`writeChunk`/`copyWithProgress()` langsung.
 - **Hanya satu versi.** v1 (JSON + base64) sudah dibuang; peer lama dijawab
   `EBADREQ` dengan pesan yang menyebut Binfeo — bukan mount hang.
@@ -267,7 +270,7 @@ Aturan penting:
 | Filter klien | `--allow tsix,tsix_2` — hanya alamat MQTNL itu yang dilayani            |
 | Pagar tulis  | `--ro` **dipaksa di SH**, klien tidak bisa "memaksa" rw                 |
 | Isolasi path | `..` dinormalisasi → klien tidak mungkin keluar dari root export        |
-| Pagar ukuran | frame request > 64 KB ditolak `ETOOBIG`; potongan > 31 KB ditolak       |
+| Pagar ukuran | frame request > 256 KB ditolak `ETOOBIG`; potongan > 124 KB ditolak     |
 
 Catatan: `uid`/`gid` yang dikirim klien **tidak** dipakai sebagai identitas
 (userland `lib.fs` tidak menerimanya) — SATPAM di SH tetap memutuskan
@@ -302,6 +305,27 @@ berdasarkan identitas `netfsd`. Jadi klien tidak bisa memalsukan kepemilikan.
 - Throughput dibatasi broker MQTT — untuk transfer besar berulang, jalur TCP
   langsung (mis. `/dev/httpd`) masih lebih cepat.
 
+### 7.1 Kenapa transfer bisa terasa pelan (penting untuk ekspektasi)
+
+- **Round-trip adalah biaya dominan.** RTT broker publik sering 150–250 ms, dan
+  jalur tulis NetFS sekuensial (1 chunk = 1 round-trip). Ukur dulu dengan
+  `netfs info <addr>` (mencetak RTT) sebelum menyalahkan bandwidth:
+  `throughput ≈ NETFS_MAX_CHUNK_BYTES / RTT`.
+- Karena itu chunk dibuat **kelipatan 4 fragmen MQTNL** — menaikkan chunk tidak
+  menambah byte/publish, hanya memangkas jumlah balasan.
+- **Rantai hop ikut menambah latensi**: `mount --via` menambah hop relay userland
+    - batas syscall di node klien; `--direct` melewatinya. Kalau kedua node di LAN
+      yang sama, menaruh broker **di LAN** adalah satu-satunya cara menghilangkan
+      latensi jaringan tanpa mengubah protokol.
+- **Target export juga berpengaruh.** `netfsd --export` menulis lewat
+  `lib.fs.writeChunk` di SH:
+    - `host` (HostVFS) → `pwrite` di offset = **O(1) per chunk**, ini yang ideal;
+    - `bkfs` → isi file disimpan di SATU kolom, jadi setiap append menjalankan
+      `content = content || ?` yang **menulis ulang seluruh baris** = **O(n) per
+      chunk / O(n²) per file**. Untuk file ratusan MB, export-kan direktori `host`
+      (mis. `netfsd --export /mnt/host/data`), bukan mount `bkfs`.
+    - `ramfs` → `VFS.writeChunk` menyambung string di memori, juga O(n) per chunk.
+
 ---
 
 ## 8. Diagnosa
@@ -316,15 +340,15 @@ cat /logs/boot.log           # kegagalan mount netfs saat boot
 
 Gejala umum:
 
-| Gejala                                                                               | Penyebab yang paling sering                                                                                                                                                                                                                            |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| mount gagal "tidak merespons"                                                        | `netfsd --export` tidak jalan di SH, atau `--client` belum jalan di klien (pakai `--direct`)                                                                                                                                                           |
-| timeout terus / `stale`                                                              | alamat/port salah, node beda broker, **key tidak sama**, atau **`--iface` berbeda** antara daemon klien dan mount                                                                                                                                      |
-| mount normal, lalu **mendadak** timeout begitu `tssh`/`scanif`/OTA jalan di node itu | framing protocol per-port (lihat di bawah) — sudah diperbaiki: port channel NetFS di-pin `Binfeo` (`NETFS_WIRE_PROTOCOL`)                                                                                                                              |
-| `EBADREQ` yang menyebut "BINER"/"Binfeo"                                             | peer masih memakai **NetFS v1** (JSON + base64). v2 hanya menerima frame biner; samakan versi di kedua node                                                                                                                                            |
-| `EROFS` saat menulis                                                                 | `netfsd --export --ro`, atau mount dipasang `--ro`                                                                                                                                                                                                     |
-| `EACCES`                                                                             | uid `netfsd` tidak punya hak di folder export                                                                                                                                                                                                          |
-| `ETOOBIG` — `"request N byte melebihi batas ..."` saat `cp` file besar               | konten dikirim inline dalam satu frame, bukan per potongan. Sudah ditangani: driver `NetFS` memecah `touch()`/`append()` besar otomatis (31 KB per `writeChunk`). Kalau masih muncul, pastikan sisi klien memakai build terbaru (driver ada di kernel) |
+| Gejala                                                                               | Penyebab yang paling sering                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| mount gagal "tidak merespons"                                                        | `netfsd --export` tidak jalan di SH, atau `--client` belum jalan di klien (pakai `--direct`)                                                                                                                                                            |
+| timeout terus / `stale`                                                              | alamat/port salah, node beda broker, **key tidak sama**, atau **`--iface` berbeda** antara daemon klien dan mount                                                                                                                                       |
+| mount normal, lalu **mendadak** timeout begitu `tssh`/`scanif`/OTA jalan di node itu | framing protocol per-port (lihat di bawah) — sudah diperbaiki: port channel NetFS di-pin `Binfeo` (`NETFS_WIRE_PROTOCOL`)                                                                                                                               |
+| `EBADREQ` yang menyebut "BINER"/"Binfeo"                                             | peer masih memakai **NetFS v1** (JSON + base64). v2 hanya menerima frame biner; samakan versi di kedua node                                                                                                                                             |
+| `EROFS` saat menulis                                                                 | `netfsd --export --ro`, atau mount dipasang `--ro`                                                                                                                                                                                                      |
+| `EACCES`                                                                             | uid `netfsd` tidak punya hak di folder export                                                                                                                                                                                                           |
+| `ETOOBIG` — `"request N byte melebihi batas ..."` saat `cp` file besar               | konten dikirim inline dalam satu frame, bukan per potongan. Sudah ditangani: driver `NetFS` memecah `touch()`/`append()` besar otomatis (124 KB per `writeChunk`). Kalau masih muncul, pastikan sisi klien memakai build terbaru (driver ada di kernel) |
 
 > **Kenapa protocol wajib di-pin eksplisit?** MQTNL memilih **framing per-port**
 > (Binfeo v1.2 / JSON v1.0 / OTA v1.1) dan penerima tidak mengontrol pilihan
@@ -353,7 +377,7 @@ npx vitest run src/common/netfs src/vfs/NetFS.test.ts \
 
 | Suite                            | Cakupan                                                                                                                                                                  |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `NetFSServer.test.ts` (N1/N3)    | op, prefix, read-only, allow, `..` escape, codec blob, parsing spec, payload biner, pagar ukuran frame vs chunk 31 KB                                                    |
+| `NetFSServer.test.ts` (N1/N3)    | op, prefix, read-only, allow, `..` escape, codec blob, parsing spec, payload biner, pagar ukuran frame vs chunk 124 KB                                                   |
 | `NetFS.test.ts` (N2)             | driver klien lewat channel loopback in-memory: op, chunk I/O, **pemecahan otomatis `touch`/`append` besar**, konten biner 0..255, timeout→stale, pemulihan, cache, close |
 | `MQTNLNetFSChannel.test.ts` (N4) | alokasi port kernel, registrasi handler, srcPort, pelepasan resource, key→ioctl, pin protocol Binfeo                                                                     |
 | `NetFSProtocol.test.ts` (N6)     | codec frame biner: round-trip request/response, blob byte 0..255, header + tambal `id` untuk relay, normalisasi payload transport, frame rusak/versi lama                |

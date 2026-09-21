@@ -18,14 +18,15 @@ const WSD_STATUS = 0x5206;
 
 /**
  * Batas aman satu `readChunk`/`writeChunk` (byte), selaras dengan protokol
- * NetFS (`NETFS_MAX_CHUNK_BYTES` = 31 KiB). Mount NetFS menolak potongan yang
+ * NetFS (`NETFS_MAX_CHUNK_BYTES` = 124 KiB). Mount NetFS menolak potongan yang
  * lebih besar dengan `ETOOBIG`, jadi operasi chunked di userland di-clamp ke
  * angka ini supaya tetap jalan di SEMUA backend (host/bkfs/ramfs/netfs).
  *
- * 31 KiB dipilih supaya satu potongan muat dalam SATU fragmen MQTNL (32 KiB)
- * setelah amplop frame + tag enkripsi — jadi jumlah publish tidak berlipat.
+ * 124 KiB = 4 fragmen MQTNL 32 KiB. Karena satu panggilan = satu round-trip,
+ * potongan besar jauh lebih cepat di jalur jaringan (RTT broker bisa ~180 ms)
+ * tanpa menambah byte di wire — MQTNL tetap memecah per 32 KiB.
  */
-const MAX_CHUNK_BYTES = 31 * 1024;
+const MAX_CHUNK_BYTES = 124 * 1024;
 
 /**
  * USER LIBRARY (lib) - WORKER VERSION
@@ -1020,13 +1021,13 @@ export class FsLib {
      *       "/mnt/host/bigfile.iso",
      *       "/home/user/bigfile.iso",
      *       (pct) => console.log(`${pct}%`),
-     *       32768  // ukuran chunk (opsional; di atas plafon akan di-clamp)
+     *       131072  // ukuran chunk (opsional; di atas plafon akan di-clamp)
      *   );
      *
      * @param srcPath    Path file sumber
      * @param dstPath    Path file tujuan
      * @param onProgress Callback progress (0-100), dipanggil tiap chunk selesai
-     * @param chunkSize  Ukuran chunk dalam byte (default & plafon: 31KB)
+     * @param chunkSize  Ukuran chunk dalam byte (default & plafon: 124KB)
      * @param reportIntervalMs  Interval minimum antar laporan progress (default: 200ms)
      */
     public async copyWithProgress(
@@ -1036,7 +1037,7 @@ export class FsLib {
         chunkSize: number = MAX_CHUNK_BYTES,
         reportIntervalMs: number = 200,
     ): Promise<boolean> {
-        // Plafon 31 KiB (batas chunk protokol NetFS) — chunk lebih besar ditolak
+        // Plafon 124 KiB (batas chunk protokol NetFS) — chunk lebih besar ditolak
         // ETOOBIG oleh SL kalau salah satu sisi adalah mount NetFS.
         const step = Math.min(Math.max(1, Math.floor(chunkSize) || MAX_CHUNK_BYTES), MAX_CHUNK_BYTES);
 

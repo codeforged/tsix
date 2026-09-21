@@ -292,8 +292,10 @@ async function cmdCopy(args: string[]): Promise<void> {
     if (!src) throw new Error("--copy needs <src> [dst]");
 
     const csIdx = args.indexOf("--chunk-size");
-    // 31 KB = batas chunk protokol NetFS (FsLib men-clamp ke angka ini juga).
-    const chunkSize = csIdx >= 0 ? num(args[csIdx + 1], "--chunk-size") : 31 * 1024;
+    // 124 KB = batas chunk protokol NetFS (FsLib men-clamp ke angka ini juga).
+    // Satu panggilan chunk = satu round-trip, jadi potongan besar jauh lebih
+    // cepat di mount jaringan (MQTNL tetap memecah per 32 KB di lapisan bawah).
+    const chunkSize = csIdx >= 0 ? num(args[csIdx + 1], "--chunk-size") : 124 * 1024;
     const positional = args.filter((_a, i) => i !== 0 && i !== csIdx && i !== csIdx + 1);
     const dst = positional[0] || `${src}.copy`;
 
@@ -569,7 +571,7 @@ async function cmdDemo(): Promise<void> {
 
     // --- 6. Large file + copy with progress (chunked I/O) ---
     // ~200 KB built from small pieces so the demo stays fast while still
-    // exercising the chunk path (copyWithProgress uses 31 KiB chunks).
+    // exercising the chunk path (copyWithProgress uses 124 KiB chunks).
     const piece = "0123456789".repeat(64) + "\n";
     let buffer = "";
     while (buffer.length < 200000) buffer += piece;

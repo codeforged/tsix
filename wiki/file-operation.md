@@ -48,7 +48,7 @@ async, sementara NetFS tetap bisa bolak-balik jaringan.
 | `getSize`                     | `(path)`                                                              | jumlah karakter                         | **lempar** kalau tidak ada                     |
 | `readChunk`                   | `(path, offset, length)`                                              | potongan (`string`)                     | **`null`** kalau offset di luar isi            |
 | `writeChunk`                  | `(path, chunk, offset)`                                               | `true`                                  | `false`                                        |
-| `copyWithProgress`            | `(src, dst, onProgress, chunkSize = 31744, reportIntervalMs = 200)`   | `true`                                  | **lempar** kalau src tidak ada                 |
+| `copyWithProgress`            | `(src, dst, onProgress, chunkSize = 126976, reportIntervalMs = 200)`  | `true`                                  | **lempar** kalau src tidak ada                 |
 | `mkdir`                       | `(path)`                                                              | `true`                                  | `false`                                        |
 | `rmdir`                       | `(path)`                                                              | `true`                                  | `false` (tidak kosong / bukan direktori)       |
 | `unlink`                      | `(path)`                                                              | `true`                                  | `false` (tidak ada)                            |
@@ -172,13 +172,14 @@ await fs.writeChunk("/tmp/a.txt", "baris baru\n", size < 0 ? 0 : size);
 
 ```typescript
 const size = await fs.getSize("/data/besar.bin"); // lempar kalau tidak ada
-// 31744 = batas chunk protokol NetFS (31 KB). Lebih besar dari ini DITOLAK
-// ETOOBIG saat path-nya ada di mount NetFS, jadi pakai angka ini sebagai plafon.
-const potongan = await fs.readChunk("/data/besar.bin", 0, 31744);
+// 126976 = batas chunk protokol NetFS (124 KB = 4 fragmen MQTNL). Lebih besar
+// dari ini DITOLAK ETOOBIG saat path-nya ada di mount NetFS. Di jalur jaringan
+// satu panggilan chunk = satu round-trip, jadi potongan besar jauh lebih cepat.
+const potongan = await fs.readChunk("/data/besar.bin", 0, 126976);
 
 // Baca berurutan sampai habis:
-for (let off = 0; off < size; off += 31744) {
-    const chunk = await fs.readChunk("/data/besar.bin", off, 31744);
+for (let off = 0; off < size; off += 126976) {
+    const chunk = await fs.readChunk("/data/besar.bin", off, 126976);
     if (chunk === null) break; // null = offset di luar isi (EOF)
     proses(chunk);
 }
@@ -203,7 +204,7 @@ const ok = await fs.copyWithProgress(
     "/mnt/host/image.iso",
     "/data/image.iso",
     (pct) => void std.print(`\r${pct}%`),
-    31744, // ukuran chunk (default 31 KB — plafon batas chunk NetFS)
+    126976, // ukuran chunk (default 124 KB — plafon batas chunk NetFS)
     200, // throttle laporan progress (ms)
 );
 await std.println("");
@@ -211,8 +212,9 @@ await std.println("");
 
 - File kosong tetap menghasilkan file tujuan + `onProgress(100)`.
 - `src` tidak ada → **lempar**; `dst` gagal dibuka → `false`.
-- `chunkSize` otomatis di-clamp ke **31744** (batas chunk protokol NetFS, 31 KB)
-  supaya satu potongan = satu fragmen MQTNL dan tetap jalan di mount NetFS.
+- `chunkSize` otomatis di-clamp ke **126976** (batas chunk protokol NetFS, 124 KB)
+  supaya tetap jalan di mount NetFS. Dua mount yang RTT-nya besar lebih cepat
+  dengan potongan besar: `throughput ≈ chunkSize / RTT`.
 
 ### 3.7 Metadata, ukuran, daftar isi
 
@@ -327,7 +329,9 @@ Konsekuensinya untuk penulisan file:
 - Untuk file sementara yang besar, RamFS justru menguntungkan (RAM, cepat) tapi
   memakan memori node.
 - Tulis ke NetFS = latensi jaringan: pakai `writeChunk`/`copyWithProgress` dengan
-  chunk ≤ 31 KB, dan siapkan `ETIMEDOUT`/`stale` sebagai kondisi normal.
+  chunk ≤ 124 KB, dan siapkan `ETIMEDOUT`/`stale` sebagai kondisi normal.
+  Satu panggilan = satu round-trip, jadi ukuran chunk menentukan throughput
+  (`≈ chunk / RTT`), bukan bandwidth.
 
 ---
 
@@ -348,7 +352,7 @@ Sumber: `src/mirror/opt/test/file-operation.ts` — ikut terpasang ke VFS oleh
 /opt/test/file-operation --info   /tmp/notes.txt
 /opt/test/file-operation --exists /tmp/notes.txt   # exit 1 kalau tidak ada
 /opt/test/file-operation --mkdir  /tmp/nested/deep  # rekursif, tanpa -p
-/opt/test/file-operation --copy   /tmp/big.bin --chunk-size 31744
+/opt/test/file-operation --copy   /tmp/big.bin --chunk-size 126976
 ```
 
 Daftar perintah (semuanya menerima bentuk `--nama` atau `nama`):
