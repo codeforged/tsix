@@ -9,6 +9,39 @@
 
 ## 2026-09-21
 
+### Demo animasi stress `/opt/test/tft-objs` — semua efek di userland, 1 syscall/frame
+
+- **File:** `src/mirror/opt/test/tft-objs.ts` (baru)
+- **Ringkas:** pasangan "versi warna" dari `lcd-objs` (LM6029 128x64): plasma
+  latar, starfield 3D, kubus wireframe berputar (dua sumbu), objek memantul
+  berputar, spektrum bergradasi, marquee, dan HUD FPS/ms/objek. Semua lapisan
+  bisa dinyalakan/dimatikan lewat opsi — jadi satu app ini sekaligus demo visual
+  dan alat ukur performa panel.
+- **Kunci performa:** SEMUA efek diraster **lokal** di `TftFramebuffer` —
+  termasuk HUD & marquee yang memakai **font 3x5 lokal** (bukan `printText()`),
+  jadi satu frame tetap **1 syscall** (`blit()` + auto-flush). Nol `Math.sin`
+  di dalam loop piksel: LUT 1024 entri (`SIN`/`COS` + pembungkus `sinI()`),
+  palet RGB565 di-interpolasi sekali di awal, dan fade jejak memakai aritmetika
+  bit per kanal (bukan unpack/repack).
+- **Tombol biaya (kalau di Pi terasa berat):** `--plasma R` (1/R² piksel
+  dihitung), `--stars`, `--sq/--tri/--cir`, `--bars`, `--trail N`, preset
+  **`--lite`** / **`--insane`**, `--fps N` (batasi laju supaya CPU tidak
+  jenuh), `--stats` (laporan ms per tahap tiap 2 detik), dan `bench [detik]`.
+  Saat `--trail` hidup, plasma otomatis digambar sebagai **grid titik** 1 px
+  per blok supaya jejak gerak tetap terlihat di sela-selanya.
+- **Teknik raster:** objek berputar memakai raster poligon **scanline even-odd**
+  (satu jalur untuk kotak & segitiga), lingkaran berdenyut memakai
+  `fillCircle` + cincin, cube memakai rotasi X→Y + proyeksi perspektif
+  `3.2/(3.2+z)`, bintang memakai proyeksi `1/z` dengan ramp 8 langkah warna.
+- **Hasil ukur headless (CPU Xeon, raster murni — `blit()` masih stub):**
+  default **1058 fps / 0.95 ms per frame** (plasma 0.43 · shape 0.34 · bars+hud
+  0.06 · blit 0.11); `--insane` (plasma penuh, 320 bintang, 38 objek, trail 2)
+  **482 fps / 2.07 ms**; `--lite` **1787 fps / 0.56 ms**; baseline blit tanpa
+  efek 0.10 ms. Artinya biaya raster di CPU memang nyata terukur, sedangkan
+  biaya IPC + transfer 150 KB baru muncul di hardware asli.
+- **Smoke test:** semua preset + `-h` dijalankan headless (UserLib palsu) —
+  **0 error**, semua frame yang terkirim tepat **153600 B**.
+
 ### TFT ILI9341 320x240 jadi `/dev/tft` — lewat framebuffer host, tanpa addon native
 
 - **File:**

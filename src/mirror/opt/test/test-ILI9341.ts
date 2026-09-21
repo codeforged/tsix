@@ -533,6 +533,7 @@ async function cmdText(msg: string) {
     await tft.printText("lihat juga: colors | fonts | sprites | hud", 10, 208, 1);
     await tft.flush();
     await std.println(`✔ Teks dikirim: "${msg}"`);
+    await std.println("   Animasi ramai/agresif: /opt/test/tft-objs (lihat -h)");
 }
 
 async function cmdPixel(x?: string, y?: string) {
