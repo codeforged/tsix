@@ -21,11 +21,11 @@ flowchart LR
     D -->|NetFS| H[("node TSIX lain")]
 ```
 
-| Gaya | API | Cocok untuk | Jumlah round-trip |
-| --- | --- | --- | --- |
-| **Path-based** | `readFile()`, `writeFile()` | 90% kasus: file kecil–sedang | 3 syscall (open+read/write+close) |
-| **FD-based** | `open()`, `read()`, `write()`, `close()` | butuh kontrol: banyak tulis, append, tahu kapan file dibuka | manual (Anda yang atur) |
-| **Chunk-based** | `readChunk()`, `writeChunk()`, `getSize()`, `copyWithProgress()` | file besar, progress bar, edit in-place | 1 syscall per potongan |
+| Gaya            | API                                                              | Cocok untuk                                                 | Jumlah round-trip                 |
+| --------------- | ---------------------------------------------------------------- | ----------------------------------------------------------- | --------------------------------- |
+| **Path-based**  | `readFile()`, `writeFile()`                                      | 90% kasus: file kecil–sedang                                | 3 syscall (open+read/write+close) |
+| **FD-based**    | `open()`, `read()`, `write()`, `close()`                         | butuh kontrol: banyak tulis, append, tahu kapan file dibuka | manual (Anda yang atur)           |
+| **Chunk-based** | `readChunk()`, `writeChunk()`, `getSize()`, `copyWithProgress()` | file besar, progress bar, edit in-place                     | 1 syscall per potongan            |
 
 Semua method `fs` **async** — selalu `await`. Di baliknya, method IVFS bertipe
 `MaybePromise` supaya backend sinkron (BKFS/RamFS/HostVFS) tidak membayar biaya
@@ -35,29 +35,29 @@ async, sementara NetFS tetap bisa bolak-balik jaringan.
 
 ## 2. Daftar API `fs` (FsLib)
 
-| Method | Signature ringkas | Nilai balik | Kalau gagal |
-| --- | --- | --- | --- |
-| `readFile` | `(path)` | isi file (`string`) | **lempar** `File not found: <path>` |
-| `writeFile` | `(path, content)` | `true` | `false` (fd gagal dibuka) |
-| `open` | `(path, flags = "r")` | fd (`number`) | **lempar** (ENOENT / izin / `Not a directory`) |
-| `read` | `(fd)` | isi file | `null` |
-| `write` | `(fd, content)` | `true` | `false` |
-| `close` | `(fd)` | `true` | `false` |
-| `stat` | `(path)` | objek metadata | **`null`** (tidak lempar) |
-| `ls` | `(path = "/")` | array entri | `[]` |
-| `getSize` | `(path)` | jumlah karakter | **lempar** kalau tidak ada |
-| `readChunk` | `(path, offset, length)` | potongan (`string`) | **`null`** kalau offset di luar isi |
-| `writeChunk` | `(path, chunk, offset)` | `true` | `false` |
-| `copyWithProgress` | `(src, dst, onProgress, chunkSize = 65536, reportIntervalMs = 200)` | `true` | **lempar** kalau src tidak ada |
-| `mkdir` | `(path)` | `true` | `false` |
-| `rmdir` | `(path)` | `true` | `false` (tidak kosong / bukan direktori) |
-| `unlink` | `(path)` | `true` | `false` (tidak ada) |
-| `chmod` | `(path, mode)` | `true` | `false` (bukan pemilik & bukan root) |
-| `chown` | `(path, uid, gid)` | `true` | `false` (butuh root) |
-| `getUsage` | `(path = "/")` | `{ size, files, dirs, diskSize? }` | — |
-| `getMounts` | `()` | `[{ vfsPath, type, source, readOnly }]` | — |
-| `mount` / `umount` | `(vfsPath, hostPath, ro?, type?, uid?, gid?, options?)` / `(vfsPath)` | `true` | `false` |
-| `syncToHost` / `syncFromHost` | `(vfsPath, hostPath)` / `(hostPath, vfsPath)` | `true` | `false` |
+| Method                        | Signature ringkas                                                     | Nilai balik                             | Kalau gagal                                    |
+| ----------------------------- | --------------------------------------------------------------------- | --------------------------------------- | ---------------------------------------------- |
+| `readFile`                    | `(path)`                                                              | isi file (`string`)                     | **lempar** `File not found: <path>`            |
+| `writeFile`                   | `(path, content)`                                                     | `true`                                  | `false` (fd gagal dibuka)                      |
+| `open`                        | `(path, flags = "r")`                                                 | fd (`number`)                           | **lempar** (ENOENT / izin / `Not a directory`) |
+| `read`                        | `(fd)`                                                                | isi file                                | `null`                                         |
+| `write`                       | `(fd, content)`                                                       | `true`                                  | `false`                                        |
+| `close`                       | `(fd)`                                                                | `true`                                  | `false`                                        |
+| `stat`                        | `(path)`                                                              | objek metadata                          | **`null`** (tidak lempar)                      |
+| `ls`                          | `(path = "/")`                                                        | array entri                             | `[]`                                           |
+| `getSize`                     | `(path)`                                                              | jumlah karakter                         | **lempar** kalau tidak ada                     |
+| `readChunk`                   | `(path, offset, length)`                                              | potongan (`string`)                     | **`null`** kalau offset di luar isi            |
+| `writeChunk`                  | `(path, chunk, offset)`                                               | `true`                                  | `false`                                        |
+| `copyWithProgress`            | `(src, dst, onProgress, chunkSize = 31744, reportIntervalMs = 200)`   | `true`                                  | **lempar** kalau src tidak ada                 |
+| `mkdir`                       | `(path)`                                                              | `true`                                  | `false`                                        |
+| `rmdir`                       | `(path)`                                                              | `true`                                  | `false` (tidak kosong / bukan direktori)       |
+| `unlink`                      | `(path)`                                                              | `true`                                  | `false` (tidak ada)                            |
+| `chmod`                       | `(path, mode)`                                                        | `true`                                  | `false` (bukan pemilik & bukan root)           |
+| `chown`                       | `(path, uid, gid)`                                                    | `true`                                  | `false` (butuh root)                           |
+| `getUsage`                    | `(path = "/")`                                                        | `{ size, files, dirs, diskSize? }`      | —                                              |
+| `getMounts`                   | `()`                                                                  | `[{ vfsPath, type, source, readOnly }]` | —                                              |
+| `mount` / `umount`            | `(vfsPath, hostPath, ro?, type?, uid?, gid?, options?)` / `(vfsPath)` | `true`                                  | `false`                                        |
+| `syncToHost` / `syncFromHost` | `(vfsPath, hostPath)` / `(hostPath, vfsPath)`                         | `true`                                  | `false`                                        |
 
 > [!IMPORTANT]
 > **Kontrak nilai balik TIDAK seragam** dan itu disengaja (mengikuti semangat syscall):
@@ -82,22 +82,34 @@ import { Program, std, fs } from "@tsix/Application";
 
 /** stat() aman — null kalau tidak ada. Inilah "file exists" di TSIX. */
 async function statOf(path: string) {
-  try { return await fs.stat(path); } catch { return null; }
+    try {
+        return await fs.stat(path);
+    } catch {
+        return null;
+    }
 }
 
 /** Cek keberadaan tanpa lempar. */
 async function existsOf(path: string): Promise<boolean> {
-  return (await statOf(path)) !== null;
+    return (await statOf(path)) !== null;
 }
 
 /** getSize() aman: -1 kalau tidak ada. */
 async function sizeOf(path: string): Promise<number> {
-  try { return await fs.getSize(path); } catch { return -1; }
+    try {
+        return await fs.getSize(path);
+    } catch {
+        return -1;
+    }
 }
 
 /** readFile() aman: null kalau tidak ada. */
 async function readWhole(path: string): Promise<string | null> {
-  try { return await fs.readFile(path); } catch { return null; }
+    try {
+        return await fs.readFile(path);
+    } catch {
+        return null;
+    }
 }
 ```
 
@@ -108,9 +120,9 @@ async function readWhole(path: string): Promise<string | null> {
 ### 3.2 Tulis & baca
 
 ```typescript
-await fs.writeFile("/tmp/a.txt", "hello\n");        // buat/overwrite (mode 644)
-const isi = await fs.readFile("/tmp/a.txt");        // lempar kalau tidak ada, jadi:
-const aman = await readWhole("/tmp/a.txt");         // null kalau tidak ada
+await fs.writeFile("/tmp/a.txt", "hello\n"); // buat/overwrite (mode 644)
+const isi = await fs.readFile("/tmp/a.txt"); // lempar kalau tidak ada, jadi:
+const aman = await readWhole("/tmp/a.txt"); // null kalau tidak ada
 ```
 
 `writeFile()` = `open(path,"w")` → `write` → `close`. Karena `open` dengan flag `"w"`
@@ -121,21 +133,21 @@ men-truncate dulu, hasilnya selalu **replace**, bukan tambah.
 ```typescript
 const fd = await fs.open("/tmp/log.txt", "w");
 try {
-  await fs.write(fd, "baris 1\n");
-  await fs.write(fd, "baris 2\n");
+    await fs.write(fd, "baris 1\n");
+    await fs.write(fd, "baris 2\n");
 } finally {
-  await fs.close(fd);        // WAJIB — FD bocor menahan resource sampai proses mati
+    await fs.close(fd); // WAJIB — FD bocor menahan resource sampai proses mati
 }
 ```
 
 Arti flag `open` (dipetakan kernel ke perilaku device file):
 
-| Flag | Perilaku `write()` | Catatan |
-| --- | --- | --- |
-| `"r"` | ditolak: `Bad File Descriptor: Not open for writing` | file harus ada, kalau tidak → **lempar** |
-| `"w"` | append ke file yang sudah di-truncate ⇒ **replace** | buat file baru bila belum ada (mode 644) |
-| `"a"` | **append** ke akhir isi | file dibuat saat `write()` pertama (tidak lempar walau belum ada) |
-| `"r+"` | **append juga** (tanpa truncate) | butuh izin WRITE; jarang dipakai |
+| Flag   | Perilaku `write()`                                   | Catatan                                                           |
+| ------ | ---------------------------------------------------- | ----------------------------------------------------------------- |
+| `"r"`  | ditolak: `Bad File Descriptor: Not open for writing` | file harus ada, kalau tidak → **lempar**                          |
+| `"w"`  | append ke file yang sudah di-truncate ⇒ **replace**  | buat file baru bila belum ada (mode 644)                          |
+| `"a"`  | **append** ke akhir isi                              | file dibuat saat `write()` pertama (tidak lempar walau belum ada) |
+| `"r+"` | **append juga** (tanpa truncate)                     | butuh izin WRITE; jarang dipakai                                  |
 
 > [!NOTE]
 > Kernel memetakan `"w"`, `"a"`, dan `"r+"` ke `VFS.append()` — bedanya hanya apakah
@@ -159,22 +171,25 @@ await fs.writeChunk("/tmp/a.txt", "baris baru\n", size < 0 ? 0 : size);
 ### 3.5 Baca/tulis potongan (chunked I/O)
 
 ```typescript
-const size = await fs.getSize("/data/besar.bin");     // lempar kalau tidak ada
-const potongan = await fs.readChunk("/data/besar.bin", 0, 32768);
+const size = await fs.getSize("/data/besar.bin"); // lempar kalau tidak ada
+// 31744 = batas chunk protokol NetFS (31 KB). Lebih besar dari ini DITOLAK
+// ETOOBIG saat path-nya ada di mount NetFS, jadi pakai angka ini sebagai plafon.
+const potongan = await fs.readChunk("/data/besar.bin", 0, 31744);
 
 // Baca berurutan sampai habis:
-for (let off = 0; off < size; off += 32768) {
-  const chunk = await fs.readChunk("/data/besar.bin", off, 32768);
-  if (chunk === null) break;                         // null = offset di luar isi (EOF)
-  proses(chunk);
+for (let off = 0; off < size; off += 31744) {
+    const chunk = await fs.readChunk("/data/besar.bin", off, 31744);
+    if (chunk === null) break; // null = offset di luar isi (EOF)
+    proses(chunk);
 }
 
 // Edit in-place (MENGGANTI, bukan menyisipkan):
-await fs.writeChunk("/tmp/a.txt", "HALO", 0);         // 4 karakter pertama → "HALO"
+await fs.writeChunk("/tmp/a.txt", "HALO", 0); // 4 karakter pertama → "HALO"
 ```
 
 > [!WARNING]
 > Dua jebakan `writeChunk()`:
+>
 > 1. `offset > panjang isi` → sisa ruang **diisi spasi**, bukan nol:
 >    `"abc"` + `writeChunk("z", 6)` ⇒ `"abc   z"`.
 > 2. `offset & length` dihitung dalam **karakter (kode unit JS)**, bukan byte UTF-8.
@@ -185,19 +200,19 @@ await fs.writeChunk("/tmp/a.txt", "HALO", 0);         // 4 karakter pertama → 
 
 ```typescript
 const ok = await fs.copyWithProgress(
-  "/mnt/host/image.iso",
-  "/data/image.iso",
-  (pct) => void std.print(`\r${pct}%`),
-  65536,       // ukuran chunk (default 64 KB)
-  200,         // throttle laporan progress (ms)
+    "/mnt/host/image.iso",
+    "/data/image.iso",
+    (pct) => void std.print(`\r${pct}%`),
+    31744, // ukuran chunk (default 31 KB — plafon batas chunk NetFS)
+    200, // throttle laporan progress (ms)
 );
 await std.println("");
 ```
 
 - File kosong tetap menghasilkan file tujuan + `onProgress(100)`.
 - `src` tidak ada → **lempar**; `dst` gagal dibuka → `false`.
-- Untuk mount **NetFS**, jaga `chunkSize <= 32768` (batas chunk protokol NetFS) supaya
-  satu potongan = satu paket MQTNL.
+- `chunkSize` otomatis di-clamp ke **31744** (batas chunk protokol NetFS, 31 KB)
+  supaya satu potongan = satu fragmen MQTNL dan tetap jalan di mount NetFS.
 
 ### 3.7 Metadata, ukuran, daftar isi
 
@@ -206,9 +221,9 @@ const node = await fs.stat("/tmp/a.txt");
 // { name, type: "FILE"|"DIRECTORY", size, uid, gid, mode, createdAt, modifiedAt }
 // null kalau tidak ada
 
-const ukuran = await fs.getSize("/tmp/a.txt");  // jumlah KARAKTER (bukan byte UTF-8)
-const items  = await fs.ls("/tmp");             // [{ name, type, size, mode, uid, gid, createdAt, modified_at }]
-const usage  = await fs.getUsage("/");          // { size, files, dirs, diskSize? }
+const ukuran = await fs.getSize("/tmp/a.txt"); // jumlah KARAKTER (bukan byte UTF-8)
+const items = await fs.ls("/tmp"); // [{ name, type, size, mode, uid, gid, createdAt, modified_at }]
+const usage = await fs.getUsage("/"); // { size, files, dirs, diskSize? }
 ```
 
 > [!NOTE]
@@ -220,9 +235,9 @@ const usage  = await fs.getUsage("/");          // { size, files, dirs, diskSize
 ### 3.8 Direktori
 
 ```typescript
-await fs.mkdir("/var/lib/nya/bekas");   // REKURSIF: induk ikut dibuat
-await fs.mkdir("/var/lib/nya/bekas");   // tetap true (idempotent)
-await fs.rmdir("/var/lib/nya/bekas");   // false kalau masih berisi
+await fs.mkdir("/var/lib/nya/bekas"); // REKURSIF: induk ikut dibuat
+await fs.mkdir("/var/lib/nya/bekas"); // tetap true (idempotent)
+await fs.rmdir("/var/lib/nya/bekas"); // false kalau masih berisi
 ```
 
 > [!TIP]
@@ -235,14 +250,14 @@ await fs.rmdir("/var/lib/nya/bekas");   // false kalau masih berisi
 ### 3.9 Hapus, permission, mount
 
 ```typescript
-await fs.unlink("/tmp/a.txt");          // false kalau tidak ada
-await fs.chmod("/sbin/app", 0o755);     // pemilik atau root
-await fs.chown("/data/berkas", 1000, 1000);  // root saja
+await fs.unlink("/tmp/a.txt"); // false kalau tidak ada
+await fs.chmod("/sbin/app", 0o755); // pemilik atau root
+await fs.chown("/data/berkas", 1000, 1000); // root saja
 
-const mounts = await fs.getMounts();    // [{ vfsPath, type, source, readOnly }]
-await fs.mount("/mnt/usb", "/home/me/usb", false, "host");   // folder host → VFS
+const mounts = await fs.getMounts(); // [{ vfsPath, type, source, readOnly }]
+await fs.mount("/mnt/usb", "/home/me/usb", false, "host"); // folder host → VFS
 await fs.umount("/mnt/usb");
-await fs.syncToHost("/root/out.txt", "/home/me/out.txt");     // VFS → host (HostVFS)
+await fs.syncToHost("/root/out.txt", "/home/me/out.txt"); // VFS → host (HostVFS)
 ```
 
 ### 3.10 Aplikasi lengkap (kerangka minimal)
@@ -251,25 +266,24 @@ await fs.syncToHost("/root/out.txt", "/home/me/out.txt");     // VFS → host (H
 import { Program, std, fs, shell } from "@tsix/Application";
 
 export const main = Program(async (args: string[]) => {
-  const path = args[0];
-  if (!path) {
-    await std.print("usage: myapp <file>\n");
-    await shell.exit(64);              // EX_USAGE
-    return;
-  }
-  try {
-    const node = await fs.stat(path);
-    if (!node) {
-      await std.println(`${path}: not found`);
-      await shell.exit(1);
-      return;
+    const path = args[0];
+    if (!path) {
+        await std.print("usage: myapp <file>\n");
+        await shell.exit(64); // EX_USAGE
+        return;
     }
-    await std.println(node.type === "DIRECTORY" ? `directory (${node.mode.toString(8)})`
-                                                : await fs.readFile(path));
-  } catch (err: any) {
-    await std.println(`error: ${err.message}`);
-    await shell.exit(1);
-  }
+    try {
+        const node = await fs.stat(path);
+        if (!node) {
+            await std.println(`${path}: not found`);
+            await shell.exit(1);
+            return;
+        }
+        await std.println(node.type === "DIRECTORY" ? `directory (${node.mode.toString(8)})` : await fs.readFile(path));
+    } catch (err: any) {
+        await std.println(`error: ${err.message}`);
+        await shell.exit(1);
+    }
 });
 ```
 
@@ -277,20 +291,20 @@ export const main = Program(async (args: string[]) => {
 
 ## 4. Dari shell (tanpa menulis aplikasi)
 
-| Kebutuhan | Perintah TSIX | Catatan |
-| --- | --- | --- |
-| lihat isi | `cat f` · `head -5 f` · `tail -5 f` · `less f` | `less`/`more` interaktif |
-| daftar isi | `ls dir` | `ls -l`-style ada di `ls` |
-| buat direktori | `mkdir a/b/c` | sudah rekursif (lihat §3.8) |
-| buat file kosong | `echo -n > f` | belum ada perintah `touch` |
-| hapus | `rm f` · `rm -r dir` | `rm -f` diam kalau tidak ada |
-| salin / pindah | `cp src dst` · `mv src dst` | `mv` juga untuk rename |
-| permission | `chmod 755 f` · `chown u:g f` | `chgrp` juga ada |
-| lihat biner | `xxd f` | hexdump + offset |
-| hitung | `wc f` · `sort f` · `grep pola f` · `awk ...` | pipeline `\|` & redirection `>` didukung `tsh` |
-| cari file | `find / -name "*.txt"` | |
-| ruang & mount | `df` · `lsblk` · `mount`/`umount` | `lsblk` menampilkan `,stale` untuk NetFS |
-| editor | `atto f` | editor full-screen |
+| Kebutuhan        | Perintah TSIX                                  | Catatan                                        |
+| ---------------- | ---------------------------------------------- | ---------------------------------------------- |
+| lihat isi        | `cat f` · `head -5 f` · `tail -5 f` · `less f` | `less`/`more` interaktif                       |
+| daftar isi       | `ls dir`                                       | `ls -l`-style ada di `ls`                      |
+| buat direktori   | `mkdir a/b/c`                                  | sudah rekursif (lihat §3.8)                    |
+| buat file kosong | `echo -n > f`                                  | belum ada perintah `touch`                     |
+| hapus            | `rm f` · `rm -r dir`                           | `rm -f` diam kalau tidak ada                   |
+| salin / pindah   | `cp src dst` · `mv src dst`                    | `mv` juga untuk rename                         |
+| permission       | `chmod 755 f` · `chown u:g f`                  | `chgrp` juga ada                               |
+| lihat biner      | `xxd f`                                        | hexdump + offset                               |
+| hitung           | `wc f` · `sort f` · `grep pola f` · `awk ...`  | pipeline `\|` & redirection `>` didukung `tsh` |
+| cari file        | `find / -name "*.txt"`                         |                                                |
+| ruang & mount    | `df` · `lsblk` · `mount`/`umount`              | `lsblk` menampilkan `,stale` untuk NetFS       |
+| editor           | `atto f`                                       | editor full-screen                             |
 
 Belum ada perintah shell: `touch`, `stat`, `rename`, `du`, `ln`. Untuk `touch`:
 `echo -n > f`; untuk `stat`: pakai `ls -l` atau aplikasi/demo di §6.
@@ -299,13 +313,13 @@ Belum ada perintah shell: `touch`, `stat`, `rename`, `du`, `ln`. Untuk `touch`:
 
 ## 5. Path mana yang persisten?
 
-| Path | Driver | Persisten? | Catatan |
-| --- | --- | --- | --- |
-| `/` (kecuali mount lain) | **BKFS** (`system.db`) | ✅ boot berikutnya | file sistem & `/etc`, `/bin`, `/opt` |
-| `/tmp` | **RamFS** | ❌ hilang saat reboot | mode `1777` (world-writable) |
-| `/var/run` | **RamFS** (dijamin kernel) | ❌ hilang saat reboot | state runtime; lihat [RC_LOCAL.md](RC_LOCAL.md) |
-| `/mnt/host-*` | **HostVFS** | ✅ folder nyata di host | `mount`, `syncToHost`/`syncFromHost` |
-| `/mnt/<node>` | **NetFS** | ✅ (milik node lain) | lewat MQTNL, lihat [netfs.md](netfs.md) |
+| Path                     | Driver                     | Persisten?              | Catatan                                         |
+| ------------------------ | -------------------------- | ----------------------- | ----------------------------------------------- |
+| `/` (kecuali mount lain) | **BKFS** (`system.db`)     | ✅ boot berikutnya      | file sistem & `/etc`, `/bin`, `/opt`            |
+| `/tmp`                   | **RamFS**                  | ❌ hilang saat reboot   | mode `1777` (world-writable)                    |
+| `/var/run`               | **RamFS** (dijamin kernel) | ❌ hilang saat reboot   | state runtime; lihat [RC_LOCAL.md](RC_LOCAL.md) |
+| `/mnt/host-*`            | **HostVFS**                | ✅ folder nyata di host | `mount`, `syncToHost`/`syncFromHost`            |
+| `/mnt/<node>`            | **NetFS**                  | ✅ (milik node lain)    | lewat MQTNL, lihat [netfs.md](netfs.md)         |
 
 Konsekuensinya untuk penulisan file:
 
@@ -313,7 +327,7 @@ Konsekuensinya untuk penulisan file:
 - Untuk file sementara yang besar, RamFS justru menguntungkan (RAM, cepat) tapi
   memakan memori node.
 - Tulis ke NetFS = latensi jaringan: pakai `writeChunk`/`copyWithProgress` dengan
-  chunk ≤ 32 KB, dan siapkan `ETIMEDOUT`/`stale` sebagai kondisi normal.
+  chunk ≤ 31 KB, dan siapkan `ETIMEDOUT`/`stale` sebagai kondisi normal.
 
 ---
 
@@ -334,18 +348,18 @@ Sumber: `src/mirror/opt/test/file-operation.ts` — ikut terpasang ke VFS oleh
 /opt/test/file-operation --info   /tmp/notes.txt
 /opt/test/file-operation --exists /tmp/notes.txt   # exit 1 kalau tidak ada
 /opt/test/file-operation --mkdir  /tmp/nested/deep  # rekursif, tanpa -p
-/opt/test/file-operation --copy   /tmp/big.bin --chunk-size 32768
+/opt/test/file-operation --copy   /tmp/big.bin --chunk-size 31744
 ```
 
 Daftar perintah (semuanya menerima bentuk `--nama` atau `nama`):
 
-| Kelompok | Perintah |
-| --- | --- |
-| Tulis | `--write`, `--write-fd`, `--append`, `--append-fd`, `--patch`, `--touch` |
-| Baca | `--read`, `--chunk`, `--size`, `--wc` |
-| Salin & metadata | `--copy`, `--info` (`--stat`), `--exists`, `--ls`, `--usage`, `--mounts` |
-| Direktori & permission | `--mkdir`, `--rmdir`, `--rm`, `--chmod`, `--chown` |
-| Uji mandiri | `--demo` |
+| Kelompok               | Perintah                                                                 |
+| ---------------------- | ------------------------------------------------------------------------ |
+| Tulis                  | `--write`, `--write-fd`, `--append`, `--append-fd`, `--patch`, `--touch` |
+| Baca                   | `--read`, `--chunk`, `--size`, `--wc`                                    |
+| Salin & metadata       | `--copy`, `--info` (`--stat`), `--exists`, `--ls`, `--usage`, `--mounts` |
+| Direktori & permission | `--mkdir`, `--rmdir`, `--rm`, `--chmod`, `--chown`                       |
+| Uji mandiri            | `--demo`                                                                 |
 
 `--demo` menjalankan semuanya ke `/tmp/file-op-demo/` dan melaporkan hasil.
 Keluaran aslinya (dijalankan 2026-09-19, 44 pemeriksaan — semuanya lulus):
@@ -399,18 +413,18 @@ fi
 
 ## 7. Gotcha & troubleshooting
 
-| Gejala | Penyebab | Solusi |
-| --- | --- | --- |
-| `File not found: /x` | `readFile()`/`getSize()`/`open("r")` **melempar** kalau tidak ada | cek dulu dengan `stat()` (§3.1), atau bungkus try/catch |
-| `Permission Denied: Cannot open ...` | mode file menolak (`SATPAM`) | `chmod`, atau jalankan sebagai pemilik/root |
-| `Permission Denied: Cannot create file in ...` | direktori induk tidak writable | `chmod` induk, atau buat di direktori lain |
-| `Bad File Descriptor: Not open for writing` | `write()` ke fd yang dibuka `"r"` | buka dengan `"w"`/`"a"`/`"r+"` |
-| Isi file aneh (`abc   z`) | `writeChunk()` di offset > panjang isi → padding spasi | pastikan `offset <= panjang isi` |
-| Ukuran ≠ ukuran byte di host | `size`/offset = **karakter**, bukan byte UTF-8 | pakai string latin1 untuk data biner |
-| File hilang setelah reboot | ditulis ke `/tmp` atau `/var/run` (ramfs) | tulis ke `/` (BKFS) atau HostVFS |
-| Operasi menggantung di `/mnt/<node>` | peer NetFS mati | `netfs status`, `lsblk` (`stale`), lihat [netfs.md](netfs.md) |
-| `EROFS` saat menulis | mount read-only (`--ro`) | remount rw, atau tulis ke path lain |
-| FD bocor (`open` tanpa `close`) | `pcb.fdTable` tumbuh; resource ditahan sampai proses mati | selalu `close()` di blok `finally` |
+| Gejala                                         | Penyebab                                                          | Solusi                                                        |
+| ---------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------- |
+| `File not found: /x`                           | `readFile()`/`getSize()`/`open("r")` **melempar** kalau tidak ada | cek dulu dengan `stat()` (§3.1), atau bungkus try/catch       |
+| `Permission Denied: Cannot open ...`           | mode file menolak (`SATPAM`)                                      | `chmod`, atau jalankan sebagai pemilik/root                   |
+| `Permission Denied: Cannot create file in ...` | direktori induk tidak writable                                    | `chmod` induk, atau buat di direktori lain                    |
+| `Bad File Descriptor: Not open for writing`    | `write()` ke fd yang dibuka `"r"`                                 | buka dengan `"w"`/`"a"`/`"r+"`                                |
+| Isi file aneh (`abc   z`)                      | `writeChunk()` di offset > panjang isi → padding spasi            | pastikan `offset <= panjang isi`                              |
+| Ukuran ≠ ukuran byte di host                   | `size`/offset = **karakter**, bukan byte UTF-8                    | pakai string latin1 untuk data biner                          |
+| File hilang setelah reboot                     | ditulis ke `/tmp` atau `/var/run` (ramfs)                         | tulis ke `/` (BKFS) atau HostVFS                              |
+| Operasi menggantung di `/mnt/<node>`           | peer NetFS mati                                                   | `netfs status`, `lsblk` (`stale`), lihat [netfs.md](netfs.md) |
+| `EROFS` saat menulis                           | mount read-only (`--ro`)                                          | remount rw, atau tulis ke path lain                           |
+| FD bocor (`open` tanpa `close`)                | `pcb.fdTable` tumbuh; resource ditahan sampai proses mati         | selalu `close()` di blok `finally`                            |
 
 ---
 
@@ -448,15 +462,15 @@ npx vitest run src/vfs src/kernel/Syscalls.test.ts
 
 ## 10. Belum ada (kandidat lanjutan)
 
-| Fitur | Dampak | Alternatif sekarang |
-| --- | --- | --- |
-| `exists()` di FsLib | nyaman | `stat() !== null` |
-| `rename()` / pindah | belum bisa atomic rename | `cp` + `rm`, atau `mv` (shell) |
-| `append()` di FsLib | belum terekspos ke userland | `open("a")` + `write`, atau `getSize` + `writeChunk` |
-| `truncate(path, size)` | memotong file tanpa menulis ulang | `readChunk` + `writeFile` |
-| `flock` (advisory lock) | race antar-daemon | buat file penanda + `waitfile` |
-| `symlink`/`link` | tidak ada | mount/path langsung |
-| `statfs` per path | `getUsage()` masih per-filesystem | `getUsage()` |
+| Fitur                   | Dampak                            | Alternatif sekarang                                  |
+| ----------------------- | --------------------------------- | ---------------------------------------------------- |
+| `exists()` di FsLib     | nyaman                            | `stat() !== null`                                    |
+| `rename()` / pindah     | belum bisa atomic rename          | `cp` + `rm`, atau `mv` (shell)                       |
+| `append()` di FsLib     | belum terekspos ke userland       | `open("a")` + `write`, atau `getSize` + `writeChunk` |
+| `truncate(path, size)`  | memotong file tanpa menulis ulang | `readChunk` + `writeFile`                            |
+| `flock` (advisory lock) | race antar-daemon                 | buat file penanda + `waitfile`                       |
+| `symlink`/`link`        | tidak ada                         | mount/path langsung                                  |
+| `statfs` per path       | `getUsage()` masih per-filesystem | `getUsage()`                                         |
 
 ---
 
