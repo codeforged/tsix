@@ -13,7 +13,7 @@ import {
     verifyBundleFiles,
     type TpkgBundleFile,
     type TpkgHostPort,
-} from "./TpkgProtocol";
+} from "@tsix/TpkgProtocol";
 
 /** Bentuk satu entri backup di `/var/lib/tpkg/backup/<pkg>/<ts>/index.json`. */
 interface BackupEntry {

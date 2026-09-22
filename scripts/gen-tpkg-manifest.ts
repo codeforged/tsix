@@ -189,7 +189,14 @@ function hostItems(): Item[] {
     const items: Item[] = [];
     const targets = [
         { abs: path.join(ROOT, "src/kernel"), rel: "src/kernel" },
-        { abs: path.join(ROOT, "src/userland"), rel: "src/userland", only: ["WorkerEntry.ts"] },
+        // Bootloader worker + resolver modul relatif. Keduanya dimuat LANGSUNG oleh
+        // Node (WorkerEntry.js via `new Worker()`, VfsModuleResolver.js via require),
+        // jadi sidecar .js-nya dibangun ulang oleh /sbin/apply-update.ts.
+        {
+            abs: path.join(ROOT, "src/userland"),
+            rel: "src/userland",
+            only: ["WorkerEntry.ts", "VfsModuleResolver.ts"],
+        },
     ];
 
     for (const t of targets) {

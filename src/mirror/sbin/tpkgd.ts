@@ -12,7 +12,7 @@ import {
     type TpkgBundleFile,
     type TpkgManifest,
     type TpkgPackage,
-} from "./TpkgProtocol";
+} from "@tsix/TpkgProtocol";
 
 /**
  * TPKGD — TSIX Package Repository Daemon

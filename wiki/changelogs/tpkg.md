@@ -6,6 +6,47 @@
 
 ## 2026-09-22
 
+### Fix loader: import RELATIF (`./x`, `../y`) di userland sekarang jalan
+
+- **File:** `src/userland/WorkerEntry.ts`, `src/userland/VfsModuleResolver.ts` (baru),
+  `scripts/vfs-bootstrap.ts`, `src/mirror/lib/TpkgProtocol.ts` (pindah dari `sbin/`)
+- **Gejala saat dicoba di sistem hidup:**
+    ```
+    root@mactsix# tpkgd
+    [Worker 35] Direct Execution Error: Cannot find module './TpkgProtocol'
+    Require stack:
+    - /sbin/tpkgd.js
+    ```
+- **Akar masalah:** program userland dijalankan lewat "Direct Memory Execution" —
+  Kernel mengirim isi file sebagai `appContent`, lalu WorkerEntry men-`_compile()`-nya.
+  Hook `Module._load` hanya melayani module-id framework (`@tsix/*` → `/lib/*.ts`,
+  `@common/*` → `/lib/common/*.ts`) dan `../lib/...`. Import **sesama direktori**
+  jatuh ke Node biasa, yang mencarinya di HOST filesystem — padahal file itu ada di
+  VFS (BKFS). Jadi dulu satu-satunya jalan adalah memindahkan file ke `/lib`.
+- **Kenapa tidak bisa dibetulkan di hook:** `Module._load` SINKRON, sedangkan baca
+  VFS lewat syscall ASINKRON — hook tidak mungkin membaca file sendiri.
+- **Solusinya:** modul relatif dikumpulkan LEBIH DULU di `main()` (yang async):
+  telusuri import relatif secara statis dari isi program, resolve ke path VFS,
+  baca via `fs.readFile`, transitif (kedalaman bebas, siklus aman, ada pagar 64
+  modul), lalu simpan sebagai peta `id → kode ter-transpile`. Hook `require` tinggal
+  melihat peta itu — tanpa I/O. File `.js` dipakai apa adanya, `.ts` ditranspile.
+- **Struktur:** logika murni dipisah ke `src/userland/VfsModuleResolver.ts`
+  (tanpa efek samping, jadi bisa di-unit-test); `WorkerEntry.ts` hanya menyambungkannya
+  ke loader. Sidecar host `VfsModuleResolver.js` ikut di-generate & disinkronkan
+  (`scripts/vfs-bootstrap.ts` + `/sbin/apply-update.ts`).
+- **Verifikasi:** 9 unit test (`VfsModuleResolver.test.ts`) + uji worker sungguhan
+  (WorkerEntry.js dijalankan dengan `workerData` tiruan): `./TpkgProtocol`,
+  `./Sub/Extra`, `../TpkgProtocol` dari modul bersarang, dan `./helper` (`.js`)
+  semuanya dibaca dari VFS; error `Cannot find module` hilang.
+- **Ikutan:** `TpkgProtocol.ts` **dipindah** `sbin/` → `lib/` tetap dipertahankan
+  karena memang library bersama (masuk cache pre-compile `/lib`, tidak perlu baca VFS
+  per exec) dan di-import sebagai `@tsix/TpkgProtocol`.
+- **Oleh:** Copilot
+
+---
+
+## 2026-09-22
+
 ### Paket engine sejati: `system-update` meng-update kernel + seluruh sistem
 
 - **File:** `scripts/gen-tpkg-manifest.ts` (baru), `src/mirror/etc/tpkg/packages.json`,

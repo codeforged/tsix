@@ -31,6 +31,9 @@ const VFS_SIDECAR_DIRS = ["/bin", "/sbin", "/usr/bin"];
 /** File host yang dimuat langsung oleh Node (bukan lewat worker) → butuh sidecar juga. */
 const HOST_SIDECAR_SOURCES: Array<{ ts: string; hostDst: string }> = [
     { ts: "/tmp/tpkg-stage/userland/WorkerEntry.ts", hostDst: "src/userland/WorkerEntry.js" },
+    // WorkerEntry.js me-require('./VfsModuleResolver') — kalau salah satu tidak
+    // dibangun ulang, bootloader & resolusi import relatif jadi tidak sinkron.
+    { ts: "/tmp/tpkg-stage/userland/VfsModuleResolver.ts", hostDst: "src/userland/VfsModuleResolver.js" },
 ];
 
 /** Direktori eksekusi + mode-nya — salinan aturan `scripts/vfs-bootstrap.ts`. */
@@ -108,17 +111,18 @@ export const main = Program(async () => {
             const code = await fs.readFile(src.ts);
             if (code === null) continue; // file tidak ikut paket ini → lewati
 
+            const baseName = src.ts.split("/").pop() as string;
             const out = esbuild.transformSync(code, {
                 loader: "ts",
                 format: "cjs",
                 target: "node18",
                 sourcemap: "inline",
-                sourcefile: "WorkerEntry.ts",
+                sourcefile: baseName,
             });
             if (!out?.code) throw new Error("esbuild tidak menghasilkan kode");
 
             // syncToHost membaca isi dari VFS → tulis dulu ke staging, baru salin keluar.
-            const stage = "/tmp/tpkg-host-sidecar/WorkerEntry.js";
+            const stage = `/tmp/tpkg-host-sidecar/${baseName.replace(/\.ts$/, ".js")}`;
             await fs.writeFile(stage, out.code);
             const ok = await fs.syncToHost(stage, src.hostDst);
             if (!ok) throw new Error("syncToHost gagal");

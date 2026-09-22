@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { Main as TpkgClient } from "./tpkg";
 import { Main as TpkgDaemon } from "./tpkgd";
-import type { TpkgPackage } from "./TpkgProtocol";
+import type { TpkgPackage } from "@tsix/TpkgProtocol";
 
 /**
  * TPKG end-to-end (P2) — klien `tpkg` ↔ daemon `tpkgd` lewat MQTNL TIRUAN.

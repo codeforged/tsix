@@ -378,11 +378,6 @@
                     "isExecutable": true
                 },
                 {
-                    "src": "/sbin/TpkgProtocol.ts",
-                    "dst": "/sbin/TpkgProtocol.ts",
-                    "hostDst": "src/mirror/sbin/TpkgProtocol.ts"
-                },
-                {
                     "src": "/sbin/airtermd.ts",
                     "dst": "/sbin/airtermd.ts",
                     "hostDst": "src/mirror/sbin/airtermd.ts"
@@ -632,6 +627,11 @@
                     "src": "/lib/ShellScript.ts",
                     "dst": "/lib/ShellScript.ts",
                     "hostDst": "src/mirror/lib/ShellScript.ts"
+                },
+                {
+                    "src": "/lib/TpkgProtocol.ts",
+                    "dst": "/lib/TpkgProtocol.ts",
+                    "hostDst": "src/mirror/lib/TpkgProtocol.ts"
                 },
                 {
                     "src": "/lib/UserLib.ts",
@@ -992,6 +992,11 @@
                     "src": "/hostsrc/kernel/tty/TTYManager.ts",
                     "dst": "/tmp/tpkg-stage/kernel/tty/TTYManager.ts",
                     "hostDst": "src/kernel/tty/TTYManager.ts"
+                },
+                {
+                    "src": "/hostsrc/userland/VfsModuleResolver.ts",
+                    "dst": "/tmp/tpkg-stage/userland/VfsModuleResolver.ts",
+                    "hostDst": "src/userland/VfsModuleResolver.ts"
                 },
                 {
                     "src": "/hostsrc/userland/WorkerEntry.ts",

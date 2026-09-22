@@ -1,0 +1,167 @@
+/**
+ * VFS MODULE RESOLVER — resolusi import RELATIF (`./x`, `../y`) untuk program VFS
+ *
+ * MASALAH YANG DIPECAHKAN
+ * -----------------------
+ * Program userland dijalankan lewat jalur "Direct Memory Execution": Kernel
+ * mengirim isi file sebagai `appContent`, lalu WorkerEntry men-_compile()-nya.
+ * Akibatnya `require("./TpkgProtocol")` dari `/sbin/tpkgd.ts` mencari
+ * `/sbin/TpkgProtocol` di **host filesystem** — padahal file itu ada di VFS
+ * (BKFS). Hasilnya:
+ *
+ *     [Worker 35] Direct Execution Error: Cannot find module './TpkgProtocol'
+ *
+ * Sebelum ini hanya import ber-alias (`@tsix/*`, `@common/*`) dan `../lib/*`
+ * yang jalan, karena keduanya dilayani cache framework di memory. Import
+ * **sesama direktori** dulu memang tidak didukung — file harus dipindah ke
+ * `/lib` supaya bisa diimpor. Sekarang tidak perlu lagi.
+ *
+ * CARA KERJA
+ * ----------
+ * `Module._load` bersifat SINKRON, sedangkan pembacaan VFS lewat syscall
+ * bersifat ASINKRON — jadi tidak mungkin membaca file saat `require` berjalan.
+ * Karena itu modul relatif dikumpulkan LEBIH DULU di `main()` (yang async):
+ * telusuri import relatif dari isi program, resolve ke path VFS, baca
+ * (fs.readFile), transitif, lalu simpan sebagai peta `id → kode ter-transpile`.
+ * Hook `require` tinggal melihat peta itu — tanpa I/O, tanpa syscall.
+ *
+ * File ini SENGAJA BEBAS EFEK SAMPING (tidak menyentuh `Module._load`, tidak
+ * memasang handler proses) supaya bisa di-unit-test langsung; WorkerEntry.ts
+ * yang menyambungkannya ke loader sungguhan.
+ *
+ * (c) 2026 TSIX Project
+ */
+
+/** Batas jumlah modul relatif per program — pagar agar tidak menelusuri liar. */
+export const MAX_RELATIVE_MODULES = 64;
+
+/**
+ * vfsCandidates(): Path VFS yang dicoba untuk sebuah module-id tanpa ekstensi.
+ *
+ * Urutan `.ts` sebelum `.js` — berbeda dari EXEC/PATH yang mengutamakan `.js`.
+ * Alasannya: sidecar `.js` adalah hasil transpile dari `.ts`, dan saat program
+ * baru saja di-update, `.js`-nya justru yang tertinggal (belum di-rebuild).
+ * Untuk *modul pendamping* kita ingin definisi sumbernya.
+ */
+export function vfsCandidates(base: string): string[] {
+    return [`${base}.ts`, `${base}.js`, `${base}/index.ts`, `${base}/index.js`];
+}
+
+/**
+ * resolveVfsRelative(): Terjemahkan request relatif jadi path VFS absolut.
+ *
+ *   ("/sbin/tpkgd.ts",    "./TpkgProtocol") → "/sbin/TpkgProtocol"
+ *   ("/sbin/tpkgd.ts",    "../lib/util")    → "/lib/util"
+ *   ("/opt/app/main.ts",  "../common/x")    → "/opt/common/x"
+ *
+ * Return `null` kalau hasilnya keluar dari root (`..` melewati `/`) — pemanggil
+ * memperlakukannya sebagai "bukan modul VFS" dan membiarkan Node menyelesaikannya.
+ */
+export function resolveVfsRelative(baseVfsFile: string, request: string): string | null {
+    if (typeof baseVfsFile !== "string" || typeof request !== "string") return null;
+    if (!request.startsWith(".")) return null;
+
+    const segments = baseVfsFile.replace(/\\/g, "/").split("/");
+    segments.pop(); // buang nama file → tinggal direktori
+
+    for (const seg of request.split("/")) {
+        if (seg === "" || seg === ".") continue;
+        if (seg === "..") {
+            // Sudah di root dan masih minta naik → di luar VFS.
+            if (segments.length === 0) return null;
+            segments.pop();
+            continue;
+        }
+        segments.push(seg);
+    }
+
+    const out = "/" + segments.filter((s) => s !== "").join("/");
+    return out === "/" ? null : out;
+}
+
+/**
+ * findRelativeImports(): Cari request relatif yang TERTULIS STATIS di kode.
+ *
+ * Menangkap bentuk yang lazim dipakai di userland:
+ *   `import x from "./a"` · `export { x } from "./b"` · `require("./c")`
+ *   `import("./d")` (dynamic tapi literal) · `require("../e.ts")` (dengan ekstensi)
+ *
+ * Yang TIDAK tertangkap: request yang dibentuk dari variabel
+ * (`require("./" + name)`) — memang tidak bisa dianalisis statis; untuk kasus
+ * itu perilakunya sama seperti sebelum fitur ini ada (error jelas, bukan diam).
+ */
+export function findRelativeImports(source: string): string[] {
+    if (typeof source !== "string" || source.length === 0) return [];
+    const out = new Set<string>();
+    // `from "..."` menangkap import/export; `require(` dan `import(` eksplisit.
+    const re = /(?:from\s*|require\s*\(\s*|import\s*\(\s*)["'](\.[^"']*)["']/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(source)) !== null) {
+        const req = m[1].replace(/\.(ts|js)$/, ""); // id selalu tanpa ekstensi
+        out.add(req);
+    }
+    return [...out];
+}
+
+/** Opsi `collectRelativeModules()` — semua I/O & transpile disuntikkan. */
+export interface CollectOptions {
+    /** Module-id entry, mis. "/sbin/tpkgd" (tanpa ekstensi). */
+    entryId: string;
+    /** Isi sumber entry (TS/JS apa adanya). */
+    source: string;
+    /** Pembaca VFS; return null kalau file tidak ada. */
+    readFile: (vfsPath: string) => Promise<string | null>;
+    /** Transpile sumber → JS (CJS). Dipanggil untuk file `.ts` saja. */
+    transpile: (source: string, moduleId: string) => string;
+    /** Pagar jumlah modul (default `MAX_RELATIVE_MODULES`). */
+    maxFiles?: number;
+}
+
+/**
+ * collectRelativeModules(): Telusuri closure import relatif dari sebuah program.
+ *
+ * Hasilnya peta `module-id → kode JS`, dipakai hook `require` di WorkerEntry.
+ * Entry sendiri TIDAK dimasukkan (sudah di-compile jalur program).
+ *
+ * Dependensi yang disuntikkan membuat fungsi ini bisa diuji tanpa VFS, tanpa
+ * worker, dan tanpa esbuild — sekaligus menjaga `WorkerEntry.ts` tetap tipis.
+ */
+export async function collectRelativeModules(opts: CollectOptions): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    const limit = opts.maxFiles ?? MAX_RELATIVE_MODULES;
+    const seen = new Set<string>([opts.entryId]);
+    const queue: Array<{ id: string; source: string }> = [{ id: opts.entryId, source: opts.source }];
+
+    while (queue.length > 0) {
+        const current = queue.shift()!;
+
+        for (const request of findRelativeImports(current.source)) {
+            // Pagar diperiksa DI DALAM loop: satu file bisa punya puluhan import,
+            // jadi cek di kondisi `while` saja tidak cukup untuk membatasi.
+            if (seen.size > limit) break;
+
+            const base = resolveVfsRelative(current.id, request);
+            if (!base || seen.has(base)) continue;
+
+            let found: string | null = null;
+            let raw = "";
+            for (const candidate of vfsCandidates(base)) {
+                const content = await opts.readFile(candidate);
+                if (typeof content === "string") {
+                    found = candidate;
+                    raw = content;
+                    break;
+                }
+            }
+            // Tidak ketemu → biarkan jalur lama (Node) yang menangani.
+            if (!found) continue;
+
+            seen.add(base);
+            out[base] = found.endsWith(".js") ? raw : opts.transpile(raw, base);
+            // Telusuri import relatif milik modul ini juga (kedalaman bebas).
+            queue.push({ id: base, source: raw });
+        }
+    }
+
+    return out;
+}

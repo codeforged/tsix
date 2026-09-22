@@ -1,7 +1,6 @@
 import { workerData, parentPort } from "worker_threads";
 import { WorkerInitData, SyscallResponse } from "../common/IPCTypes";
-
-
+import { collectRelativeModules, resolveVfsRelative } from "./VfsModuleResolver";
 
 /**
  * WORKER ENTRY POINT
@@ -11,14 +10,7 @@ import { WorkerInitData, SyscallResponse } from "../common/IPCTypes";
  * Tugasnya: Inisialisasi UserLib dan jalankan aplikasi.
  */
 
-
-
-
 // tsconfig-paths dan esbuild-register sudah di-load via execArgv di Scheduler.ts
-
-
-
-
 
 const realExit = process.exit.bind(process);
 
@@ -61,6 +53,18 @@ function resolveRelativeModuleId(parentId: string, request: string): string {
     return parts.join("/");
 }
 
+/**
+ * MODUL RELATIF MILIK PROGRAM VFS (mis. `/sbin/tpkgd` + `./TpkgProtocol`).
+ *
+ * `Module._load` sinkron, sedangkan baca VFS asinkron — jadi isinya dikumpulkan
+ * lebih dulu di `main()` (lihat `collectRelativeModules`), lalu hook di bawah
+ * hanya MELIHAT peta ini: id module (`/sbin/TpkgProtocol`) → kode JS.
+ *
+ * Dulu import sesama direktori tidak didukung sama sekali (selalu jatuh ke host
+ * filesystem → "Cannot find module './TpkgProtocol'").
+ */
+let programModules: Record<string, string> = {};
+
 if (Module && path) {
     const originalLoad = Module._load;
     const vfsCache = (workerData as any).vfsCache || {};
@@ -86,11 +90,24 @@ if (Module && path) {
                     // dilakukan di ruang module-id (benar untuk semua kedalaman).
                     normalizedRequest = resolveRelativeModuleId(parentId, request);
                 } else {
-                    const basename = path!.basename(parent.filename);
-                    if (basename.startsWith("@tsix_") && request.startsWith("./")) {
-                        normalizedRequest = "@tsix/" + request.substring(2);
-                    } else if (basename.startsWith("@common_") && request.startsWith("./")) {
-                        normalizedRequest = "@common/" + request.substring(2);
+                    // Program VFS (bukan modul framework): filenya berupa path VFS
+                    // (`/sbin/tpkgd.js`). Resolusikan relatif terhadap direktorinya,
+                    // lalu cari di peta modul yang sudah dibaca dari VFS.
+                    //
+                    // Urutan penting: cabang `/lib/` & `/common/` di atas didahulukan
+                    // supaya `../lib/x` tetap dilayani cache framework.
+                    const vfsTarget = parent.filename.startsWith("/")
+                        ? resolveVfsRelative(parent.filename, request)
+                        : null;
+                    if (vfsTarget && programModules[vfsTarget]) {
+                        normalizedRequest = vfsTarget;
+                    } else {
+                        const basename = path!.basename(parent.filename);
+                        if (basename.startsWith("@tsix_") && request.startsWith("./")) {
+                            normalizedRequest = "@tsix/" + request.substring(2);
+                        } else if (basename.startsWith("@common_") && request.startsWith("./")) {
+                            normalizedRequest = "@common/" + request.substring(2);
+                        }
                     }
                 }
             }
@@ -105,6 +122,26 @@ if (Module && path) {
             vfsPath = "/lib/" + normalizedRequest.substring(6) + ".ts";
         } else if (normalizedRequest.startsWith("@common/")) {
             vfsPath = "/lib/common/" + normalizedRequest.substring(8) + ".ts";
+        }
+
+        // Modul relatif milik program (peta dari `collectRelativeModules`).
+        // Id-nya sudah tanpa ekstensi, jadi dicari langsung.
+        if (!vfsPath && programModules[normalizedRequest]) {
+            const content = programModules[normalizedRequest];
+            const dummyFilename = path!.join(process.cwd(), normalizedRequest.replace(/\//g, "_") + ".js");
+
+            const newMod = new Module(dummyFilename, parent);
+            newMod.filename = dummyFilename;
+            newMod.paths = Module._nodeModulePaths(process.cwd());
+
+            // Daftarkan SEBELUM _compile: modul ini bisa me-require anaknya saat
+            // _compile berjalan. Id-nya path VFS supaya import relatif bersarang
+            // ikut benar (resolveRelativeModuleId menangani bentuk "/a/b").
+            moduleIdByFile[dummyFilename] = normalizedRequest;
+            (newMod as any)._compile(content, dummyFilename);
+
+            moduleCache[normalizedRequest] = newMod.exports;
+            return newMod.exports;
         }
 
         if (vfsPath && vfsCache[vfsPath]) {
@@ -136,7 +173,8 @@ if (Module && path) {
     };
 }
 
-const hijackRequire = (id: string) => (global as any).hijackRequire ? (global as any).hijackRequire(id) : (hostRequire ? hostRequire(id) : null);
+const hijackRequire = (id: string) =>
+    (global as any).hijackRequire ? (global as any).hijackRequire(id) : hostRequire ? hostRequire(id) : null;
 
 if (typeof require !== "undefined") {
     (global as any).require = hijackRequire;
@@ -169,7 +207,9 @@ if (parentPort) {
             let heapLimit = 0;
             try {
                 heapLimit = hostRequire ? hostRequire("v8").getHeapStatistics().heap_size_limit : 0;
-            } catch (_) { /* v8 opsional — 0 berarti tidak diketahui */ }
+            } catch (_) {
+                /* v8 opsional — 0 berarti tidak diketahui */
+            }
 
             parentPort!.postMessage({
                 __tsixMemStat: requestId,
@@ -206,33 +246,38 @@ process.on("uncaughtException", (err) => {
 function trySendErrorToParent(message: string) {
     try {
         const lib = (global as any)._tsixLib as any;
-        if (lib && typeof lib.getParentPid === 'function' && typeof lib.shell?.send === 'function') {
-            lib.getParentPid().then((parentPid: number) => {
-                if (parentPid) {
-                    lib.shell.send(parentPid, {
-                        type: "GUI_WINDOW_ERROR",
-                        wid: "",
-                        pid: lib.getPid(),
-                        file: "",
-                        error: `Runtime Error: ${message}`,
-                        context: "runtime",
-                        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-                    });
-                }
-            }).catch(() => { });
+        if (lib && typeof lib.getParentPid === "function" && typeof lib.shell?.send === "function") {
+            lib.getParentPid()
+                .then((parentPid: number) => {
+                    if (parentPid) {
+                        lib.shell.send(parentPid, {
+                            type: "GUI_WINDOW_ERROR",
+                            wid: "",
+                            pid: lib.getPid(),
+                            file: "",
+                            error: `Runtime Error: ${message}`,
+                            context: "runtime",
+                            timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
+                        });
+                    }
+                })
+                .catch(() => {});
         }
-    } catch (_) { /* ignore */ }
+    } catch (_) {
+        /* ignore */
+    }
 }
 
 // --- BASIC SANDBOXING (Educational Level) ---
-// Kita "sembunyikan" beberapa API Node.js yang berbahaya agar user-land 
+// Kita "sembunyikan" beberapa API Node.js yang berbahaya agar user-land
 // dipaksa menggunakan Syscall lewat UserLib.
 const restrictHostAPI = (appName: string) => {
     const forbidden = (msg: string = "Security Violation: Direct Host API access is forbidden in TSIX Sandbox.") => {
         throw new Error(msg);
     };
 
-    const isPrivileged = appName.toLowerCase().includes("server") ||
+    const isPrivileged =
+        appName.toLowerCase().includes("server") ||
         appName.toLowerCase().includes("daemon") ||
         appName.toLowerCase().includes("dome") ||
         appName.toLowerCase().includes("tbuild") ||
@@ -242,7 +287,12 @@ const restrictHostAPI = (appName: string) => {
 
     const privilegedRequire = (mod: string) => {
         // Framework aliases are ALWAYS allowed, even in sandbox
-        if (mod.startsWith("@tsix/") || mod.startsWith("@common/") || mod.includes("/lib/") || mod.includes("/common/")) {
+        if (
+            mod.startsWith("@tsix/") ||
+            mod.startsWith("@common/") ||
+            mod.includes("/lib/") ||
+            mod.includes("/common/")
+        ) {
             return hijackRequire(mod);
         }
 
@@ -254,13 +304,20 @@ const restrictHostAPI = (appName: string) => {
 
     // Sembunyikan require jika ada (tergantung module loader)
     if (typeof require !== "undefined") {
-        (global as any).require = isPrivileged ? privilegedRequire : (mod: string) => {
-            // Even in sandbox, framework cores MUST be accessible
-            if (mod.startsWith("@tsix/") || mod.startsWith("@common/") || mod.includes("/lib/") || mod.includes("/common/")) {
-                return hijackRequire(mod);
-            }
-            forbidden();
-        };
+        (global as any).require = isPrivileged
+            ? privilegedRequire
+            : (mod: string) => {
+                  // Even in sandbox, framework cores MUST be accessible
+                  if (
+                      mod.startsWith("@tsix/") ||
+                      mod.startsWith("@common/") ||
+                      mod.includes("/lib/") ||
+                      mod.includes("/common/")
+                  ) {
+                      return hijackRequire(mod);
+                  }
+                  forbidden();
+              };
     }
 
     // Batasi akses process yang sensitif
@@ -272,7 +329,7 @@ const restrictHostAPI = (appName: string) => {
     }
 };
 
-// restrictHostAPI(); // Dipindahkan ke dalam main() 
+// restrictHostAPI(); // Dipindahkan ke dalam main()
 
 // -------------------------------------------
 
@@ -281,7 +338,7 @@ const restrictHostAPI = (appName: string) => {
  * sehingga terlihat juga di pixelterm / konsol TTY (bukan cuma host stderr).
  * Fire-and-forget (tidak di-await) supaya tidak mengubah alur main(); fallback
  * ke console.error (host stderr) bila print ke TTY gagal.
- */ 
+ */
 function emitWorkerError(lib: any, pid: number, message: string) {
     try {
         if (lib && lib.std && typeof lib.std.print === "function") {
@@ -305,10 +362,7 @@ function emitWorkerError(lib: any, pid: number, message: string) {
  */
 async function notifyLoadError(lib: any, pid: number, appName: string, message: string) {
     try {
-        const timestamp = new Date()
-            .toISOString()
-            .replace("T", " ")
-            .substring(0, 19);
+        const timestamp = new Date().toISOString().replace("T", " ").substring(0, 19);
         const payload = {
             type: "GUI_WINDOW_ERROR",
             wid: "",
@@ -361,7 +415,7 @@ async function main() {
     (global as any)._tsixLib = lib; // Register for explicit imports (v2.1)
 
     // JS-Direct path should NOT have -r in execArgv
-    const isJsDirect = !process.execArgv.some(arg => arg.includes("-r"));
+    const isJsDirect = !process.execArgv.some((arg) => arg.includes("-r"));
 
     // 2. Cari aplikasinya
     const targetKey = appName.trim();
@@ -384,11 +438,37 @@ async function main() {
             // Stack filename = BKFS path biar stack trace bener (/opt/test/gui-test.js)
             // stackBkfsPath = BKFS path untuk stack trace (/opt/test/gui-test.js)
             const stackBkfsPath = (data as any).stackBkfsPath;
-            const stackFilename = stackBkfsPath
-                ? stackBkfsPath.replace(/\.ts$/, '.js')
-                : moduleFilename;
+            const stackFilename = stackBkfsPath ? stackBkfsPath.replace(/\.ts$/, ".js") : moduleFilename;
             // sourcefile untuk esbuild sourcemap — cukup nama file aja (tanpa path)
-            const sourceFileName = (stackBkfsPath || moduleFilename).split(/[\\/]/).pop()!.replace(/\.js$/, '.ts');
+            const sourceFileName = (stackBkfsPath || moduleFilename).split(/[\\/]/).pop()!.replace(/\.js$/, ".ts");
+
+            // --- MODUL RELATIF PROGRAM (./x, ../y) ---
+            //
+            // Dikumpulkan SEKARANG (main() async) karena `Module._load` sinkron
+            // sedangkan baca VFS lewat syscall asinkron: hook require tidak mungkin
+            // membaca file sendiri. Tanpa langkah ini, `require("./TpkgProtocol")`
+            // mencari file itu di HOST filesystem dan gagal.
+            if (stackBkfsPath) {
+                try {
+                    const esbuildMod = hostRequire!("esbuild");
+                    programModules = await collectRelativeModules({
+                        entryId: stackBkfsPath.replace(/\.(ts|js)$/i, ""),
+                        source: content,
+                        readFile: (vfsPath: string) => lib.fs.readFile(vfsPath),
+                        transpile: (src: string, moduleId: string) =>
+                            esbuildMod.transformSync(src, {
+                                loader: "ts",
+                                format: "cjs",
+                                target: "node18",
+                                sourcemap: "inline",
+                                sourcefile: moduleId.split("/").pop() + ".ts",
+                            }).code,
+                    });
+                } catch (e: any) {
+                    // Non-fatal: import relatif akan gagal dengan pesan Node biasa.
+                    console.error(`[Worker ${pid}] Local module scan failed: ${e.message}`);
+                }
+            }
 
             // Jika content adalah TypeScript, transpile dulu ke JavaScript
             if (isTypeScript) {
@@ -412,18 +492,19 @@ async function main() {
 
             // Create a new module instance with physical path (for node_modules resolution)
             const appModule = new Module(moduleFilename, module.parent);
-            appModule.filename = stackFilename;  // __filename shows BKFS path
+            appModule.filename = stackFilename; // __filename shows BKFS path
             appModule.paths = Module._nodeModulePaths(path!.dirname(moduleFilename));
 
             // _compile dengan stackFilename agar stack trace nunjuk BKFS path
             (appModule as any)._compile(content, stackFilename);
 
-            AppClass = appModule.exports.main || appModule.exports.Main || appModule.exports.default || appModule.exports;
+            AppClass =
+                appModule.exports.main || appModule.exports.Main || appModule.exports.default || appModule.exports;
 
             // Jika masih belum ketemu (e.g. export class bukan default/main)
-            if (typeof AppClass !== 'function') {
+            if (typeof AppClass !== "function") {
                 const entries = Object.entries(appModule.exports);
-                const found = entries.find(([_, val]: [string, any]) => typeof val === 'function');
+                const found = entries.find(([_, val]: [string, any]) => typeof val === "function");
                 if (found) AppClass = found[1];
             }
 
@@ -436,7 +517,6 @@ async function main() {
             emitWorkerError(lib, pid, `Direct Execution Error: ${err.message}`);
         }
     }
-
 
     if (finalAppPath && hostRequire) {
         // STRATEGI BARU: Dynamic Loading dari File Fisik (Linux-like)
@@ -457,7 +537,7 @@ async function main() {
                 AppClass = module.default;
             } else {
                 // Fallback: Ambil export pertama yang berupa class/function
-                const found = entries.find(([_, val]: [string, any]) => typeof val === 'function');
+                const found = entries.find(([_, val]: [string, any]) => typeof val === "function");
                 if (found) AppClass = found[1];
             }
 
@@ -466,26 +546,28 @@ async function main() {
             } else {
                 loadFailure = "no valid 'main' export found";
                 loadErrorDetail = `Failed to identify AppClass for ${appName}. Module exports: ${Object.keys(module).join(", ")}`;
-                emitWorkerError(lib, pid, `Failed to identify AppClass for ${appName}. Module exports: ${Object.keys(module).join(", ")}`);
+                emitWorkerError(
+                    lib,
+                    pid,
+                    `Failed to identify AppClass for ${appName}. Module exports: ${Object.keys(module).join(", ")}`,
+                );
             }
         } catch (err: any) {
             loadFailure = "failed to load module";
             loadErrorDetail = `Runtime Error: Failed to require ${finalAppPath || appName}: ${err.message}`;
             emitWorkerError(lib, pid, `Runtime Error: Failed to require ${finalAppPath || appName}: ${err.message}`);
         }
-
     }
-
 
     if (!AppClass) {
         if (parentPort) {
             const errorMsg = loadFailure
                 ? `-bash: ${appName}: Failed to load — ${loadFailure}\n`
-                : `-bash: ${appName}: Application not found (Path: ${appPath || 'VFS-Only'})\n`;
+                : `-bash: ${appName}: Application not found (Path: ${appPath || "VFS-Only"})\n`;
             await lib.std.print(errorMsg);
             parentPort.postMessage({
                 success: false,
-                error: errorMsg.trim()
+                error: errorMsg.trim(),
             });
             // Tampilkan juga di desktop (WM/Asteracea) via GUI_WINDOW_ERROR.
             // WAJIB di-await: realExit(1) di bawah langsung mematikan worker, dan
@@ -496,17 +578,12 @@ async function main() {
         realExit(1);
     }
 
-
-
     // 3. AKTIFKAN SANDBOX (Kunci pintu sebelum aplikasi berjalan)
     restrictHostAPI(appName);
 
     try {
         const app = new AppClass();
         const result = await app.execute(lib as any, args);
-
-
-
 
         // 3. Jika aplikasi me-return string, cetak ke layar via PRINT syscall
         if (result && typeof result === "string" && result.trim() !== "") {
@@ -527,20 +604,22 @@ async function main() {
                     file: appName || "",
                     error: `Runtime Error: ${error.message}`,
                     context: "runtime",
-                    timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                    timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
                 });
             }
-        } catch (_) { /* IPC send failure is non-fatal */ }
+        } catch (_) {
+            /* IPC send failure is non-fatal */
+        }
 
         // Juga coba lewat std.error yang punya mekanisme lebih lengkap
         try {
             await lib.std.error(error.message || String(error), appName || "app");
-        } catch (_) { }
+        } catch (_) {}
 
         // Laporkan error ke TTY console
         try {
             await lib.std.print(`\n[Worker ${pid}] Runtime Error: ${error.message}\n`);
-        } catch (e) { }
+        } catch (e) {}
         realExit(1);
     }
 }
