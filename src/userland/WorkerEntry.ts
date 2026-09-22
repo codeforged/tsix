@@ -1,7 +1,24 @@
 import { workerData, parentPort } from "worker_threads";
 import { WorkerInitData, SyscallResponse } from "../common/IPCTypes";
 import { collectRelativeModules, resolveVfsRelative } from "./VfsModuleResolver";
-import { vfsBytesToUtf8 } from "../common/VfsText";
+
+/**
+ * Byte VFS (latin1) → teks untuk dikompilasi.
+ *
+ * DISALIN LOKAL, sengaja TIDAK di-`import` dari `@common/VfsText`: berkas ini adalah
+ * *worker entry* yang dijalankan di HOST, dan worker jalur **JS-Direct** (mis.
+ * `/bin/tsh.js`) sengaja dijalankan TANPA preload transpiler — jadi `require()` ke
+ * berkas `.ts` GAGAL:
+ *
+ *     Worker [2] Crash Error: Cannot find module '../common/VfsText'
+ *     → worker mati sebelum mengirim 'ready' → boot diam di /etc/rc.local
+ *
+ * (`../common/IPCTypes` aman karena sidecar `.js`-nya ada di repo; `VfsText.ts` baru
+ * tidak punya.) Implementasinya satu baris, jadi duplikasi ini lebih murah daripada
+ * memaksa JS-Direct memuat transpiler `.ts` (+~15 MB RSS per worker).
+ */
+const vfsBytesToUtf8 = (raw: string | null | undefined): string =>
+    raw === null || raw === undefined ? "" : Buffer.from(raw, "latin1").toString("utf8");
 
 /**
  * WORKER ENTRY POINT

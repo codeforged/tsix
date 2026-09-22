@@ -26,6 +26,12 @@
  *   VFS → teks :  vfsBytesToUtf8(raw)      (byte UTF-8 dijadikan teks)
  *
  * Keduanya round-trip EXACT (tidak ada yang hilang) dan aman dipakai berkali-kali.
+ *
+ * ⚠️ JANGAN di-import dari *worker entry* host-side (`src/userland/WorkerEntry.ts`):
+ * worker jalur JS-Direct dijalankan tanpa preload transpiler `.ts`, jadi `require()`
+ * ke berkas ini GAGAL (`Cannot find module '../common/VfsText'`) dan worker mati
+ * sebelum mengirim 'ready' — boot diam di `/etc/rc.local`. Untuk kasus itu, salin
+ * satu barisnya (lihat komentar di `WorkerEntry.ts`).
  */
 
 /** Byte VFS (latin1) → teks UTF-8. Untuk berkas yang memang teks. */

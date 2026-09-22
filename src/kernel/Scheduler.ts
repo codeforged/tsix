@@ -462,12 +462,30 @@ export class Scheduler {
 
         worker.on("error", (err) => {
             this.logger.error(`Worker [${pcb.pid}] Crash Error: ${err.message}`);
+
+            // Juga ke KONSOL, bukan hanya log berkas. Crash saat boot membuat proses
+            // lain menunggu (mis. `init` menunggu `/etc/rc.local` selesai), dan kalau
+            // pesannya hanya masuk log gejalanya terlihat seperti "boot diam" tanpa
+            // petunjuk apa pun — persis yang terjadi saat `WorkerEntry` gagal
+            // `require()` (worker mati sebelum mengirim 'ready').
+            console.error(
+                `\n[Kernel] Worker [${pcb.pid}] ${pcb.name} gagal start: ${err.message}\n`,
+            );
+
             pcb.state = ProcessState.EXITED;
             // Worker yang crash TIDAK boleh dibiarkan hidup: tanpa terminate,
             // isolate-nya menahan memori sampai proses host mati. ini penyebab
             // RSS membengkak pada app yang sering gagal.
             pcb.worker = undefined;
-            worker.removeAllListeners();
+            // HANYA buang listener `message` — JANGAN `removeAllListeners()`.
+            //
+            // `removeAllListeners()` ikut membuang listener `exit`, sehingga pembukuan
+            // exit (notifikasi ke parent, auto-reparent, cleanup FD, membangunkan
+            // WAITPID) TIDAK PERNAH JALAN. Akibatnya `init` yang menunggu proses ini
+            // menggantung selamanya — boot berhenti diam-diam, tanpa satu pun log
+            // lanjutan. (`terminate()` di bawah tetap memicu `exit`, dan handler itu
+            // yang menyelesaikan pembukuan.)
+            worker.removeAllListeners("message");
             worker.terminate().catch(() => { });
         });
 
