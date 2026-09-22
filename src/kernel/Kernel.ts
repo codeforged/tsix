@@ -28,7 +28,7 @@ import {
   parseNetFSSpec,
 } from "../common/netfs/NetFSProtocol";
 import { GUIRegistry } from "./GUIRegistry";
-import { parseFstabContent } from "./FstabParser";
+import { formatFstabIni, parseFstabContent } from "./FstabParser";
 
 import path from "path";
 import { std } from "@tsix/Application";
@@ -44,7 +44,8 @@ export class Kernel {
   private codename: string = "Dinawari";
   private version: string = "0.3.1.20260922.1";
   // 0.3.0 adalah fitur netfs di tsix diimplementasikan, setiap node tsix bisa mengakses storage ke node tsix yang lain! canggih bukan?
-  // 0.3.1: fstab pindah ke format INI (/etc/fstab.conf) — /etc/fstab.json tetap dibaca sebagai fallback.
+  // 0.3.1: fstab pindah ke format INI — SATU sumber kebenaran `/etc/fstab.conf`
+  // (berkas `.json` lama dimigrasi otomatis sekali saat boot, lalu tak dipakai lagi).
 
   public getCodename(): string {
     return this.codename;
@@ -959,29 +960,60 @@ export class Kernel {
   private async processFstab() {
     if (!this.bkfs) return;
 
-    // FSTAB: `.conf` (INI, gaya Unix) DIUTAMAKAN; `.json` tetap dibaca sebagai
-    // fallback supaya DB lama / node yang belum di-migrasi tidak kehilangan
-    // mount-nya. Kalau keduanya ada, `.conf` yang menang.
+    // FSTAB: SATU sumber kebenaran — `/etc/fstab.conf` (INI).
     //
-    // Catatan: pembacaan & validasi isi ada di `FstabParser.ts` (murni, teruji
-    // terpisah). Berkas itu memberi PERINGATAN untuk hal yang dulu senyap,
-    // mis. `mode = 775` (desimal, bukan oktal) atau `type` yang typo.
-    const fstabPath = ["/etc/fstab.conf", "/etc/fstab.json"].find((p) =>
-      this.bkfs!.exists(p),
-    );
-    if (!fstabPath) {
+    // Pembacaan & validasi isi ada di `FstabParser.ts` (murni, teruji terpisah).
+    // Berkas itu memberi PERINGATAN untuk hal yang dulu senyap, mis.
+    // `mode = 775` (desimal, bukan oktal) atau `type` yang typo.
+    const FSTAB_PATH = "/etc/fstab.conf";
+    const LEGACY_FSTAB_PATH = "/etc/fstab.json";
+
+    // MIGRASI sekali-jalan untuk node yang belum sempat pindah: isi `.json`
+    // (format lama) dipindahkan ke `.conf` SAAT BOOT, supaya tidak ada langkah
+    // manual yang bisa terlupa dan mount-nya tidak hilang. Berkas `.json`-nya
+    // sengaja TIDAK dihapus (itu milik admin) — ia hanya berhenti dipakai.
+    if (!this.bkfs.exists(FSTAB_PATH) && this.bkfs.exists(LEGACY_FSTAB_PATH)) {
+      const legacy = this.bkfs.read(LEGACY_FSTAB_PATH);
+      const parsed = legacy ? parseFstabContent(legacy) : null;
+
+      if (parsed && parsed.entries.length > 0) {
+        this.bootLogStart("FSTAB: migrasi /etc/fstab.json → /etc/fstab.conf");
+        this.bkfs.touch(
+          FSTAB_PATH,
+          formatFstabIni(
+            parsed.entries,
+            "# /etc/fstab.conf — hasil migrasi otomatis dari /etc/fstab.json\n" +
+              "# Silakan rapikan komentar/urutannya. Format: lihat /etc/fstab.md",
+          ),
+          0,
+          0,
+          0o644,
+        );
+        this.bootLogEnd(true, `${parsed.entries.length} entri`);
+        for (const message of parsed.warnings) {
+          this.logger.warn(`FSTAB(migrasi): ${message}`);
+          await this.syslog("fstab", `migrasi: ${message}`);
+        }
+        this.logger.info(
+          "FSTAB: /etc/fstab.json tidak dipakai lagi — isinya sudah dipindah ke /etc/fstab.conf",
+        );
+      } else {
+        this.bootLogStart("FSTAB: migrasi /etc/fstab.json");
+        this.bootLogEnd(false, "tidak ada entri yang bisa dipindahkan (format tidak dikenal)");
+      }
+    }
+
+    if (!this.bkfs.exists(FSTAB_PATH)) {
       // Bukan error (image minimal memang begitu), tapi layak terlihat: semua
-      // mount non-esensial (mis. netfs dari fstab) hanya ada di berkas ini.
-      this.logger.info(
-        "FSTAB: /etc/fstab.conf & /etc/fstab.json tidak ada — hanya mount esensial",
-      );
+      // mount non-esensial (mis. netfs) hanya didefinisikan di berkas ini.
+      this.logger.info("FSTAB: /etc/fstab.conf tidak ada — hanya mount esensial");
       return;
     }
 
     try {
-      const content = this.bkfs.read(fstabPath);
+      const content = this.bkfs.read(FSTAB_PATH);
       if (!content) {
-        this.bootLog(`FSTAB: ${fstabPath} kosong`, false);
+        this.bootLog(`FSTAB: ${FSTAB_PATH} kosong`, false);
         return;
       }
 
@@ -990,17 +1022,19 @@ export class Kernel {
       // Peringatan parser TIDAK menggagalkan boot, tapi harus terbaca operator:
       // salah tulis di sini bisa berarti izin ngawur atau mount tak terpasang.
       for (const message of warnings) {
-        this.logger.warn(`FSTAB(${fstabPath}): ${message}`);
+        this.logger.warn(`FSTAB(${FSTAB_PATH}): ${message}`);
         await this.syslog("fstab", message);
       }
       if (format === "json") {
-        this.logger.info(
-          "FSTAB: memakai format lama (.json) — pertimbangkan /etc/fstab.conf",
+        // Isi `.conf` berupa JSON (mungkin hasil salin-tempel): tetap jalan, tapi
+        // konversi ke INI dianjurkan supaya jelas mana sumber kebenarannya.
+        this.logger.warn(
+          `FSTAB: isi ${FSTAB_PATH} berformat JSON (lama) — sebaiknya ditulis dalam format INI`,
         );
       }
 
       if (entries.length === 0) {
-        this.bootLogStart(`FSTAB: ${fstabPath} (${format})`);
+        this.bootLogStart(`FSTAB: ${FSTAB_PATH} (${format})`);
         this.bootLogEnd(false, "tidak ada entri mount yang valid");
         return;
       }

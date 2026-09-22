@@ -48,7 +48,7 @@ const ENGINE_PKG = "system-update";
 const VFS_DIRS = ["bin", "sbin", "usr/bin", "lib", "lib/common", "etc"];
 /** Ekstensi yang dianggap isi sistem. */
 const EXT = [".ts", ".json"];
-/** Mount host read-only di node (lihat src/mirror/etc/fstab.json). */
+/** Mount host read-only di node (lihat src/mirror/etc/fstab.conf). */
 const HOSTSRC_MOUNT = "/hostsrc";
 /** Staging VFS untuk file host (ramfs /tmp). */
 const HOST_STAGE = "/tmp/tpkg-stage";
@@ -58,13 +58,16 @@ const HOST_STAGE = "/tmp/tpkg-stage";
  *
  * Ini kategori paling berbahaya kalau salah: mengirim `/etc/shadow` ke node lain
  * berarti akun server menggantikan akun node itu, dan mengirim `trusted_repos`
- * menyuntikkan kepercayaan ke repo asing. `fstab.json`/`crontab` mengubah cara node
+ * menyuntikkan kepercayaan ke repo asing. `fstab.conf`/`crontab` mengubah cara node
  * itu boot & menjadwalkan tugas. Semua ini sengaja TIDAK PERNAH di-update oleh paket
  * engine.
  */
 const NODE_LOCAL_PATTERNS: RegExp[] = [
     /^\/etc\/(passwd|shadow|group)$/,
-    /^\/etc\/fstab\.json$/,
+    // fstab: `.conf` adalah sumber kebenaran sekarang, `.json` nama lama yang masih
+    // dipakai node pra-migrasi. Keduanya dilarang — `EXT` belum memuat `.conf`,
+    // jadi pola ini penjaga kalau nanti `EXT`/whitelist ikut berubah.
+    /^\/etc\/fstab\.(conf|json)$/,
     /^\/etc\/crontab$/,
     /^\/etc\/tpkg\/trusted_repos$/,
     /^\/etc\/tpkg\/keys\//,

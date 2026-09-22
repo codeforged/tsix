@@ -1,9 +1,15 @@
 /**
- * FSTAB PARSER — pembacaan `/etc/fstab.conf` (INI) & `/etc/fstab.json` (lama)
+ * FSTAB PARSER — pembacaan `/etc/fstab.conf` (INI) + jalur migrasi `.json` lama
  *
  * Dipisah dari `Kernel.ts` supaya bisa di-unit-test tanpa menyalakan kernel —
  * berkas ini murni teks → objek, tanpa I/O dan tanpa efek samping (peringatan
  * dikembalikan sebagai daftar string, bukan di-log dari sini).
+ *
+ * `parseFstabContent()` juga mengenali isi JSON (array `[{ "vfsPath": ... }]`).
+ * Itu BUKAN sumber konfigurasi: dipakai kernel hanya untuk memigrasi node yang
+ * masih punya `/etc/fstab.json` → ditulis ulang ke `.conf` via
+ * `formatFstabIni()` saat boot. Format lama yang butuh perilaku khusus:
+ *   - `mode` di JSON lama ditulis DESIMAL (`1023` = 0o1777), bukan oktal.
  *
  * FORMAT `.conf` (gaya INI, satu `[section]` = satu mount):
  *
@@ -285,4 +291,46 @@ function tryParseJsonArray(content: string): unknown[] | null {
     } catch {
         return null;
     }
+}
+
+/** Urutan key yang enak dibaca manusia (sisanya alfabetis). */
+const KEY_ORDER = ["hostPath", "type", "readOnly", "active", "uid", "gid", "mode"];
+
+/**
+ * formatFstabIni(): Serialisasi entri → teks INI.
+ *
+ * Dipakai dua tempat: MIGRASI `/etc/fstab.json` lama (sekali-jalan, dari kernel)
+ * dan templat image baru. `mode` SELALU ditulis oktal eksplisit (`0o755`) supaya
+ * tidak ada ambiguitas desimal/oktal saat berkasnya dibaca manusia lagi; string
+ * yang memuat spasi/`#`/`;` dikutip supaya bisa dibaca ulang apa adanya.
+ */
+export function formatFstabIni(entries: FstabEntry[], header?: string): string {
+    const lines: string[] = [];
+    if (header) lines.push(...header.trimEnd().split("\n"));
+
+    for (const entry of entries) {
+        lines.push("", `[${entry.vfsPath}]`);
+        const keys = Object.keys(entry)
+            .filter((k) => k !== "vfsPath" && entry[k] !== undefined)
+            .sort((a, b) => {
+                const pa = KEY_ORDER.indexOf(a);
+                const pb = KEY_ORDER.indexOf(b);
+                if (pa !== -1 || pb !== -1) return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb);
+                return a.localeCompare(b);
+            });
+        for (const key of keys) {
+            lines.push(`${key} = ${formatValue(key, entry[key])}`);
+        }
+    }
+
+    return lines.join("\n").replace(/^\n+/, "") + "\n";
+}
+
+/** formatValue(): Nilai JS → teks siap tulis (khusus `mode` selalu oktal). */
+function formatValue(key: string, value: unknown): string {
+    if (key === "mode" && typeof value === "number") return `0o${value.toString(8)}`;
+    if (typeof value === "boolean") return value ? "true" : "false";
+    if (typeof value === "number") return String(value);
+    const s = String(value);
+    return /[\s#;]/.test(s) ? `"${s}"` : s;
 }

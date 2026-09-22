@@ -21,7 +21,7 @@ audience: all
 
 - [ ] Menjelaskan struktur `MountPoint`
 - [ ] Menjelaskan prinsip "prefix terpanjang menang"
-- [ ] Menjelaskan isi `fstab.json` (mount default)
+- [ ] Menjelaskan isi `fstab.conf` (mount default)
 - [ ] Membedakan resolve via MountManager vs device `/dev/*`
 - [ ] Menjelaskan peran `PathResolver`
 - [ ] Melakukan walkthrough `PathResolver.resolve()` untuk path relatif, absolut, `.` dan `..`
@@ -55,7 +55,7 @@ export interface MountPoint {
 }
 ```
 
-> `type` memakai nilai nyata dari `fstab.json`: `"bkfs"`, `"ramfs"`, dan `"host"` (HostVFS).
+> `type` memakai nilai nyata dari `fstab.conf`: `"bkfs"`, `"ramfs"`, dan `"host"` (HostVFS).
 
 ### PathResolver.resolve() — walkthrough
 
@@ -75,13 +75,13 @@ export interface MountPoint {
 
 ### Mount default
 
-Root `/` **tidak** ada di `fstab.json`. Ia di-mount langsung di `initializeSubsystems()`:
+Root `/` **tidak** ada di `fstab.conf`. Ia di-mount langsung di `initializeSubsystems()`:
 
 ```ts
 this.mountManager.mount("/", this.bkfs, "bkfs", cfg.kernel.database, false);
 ```
 
-`cfg.kernel.database` bernilai `"system.db"` (lihat `src/sysconfig.json`). Sisanya dimuat dari `src/mirror/etc/fstab.json` oleh `processFstab()`:
+`cfg.kernel.database` bernilai `"system.db"` (lihat `src/sysconfig.json`). Sisanya dimuat dari `src/mirror/etc/fstab.conf` oleh `processFstab()`:
 
 | Path | type | Backend | Sumber | readOnly | uid/gid | mode | Sifat |
 |---|---|---|---|---|---|---|---|
@@ -91,7 +91,10 @@ this.mountManager.mount("/", this.bkfs, "bkfs", cfg.kernel.database, false);
 | `/mnt/sbak` | `bkfs` | BKFS | `systembak.db` | false | 1000/100 | `0o775` | backup DB |
 
 > [!NOTE]
-> `fstab.json` hanya memuat `/tmp`, `/mnt/shared`, dan `/mnt/sbak`. Entry `/tmp` memakai `active: true`; sisanya default aktif. Mode `1023` = `0o1777` (sticky, semua bisa tulis — khas `/tmp`), `509` = `0o775`.
+> `fstab.conf` hanya memuat `/tmp`, `/mnt/shared`, dan `/mnt/sbak`. Entry `/tmp`
+ memakai `active = true`; sisanya default aktif. Format INI menulis izin sebagai
+ oktal eksplisit: `mode = 0o1777` (sticky, semua bisa tulis — khas `/tmp`),
+ `mode = 0o775` untuk sisanya. (Kalau ditulis desimal pun sah: `1023` = `0o1777`.)
 
 ### Resolve: prefix terpanjang menang
 
@@ -134,7 +137,7 @@ Path `dev/xxx` di-handle oleh **HAL** (`kernel.devices[xxx]`), bypass MountManag
 initializeSubsystems()
   └─ new BKFS("system.db")                        → root filesystem
   └─ mount("/", bkfs, "bkfs", "system.db", false)
-  └─ processFstab()                               → baca /etc/fstab.json
+  └─ processFstab()                               → baca /etc/fstab.conf
        └─ untuk tiap entry:
             active === false → skip
             pastikan dir mount point ada (mode ?? 0o755)
@@ -166,7 +169,7 @@ Path /dev/* → kernel.devices[xxx]     // HAL, bukan MountManager
 | `src/kernel/MountManager.ts` | mount/unmount/resolve/listMounts |
 | `src/common/PathResolver.ts` | Normalisasi path (`//`, `.`, `..`) |
 | `src/kernel/Kernel.ts` | `initializeSubsystems()` + `processFstab()` saat boot |
-| `src/mirror/etc/fstab.json` | Daftar mount default |
+| `src/mirror/etc/fstab.conf` | Daftar mount default |
 | `src/vfs/HostVFS.ts`, `RamFS.ts`, `BKFS.ts` | Backend |
 
 ---
@@ -292,7 +295,7 @@ this.mountManager.mount("/", this.bkfs, "bkfs", cfg.kernel.database, false);
 private async processFstab() {
     if (!this.bkfs) return;
 
-    const fstabPath = "/etc/fstab.json";
+    const fstabPath = "/etc/fstab.conf";
     if (!this.bkfs.exists(fstabPath)) return;
 
     try {
@@ -378,7 +381,7 @@ private async processFstab() {
 - `wiki/course/00-overview.md` §4.4
 - `src/kernel/MountManager.ts`, `src/common/PathResolver.ts`
 - `src/kernel/Kernel.ts` — `initializeSubsystems()` & `processFstab()`
-- `src/mirror/etc/fstab.json` — daftar mount default
+- `src/mirror/etc/fstab.conf` — daftar mount default
 
 ---
 

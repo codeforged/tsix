@@ -126,20 +126,17 @@ netfs cat  tsix_2:7777 /docs/a.txt
 netfs status                    # mount netfs aktif + status stale
 ```
 
-### 4.3 Otomatis saat boot (`/etc/fstab.json`)
+### 4.3 Otomatis saat boot (`/etc/fstab.conf`)
 
-```json
-[
-    {
-        "vfsPath": "/mnt/net",
-        "hostPath": "tsix_2:7777",
-        "type": "netfs",
-        "readOnly": true,
-        "active": true,
-        "via": 7778,
-        "timeoutMs": 5000
-    }
-]
+```ini
+[/mnt/net]
+hostPath  = tsix_2:7777
+key       = c50f...c65         # 64 hex, sama dengan netfsd --key
+readOnly  = true
+active    = true
+via       = 7778              # port netfsd --client lokal
+cacheTtlMs = 0
+timeoutMs  = 5000
 ```
 
 Saat boot, `processFstab()` membuat mount point lalu handshake. **Kalau peer

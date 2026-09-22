@@ -65,7 +65,7 @@ export interface IVFS {
 | **RamFS** | memori (pohon `VNode`) | ❌ volatile (hilang saat restart) | ⚡ sangat cepat | `/tmp` (data sementara) |
 | **HostVFS** | folder nyata di host (`fs` Node) | ✅ persisten (file host) | sedang (syscall host) | `/mnt/shared` (bridge + anti-escape) |
 
-Kapan backend dipakai ditentukan oleh `MountManager` saat boot (lihat `src/mirror/etc/fstab.json`):
+Kapan backend dipakai ditentukan oleh `MountManager` saat boot (lihat `src/mirror/etc/fstab.conf`):
 
 | Mount point | Type | Source | Keterangan |
 |---|---|---|---|
@@ -75,7 +75,7 @@ Kapan backend dipakai ditentukan oleh `MountManager` saat boot (lihat `src/mirro
 | `/mnt/sbak` | `bkfs` | `systembak.db` | backup root di file SQLite terpisah |
 
 > [!NOTE] **"Swap backend" tanpa ubah kernel**
-> Kernel hanya memegang referensi `IVFS`. Karena semua backend mengimplementasi kontrak yang sama, mengganti penyimpanan (mis. `/tmp` dari RamFS ke BKFS) cukup dengan mengubah entri `fstab.json` — syscall tidak berubah sama sekali.
+> Kernel hanya memegang referensi `IVFS`. Karena semua backend mengimplementasi kontrak yang sama, mengganti penyimpanan (mis. `/tmp` dari RamFS ke BKFS) cukup dengan mengubah entri `fstab.conf` — syscall tidak berubah sama sekali.
 
 ![Routing VFS: app → syscall → MountManager → BKFS/RamFS/HostVFS](/wiki/diagram/Virtual-File-System-1.png)
 *Sumber: [`wiki/diagram/Virtual-File-System-1.mmd`](/wiki/diagram/Virtual-File-System-1.mmd)*
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS vnodes (
 
 **Catatan penting:**
 
-- **`uid`/`gid`/`mode` disimpan sebagai desimal**, bukan string octal. Contoh: `mode 420` = `0o644`, `493` = `0o755`. Root `/` disisipkan saat init dengan mode `493`; `/tmp` di `fstab.json` memakai `1023` = `0o1777` (sticky bit).
+- **`uid`/`gid`/`mode` disimpan sebagai desimal** oleh kernel, bukan string octal. Contoh: `mode 420` = `0o644`, `493` = `0o755`. Root `/` disisipkan saat init dengan mode `493`; `/tmp` di `fstab.conf` ditulis `mode = 0o1777` (setara desimal `1023`, sticky bit).
 - **Navigasi path** dilakukan baris-per-baris: setiap segmen dicari dengan `SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'`, lalu `parent_id` bergeser ke id hasil. Ini terjadi di `getNodeId()` / `getNodeIdAndSize()`.
 - **`UNIQUE(parent_id, name)`** mencegah duplikasi nama di folder yang sama. Schema ini juga migrasi DB lama: kolom `uid/gid/mode/size/modified_at` ditambahkan via `ALTER TABLE` jika belum ada.
 
@@ -350,7 +350,7 @@ if (offset >= currentSize) {
 - `src/kernel/MountManager.ts` — pemilihan backend dari path (prefix terpanjang)
 - `src/kernel/Syscalls.ts` — syscall `OPEN`, `READ`, `READ_CHUNK`, `WRITE_CHUNK`, `GET_SIZE`
 - `src/kernel/devices/FileSystemDevice.ts` — jembatan FD → IVFS
-- `src/mirror/etc/fstab.json` — konfigurasi mount saat boot
+- `src/mirror/etc/fstab.conf` — konfigurasi mount saat boot
 
 ---
 

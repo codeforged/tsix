@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { parseFstabContent, FSTAB_MOUNT_TYPES } from "./FstabParser";
+import { parseFstabContent, formatFstabIni, FSTAB_MOUNT_TYPES } from "./FstabParser";
 import { FRESH_FSTAB_INI } from "../../scripts/lib/fresh-fstab";
 
 /**
- * FSTAB parser (A4) — pembacaan `/etc/fstab.conf` (INI) & `/etc/fstab.json` (lama).
+ * FSTAB parser (A4) — `/etc/fstab.conf` (INI) + jalur migrasi `.json` lama.
  *
  * Regresi yang dijaga (semuanya ditemukan saat review):
- *   - berkas `.conf` belum ada di mana pun → kernel lama membaca `.json`, jadi
- *     `.conf` harus DIUTAMAKAN tapi `.json` tetap dibaca (fallback);
+ *   - berkas `.conf` belum ada di mana pun → kernel dulu membaca `.json` saja,
+ *     jadi node lama harus DIMIGRASI otomatis (A4.10), bukan kehilangan mount;
  *   - `mode = 775` (niat oktal) dulu jadi 775 desimal = 0o1363 tanpa peringatan;
  *   - `key` (64 hex) bisa berubah jadi Number kalau kebetulan semua digit;
  *   - `type` typo dulu diam-diam jatuh ke HostVFS;
@@ -208,5 +208,37 @@ hostPath = RAM        ; tanpa hostPath pun boleh
             active: true,
         });
         expect(entries[1]).toMatchObject({ type: "ramfs", mode: 0o755, uid: 0, gid: 0 });
+    });
+
+    it("A4.10 formatFstabIni(): hasil serialisasi bisa diurai ulang tanpa berubah", () => {
+        const legacy = JSON.stringify([
+            { vfsPath: "/tmp", hostPath: "RAM", type: "ramfs", uid: 0, gid: 100, mode: 1023, active: true },
+            { vfsPath: "/hostsrc", hostPath: "src", type: "host", readOnly: true, uid: 0, gid: 0, mode: 448 },
+        ]);
+
+        // Ini persis yang dilakukan `processFstab()` saat MIGRASI: baca `.json`,
+        // tulis `.conf`, lalu boot berikutnya membaca `.conf` itu.
+        const migrated = formatFstabIni(parseFstabContent(legacy).entries);
+        const again = parseFstabContent(migrated);
+
+        expect(again.warnings).toEqual([]);
+        expect(again.format).toBe("ini");
+        expect(again.entries).toHaveLength(2);
+        // `mode` WAJIB utuh: 1023 → `0o1777` → 1023 (bukan 1023 desimal!).
+        expect(again.entries[0]).toMatchObject({ vfsPath: "/tmp", mode: 0o1777, active: true });
+        expect(again.entries[1]).toMatchObject({ vfsPath: "/hostsrc", mode: 0o700, readOnly: true });
+        expect(migrated).toContain("mode = 0o1777");
+    });
+
+    it("A4.11 formatFstabIni(): string bermasalah dikutip, `#`/spasi aman", () => {
+        const text = formatFstabIni([
+            { vfsPath: "/mnt/x", hostPath: "dir dengan spasi", type: "host" },
+            { vfsPath: "/mnt/y", hostPath: "kanal#1", type: "host" },
+        ]);
+        const parsed = parseFstabContent(text);
+
+        expect(parsed.warnings).toEqual([]);
+        expect(parsed.entries[0].hostPath).toBe("dir dengan spasi");
+        expect(parsed.entries[1].hostPath).toBe("kanal#1");
     });
 });

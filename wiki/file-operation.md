@@ -406,7 +406,7 @@ Exit code: `0` sukses · `1` operasi gagal (`--demo` juga 1 bila ada check gagal
 
 ```sh
 #!/bin/tsh
-if /opt/test/file-operation --exists /etc/fstab.json; then
+if /opt/test/file-operation --exists /etc/fstab.conf; then
   echo "fstab ada"
 else
   echo "fstab belum dibuat"

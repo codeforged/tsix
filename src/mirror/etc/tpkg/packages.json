@@ -35,7 +35,7 @@
         },
         {
             "name": "system-update",
-            "version": "0.3.0.20260917.1",
+            "version": "0.3.1.20260922.1",
             "description": "TSIX engine update — kernel + semua file sistem (/bin, /sbin, /usr/bin, /lib, /lib/common, /etc)",
             "author": "TSIX",
             "needReboot": true,
@@ -589,6 +589,11 @@
                     "hostDst": "src/mirror/lib/Application.ts"
                 },
                 {
+                    "src": "/lib/ConfigParser.ts",
+                    "dst": "/lib/ConfigParser.ts",
+                    "hostDst": "src/mirror/lib/ConfigParser.ts"
+                },
+                {
                     "src": "/lib/DbLib.ts",
                     "dst": "/lib/DbLib.ts",
                     "hostDst": "src/mirror/lib/DbLib.ts"
@@ -812,6 +817,11 @@
                     "src": "/hostsrc/kernel/ExecutableRegistry.ts",
                     "dst": "/tmp/tpkg-stage/kernel/ExecutableRegistry.ts",
                     "hostDst": "src/kernel/ExecutableRegistry.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/FstabParser.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/FstabParser.ts",
+                    "hostDst": "src/kernel/FstabParser.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/GUIRegistry.ts",

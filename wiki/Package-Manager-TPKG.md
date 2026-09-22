@@ -252,7 +252,7 @@ tetap sinkron. Kalau repo tertinggal, `npm run vfs:bootstrap` berikutnya akan
 menurunkan versi sistem secara diam-diam.
 
 Di sisi server, file host dibaca lewat mount read-only `/hostsrc` → `src`
-(lihat `src/mirror/etc/fstab.json`, mode `0o700` — hanya root).
+(lihat `src/mirror/etc/fstab.conf`, mode `0o700` — hanya root).
 
 ### Pengaman
 
@@ -291,7 +291,7 @@ Data milik node tidak boleh disebar ke node lain:
 | `/etc/passwd`, `/etc/shadow`, `/etc/group`     | Akun server akan menggantikan akun node tujuan                             |
 | `/etc/tpkg/trusted_repos`, `/etc/tpkg/keys/**` | Kepercayaan (TOFU) & kunci per node                                        |
 | `/etc/tsd/**`                                  | Trust + manifest tsd (legacy, per node)                                    |
-| `/etc/fstab.json`, `/etc/crontab`              | Mount & jadwal tugas per node                                              |
+| `/etc/fstab.conf`, `/etc/crontab`              | Mount & jadwal tugas per node                                              |
 | `/etc/<app>/*.json` (lantana, telechat, dst.)  | Pengaturan operator; engine update tidak boleh mengembalikannya ke default |
 
 Yang tetap dikirim dari `/etc` hanya: `profile`, `rc.local`, `motd`, `motd.json`,

@@ -187,15 +187,24 @@ sudo chown root /etc/passwd
 
 ## Mount System
 
-TSIX mendukung mounting multiple filesystem backend melalui `MountManager`. Konfigurasi mount didefinisikan di `/etc/fstab.json`:
+TSIX mendukung mounting multiple filesystem backend melalui `MountManager`. Konfigurasi mount didefinisikan di `/etc/fstab.conf` (format INI, `[mount-point]` + `key = value`):
 
-```json
-[
-  { "vfsPath": "/tmp",        "hostPath": "RAM",           "type": "ramfs" },
-  { "vfsPath": "/mnt/shared", "hostPath": "shared",        "type": "host"  },
-  { "vfsPath": "/mnt/sbak",   "hostPath": "systembak.db",  "type": "bkfs"  }
-]
+```ini
+[/tmp]
+hostPath = RAM
+type     = ramfs
+mode     = 0o1777
+
+[/mnt/shared]
+hostPath = shared
+type     = host
+
+[/mnt/sbak]
+hostPath = systembak.db
+type     = bkfs
 ```
+
+Aturan lengkap (oktal vs desimal, entri `netfs`, peringatan boot) ada di `/etc/fstab.md`.
 
 ### CLI Commands
 

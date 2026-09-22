@@ -84,7 +84,7 @@ All host scripts get the DB path via `scripts/lib/db-path.ts`, so its value is a
 │   /bin /sbin /usr/bin  (exec+setuid) │
 │   /lib/common  <- src/common         │
 │   /etc: passwd shadow group          │
-│         crontab fstab.json           │
+│         crontab fstab.conf           │
 │   /tmp  -> ramfs (volatile)          │
 └──────────────────────────────────────┘
 ```
@@ -111,7 +111,7 @@ scripts/lib/db-path.ts
 3. Create a new `.db` file. If the file already exists and without `--force` → stop; with `--force` → the old file is backed up to `*.bak-<timestamp>`.
 4. Sync rootfs: `src/mirror` → `/`, then `src/common` → `/lib/common`. Each `.ts` is transpiled to a sidecar `.js`; executable directories get execute mode (`/sbin` = `0744`, others `0755`); `login`, `passwd`, `sudo` get SetUID (`4755` root).
 5. Sync explicit `/etc` files without extension: `passwd`, `shadow` (mode `0640`), `group`, `crontab`, `profile`, `motd`, `fstab.md`, `pkg-demo.conf`.
-6. Write a fresh `fstab.json` — only `/tmp` as ramfs (mode `1777` sticky); device-specific mounts are not carried over.
+6. Write a fresh `fstab.conf` — only `/tmp` as ramfs (mode `0o1777` sticky); device-specific mounts are not carried over.
 7. Clear `/etc/crontab`.
 8. If a user account was provided → add an entry to `/etc/passwd` + `/etc/shadow` (bcrypt) + `users` group, then create `/home/<username>` (mode `0700`, owned by the user).
 9. If a root password is provided → it is bcrypt-hashed and written to `/etc/shadow`.

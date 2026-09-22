@@ -65,7 +65,7 @@ export interface IVFS {
 | **RamFS** | memory (`VNode` tree) | ❌ volatile (lost on restart) | ⚡ very fast | `/tmp` (temporary data) |
 | **HostVFS** | real folder on the host (Node `fs`) | ✅ persistent (host files) | moderate (host syscall) | `/mnt/shared` (bridge + anti-escape) |
 
-Which backend is used is decided by `MountManager` at boot time (see `src/mirror/etc/fstab.json`):
+Which backend is used is decided by `MountManager` at boot time (see `src/mirror/etc/fstab.conf`):
 
 | Mount point | Type | Source | Description |
 |---|---|---|---|
@@ -75,7 +75,7 @@ Which backend is used is decided by `MountManager` at boot time (see `src/mirror
 | `/mnt/sbak` | `bkfs` | `systembak.db` | root backup in a separate SQLite file |
 
 > [!NOTE] **"Swap backend" without changing the kernel**
-> The kernel only holds an `IVFS` reference. Because every backend implements the same contract, swapping storage (e.g. `/tmp` from RamFS to BKFS) only requires changing an entry in `fstab.json` — the syscall does not change at all.
+> The kernel only holds an `IVFS` reference. Because every backend implements the same contract, swapping storage (e.g. `/tmp` from RamFS to BKFS) only requires changing an entry in `fstab.conf` — the syscall does not change at all.
 
 ![VFS routing: app → syscall → MountManager → BKFS/RamFS/HostVFS](/wiki/diagram/Virtual-File-System-1.png)
 *Source: [`wiki/diagram/Virtual-File-System-1.mmd`](/wiki/diagram/Virtual-File-System-1.mmd)*
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS vnodes (
 
 **Important notes:**
 
-- **`uid`/`gid`/`mode` are stored as decimal**, not octal strings. Example: `mode 420` = `0o644`, `493` = `0o755`. Root `/` is inserted at init with mode `493`; `/tmp` in `fstab.json` uses `1023` = `0o1777` (sticky bit).
+- **`uid`/`gid`/`mode` are stored as decimal** by the kernel, not octal strings. Example: `mode 420` = `0o644`, `493` = `0o755`. Root `/` is inserted at init with mode `493`; `/tmp` in `fstab.conf` is written as `mode = 0o1777` (decimal equivalent `1023`, sticky bit).
 - **Path navigation** is done row by row: each segment is looked up with `SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'`, then `parent_id` shifts to the resulting id. This happens in `getNodeId()` / `getNodeIdAndSize()`.
 - **`UNIQUE(parent_id, name)`** prevents duplicate names in the same folder. This schema also migrates old DBs: the `uid/gid/mode/size/modified_at` columns are added via `ALTER TABLE` if they do not exist yet.
 
@@ -350,7 +350,7 @@ if (offset >= currentSize) {
 - `src/kernel/MountManager.ts` — backend selection from path (longest prefix)
 - `src/kernel/Syscalls.ts` — syscall `OPEN`, `READ`, `READ_CHUNK`, `WRITE_CHUNK`, `GET_SIZE`
 - `src/kernel/devices/FileSystemDevice.ts` — FD → IVFS bridge
-- `src/mirror/etc/fstab.json` — mount configuration at boot
+- `src/mirror/etc/fstab.conf` — mount configuration at boot
 
 ---
 

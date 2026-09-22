@@ -106,7 +106,7 @@
 - **Langkah berikutnya**: Tabel matrix izin → snippet check().
 
 ### Modul 07 — Mount & Path Resolution
-- **Insight**: MountManager resolve dengan prefix terpanjang menang; `fstab.json` mendefinisikan `/tmp`(ramfs), `/mnt/*`(host), `/mnt/sbak`(bkfs).
+- **Insight**: MountManager resolve dengan prefix terpanjang menang; `fstab.conf` mendefinisikan `/tmp`(ramfs), `/mnt/*`(host), `/mnt/sbak`(bkfs).
 - **Status**: ✅
 - **Referensi**: `00-overview.md` §4.4, `wiki/Virtual-File-System.md`
 - **Kode**: `src/kernel/MountManager.ts`, `src/common/PathResolver.ts`

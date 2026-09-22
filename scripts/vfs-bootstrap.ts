@@ -11,6 +11,20 @@ import { getDefaultDbPath } from "./lib/db-path";
 const EXEC_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin", "/opt"];
 
 /**
+ * BERKAS YANG DIBIARKAN — konfigurasi milik NODE, bukan milik image.
+ *
+ * Bootstrap menimpa berkas mirror tanpa bertanya (`touch()`), itu benar untuk
+ * kode sistem tapi SALAH untuk konfigurasi per-perangkat: fstab memuat mount
+ * khusus node (mis. `/mnt/net` ke SL / jaringan lokal). Kalau berkas di VFS
+ * SUDAH ADA, isinya dibiarkan apa adanya; yang belum ada tetap disalin dari
+ * mirror (node baru / fresh install).
+ *
+ * Sejalan dengan `NODE_LOCAL_PATTERNS` di `scripts/gen-tpkg-manifest.ts` — paket
+ * engine juga tidak pernah menyentuh berkas ini.
+ */
+const PRESERVE_IF_EXISTS = [/^\/etc\/fstab\.(conf|json)$/];
+
+/**
  * Binary istimewa yang wajib berjalan sebagai pemilik file (SetUID root):
  * login, passwd, dan sudo — semuanya butuh akses baca/tulis /etc/shadow (0640 root).
  * Dikenali baik versi .ts maupun sidecar .js yang benar-benar dieksekusi runtime.
@@ -144,6 +158,9 @@ async function main() {
                         item.endsWith(".ts") ||
                         item.endsWith(".js") ||
                         item.endsWith(".json") ||
+                        // `/etc/fstab.conf` & `/etc/test.conf` — tanpa ini berkas
+                        // `.conf` di mirror DIAM-DIAM tidak ikut ter-sync.
+                        item.endsWith(".conf") ||
                         item.endsWith(".html") ||
                         item.endsWith(".css") ||
                         item.endsWith(".menu") ||
@@ -166,6 +183,17 @@ async function main() {
                         item.endsWith(".eot");
 
                     if (!isTarget) continue;
+
+                    // Konfigurasi milik node (fstab) tidak ditimpa kalau sudah ada.
+                    if (
+                        PRESERVE_IF_EXISTS.some((re) => re.test(fullVfsPath)) &&
+                        bkfs.exists(fullVfsPath)
+                    ) {
+                        console.log(
+                            `[VFS-Bootstrap] Preserved (milik admin): ${fullVfsPath}`,
+                        );
+                        continue;
+                    }
 
                     // Binary assets (audio/gambar raster/font) disimpan sebagai
                     // latin1 string (1 byte = 1 char) — cocok dengan

@@ -618,17 +618,16 @@ async function main() {
     // Image fresh: fstab hanya berisi mount esensial.
     //
     // Isinya ada di `scripts/lib/fresh-fstab.ts` (bisa diuji: `FstabParser.test.ts`
-    // A4.09 memvalidasi templatnya diurai TANPA peringatan). Format kini INI
-    // (`/etc/fstab.conf`) — kernel mengutamakan `.conf` dan tetap membaca
-    // `/etc/fstab.json` sebagai fallback untuk DB lama.
+    // A4.09 memvalidasi templatnya diurai TANPA peringatan). Format INI
+    // (`/etc/fstab.conf`) adalah SATU-SATUNYA sumber kebenaran mount.
     bkfs.touch("/etc/fstab.conf", FRESH_FSTAB_INI, 0, 0, 0o644);
     console.log(
       "[INSTALL] /etc/fstab.conf: /tmp + /var/run (ramfs); mount dev dihapus",
     );
 
-    // `.json` dari image lama (kalau ada) dibuang: kernel memilih `.conf` lebih
-    // dulu, jadi berkas itu tidak terpakai lagi — kalau dibiarkan hanya jadi
-    // decoy yang membingungkan admin (dua sumber kebenaran).
+    // `.json` dari image lama (kalau ada) dibuang: sudah bukan sumber konfigurasi
+    // (kernel hanya membaca `.conf`) — kalau dibiarkan hanya jadi decoy yang
+    // membingungkan admin (dua sumber kebenaran).
     if (bkfs.exists("/etc/fstab.json")) {
       bkfs.unlink("/etc/fstab.json");
       console.log("[INSTALL] /etc/fstab.json lama dihapus (pindah ke .conf)");

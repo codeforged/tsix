@@ -21,7 +21,7 @@ audience: all
 
 - [ ] Explain the `MountPoint` structure
 - [ ] Explain the "longest prefix wins" principle
-- [ ] Explain the contents of `fstab.json` (default mounts)
+- [ ] Explain the contents of `fstab.conf` (default mounts)
 - [ ] Distinguish resolution via MountManager vs device `/dev/*`
 - [ ] Explain the role of `PathResolver`
 - [ ] Walk through `PathResolver.resolve()` for relative, absolute, `.` and `..` paths
@@ -55,7 +55,7 @@ export interface MountPoint {
 }
 ```
 
-> `type` uses the real values from `fstab.json`: `"bkfs"`, `"ramfs"`, and `"host"` (HostVFS).
+> `type` uses the real values from `fstab.conf`: `"bkfs"`, `"ramfs"`, and `"host"` (HostVFS).
 
 ### PathResolver.resolve() — walkthrough
 
@@ -75,13 +75,13 @@ export interface MountPoint {
 
 ### Default mounts
 
-Root `/` is **not** in `fstab.json`. It is mounted directly in `initializeSubsystems()`:
+Root `/` is **not** in `fstab.conf`. It is mounted directly in `initializeSubsystems()`:
 
 ```ts
 this.mountManager.mount("/", this.bkfs, "bkfs", cfg.kernel.database, false);
 ```
 
-`cfg.kernel.database` is `"system.db"` (see `src/sysconfig.json`). The rest are loaded from `src/mirror/etc/fstab.json` by `processFstab()`:
+`cfg.kernel.database` is `"system.db"` (see `src/sysconfig.json`). The rest are loaded from `src/mirror/etc/fstab.conf` by `processFstab()`:
 
 | Path | type | Backend | Source | readOnly | uid/gid | mode | Nature |
 |---|---|---|---|---|---|---|---|
@@ -91,7 +91,11 @@ this.mountManager.mount("/", this.bkfs, "bkfs", cfg.kernel.database, false);
 | `/mnt/sbak` | `bkfs` | BKFS | `systembak.db` | false | 1000/100 | `0o775` | backup DB |
 
 > [!NOTE]
-> `fstab.json` only contains `/tmp`, `/mnt/shared`, and `/mnt/sbak`. The `/tmp` entry uses `active: true`; the rest are active by default. Mode `1023` = `0o1777` (sticky, everyone can write — typical for `/tmp`), `509` = `0o775`.
+> `fstab.conf` only contains `/tmp`, `/mnt/shared`, and `/mnt/sbak`. The `/tmp`
+ entry uses `active = true`; the rest are active by default. The INI format spells
+ permissions in explicit octal: `mode = 0o1777` (sticky, everyone can write —
+ typical for `/tmp`), `mode = 0o775` for the others. (Decimal is still valid:
+ `1023` = `0o1777`.)
 
 ### Resolution: longest prefix wins
 
@@ -136,7 +140,7 @@ Example output of `MountManager.resolve()`:
 initializeSubsystems()
   └─ new BKFS("system.db")                        → root filesystem
   └─ mount("/", bkfs, "bkfs", "system.db", false)
-  └─ processFstab()                               → baca /etc/fstab.json
+  └─ processFstab()                               → baca /etc/fstab.conf
        └─ untuk tiap entry:
             active === false → skip
             pastikan dir mount point ada (mode ?? 0o755)
@@ -168,7 +172,7 @@ Path /dev/* → kernel.devices[xxx]     // HAL, bukan MountManager
 | `src/kernel/MountManager.ts` | mount/unmount/resolve/listMounts |
 | `src/common/PathResolver.ts` | Path normalization (`//`, `.`, `..`) |
 | `src/kernel/Kernel.ts` | `initializeSubsystems()` + `processFstab()` at boot |
-| `src/mirror/etc/fstab.json` | Default mount list |
+| `src/mirror/etc/fstab.conf` | Default mount list |
 | `src/vfs/HostVFS.ts`, `RamFS.ts`, `BKFS.ts` | Backends |
 
 ---
@@ -294,7 +298,7 @@ this.mountManager.mount("/", this.bkfs, "bkfs", cfg.kernel.database, false);
 private async processFstab() {
     if (!this.bkfs) return;
 
-    const fstabPath = "/etc/fstab.json";
+    const fstabPath = "/etc/fstab.conf";
     if (!this.bkfs.exists(fstabPath)) return;
 
     try {
@@ -380,7 +384,7 @@ private async processFstab() {
 - `wiki/course/00-overview.en.md` §4.4
 - `src/kernel/MountManager.ts`, `src/common/PathResolver.ts`
 - `src/kernel/Kernel.ts` — `initializeSubsystems()` & `processFstab()`
-- `src/mirror/etc/fstab.json` — default mount list
+- `src/mirror/etc/fstab.conf` — default mount list
 
 ---
 

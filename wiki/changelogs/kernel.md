@@ -6,6 +6,48 @@
 
 ## 2026-09-22
 
+### fstab: `.json` DIBUANG total — `/etc/fstab.conf` satu-satunya sumber (dengan migrasi otomatis)
+
+- **File:** `src/mirror/etc/fstab.conf` (baru), `src/mirror/etc/fstab.json` (DIHAPUS),
+  `src/kernel/FstabParser.ts` (`formatFstabIni`), `src/kernel/Kernel.ts` (`processFstab`),
+  `scripts/gen-tpkg-manifest.ts`, `scripts/install.ts`, `src/mirror/etc/fstab.md`,
+  `wiki/Virtual-File-System.md`, `wiki/netfs.md`, `wiki/RC_LOCAL.md`,
+  `wiki/course/07-mount-path-resolution.{md,en.md}`, `wiki/course/08-vfs.{md,en.md}`,
+  `wiki/course/23-development-workflow.{md,en.md}`, `README.md`.
+- **Konteks:** pindah ke `.conf` tapi `.json` masih dibaca sebagai fallback =
+  **dua sumber kebenaran**. Node yang boot dengan `.json` tetap jalan tanpa sadar
+  formatnya beda (`mode` desimal), sementara admin baru menulis `.conf` oktal —
+  hasilnya izin beda antar node untuk berkas yang katanya sama.
+- **Perubahan:**
+    - Kernel **tidak lagi membaca `/etc/fstab.json` sebagai konfigurasi**. Satu
+      sumber: `/etc/fstab.conf`.
+    - **Migrasi sekali-jalan** di `processFstab()`: kalau `.conf` belum ada tapi
+      `.json` ada → isinya diurai, ditulis ulang ke `/etc/fstab.conf`
+      (`formatFstabIni`), dicatat di boot log (`FSTAB: migrasi /etc/fstab.json →
+      /etc/fstab.conf`) + `/var/log/syslog`, peringatan parser ikut diteruskan.
+      Berkas `.json`-nya **tidak dihapus** (milik admin) — ia hanya berhenti
+      dipakai. Ini yang mencegah node live kehilangan mount (mis. `/mnt/net`) saat
+      pull.
+    - `formatFstabIni()` **selalu menulis `mode` oktal eksplisit** (`0o1777`), jadi
+      hasil migrasi tidak bisa "berubah arti" kalau dibaca manusia lagi. String yang
+      memuat spasi/`#`/`;` dikutip otomatis.
+    - Kalau isi `.conf` justru JSON (hasil salin-tempel), tetap diparse tapi
+      **diperingatkan** supaya ditulis dalam INI.
+    - Mirror: `etc/fstab.json` → `etc/fstab.conf` (isi sama: `/tmp` 0o1777,
+      `/mnt/shared` & `/mnt/sbak` 0o775, `/hostsrc` 0o700 read-only).
+    - `scripts/gen-tpkg-manifest.ts`: pola node-local jadi `/^\/etc\/fstab\.(conf|json)$/`
+      — `.conf` belum ikut terkirim (`EXT` = `.ts`/`.json`), pola ini penjaga kalau
+      nanti daftar ekstensi/whitelist berubah.
+    - `scripts/install.ts`: hanya menulis `.conf` (dan tetap menghapus `.json` sisa
+      image lama) — komentar "fallback untuk DB lama" dibuang.
+- **Dampak:** tidak ada lagi kemungkinan dua arti untuk fstab. Node lama
+  otomatis termigrasi di boot pertama setelah update, tanpa langkah manual.
+- **Deploy:** restart kernel (`src/kernel/*`). `npm run vfs:bootstrap` untuk mirror
+  (`etc/fstab.conf` + `etc/test.conf` baru).
+- **Uji:** `FstabParser.test.ts` A4.10 (round-trip migrasi: `1023` → `mode = 0o1777`
+  → `1023`) & A4.11 (string bermasalah dikutip).
+- **Oleh:** Copilot
+
 ### fstab: parser INI dipisah + `.conf` diutamakan (`.json` tetap dibaca) + pengaman salah-tulis
 
 - **File:** `src/kernel/FstabParser.ts` (baru), `src/kernel/FstabParser.test.ts` (baru),

@@ -1,12 +1,14 @@
 # FSTAB Configuration Guide
 
-TSIX mounts filesystems automatically at boot. The kernel reads, in order:
+TSIX mounts filesystems automatically at boot. The kernel reads **one** file:
 
-1. **`/etc/fstab.conf`** — INI style (recommended, human-friendly)
-2. `/etc/fstab.json` — legacy JSON array (still supported; used automatically
-   when the `.conf` file does not exist)
+**`/etc/fstab.conf`** — INI style (satu-satunya sumber kebenaran mount).
 
-If both exist, `.conf` wins.
+Ada juga jejak format lama di node yang belum di-migrasi: `/etc/fstab.json`
+(array JSON). Isinya **dipindah otomatis sekali** ke `/etc/fstab.conf` saat boot
+pertama (lihat boot log: `FSTAB: migrasi ...`), jadi tidak ada langkah manual
+yang bisa terlupa. Setelah itu `.json` tidak dibaca lagi — admin bebas
+menghapusnya.
 
 ## How to use
 
@@ -53,10 +55,12 @@ Rules worth knowing:
 - Nilai yang tidak dikenal DILAPORKAN saat boot (`logger` + `/var/log/syslog`),
   bukan diabaikan diam-diam.
 
-## JSON format (`.json`, legacy)
+## JSON format (`.json`, legacy — migrasi otomatis)
 
-The old array form is still read as a fallback. `mode` there is **decimal**
-(`"mode": 1023` berarti 0o1777):
+The old array form is not a configuration source anymore. If a node still has
+`/etc/fstab.json` and no `/etc/fstab.conf`, the kernel converts it on boot and
+warns about anything suspicious. `mode` there is **decimal** (`"mode": 1023`
+berarti 0o1777):
 
 ```json
 [
@@ -118,5 +122,6 @@ The old array form is still read as a fallback. `mode` there is **decimal**
   `5000`) and metadata cache TTL (default `0`).
 
 > New installs write `/etc/fstab.conf` (template: `scripts/lib/fresh-fstab.ts`);
-> the installer also removes a leftover `/etc/fstab.json` so there is only one
-> source of truth.
+> the installer also deletes a leftover `/etc/fstab.json` so there is only one
+> source of truth. Lihat juga `scripts/lib/fresh-fstab.ts` dan `/etc/fstab.conf`
+> di mirror untuk contoh nyata.

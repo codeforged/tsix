@@ -96,7 +96,7 @@ membereskan — dan keduanya sudah dipakai:
    [  OK  ] VFS: /var/run → ramfs (state runtime volatile)
    ```
 
-   Jadi admin **tidak wajib** menyentuh `/etc/fstab.json`. Kalau ingin eksplisit
+   Jadi admin **tidak wajib** menyentuh `/etc/fstab.conf`. Kalau ingin eksplisit
    (atau memakai backing lain), tambahkan entry berikut dan keputusan itu dihormati
    (kernel akan menulis `VFS: /var/run → mengikuti fstab`):
 
@@ -124,7 +124,7 @@ ls -l /var/run/dome.ready     # siapa pemilik marker + kapan dibuat
 ps                             # process 'dome' harus RUNNING sebelum 'asteracea'
 ```
 
-> **Terverifikasi di lapangan (2026-09-17):** pada node yang `/etc/fstab.json`-nya
+> **Terverifikasi di lapangan (2026-09-17):** pada node yang `/etc/fstab.conf`-nya
 > **tidak** memuat entry `/var/run`, jaminan kernel di atas sudah cukup — boot log
 > menampilkan `VFS: /var/run → ramfs (state runtime volatile)` dan Asteracea start
 > normal. Tidak ada konfigurasi manual yang diperlukan.

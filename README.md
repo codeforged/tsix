@@ -314,7 +314,7 @@ Application
 ```
 bootstrap.sh -> main.ts -> Kernel.boot()
   -> Mount BKFS (SQLite VFS) root filesystem
-  -> Process /etc/fstab.json (mount /tmp as ramfs, etc.)
+  -> Process /etc/fstab.conf (mount /tmp as ramfs, etc.)
   -> Init TTYs (virtual consoles)
   -> Register Devices (keyboard, TTY, null, network)
   -> Init Serial Auto-Detection

@@ -84,7 +84,7 @@ Semua script host mengambil path DB lewat `scripts/lib/db-path.ts`, agar nilainy
 │   /bin /sbin /usr/bin  (exec+setuid) │
 │   /lib/common  <- src/common         │
 │   /etc: passwd shadow group          │
-│         crontab fstab.json           │
+│         crontab fstab.conf           │
 │   /tmp  -> ramfs (volatile)          │
 └──────────────────────────────────────┘
 ```
@@ -111,7 +111,7 @@ scripts/lib/db-path.ts
 3. Buat file `.db` baru. Jika file sudah ada dan tanpa `--force` → berhenti; dengan `--force` → file lama di-backup ke `*.bak-<timestamp>`.
 4. Sync rootfs: `src/mirror` → `/`, lalu `src/common` → `/lib/common`. Setiap `.ts` di-transpile jadi sidecar `.js`; direktori eksekusi diberi mode eksekusi (`/sbin` = `0744`, lainnya `0755`); `login`, `passwd`, `sudo` diberi SetUID (`4755` root).
 5. Sync eksplisit file `/etc` tanpa ekstensi: `passwd`, `shadow` (mode `0640`), `group`, `crontab`, `profile`, `motd`, `fstab.md`, `pkg-demo.conf`.
-6. Tulis `fstab.json` fresh — hanya `/tmp` sebagai ramfs (mode `1777` sticky); mount dev-spesifik tidak dibawa.
+6. Tulis `fstab.conf` fresh — hanya `/tmp` sebagai ramfs (mode `0o1777` sticky); mount dev-spesifik tidak dibawa.
 7. Kosongkan `/etc/crontab`.
 8. Jika akun user biasa diisi → tambah entri ke `/etc/passwd` + `/etc/shadow` (bcrypt) + grup `users`, lalu buat `/home/<username>` (mode `0700`, milik user).
 9. Jika password root diisi → di-hash bcrypt dan ditulis ke `/etc/shadow`.
