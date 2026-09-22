@@ -42,7 +42,7 @@ import { std } from "@tsix/Application";
 export class Kernel {
   // Versi kernel saat ini
   private codename: string = "Dinawari";
-  private version: string = "0.3.1.20260922.1";
+  private version: string = "0.3.2.20260923.1";
   // 0.3.0 adalah fitur netfs di tsix diimplementasikan, setiap node tsix bisa mengakses storage ke node tsix yang lain! canggih bukan?
   // 0.3.1: fstab pindah ke format INI — SATU sumber kebenaran `/etc/fstab.conf`
   // (berkas `.json` lama dimigrasi otomatis sekali saat boot, lalu tak dipakai lagi).
@@ -73,6 +73,8 @@ export class Kernel {
   private serialManager: SerialDeviceManager | null = null;
   private bootTime: number = Date.now();
   public wantedExitCode: number = 0;
+  /** Sudah `closeFilesystems()`? Menjaga hook exit agar tidak menutup dua kali. */
+  private filesystemsClosed = false;
   public safeMode: boolean = false; // --safe-mode: nonaktifkan startup scripts
   private currentBootMessage: string = "";
   public guiRegistry: GUIRegistry;
@@ -833,6 +835,45 @@ export class Kernel {
   public getMountManager() {
     return this.mountManager;
   }
+
+  /**
+   * closeFilesystems(): Tutup semua driver filesystem yang menyimpan state di file.
+   *
+   * KENAPA INI PENTING (bug operasional nyata): sebelumnya kernel TIDAK PERNAH
+   * menutup storage saat sistem dimatikan. Karena root filesystem memakai
+   * `journal_mode=WAL`, akibatnya setelah shutdown masih ada `system.db-wal`
+   * (±750 KB transaksi terakhir) dan `system.db-shm`. Dua masalahnya:
+   *
+   *   1. `system.db` sendirian TIDAK lengkap — menyalin file itu sebagai backup /
+   *      mengirimkannya ke node lain berarti kehilangan transaksi terakhir.
+   *   2. Setiap boot berikutnya harus memulihkan dari WAL (benar, tapi lambat).
+   *
+   * `close()` pada BKFS menjalankan `wal_checkpoint(TRUNCATE)` lalu menutup koneksi,
+   * sehingga sesudahnya satu file `system.db` benar-benar utuh.
+   *
+   * Idempotent + tidak pernah melempar: dipanggil dari hook `process.on("exit")`,
+   * jadi kegagalan di sini tidak boleh menggagalkan proses keluar.
+   */
+  public closeFilesystems(): void {
+    if (this.filesystemsClosed) return;
+    this.filesystemsClosed = true;
+
+    // Sengaja pakai console (BUKAN bootLog/syslog): setelah `closeAll()` database
+    // sudah tertutup, jadi apa pun yang menulis ke VFS akan gagal. Kita juga mencatat
+    // dulu SEBELUM menutup supaya urutannya jelas di log.
+    try {
+      const mounts = this.mountManager?.listMounts()?.length ?? 0;
+      console.log(`\n[Kernel] Storage: menutup ${mounts} filesystem (checkpoint WAL)...`);
+
+      const closed = this.mountManager?.closeAll() ?? 0;
+
+      console.log(`[Kernel] Storage: ${closed} filesystem ditutup rapi — image siap disalin.`);
+    } catch (e: any) {
+      // Jangan pernah menghalangi proses keluar.
+      console.error(`[Kernel] Gagal menutup filesystem: ${e.message}`);
+    }
+  }
+
   public getScheduler() {
     return this.scheduler;
   }

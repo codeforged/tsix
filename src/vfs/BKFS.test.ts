@@ -507,4 +507,30 @@ describe("BKFS — ketahanan operasional & penyimpanan blok (B3)", () => {
         expect(bkfs.getSize("/celah.bin")).toBe(300);
         expect(bkfs.read("/celah.bin")).toBe(binari(300));
     });
+
+    it("B3.14 close() idempotent + menghapus -wal/-shm (system.db kembali satu file)", () => {
+        const dbPath = tmp("close");
+        const bkfs = new BKFS(dbPath);
+        bkfs.touch("/a.txt", "konten");
+
+        // Bukti mode WAL memang aktif pada koneksi hidup: sidecar WAL dibuat.
+        expect(fs.existsSync(dbPath + "-wal")).toBe(true);
+
+        bkfs.close();
+        expect(() => bkfs.close()).not.toThrow(); // idempotent (dipanggil exit hook juga)
+
+        // Setelah koneksi TERAKHIR ditutup, SQLite membuang sidecar-nya: inilah yang
+        // bikin `system.db` bisa disalin/di-backup sendirian tanpa kehilangan data.
+        // (Sebelum perbaikan: `system.db-wal` tetap ada setelah shutdown.)
+        expect(fs.existsSync(dbPath + "-wal")).toBe(false);
+        expect(fs.existsSync(dbPath + "-shm")).toBe(false);
+
+        const again = new BKFS(dbPath);
+        try {
+            expect(again.read("/a.txt")).toBe("konten");
+        } finally {
+            again.close();
+            wipe(dbPath);
+        }
+    });
 });

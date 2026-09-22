@@ -45,6 +45,9 @@ class MockVFS implements IVFS {
         return true;
     }
     getSize(path: string): number { return this.read(path)?.length ?? -1; }
+    /** Hitungan penutupan — dipakai uji `closeAll()` (shutdown storage). */
+    public closeCount = 0;
+    close(): void { this.closeCount++; }
 }
 
 describe("MountManager", () => {
@@ -107,6 +110,47 @@ describe("MountManager", () => {
 
         expect(res1.vfs).toBe(mntVFS);
         expect(res2.vfs).toBe(dataVFS);
+    });
+
+    // ============================================================
+    // A4.20+: closeAll — penutupan storage saat sistem dimatikan
+    //
+    // Regresi nyata: kernel tidak pernah menutup driver, sehingga setelah
+    // shutdown masih ada `system.db-wal` (±750 KB transaksi terakhir) — dan
+    // `system.db` sendirian jadi tidak lengkap kalau disalin sebagai backup.
+    // ============================================================
+    it("A4.20 closeAll menutup root + semua mount, tanpa menutup driver dua kali", () => {
+        mountManager.mount("/mnt/vfs", mntVFS as any, "ram", "mnt");
+        mountManager.mount("/mnt/data", dataVFS as any, "ram", "data");
+        // Mount bertumpuk memakai driver yang SAMA → tidak boleh ditutup 2×.
+        mountManager.mount("/mnt/vfs/inner", mntVFS as any, "ram", "mnt-inner");
+
+        const closed = mountManager.closeAll();
+
+        expect(closed).toBe(3); // root + mntVFS + dataVFS
+        expect(rootVFS.closeCount).toBe(1);
+        expect(mntVFS.closeCount).toBe(1);
+        expect(dataVFS.closeCount).toBe(1);
+    });
+
+    it("A4.21 closeAll melewati driver tanpa close() dan tetap lanjut saat satu gagal", () => {
+        const noClose: any = { read: () => null }; // driver minimalist, tanpa close()
+        mountManager.mount("/mnt/plain", noClose, "ram", "plain");
+
+        const throwing = new MockVFS();
+        throwing.close = () => {
+            throw new Error("disk error");
+        };
+        mountManager.mount("/mnt/broken", throwing as any, "ram", "broken");
+
+        // Urutan iterasi dibalik: broken (gagal) → mntVFS → root.
+        mountManager.mount("/mnt/ok", mntVFS as any, "ram", "ok");
+        const closed = mountManager.closeAll();
+
+        expect(closed).toBe(2); // root + ok (yang gagal & tanpa close tidak dihitung)
+        // INI yang penting: driver yang gagal TIDAK menghentikan penutupan sisanya.
+        expect(mntVFS.closeCount).toBe(1);
+        expect(rootVFS.closeCount).toBe(1);
     });
 
     // ============================================================

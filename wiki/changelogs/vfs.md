@@ -6,6 +6,42 @@
 
 ## 2026-09-22
 
+### Kernel menutup storage saat shutdown (dulu `system.db-wal` tertinggal)
+
+- **File:** `src/main.ts`, `src/kernel/Kernel.ts`, `src/kernel/MountManager.ts`,
+  `src/vfs/BKFS.ts`, test: `B3.14`, `A4.20`–`A4.21`
+- **Gejala (dilaporkan operator):** setelah TSIX di-shutdown, masih ada
+  `system.db-shm` dan `system.db-wal` (749 KB) — begitu pula `systembak.db-wal`.
+- **Akar masalah:** `close()`/`checkpoint()` sudah ada di BKFS, tapi hanya dipakai
+  skrip host (`install.ts`, `vfs-bootstrap.ts`). Kernel yang sedang berjalan **tidak
+  pernah** menutup storage: tidak ada `MountManager.closeAll()`, dan `main.ts`
+  memanggil `process.exit()` langsung dari keep-alive/SIGINT.
+- **Kenapa berbahaya (bukan sekadar file sisa):** dalam mode WAL, transaksi terakhir
+  yang belum ter-checkpoint **hanya** ada di `-wal`. Menyalin `system.db` sendirian
+  sebagai backup / mengirimkannya ke node lain berarti **kehilangan transaksi
+  terakhir**. Bonus: setiap boot berikutnya harus recovery dari WAL.
+- **Perubahan:**
+  - `MountManager.closeAll()` — menutup root + semua mount, urutan dibalik (mount
+    terdalam dulu), tiap driver sekali saja, dan satu driver yang gagal **tidak**
+    menghentikan yang lain.
+  - `Kernel.closeFilesystems()` — idempotent, tidak pernah melempar, memakai
+    `console` (bukan `bootLog`/`syslog`) karena setelah `closeAll()` database sudah
+    tertutup sehingga tulis ke VFS akan gagal.
+  - `main.ts` — memanggil `closeFilesystems()` di jalur keep-alive (reboot/halt) dan
+    SIGINT, plus jaring pengaman `process.on("exit")` supaya jalur keluar yang belum
+    terpikirkan pun tetap menutup storage.
+  - `BKFS.close()` kini idempotent (bisa dipanggil eksplisit **dan** dari exit hook)
+    dan mencatat path DB yang ditutup; `checkpoint()` melaporkan kalau tertahan
+    koneksi lain (`wal_checkpoint` → `busy = 1`) alih-alih mengklaim sukses.
+- **Verifikasi:** `B3.14` (setelah `close()` berkali-kali, `-wal`/`-shm` hilang dan
+  isi tetap ada saat dibuka lagi), `A4.20` (root + semua mount ditutup sekali),
+  `A4.21` (driver tanpa `close()` dilewati; satu yang melempar tetap melanjutkan).
+- **Oleh:** Copilot
+
+---
+
+## 2026-09-22
+
 ### BKFS: tabel blok + WAL + BLOB — akar O(n²) yang membuat NetFS lambat
 
 - **File:** `src/vfs/BKFS.ts`, `src/vfs/BKFS.test.ts` (B3.01–B3.13),

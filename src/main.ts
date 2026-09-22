@@ -38,6 +38,10 @@ async function main() {
             } else {
                 console.log("\n[Kernel] System halted. Powering off...");
             }
+            // Tutup storage SEBELUM keluar: checkpoint WAL supaya `system.db`
+            // lengkap sebagai satu file (tanpa `-wal`/`-shm`). Habis reboot pun
+            // tidak perlu recovery dari WAL lagi.
+            kernel.closeFilesystems();
             process.exit(exitCode);
         }
     }, 100); // 100ms biar satset responnya
@@ -52,10 +56,23 @@ async function main() {
                 (process.stdin as any).setRawMode(false);
             }
             console.log("\n[Kernel] Powering off (SIGINT)...");
+            kernel.closeFilesystems();
             process.exit(0);
         } else {
             // Jika shell masih ada, kita cuma kirim interrupt ke foreground
             kernel.handleHostInterrupt();
+        }
+    });
+
+    // JARING PENGAMAN terakhir: apa pun jalur keluarnya (termasuk yang belum
+    // terpikirkan, mis. handler error), storage tetap ditutup. `process.on("exit")`
+    // dijalankan SINKRON oleh Node — jadi operasi `close()` BKFS (checkpoint +
+    // close) aman di sini. Idempotent, jadi tidak menutup dua kali.
+    process.on("exit", () => {
+        try {
+            kernel.closeFilesystems();
+        } catch (_) {
+            /* jangan pernah menghalangi proses keluar */
         }
     });
 }

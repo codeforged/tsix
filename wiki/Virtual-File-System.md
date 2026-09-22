@@ -176,11 +176,22 @@ ribuan `touch()` tanpa transaksi berarti ribuan `fsync`.
 |---|---|
 | `batch(fn)` | Jalankan operasi dalam satu transaksi atomik (nesting = SAVEPOINT) |
 | `checkpoint()` | Pindahkan WAL ke file utama → `system.db` kembali self-contained |
-| `close()` | `checkpoint()` lalu tutup koneksi |
+| `close()` | `checkpoint()` lalu tutup koneksi (idempotent) |
 | `checkIntegrity(quick?)` | `quick_check`/`integrity_check`; return `"ok"` atau pesan masalah |
 | `compact()` | `VACUUM` — ciutkan file setelah banyak penghapusan |
 | `storageKind(path)` | `"inline"` \| `"blocks"` \| `"missing"` (diagnostik) |
 | `countBlocks(path)` | Jumlah blok sebuah file |
+
+**Saat shutdown, storage ditutup otomatis.** `Kernel.closeFilesystems()` →
+`MountManager.closeAll()` menutup root (`/`) dan semua mount (termasuk BKFS sekunder
+seperti `/mnt/sbak`), dipanggil dari `main.ts` sebelum `process.exit()` plus jaring
+pengaman `process.on("exit")` (idempotent).
+
+Tanpa itu — karena root memakai `journal_mode=WAL` — setelah shutdown masih ada
+`system.db-wal` (transaksi terakhir yang belum ter-checkpoint) dan `system.db-shm`,
+sehingga **`system.db` sendirian tidak lengkap** bila disalin sebagai backup atau
+dikirim ke node lain. Setelah `close()`, SQLite membuang sidecar-nya dan image kembali
+menjadi satu file.
 
 ### Encoding: latin1 (1 char = 1 byte)
 

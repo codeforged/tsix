@@ -166,6 +166,10 @@ export class BKFS implements IVFS {
     private opts: Required<BKFSOptions>;
     /** Cache satu entri untuk `readChunk()` jalur WARISAN (TEXT) — lihat `readChunk()`. */
     private chunkCache: { path: string; content: string } | null = null;
+    /** Sudah ditutup? Dipakai supaya `close()` aman dipanggil lebih dari sekali. */
+    private closed = false;
+    /** Path database — dipakai untuk log saat ditutup/checkpoint. */
+    private dbPath: string;
     /**
      * Cache prepared statement per-koneksi.
      *
@@ -186,6 +190,7 @@ export class BKFS implements IVFS {
     ) {
         this.logger = new Logger("BKFS");
         this.readOnly = readOnly;
+        this.dbPath = dbPath;
         this.opts = {
             synchronous: opts.synchronous ?? "NORMAL",
             inlineMaxBytes: opts.inlineMaxBytes ?? BKFS_INLINE_MAX_BYTES,
@@ -285,9 +290,18 @@ export class BKFS implements IVFS {
      * harus ikut membawa `-wal`/`-shm`.
      */
     public checkpoint(): void {
-        if (this.readOnly) return;
+        if (this.readOnly || this.closed) return;
         try {
-            this.db.pragma("wal_checkpoint(TRUNCATE)");
+            // `simple: false` supaya baris hasilnya terbaca: wal_checkpoint()
+            // mengembalikan [busy, log_pages, checkpointed_pages], dan `busy = 1`
+            // berarti ADA KONEKSI LAIN yang menahan checkpoint.
+            const result = this.db.pragma("wal_checkpoint(TRUNCATE)") as Array<Record<string, number>>;
+            if (result?.[0]?.busy === 1) {
+                this.logger.warn(
+                    `checkpoint tertahan koneksi lain — ${this.dbPath} masih butuh file -wal saat disalin ` +
+                        `(aman: SQLite memulihkannya otomatis saat dibuka lagi)`,
+                );
+            }
         } catch (e: any) {
             this.logger.warn(`checkpoint gagal: ${e.message}`);
         }
@@ -317,15 +331,24 @@ export class BKFS implements IVFS {
     /**
      * close(): Checkpoint lalu tutup database.
      *
-     * Sebelumnya BKFS tidak pernah ditutup sama sekali: WAL bisa tertinggal dan
-     * file `.db` tidak lengkap kalau disalin. Penutupan yang rapi membuat image
-     * "satu file" kembali — sesuai asumsi `bkfs -c`, `create-bkfs`, dan backup manual.
+     * Idempotent — boleh dipanggil dua kali (mis. eksplisit saat shutdown, lalu
+     * lagi dari hook `process.on("exit")`) tanpa melempar.
+     *
+     * Sebelumnya BKFS TIDAK PERNAH ditutup saat sistem dimatikan: file `-wal`/
+     * `-shm` tertinggal dan `system.db` sendirian jadi TIDAK lengkap — menyalinnya
+     * berarti kehilangan transaksi terakhir (kasus nyata: `system.db-wal` 749 KB
+     * tertinggal setelah shutdown). Checkpoint di sini yang membuat image
+     * "satu file" kembali, sesuai asumsi `bkfs -c`, `create-bkfs`, & backup manual.
      */
     public close(): void {
+        if (this.closed) return;
+        this.closed = true;
+
         this.checkpoint();
         this.stmts.clear();
         try {
             this.db.close();
+            this.logger.info(`Database ditutup rapi: ${this.dbPath}`);
         } catch (e: any) {
             this.logger.warn(`close gagal: ${e.message}`);
         }

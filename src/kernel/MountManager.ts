@@ -82,6 +82,42 @@ export class MountManager {
   }
 
   /**
+   * closeAll(): Tutup SEMUA driver filesystem yang ter-mount.
+   *
+   * Dipakai saat sistem dimatikan (lihat `Kernel.closeFilesystems()`).
+   *
+   * KENAPA PERLU: driver yang menyimpan state di file (BKFS) tidak pernah ditutup
+   * sebelumnya, sehingga setelah shutdown masih ada `system.db-wal` (±750 KB
+   * transaksi terakhir) dan `system.db-shm`. Akibatnya `system.db` sendirian TIDAK
+   * lengkap — menyalinnya sebagai backup berarti kehilangan transaksi terakhir.
+   *
+   * Urutan dibalik (mount terdalam dulu) supaya mount bertumpuk ditutup dari dalam
+   * ke luar, dan tiap driver hanya ditutup SEKALI (duplikat di-skip). Satu driver
+   * yang gagal tidak menghentikan penutupan driver lain.
+   */
+  public closeAll(): number {
+    let closed = 0;
+    const seen = new Set<IVFS>();
+
+    for (const point of [...this.mounts].reverse()) {
+      const driver = point.vfs as IVFS & { close?: () => void };
+      if (!driver || seen.has(driver)) continue;
+      seen.add(driver);
+
+      if (typeof driver.close === "function") {
+        try {
+          driver.close();
+          closed++;
+        } catch (e: any) {
+          this.logger.warn(`Gagal menutup ${point.vfsPath} (${point.source}): ${e.message}`);
+        }
+      }
+    }
+
+    return closed;
+  }
+
+  /**
    * resolve(): Mencari driver dan relative path untuk sebuah path vfs.
    */
   public resolve(path: string): {
