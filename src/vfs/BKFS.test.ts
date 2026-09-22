@@ -255,3 +255,256 @@ describe("BKFS (SQLite-based)", () => {
         }
     });
 });
+
+/**
+ * B3 — KETAHANAN OPERASIONAL & SKALA
+ *
+ * Blok ini mengunci jaminan yang selama ini tidak ada/implisit:
+ *   - durability & mode journal (WAL, integritas, FK);
+ *   - atomisitas `batch()` (image sistem tidak boleh setengah jadi);
+ *   - encoding BLOB (byte NUL & byte ≥ 0x80 tidak boleh berubah/korup);
+ *   - penyimpanan blok untuk file besar (isi & `size` selalu konsisten);
+ *   - kompatibilitas baris WARISAN (TEXT) supaya DB lama tetap terbaca.
+ *
+ * Blok diuji dengan `blockBytes`/`inlineMaxBytes` kecil supaya batas blok
+ * benar-benar terlewati tanpa memindahkan megabyte di setiap test.
+ */
+describe("BKFS — ketahanan operasional & penyimpanan blok (B3)", () => {
+    const tmp = (tag: string) =>
+        path.join(os.tmpdir(), `bkfs-b3-${tag}-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    const wipe = (p: string) => {
+        for (const f of [p, p + "-wal", p + "-shm"]) fs.rmSync(f, { force: true });
+    };
+
+    /** bkfsBlok(): BKFS dengan ambang kecil supaya tabel blok mudah terpicu. */
+    const bkfsSmall = () => new BKFS(":memory:", false, 0, 0, 0o755, { inlineMaxBytes: 64, blockBytes: 128 });
+
+    /** referensi(): string byte 0..255 (mewakili berkas biner nyata). */
+    const binari = (n: number) => Array.from({ length: n }, (_, i) => String.fromCharCode(i % 256)).join("");
+
+    // ---------------------------------------------------------- A1: durability
+    it("B3.01 file DB memakai WAL + integrity ok (+ FK ditegakkan)", () => {
+        const dbPath = tmp("wal");
+        const bkfs = new BKFS(dbPath);
+        try {
+            // Dicek lewat koneksi kedua: pragma journal_mode bersifat persisten per-DB,
+            // jadi ini membuktikan mode yang benar-benar tertulis di file.
+            const raw = new Database(dbPath, { readonly: true });
+            const mode = raw.pragma("journal_mode", { simple: true });
+            raw.close();
+
+            expect(String(mode).toLowerCase()).toBe("wal");
+            expect(bkfs.checkIntegrity()).toBe("ok");
+        } finally {
+            bkfs.close();
+            wipe(dbPath);
+        }
+    });
+
+    it("B3.02 close() lalu buka ulang: data tetap utuh (WAL ter-checkpoint)", () => {
+        const dbPath = tmp("reopen");
+        const first = new BKFS(dbPath);
+        first.touch("/persist.txt", "tahan-reboot");
+        first.close();
+
+        const second = new BKFS(dbPath);
+        try {
+            expect(second.read("/persist.txt")).toBe("tahan-reboot");
+            expect(second.checkIntegrity()).toBe("ok");
+        } finally {
+            second.close();
+            wipe(dbPath);
+        }
+    });
+
+    // ---------------------------------------------------------- A2: atomisitas
+    it("B3.03 batch() atomik — gagal di tengah membatalkan SEMUA tulisan", () => {
+        const bkfs = new BKFS(":memory:");
+        bkfs.mkdir("/sistem");
+
+        expect(() =>
+            bkfs.batch(() => {
+                bkfs.touch("/sistem/a.ts", "AAA");
+                bkfs.touch("/sistem/b.ts", "BBB");
+                throw new Error("gagal di tengah bootstrap");
+            }),
+        ).toThrow(/gagal di tengah/);
+
+        // Inilah yang mencegah "image setengah jadi": tidak satupun file tertinggal.
+        expect(bkfs.exists("/sistem/a.ts")).toBe(false);
+        expect(bkfs.exists("/sistem/b.ts")).toBe(false);
+
+        // Dan batch yang sukses tetap bekerja normal.
+        bkfs.batch(() => {
+            bkfs.touch("/sistem/a.ts", "AAA");
+            bkfs.touch("/sistem/b.ts", "BBB");
+        });
+        expect(bkfs.read("/sistem/a.ts")).toBe("AAA");
+        expect(bkfs.read("/sistem/b.ts")).toBe("BBB");
+    });
+
+    // ---------------------------------------------------------- A3: BLOB
+    it("B3.04 byte 0..255 utuh (disimpan sebagai BLOB, bukan TEXT)", () => {
+        const dbPath = tmp("blob");
+        const bkfs = new BKFS(dbPath);
+        const data = binari(1024);
+        try {
+            bkfs.touch("/biner.dat", data);
+            expect(bkfs.read("/biner.dat")).toBe(data);
+            expect(bkfs.readChunk("/biner.dat", 0, data.length)).toBe(data);
+            expect(bkfs.readChunk("/biner.dat", 255, 10)).toBe(data.slice(255, 265));
+            expect(bkfs.getSize("/biner.dat")).toBe(data.length);
+
+            // Bentuk penyimpanan: BLOB. Kalau ini TEXT, byte NUL memotong `substr()`
+            // di SQL dan byte ≥ 0x80 menggelembung jadi 2 byte UTF-8 di file DB.
+            const raw = new Database(dbPath, { readonly: true });
+            const t = raw.prepare("SELECT typeof(content) AS t FROM vnodes WHERE name = 'biner.dat'").get() as {
+                t: string;
+            };
+            raw.close();
+            expect(t.t).toBe("blob");
+        } finally {
+            bkfs.close();
+            wipe(dbPath);
+        }
+    });
+
+    it("B3.05 baris WARISAN (TEXT) tetap terbaca benar, termasuk byte NUL", () => {
+        const dbPath = tmp("legacy");
+        const bkfs = new BKFS(dbPath);
+        try {
+            bkfs.touch("/warisan.bin", "placeholder");
+
+            // Simulasi database lama: tulis sebagai TEXT (tanpa blok), termasuk NUL.
+            const legacy = "AB\u0000\u0000CD\u0000EF";
+            const raw = new Database(dbPath);
+            raw.prepare("UPDATE vnodes SET content = ?, size = ? WHERE name = 'warisan.bin'").run(
+                legacy,
+                legacy.length,
+            );
+            raw.close();
+
+            expect(bkfs.read("/warisan.bin")).toBe(legacy);
+            // Jalur TEXT tidak boleh memakai substr() SQL (berhenti di NUL) — ini yang
+            // dulu membuat `cp` dari NetFS menghasilkan file 0 byte.
+            expect(bkfs.readChunk("/warisan.bin", 0, legacy.length)).toBe(legacy);
+            expect(bkfs.readChunk("/warisan.bin", 2, 4)).toBe(legacy.slice(2, 6));
+        } finally {
+            bkfs.close();
+            wipe(dbPath);
+        }
+    });
+
+    // ---------------------------------------------------------- A4: tabel blok
+    it("B3.06 file besar disimpan di tabel blok (content NULL), read() merakit utuh", () => {
+        const bkfs = bkfsSmall(); // inline ≤ 64 B, blok 128 B
+        const data = binari(1000); // ~8 blok
+
+        bkfs.touch("/besar.bin", data);
+
+        expect(bkfs.getSize("/besar.bin")).toBe(1000);
+        expect(bkfs.read("/besar.bin")).toBe(data);
+        expect(bkfs.countBlocks("/besar.bin")).toBeGreaterThan(1);
+        expect(bkfs.storageKind("/besar.bin")).toBe("blocks");
+    });
+
+    it("B3.07 append melewati batas blok: isi & size tetap konsisten", () => {
+        const bkfs = bkfsSmall();
+        const potongan = binari(300);
+
+        bkfs.touch("/tumbuh.bin", potongan.slice(0, 10));
+        let expected = potongan.slice(0, 10);
+        for (let i = 10; i < potongan.length; i += 37) {
+            const piece = potongan.slice(i, i + 37);
+            expect(bkfs.writeChunk("/tumbuh.bin", piece, expected.length)).toBe(true);
+            expected += piece;
+        }
+
+        expect(bkfs.getSize("/tumbuh.bin")).toBe(expected.length);
+        expect(bkfs.read("/tumbuh.bin")).toBe(expected);
+        // Potongan terakhir juga harus benar saat dibaca sebagian.
+        expect(bkfs.readChunk("/tumbuh.bin", expected.length - 20, 20)).toBe(expected.slice(-20));
+    });
+
+    it("B3.08 readChunk file ber-blok: offset tak sejajar, lintas blok, dan di luar batas", () => {
+        const bkfs = bkfsSmall();
+        const data = binari(400);
+        bkfs.touch("/potong.bin", data);
+
+        expect(bkfs.readChunk("/potong.bin", 0, 1)).toBe(data.slice(0, 1));
+        expect(bkfs.readChunk("/potong.bin", 127, 2)).toBe(data.slice(127, 129)); // tepat di batas blok
+        expect(bkfs.readChunk("/potong.bin", 100, 100)).toBe(data.slice(100, 200)); // lintas blok
+        expect(bkfs.readChunk("/potong.bin", 300, 500)).toBe(data.slice(300)); // melebihi ekor
+        expect(bkfs.readChunk("/potong.bin", 400, 10)).toBe(""); // di luar isi
+    });
+
+    it("B3.09 random write di tengah file ber-blok (splice hanya blok terdampak)", () => {
+        const bkfs = bkfsSmall();
+        const data = binari(400);
+        bkfs.touch("/acak.bin", data);
+
+        // Tulis 5 byte di offset 130 (lintas batas blok 128).
+        const patch = "ZZZZZ";
+        expect(bkfs.writeChunk("/acak.bin", patch, 130)).toBe(true);
+
+        const expected = data.slice(0, 130) + patch + data.slice(135);
+        expect(bkfs.read("/acak.bin")).toBe(expected);
+        expect(bkfs.getSize("/acak.bin")).toBe(expected.length);
+        expect(bkfs.readChunk("/acak.bin", 128, 10)).toBe(expected.slice(128, 138));
+    });
+
+    it("B3.10 touch besar → kecil membuang blok (tidak ada ekor lama yang menyembul)", () => {
+        const bkfs = bkfsSmall();
+        bkfs.touch("/ubah.bin", binari(500));
+        expect(bkfs.countBlocks("/ubah.bin")).toBeGreaterThan(0);
+
+        bkfs.touch("/ubah.bin", "kecil");
+
+        expect(bkfs.countBlocks("/ubah.bin")).toBe(0);
+        expect(bkfs.storageKind("/ubah.bin")).toBe("inline");
+        expect(bkfs.read("/ubah.bin")).toBe("kecil");
+        expect(bkfs.getSize("/ubah.bin")).toBe(5);
+    });
+
+    it("B3.11 unlink membuang blok (tidak ada ruang disk yang bocor)", () => {
+        const bkfs = bkfsSmall();
+        bkfs.touch("/hapus.bin", binari(500));
+        expect(bkfs.countBlocks("/hapus.bin")).toBeGreaterThan(0);
+
+        expect(bkfs.unlink("/hapus.bin")).toBe(true);
+        expect(bkfs.countBlocks("/hapus.bin")).toBe(0);
+        expect(bkfs.read("/hapus.bin")).toBeNull();
+    });
+
+    it("B3.12 size selalu konsisten dengan isi (invariant)", () => {
+        const bkfs = bkfsSmall();
+        const data = binari(777);
+
+        bkfs.touch("/inv.bin", data.slice(0, 5));
+        expect(bkfs.getSize("/inv.bin")).toBe(bkfs.read("/inv.bin")!.length);
+
+        // Tulis berurutan tiap 50 byte dari offset 5 → menutupi 5..305 tanpa celah.
+        for (let off = 5; off < 300; off += 50) {
+            const piece = data.slice(off, off + 50);
+            bkfs.writeChunk("/inv.bin", piece, bkfs.getSize("/inv.bin"));
+            const isi = bkfs.read("/inv.bin")!;
+            expect(isi.length).toBe(bkfs.getSize("/inv.bin"));
+            expect(isi).toBe(data.slice(0, isi.length));
+        }
+
+        // Sambungan di ekor tetap kontigu → isi harus persis potongan referensi.
+        expect(bkfs.getSize("/inv.bin")).toBe(305);
+        bkfs.append("/inv.bin", data.slice(305, 320));
+        expect(bkfs.getSize("/inv.bin")).toBe(320);
+        expect(bkfs.read("/inv.bin")).toBe(data.slice(0, 320));
+    });
+
+    it("B3.13 menyisakan celah tetap ditolak pada file ber-blok (bukan metadata bohong)", () => {
+        const bkfs = bkfsSmall();
+        bkfs.touch("/celah.bin", binari(300)); // sudah ber-blok
+
+        expect(bkfs.writeChunk("/celah.bin", "X", 1000)).toBe(false);
+        expect(bkfs.getSize("/celah.bin")).toBe(300);
+        expect(bkfs.read("/celah.bin")).toBe(binari(300));
+    });
+});

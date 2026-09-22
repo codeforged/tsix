@@ -20,11 +20,138 @@ const VNODE_META_COLUMNS = "id, parent_id, name, type, size, uid, gid, mode, cre
 /**
  * Batas ukuran isi yang BOLEH ditahan untuk cache `readChunk()` (byte).
  *
- * Satu entri saja (berkas yang sedang dibaca berurutan). Angka ini sengaja
- * cukup besar untuk berkas media biasa, tapi tetap jauh di bawah plafon heap
- * node kecil, karena kernel juga memegang salinan isi saat `fs.read()`.
+ * Sejak `content` disimpan sebagai BLOB, jalur normal `readChunk()` memotong di
+ * sisi SQL (lihat `readChunk()`) sehingga cache ini TIDAK dipakai lagi untuk data
+ * baru. Yang tersisa adalah baris WARISAN bertipe TEXT: di situ `substr()` SQLite
+ * berhenti di byte NUL, jadi satu-satunya cara benar adalah membaca penuh ke JS
+ * lalu `slice()`. Cache satu entri ini membuat pembacaan berurutan file warisan
+ * tetap murah.
  */
 const BKFS_CHUNK_CACHE_MAX_BYTES = 192 * 1024 * 1024;
+
+/**
+ * PRAGMA yang dipasang tiap kali database dibuka.
+ *
+ * `journal_mode = WAL` — yang paling berdampak, untuk KETAHANAN sekaligus
+ * kecepatan:
+ *
+ *   - Mode lama (`DELETE`, default SQLite) menyalin HALAMAN LAMA ke rollback
+ *     journal sebelum mengubah, lalu `fsync`. Untuk satu baris yang memuat file
+ *     seukuran 35 MB, itu berarti menulis ~35 MB journal + ~35 MB tabel untuk
+ *     SETIAP potongan `writeChunk()` — 2× ukuran file, berulang. Terukur di
+ *     lapangan: copy 70 MB = 12m44s (~40 GB I/O untuk data 70 MB).
+ *   - WAL hanya menulis halaman BARU dan `fsync` terjadi saat checkpoint, bukan
+ *     tiap commit → commit jadi milidetik dan data lama tidak ditulis ulang.
+ *   - Pembaca tidak lagi memblokir penulis (dan sebaliknya). Ini penting karena
+ *     kernel bisa membaca VFS sementara proses/daemon lain menulis.
+ *   - Recovery setelah crash bersifat otomatis dan transaksional; jauh lebih tahan
+ *     mati listrik daripada rollback journal.
+ *
+ * `synchronous = NORMAL` — rekomendasi SQLite untuk mode WAL: struktur database
+ * TIDAK BISA korup (selalu konsisten setelah recovery); yang berisiko hanya
+ * transaksi terakhir yang belum ter-checkpoint bila OS/mesin mati. `FULL` memaksa
+ * fsync tiap commit (satu fsync per file saat bootstrap) — tersedia lewat opsi
+ * `synchronous` di konstruktor kalau memang dibutuhkan.
+ *
+ * `foreign_keys = ON` — skema sudah mendeklarasikan `FOREIGN KEY(parent_id)`,
+ * tetapi SQLite TIDAK menegakkannya tanpa pragma ini (dan pragma-nya per-koneksi,
+ * jadi harus dipasang tiap open). Dengan FK aktif, baris yatim ditolak dan tabel
+ * `blocks` ikut terhapus lewat `ON DELETE CASCADE`.
+ *
+ * `busy_timeout` — jangan gagal dengan `SQLITE_BUSY` hanya karena proses lain
+ * sedang menulis; tunggu, baru menyerah.
+ */
+export const BKFS_BUSY_TIMEOUT_MS = 5000;
+/** Page cache SQLite (KiB, nilai negatif = KiB seperti konvensi SQLite). */
+const BKFS_CACHE_KIB = 8192;
+/** Plafon mmap baca (byte). Nilai konservatif supaya aman di node kecil. */
+const BKFS_MMAP_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Isi file ≤ batas ini disimpan INLINE di kolom `content` (satu baris).
+ *
+ * Mayoritas besar file sistem (skrip `/bin`, `/lib`, config `/etc`) ada di bawah
+ * ambang ini, dan untuk mereka satu baris = satu baca = jalur tercepat (juga yang
+ * dipakai `Kernel.rebuildVFSCache()` saat pre-compile `/lib`).
+ */
+export const BKFS_INLINE_MAX_BYTES = 64 * 1024;
+
+/**
+ * Ukuran satu blok pada tabel `blocks` (byte) untuk file besar.
+ *
+ * Dipilih 128 KiB supaya satu potongan tulis NetFS (124 KiB) jatuh dalam SATU
+ * blok, sehingga append berurutan = satu INSERT kecil (O(1)), bukan penulisan
+ * ulang seluruh isi file (O(n)).
+ */
+export const BKFS_BLOCK_BYTES = 128 * 1024;
+
+/** Opsi teknis BKFS (semua opsional — default sudah aman untuk produksi). */
+export interface BKFSOptions {
+    /**
+     * Mode durability SQLite. Default `NORMAL` (aman dari korupsi, commit cepat).
+     * Naikkan ke `FULL` kalau node harus tahan mati listrik di detik terakhir.
+     */
+    synchronous?: "NORMAL" | "FULL";
+    /** Ambang penyimpanan inline (byte). Default `BKFS_INLINE_MAX_BYTES`. */
+    inlineMaxBytes?: number;
+    /** Ukuran blok tabel `blocks` (byte). Default `BKFS_BLOCK_BYTES`. */
+    blockBytes?: number;
+}
+
+/**
+ * encodeContent(): String internal TSIX → nilai kolom `content`.
+ *
+ * Konvensi TSIX adalah latin1 (1 char = 1 byte). `Buffer.from(str, "latin1")`
+ * memetakan kode karakter 0x00-0xFF langsung ke byte — jadi byte NUL dan byte
+ * ≥ 0x80 tersimpan APA ADANYA. Ini yang membuat `substr()`/`length()` SQLite
+ * aman untuk berkas biner (pada TEXT, byte NUL memotong string dan byte ≥ 0x80
+ * menggelembung jadi 2 byte UTF-8).
+ */
+export function encodeContent(content: string | null | undefined): Buffer {
+    return Buffer.from(content ?? "", "latin1");
+}
+
+/**
+ * decodeContent(): Nilai kolom → string internal TSIX.
+ *
+ * Menerima DUA bentuk sekaligus, sengaja: baris baru disimpan sebagai BLOB,
+ * sedangkan database lama berisi TEXT. SQLite menyimpan tipe per-NILAI (bukan
+ * per-kolom), jadi konversi menyeluruh tidak wajib — baris lama tetap benar dan
+ * otomatis ter-upgrade saat ditulis ulang. Ini yang membuat migrasi A3 tidak
+ * berisiko: tidak ada pass “ubah semua isi” yang bisa gagal di tengah.
+ */
+export function decodeContent(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "string") return value; // baris warisan (TEXT)
+    if (Buffer.isBuffer(value)) return value.toString("latin1");
+    if (value instanceof Uint8Array) return Buffer.from(value).toString("latin1");
+    return String(value);
+}
+
+/**
+ * readVnodeContent(): Baca isi sebuah vnode lewat koneksi SQLite MENTAH.
+ *
+ * Untuk skrip di luar kelas BKFS (mis. `scripts/vfs-pull.ts`) yang membuka
+ * database sendiri. Tanpa helper ini, isi file besar akan terbaca KOSONG, karena
+ * file besar tidak disimpan di kolom `content` melainkan di tabel `blocks` —
+ * penggabungannya harus lewat satu aturan, dan aturan itu hidup di sini.
+ */
+export function readVnodeContent(db: Database.Database, nodeId: number): string {
+    const row = db.prepare("SELECT content, IFNULL(size, 0) AS size FROM vnodes WHERE id = ?").get(nodeId) as
+        | { content: unknown; size: number }
+        | undefined;
+    if (!row) return "";
+
+    if (row.content !== null && row.content !== undefined) return decodeContent(row.content) ?? "";
+    if (row.size === 0) return "";
+
+    let out = "";
+    const rows = db
+        .prepare("SELECT data FROM blocks WHERE vnode_id = ? ORDER BY seq")
+        .iterate(nodeId) as Iterable<{ data: Buffer }>;
+    for (const block of rows) out += decodeContent(block.data) ?? "";
+    return out;
+}
 
 /**
  * BKFS (Bukan Kernel File System)
@@ -33,48 +160,193 @@ const BKFS_CHUNK_CACHE_MAX_BYTES = 192 * 1024 * 1024;
  * Ini mensimulasikan Disk Drive (seperti /dev/sda di Linux).
  */
 export class BKFS implements IVFS {
-  private db: Database.Database;
-  private logger: Logger;
-  private readOnly: boolean;
-  /** Cache satu entri untuk `readChunk()` — lihat `contentForChunk()`. */
-  private chunkCache: { path: string; content: string } | null = null;
+    private db: Database.Database;
+    private logger: Logger;
+    private readOnly: boolean;
+    private opts: Required<BKFSOptions>;
+    /** Cache satu entri untuk `readChunk()` jalur WARISAN (TEXT) — lihat `readChunk()`. */
+    private chunkCache: { path: string; content: string } | null = null;
+    /**
+     * Cache prepared statement per-koneksi.
+     *
+     * Sebelumnya setiap pemanggilan melakukan `this.db.prepare(sql)` dari awal:
+     * navigasi path satu berkas berarti beberapa kali parse SQL (tiap segmen
+     * direktori), dikalikan ribuan operasi saat bootstrap. Statement SQLite
+     * bersifat reusable dan aman dipakai ulang selama skema tidak berubah.
+     */
+    private stmts = new Map<string, Database.Statement>();
 
-  constructor(
-    dbPath: string = "system.db",
-    readOnly: boolean = false,
-    uid?: number,
-    gid?: number,
-    mode?: number,
-  ) {
-    this.logger = new Logger("BKFS");
-    this.readOnly = readOnly;
-    this.db = new Database(dbPath, { readonly: readOnly });
+    constructor(
+        dbPath: string = "system.db",
+        readOnly: boolean = false,
+        uid?: number,
+        gid?: number,
+        mode?: number,
+        opts: BKFSOptions = {},
+    ) {
+        this.logger = new Logger("BKFS");
+        this.readOnly = readOnly;
+        this.opts = {
+            synchronous: opts.synchronous ?? "NORMAL",
+            inlineMaxBytes: opts.inlineMaxBytes ?? BKFS_INLINE_MAX_BYTES,
+            blockBytes: opts.blockBytes ?? BKFS_BLOCK_BYTES,
+        };
+        this.db = new Database(dbPath, { readonly: readOnly });
 
-    // Inisialisasi tabel jika belum ada
-    this.initSchema();
+        this.applyPragmas();
 
-    // Override root ownership/permissions if specified
-    if (uid !== undefined || gid !== undefined || mode !== undefined) {
-      this.db
-        .prepare(
-          "UPDATE vnodes SET uid = ?, gid = ?, mode = ? WHERE name = '/' AND parent_id IS NULL",
-        )
-        .run(uid ?? 0, gid ?? 0, mode ?? 0o755);
+        // Inisialisasi tabel jika belum ada
+        this.initSchema();
+
+        // FK dinyalakan SETELAH migrasi, sengaja: migrasi dedup di `initSchema()`
+        // menghapus baris duplikat (yang bisa punya anak). Kalau FK sudah aktif saat
+        // itu, migrasi gagal di database lama yang kotor — dan database lama yang kotor
+        // justru yang paling butuh migrasi.
+        this.db.pragma("foreign_keys = ON");
+
+        // Override root ownership/permissions if specified
+        if (uid !== undefined || gid !== undefined || mode !== undefined) {
+            this.stmt("UPDATE vnodes SET uid = ?, gid = ?, mode = ? WHERE name = '/' AND parent_id IS NULL").run(
+                uid ?? 0,
+                gid ?? 0,
+                mode ?? 0o755,
+            );
+        }
+
+        const absPath = path.resolve(dbPath);
+        this.logger.info(`VFS Database connected: ${absPath}`);
     }
 
-    const absPath = path.resolve(dbPath);
-    this.logger.info(`VFS Database connected: ${absPath}`);
-  }
+    /**
+     * applyPragmas(): Pasang PRAGMA koneksi (lihat `PRAGMAS` di atas untuk alasannya).
+     *
+     * `journal_mode` dibaca kembali dan dicatat: di filesystem yang tidak mendukung
+     * WAL (mis. share jaringan), SQLite **diam-diam** mempertahankan mode lama. Untuk
+     * operasional lebih baik tahu — kalau WAL gagal, performa tulis jatuh ke
+     * perilaku lama dan itu terlihat di log, bukan jadi misteri.
+     */
+    private applyPragmas(): void {
+        if (!this.readOnly) {
+            const mode = this.db.pragma("journal_mode = WAL", { simple: true });
+            this.db.pragma(`synchronous = ${this.opts.synchronous}`);
+            if (String(mode).toLowerCase() !== "wal") {
+                this.logger.warn(
+                    `journal_mode tidak bisa WAL (dapat '${mode}') — tulis akan memakai rollback journal (lebih lambat). ` +
+                        `Biasanya karena filesystem/direktori tidak mendukung.`,
+                );
+            }
+        }
+        // Berguna juga untuk koneksi read-only (menunggu penulis selesai, bukan gagal).
+        this.db.pragma(`busy_timeout = ${BKFS_BUSY_TIMEOUT_MS}`);
+        if (!this.readOnly) {
+            this.db.pragma(`cache_size = -${BKFS_CACHE_KIB}`);
+            this.db.pragma(`mmap_size = ${BKFS_MMAP_BYTES}`);
+        }
+    }
 
-  private initSchema() {
-    // Tabel vnodes: menyimpan struktur folder dan file + Metadata Security
-    this.db.exec(`
+    /**
+     * stmt(): Prepared statement dari cache (parse SQL sekali saja).
+     *
+     * Semua jalur baca/tulis ber-`path` melakukan navigasi beberapa segmen, jadi
+     * tanpa cache ini satu operasi = beberapa kali parse SQL.
+     */
+    private stmt(sql: string): Database.Statement {
+        let s = this.stmts.get(sql);
+        if (!s) {
+            s = this.db.prepare(sql);
+            this.stmts.set(sql, s);
+        }
+        return s;
+    }
+
+    /**
+     * batch(): Jalankan sekumpulan operasi dalam SATU transaksi atomik.
+     *
+     * KENAPA PENTING (kehandalan + kecepatan):
+     *   - Atomik. Bootstrap image sistem = ribuan `touch()`. Tanpa transaksi, crash
+     *     di tengah meninggalkan image SETENGAH jadi yang terlihat normal (sebagian
+     *     `/bin` ada, sebagian tidak). Dengan satu transaksi, hasilnya "semua atau
+     *     tidak sama sekali" — persis yang dibutuhkan operasional.
+     *   - Kecepatan. Tanpa transaksi, tiap `touch()` = 1 transaksi = fsync. Ribuan
+     *     fsync berubah jadi satu.
+     *
+     * Nesting aman: better-sqlite3 memakai SAVEPOINT untuk transaksi bersarang.
+     */
+    public batch<T>(fn: () => T): T {
+        if (this.readOnly) throw new Error("Read-only filesystem");
+        return this.db.transaction(fn)();
+    }
+
+    /**
+     * checkpoint(): Pindahkan isi WAL ke file database utama.
+     *
+     * Dipakai setelah pekerjaan besar (bootstrap/install) supaya `system.db`
+     * kembali self-contained: satu file yang bisa langsung disalin/di-backup tanpa
+     * harus ikut membawa `-wal`/`-shm`.
+     */
+    public checkpoint(): void {
+        if (this.readOnly) return;
+        try {
+            this.db.pragma("wal_checkpoint(TRUNCATE)");
+        } catch (e: any) {
+            this.logger.warn(`checkpoint gagal: ${e.message}`);
+        }
+    }
+
+    /**
+     * checkIntegrity(): Periksa kesehatan file database.
+     *
+     * `quick = true` (default) memakai `quick_check` — melewati verifikasi index
+     * yang mahal, cocok untuk pemeriksaan rutin. `quick = false` memakai
+     * `integrity_check` penuh. Return `"ok"` kalau sehat, selain itu pesan masalah.
+     */
+    public checkIntegrity(quick: boolean = true): string {
+        const rows = this.db.pragma(quick ? "quick_check" : "integrity_check") as Array<Record<string, string>>;
+        const messages = (rows ?? []).map((r) => Object.values(r)[0]);
+        if (messages.length === 0) return "ok";
+        return messages.every((m) => m === "ok") ? "ok" : messages.join("; ");
+    }
+
+    /** compact(): VACUUM — ciutkan file setelah banyak penghapusan. */
+    public compact(): void {
+        if (this.readOnly) throw new Error("Read-only filesystem");
+        this.db.exec("VACUUM");
+        this.stmts.clear(); // VACUUM menulis ulang skema → statement lama dibuang
+    }
+
+    /**
+     * close(): Checkpoint lalu tutup database.
+     *
+     * Sebelumnya BKFS tidak pernah ditutup sama sekali: WAL bisa tertinggal dan
+     * file `.db` tidak lengkap kalau disalin. Penutupan yang rapi membuat image
+     * "satu file" kembali — sesuai asumsi `bkfs -c`, `create-bkfs`, dan backup manual.
+     */
+    public close(): void {
+        this.checkpoint();
+        this.stmts.clear();
+        try {
+            this.db.close();
+        } catch (e: any) {
+            this.logger.warn(`close gagal: ${e.message}`);
+        }
+    }
+
+    private initSchema() {
+        // Tabel vnodes: menyimpan struktur folder dan file + Metadata Security
+        //
+        // `content` didokumentasikan sebagai BLOB sejak awal (wiki), tapi dulu praktiknya
+        // TEXT — dan itulah akar dua bug nyata: (1) `SUBSTR()`/`length()` SQLite berhenti
+        // di byte NUL untuk TEXT, (2) byte ≥ 0x80 disimpan UTF-8 (2 byte) sehingga aset
+        // biner menggelembung ~2× di dalam DB. Afinitas BLOB tidak mengubah nilai yang
+        // sudah ada (SQLite menyimpan tipe per-nilai), jadi baris lama tetap terbaca —
+        // lihat `readContentValue()`.
+        this.db.exec(`
             CREATE TABLE IF NOT EXISTS vnodes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 parent_id INTEGER,
                 name TEXT NOT NULL,
                 type TEXT NOT NULL,
-                content TEXT,
+                content BLOB,
                 size INTEGER DEFAULT 0,
                 uid INTEGER DEFAULT 0,    -- User ID (0 = root)
                 gid INTEGER DEFAULT 0,    -- Group ID (0 = root)
@@ -86,9 +358,28 @@ export class BKFS implements IVFS {
             );
         `);
 
-    // Hapus duplikasi jika ada (Migration Hack dari Lapis 10.2)
-    try {
-      this.db.exec(`
+        // Tabel blok untuk isi file BESAR (lihat `writeChunk()`).
+        //
+        // Menyimpan isi file panjang di SATU baris berarti setiap potongan tulis harus
+        // menulis ulang seluruh baris (O(n) per potongan → O(n²) per file). Terukur: copy
+        // 70 MB = 12m44s. Dengan blok, append = satu INSERT kecil (O(1)).
+        //
+        // WITHOUT ROWID menjadikan (vnode_id, seq) sebagai clustered index → membaca satu
+        // file berurutan = range scan yang berurutan juga (ramah cache halaman).
+        // ON DELETE CASCADE: hapus vnode → blok ikut hilang (tidak ada sampah yatim).
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS blocks (
+                vnode_id INTEGER NOT NULL,
+                seq INTEGER NOT NULL,
+                data BLOB NOT NULL,
+                PRIMARY KEY (vnode_id, seq),
+                FOREIGN KEY (vnode_id) REFERENCES vnodes(id) ON DELETE CASCADE
+            ) WITHOUT ROWID;
+        `);
+
+        // Hapus duplikasi jika ada (Migration Hack dari Lapis 10.2)
+        try {
+            this.db.exec(`
                 DELETE FROM vnodes 
                 WHERE id NOT IN (
                     SELECT MIN(id) 
@@ -96,647 +387,707 @@ export class BKFS implements IVFS {
                     GROUP BY parent_id, name
                 );
             `);
-    } catch (e) {
-      // Ignore if migration fails on fresh DB
+        } catch (e) {
+            // Ignore if migration fails on fresh DB
+        }
+
+        // Migration: Tambahkan kolom jika belum ada (SQLite ALTER TABLE)
+        try {
+            this.db.exec("ALTER TABLE vnodes ADD COLUMN uid INTEGER DEFAULT 0");
+        } catch (e) {}
+        try {
+            this.db.exec("ALTER TABLE vnodes ADD COLUMN gid INTEGER DEFAULT 0");
+        } catch (e) {}
+        try {
+            this.db.exec("ALTER TABLE vnodes ADD COLUMN mode INTEGER DEFAULT 420");
+        } catch (e) {}
+        try {
+            this.db.exec("ALTER TABLE vnodes ADD COLUMN modified_at INTEGER");
+        } catch (e) {}
+        try {
+            this.db.exec("ALTER TABLE vnodes ADD COLUMN size INTEGER DEFAULT 0");
+        } catch (e) {}
+
+        // Masukkan root (/) jika belum ada (Mode 755 = 493)
+        const root = this.db.prepare("SELECT id FROM vnodes WHERE name = '/' AND parent_id IS NULL").get();
+        if (!root) {
+            this.db
+                .prepare(
+                    "INSERT INTO vnodes (name, type, uid, gid, mode, created_at) VALUES ('/', 'DIRECTORY', 0, 0, 493, ?)",
+                )
+                .run(Date.now());
+            this.logger.debug("Root (/) created in BKFS with root permissions.");
+        }
     }
 
-    // Migration: Tambahkan kolom jika belum ada (SQLite ALTER TABLE)
-    try {
-      this.db.exec("ALTER TABLE vnodes ADD COLUMN uid INTEGER DEFAULT 0");
-    } catch (e) {}
-    try {
-      this.db.exec("ALTER TABLE vnodes ADD COLUMN gid INTEGER DEFAULT 0");
-    } catch (e) {}
-    try {
-      this.db.exec("ALTER TABLE vnodes ADD COLUMN mode INTEGER DEFAULT 420");
-    } catch (e) {}
-    try {
-      this.db.exec("ALTER TABLE vnodes ADD COLUMN modified_at INTEGER");
-    } catch (e) {}
-    try {
-      this.db.exec("ALTER TABLE vnodes ADD COLUMN size INTEGER DEFAULT 0");
-    } catch (e) {}
+    /**
+     * mkdir(): Membuat direktori di database.
+     */
+    public mkdir(path: string, uid: number = 0, gid: number = 0, mode: number = 493): boolean {
+        if (this.readOnly) throw new Error("Read-only filesystem");
+        const parts = path.split("/").filter((p) => p.length > 0 && p !== "." && p !== "..");
+        let parentId = this.getRootId();
 
-    // Masukkan root (/) jika belum ada (Mode 755 = 493)
-    const root = this.db
-      .prepare("SELECT id FROM vnodes WHERE name = '/' AND parent_id IS NULL")
-      .get();
-    if (!root) {
-      this.db
-        .prepare(
-          "INSERT INTO vnodes (name, type, uid, gid, mode, created_at) VALUES ('/', 'DIRECTORY', 0, 0, 493, ?)",
-        )
-        .run(Date.now());
-      this.logger.debug("Root (/) created in BKFS with root permissions.");
+        for (const part of parts) {
+            let node = this.db.prepare("SELECT id FROM vnodes WHERE name = ? AND parent_id = ?").get(part, parentId) as
+                | { id: number }
+                | undefined;
+
+            if (!node) {
+                const now = Date.now();
+                const result = this.db
+                    .prepare(
+                        "INSERT INTO vnodes (parent_id, name, type, uid, gid, mode, created_at, modified_at) VALUES (?, ?, 'DIRECTORY', ?, ?, ?, ?, ?)",
+                    )
+                    .run(parentId, part, uid, gid, mode, now, now);
+                parentId = result.lastInsertRowid as number;
+                this.logger.debug(`Directory created in BKFS: ${part} (Mode: ${mode.toString(8)})`);
+            } else {
+                parentId = node.id;
+            }
+        }
+        return true;
     }
-  }
 
-  /**
-   * mkdir(): Membuat direktori di database.
-   */
-  public mkdir(
-    path: string,
-    uid: number = 0,
-    gid: number = 0,
-    mode: number = 493,
-  ): boolean {
-    if (this.readOnly) throw new Error("Read-only filesystem");
-    const parts = path
-      .split("/")
-      .filter((p) => p.length > 0 && p !== "." && p !== "..");
-    let parentId = this.getRootId();
+    /**
+     * touch(): Membuat / mengganti isi file.
+     *
+     * Penyimpanan dipilih otomatis:
+     *   - isi ≤ `inlineMaxBytes` → satu baris `content` (jalur tercepat, dan bentuk
+     *     yang paling sering dibaca kernel saat pre-compile `/lib`);
+     *   - isi lebih besar → dipecah ke tabel `blocks` (lihat `writeBlocks()`).
+     *
+     * Perubahan besar→kecil WAJIB membuang blok lama, kalau tidak isi lama akan
+     * “menyembul” kembali saat dibaca. Karena itu pembuangan + penulisan + update
+     * baris dijalankan dalam SATU transaksi (atomik: tidak ada state setengah jadi
+     * kalau proses mati di tengah).
+     */
+    public touch(path: string, content: string = "", uid: number = 0, gid: number = 0, mode: number = 420): boolean {
+        if (this.readOnly) throw new Error("Read-only filesystem");
 
-    for (const part of parts) {
-      let node = this.db
-        .prepare("SELECT id FROM vnodes WHERE name = ? AND parent_id = ?")
-        .get(part, parentId) as { id: number } | undefined;
+        const nodeId = this.resolveForWrite(path);
+        if (nodeId < 0) return false;
 
-      if (!node) {
+        this.forgetChunkCache();
+        const text = content ?? "";
         const now = Date.now();
-        const result = this.db
-          .prepare(
-            "INSERT INTO vnodes (parent_id, name, type, uid, gid, mode, created_at, modified_at) VALUES (?, ?, 'DIRECTORY', ?, ?, ?, ?, ?)",
-          )
-          .run(parentId, part, uid, gid, mode, now, now);
-        parentId = result.lastInsertRowid as number;
-        this.logger.debug(
-          `Directory created in BKFS: ${part} (Mode: ${mode.toString(8)})`,
-        );
-      } else {
-        parentId = node.id;
-      }
-    }
-    return true;
-  }
 
-  /**
-   * touch(): Membuat file di database.
-   */
-  public touch(
-    path: string,
-    content: string = "",
-    uid: number = 0,
-    gid: number = 0,
-    mode: number = 420,
-  ): boolean {
-    if (this.readOnly) throw new Error("Read-only filesystem");
-    this.forgetChunkCache();
-    const parts = path
-      .split("/")
-      .filter((p) => p.length > 0 && p !== "." && p !== "..");
-    const fileName = parts.pop();
-    if (!fileName) return false;
+        return this.batch(() => {
+            this.clearBlocks(nodeId);
 
-    let parentId = this.getRootId();
-    // Navigasi ke folder tujuan
-    for (const part of parts) {
-      let node = this.db
-        .prepare(
-          "SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'",
-        )
-        .get(part, parentId) as { id: number } | undefined;
-      if (!node) return false;
-      parentId = node.id;
+            if (text.length <= this.opts.inlineMaxBytes) {
+                this.stmt("UPDATE vnodes SET content = ?, size = ?, modified_at = ? WHERE id = ?").run(
+                    encodeContent(text),
+                    text.length,
+                    now,
+                    nodeId,
+                );
+            } else {
+                this.writeBlocks(nodeId, text, 0);
+                this.stmt("UPDATE vnodes SET content = NULL, size = ?, modified_at = ? WHERE id = ?").run(
+                    text.length,
+                    now,
+                    nodeId,
+                );
+            }
+            return true;
+        });
     }
 
-    // Cek apakah file sudah ada
-    const existing = this.db
-      .prepare(
-        "SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'FILE'",
-      )
-      .get(fileName, parentId);
+    /**
+     * append(): Menambahkan isi ke ekor file.
+     *
+     * CONCAT DI SQLITI TIDAK DIPAKAI (`content || ?`): pada operand BLOB, hasil
+     * `||` bisa dipaksakan menjadi TEXT — dan begitu jadi TEXT, byte NUL kembali
+     * memotong data (bug lama). Penggabungan dilakukan di JS/Buffer, yang tipenya
+     * eksplisit dan NUL-safe.
+     */
+    public append(path: string, content: string): boolean {
+        if (this.readOnly) throw new Error("Read-only filesystem");
 
-    if (existing) {
-      this.db
-        .prepare(
-          "UPDATE vnodes SET content = ?, size = ?, modified_at = ? WHERE id = ?",
-        )
-        .run(content, content.length, Date.now(), (existing as any).id);
-      return true;
+        const nodeId = this.resolveForWrite(path);
+        if (nodeId < 0) return false;
+
+        const text = content ?? "";
+        if (text.length === 0) return true;
+
+        const size = this.sizeOf(nodeId);
+        if (size < 0) return false;
+
+        this.forgetChunkCache();
+
+        // Masih inline dan hasilnya tetap muat → baca-gabung-tulis (isi ≤ 64 KiB,
+        // jadi biayanya kecil dan tidak perlu menyentuh tabel blok).
+        const inlineText = this.inlineContent(nodeId);
+        if (inlineText !== null && inlineText.length + text.length <= this.opts.inlineMaxBytes) {
+            const merged = inlineText + text;
+            return this.batch(() => {
+                this.stmt("UPDATE vnodes SET content = ?, size = ?, modified_at = ? WHERE id = ?").run(
+                    encodeContent(merged),
+                    merged.length,
+                    Date.now(),
+                    nodeId,
+                );
+                return true;
+            });
+        }
+
+        // Sudah besar / akan besar → pakai jalur blok (O(1) per potongan).
+        return this.writeChunk(path, text, size);
     }
 
-    const now = Date.now();
-    this.db
-      .prepare(
-        "INSERT INTO vnodes (parent_id, name, type, content, size, uid, gid, mode, created_at, modified_at) VALUES (?, ?, 'FILE', ?, ?, ?, ?, ?, ?, ?)",
-      )
-      .run(
-        parentId,
-        fileName,
-        content,
-        content.length,
-        uid,
-        gid,
-        mode,
-        now,
-        now,
-      );
-
-    this.logger.debug(
-      `File created/updated in BKFS: ${fileName} (Mode: ${mode.toString(8)})`,
-    );
-    return true;
-  }
-
-  /**
-   * append(): Menambahkan konten ke akhir file.
-   */
-  public append(path: string, content: string): boolean {
-    if (this.readOnly) throw new Error("Read-only filesystem");
-    this.forgetChunkCache();
-
-    const parts = path
-      .split("/")
-      .filter((p) => p.length > 0 && p !== "." && p !== "..");
-    const fileName = parts.pop();
-    if (!fileName) return false;
-
-    let parentId = this.getRootId();
-    for (const part of parts) {
-      let node = this.db
-        .prepare(
-          "SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'",
-        )
-        .get(part, parentId) as { id: number } | undefined;
-      if (!node) return false;
-      parentId = node.id;
+    /**
+     * resolveForWrite(): Ambil node id untuk operasi tulis, buat file bila belum ada.
+     *
+     * Return -1 kalau direktori induk tidak ada (pemanggil mengembalikan `false`,
+     * konsisten dengan perilaku lama: `touch()` tidak membuat folder induk).
+     */
+    private resolveForWrite(path: string): number {
+        const existing = this.getNodeId(path);
+        if (existing >= 0) return existing;
+        return this.createEmptyFile(path) ? this.getNodeId(path) : -1;
     }
 
-    const existing = this.db
-      .prepare(
-        "SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'FILE'",
-      )
-      .get(fileName, parentId);
+    /** createEmptyFile(): INSERT baris file kosong (jalur `touch` pada path baru). */
+    private createEmptyFile(path: string, uid: number = 0, gid: number = 0, mode: number = 420): boolean {
+        const parts = path.split("/").filter((p) => p.length > 0 && p !== "." && p !== "..");
+        const fileName = parts.pop();
+        if (!fileName) return false;
 
-    if (existing) {
-      // Append to existing content
-      this.db
-        .prepare(
-          "UPDATE vnodes SET content = IFNULL(content, '') || ?, size = IFNULL(size, 0) + ?, modified_at = ? WHERE id = ?",
-        )
-        .run(content, content.length, Date.now(), (existing as any).id);
-      return true;
-    } else {
-      // Create new file if not exists
-      return this.touch(path, content);
-    }
-  }
+        let parentId = this.getRootId();
+        for (const part of parts) {
+            const node = this.stmt("SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'").get(
+                part,
+                parentId,
+            ) as { id: number } | undefined;
+            if (!node) return false;
+            parentId = node.id;
+        }
 
-  /**
-   * stat(): Mengambil metadata file/folder.
-   *
-   * TIDAK membaca `content` (lihat `VNODE_META_COLUMNS`): pemanggil stat hanya
-   * butuh ukuran/mode/uid, dan konten tersedia lewat `read()`/`readChunk()`.
-   */
-  public stat(path: string) {
-    const parts = path
-      .split("/")
-      .filter((p) => p.length > 0 && p !== "." && p !== "..");
-    let parentId = this.getRootId();
-
-    if (path === "/") {
-      return this.db
-        .prepare(`SELECT ${VNODE_META_COLUMNS} FROM vnodes WHERE id = ?`)
-        .get(parentId) as any;
+        const now = Date.now();
+        this.stmt(
+            "INSERT INTO vnodes (parent_id, name, type, content, size, uid, gid, mode, created_at, modified_at) VALUES (?, ?, 'FILE', ?, 0, ?, ?, ?, ?, ?)",
+        ).run(parentId, fileName, encodeContent(""), uid, gid, mode, now, now);
+        return true;
     }
 
-    const targetName = parts.pop();
-    if (!targetName) return null; // Should not happen if path is not "/" and parts is not empty
+    /**
+     * stat(): Mengambil metadata file/folder.
+     *
+     * TIDAK membaca `content` (lihat `VNODE_META_COLUMNS`): pemanggil stat hanya
+     * butuh ukuran/mode/uid, dan konten tersedia lewat `read()`/`readChunk()`.
+     */
+    public stat(path: string) {
+        const parts = path.split("/").filter((p) => p.length > 0 && p !== "." && p !== "..");
+        let parentId = this.getRootId();
 
-    for (const part of parts) {
-      let node = this.db
-        .prepare(
-          "SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'",
-        )
-        .get(part, parentId) as { id: number } | undefined;
-      if (!node) return null;
-      parentId = node.id;
+        if (path === "/") {
+            return this.db.prepare(`SELECT ${VNODE_META_COLUMNS} FROM vnodes WHERE id = ?`).get(parentId) as any;
+        }
+
+        const targetName = parts.pop();
+        if (!targetName) return null; // Should not happen if path is not "/" and parts is not empty
+
+        for (const part of parts) {
+            let node = this.db
+                .prepare("SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'")
+                .get(part, parentId) as { id: number } | undefined;
+            if (!node) return null;
+            parentId = node.id;
+        }
+
+        return this.db
+            .prepare(`SELECT ${VNODE_META_COLUMNS} FROM vnodes WHERE name = ? AND parent_id = ?`)
+            .get(targetName, parentId) as any;
     }
 
-    return this.db
-      .prepare(`SELECT ${VNODE_META_COLUMNS} FROM vnodes WHERE name = ? AND parent_id = ?`)
-      .get(targetName, parentId) as any;
-  }
+    /**
+     * chmod(): Mengubah permission file/folder.
+     */
+    public chmod(path: string, mode: number): boolean {
+        if (this.readOnly) throw new Error("Read-only filesystem");
+        const node = this.stat(path);
+        if (!node) return false;
 
-  /**
-   * chmod(): Mengubah permission file/folder.
-   */
-  public chmod(path: string, mode: number): boolean {
-    if (this.readOnly) throw new Error("Read-only filesystem");
-    const node = this.stat(path);
-    if (!node) return false;
-
-    this.db
-      .prepare("UPDATE vnodes SET mode = ? WHERE id = ?")
-      .run(mode, node.id);
-    return true;
-  }
-
-  /**
-   * chown(): Mengubah pemilik file/folder.
-   */
-  public chown(path: string, uid: number, gid: number): boolean {
-    if (this.readOnly) throw new Error("Read-only filesystem");
-    const node = this.stat(path);
-    if (!node) return false;
-
-    this.db
-      .prepare("UPDATE vnodes SET uid = ?, gid = ? WHERE id = ?")
-      .run(uid, gid, node.id);
-    return true;
-  }
-
-  /**
-   * ls(): List isi folder dari database.
-   */
-  public ls(path: string = "/"): any[] {
-    let parentId = this.getRootId();
-
-    if (path !== "/") {
-      const parts = path
-        .split("/")
-        .filter((p) => p.length > 0 && p !== "." && p !== "..");
-      for (const part of parts) {
-        let node = this.db
-          .prepare(
-            "SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'",
-          )
-          .get(part, parentId) as { id: number } | undefined;
-        if (!node) return [];
-        parentId = node.id;
-      }
+        this.db.prepare("UPDATE vnodes SET mode = ? WHERE id = ?").run(mode, node.id);
+        return true;
     }
 
-    // Menggunakan GROUP BY name untuk mencegah duplikasi jika database "kotor"
-    // Tambahkan filter untuk '.' dan '..' agar tidak terjadi infinite recursion di aplikasi userland
-    const rows = this.db
-      .prepare(
-        "SELECT name, type, mode, uid, gid, modified_at, size FROM vnodes WHERE parent_id = ? AND name != '' AND name != '.' AND name != '..' GROUP BY name",
-      )
-      .all(parentId) as any[];
-    return rows as any[];
-  }
+    /**
+     * chown(): Mengubah pemilik file/folder.
+     */
+    public chown(path: string, uid: number, gid: number): boolean {
+        if (this.readOnly) throw new Error("Read-only filesystem");
+        const node = this.stat(path);
+        if (!node) return false;
 
-  /**
-   * exists(): Cek apakah path ada di database dengan tipe tertentu.
-   */
-  public exists(path: string, type?: VNodeType): boolean {
-    const parts = path
-      .split("/")
-      .filter((p) => p.length > 0 && p !== "." && p !== "..");
-    let parentId = this.getRootId();
-
-    if (path === "/") return true;
-
-    const targetName = parts.pop();
-    if (!targetName) return true; // root case already handled
-
-    for (const part of parts) {
-      let node = this.db
-        .prepare(
-          "SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'",
-        )
-        .get(part, parentId) as { id: number } | undefined;
-      if (!node) return false;
-      parentId = node.id;
+        this.db.prepare("UPDATE vnodes SET uid = ?, gid = ? WHERE id = ?").run(uid, gid, node.id);
+        return true;
     }
 
-    let query = "SELECT id FROM vnodes WHERE name = ? AND parent_id = ?";
-    let params: any[] = [targetName, parentId];
-    if (type) {
-      query += " AND type = ?";
-      params.push(type);
+    /**
+     * ls(): List isi folder dari database.
+     */
+    public ls(path: string = "/"): any[] {
+        let parentId = this.getRootId();
+
+        if (path !== "/") {
+            const parts = path.split("/").filter((p) => p.length > 0 && p !== "." && p !== "..");
+            for (const part of parts) {
+                let node = this.db
+                    .prepare("SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'")
+                    .get(part, parentId) as { id: number } | undefined;
+                if (!node) return [];
+                parentId = node.id;
+            }
+        }
+
+        // Menggunakan GROUP BY name untuk mencegah duplikasi jika database "kotor"
+        // Tambahkan filter untuk '.' dan '..' agar tidak terjadi infinite recursion di aplikasi userland
+        const rows = this.db
+            .prepare(
+                "SELECT name, type, mode, uid, gid, modified_at, size FROM vnodes WHERE parent_id = ? AND name != '' AND name != '.' AND name != '..' GROUP BY name",
+            )
+            .all(parentId) as any[];
+        return rows as any[];
     }
 
-    const result = this.db.prepare(query).get(...params);
-    return !!result;
-  }
+    /**
+     * exists(): Cek apakah path ada di database dengan tipe tertentu.
+     */
+    public exists(path: string, type?: VNodeType): boolean {
+        const parts = path.split("/").filter((p) => p.length > 0 && p !== "." && p !== "..");
+        let parentId = this.getRootId();
 
-  /**
-   * read(): Membaca konten file dari database.
-   */
-  public read(path: string): string | null {
-    const parts = path
-      .split("/")
-      .filter((p) => p.length > 0 && p !== "." && p !== "..");
-    const fileName = parts.pop();
-    if (!fileName) return null;
+        if (path === "/") return true;
 
-    let parentId = this.getRootId();
-    for (const part of parts) {
-      let node = this.db
-        .prepare(
-          "SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'",
-        )
-        .get(part, parentId) as { id: number } | undefined;
-      if (!node) return null;
-      parentId = node.id;
+        const targetName = parts.pop();
+        if (!targetName) return true; // root case already handled
+
+        for (const part of parts) {
+            let node = this.db
+                .prepare("SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'")
+                .get(part, parentId) as { id: number } | undefined;
+            if (!node) return false;
+            parentId = node.id;
+        }
+
+        let query = "SELECT id FROM vnodes WHERE name = ? AND parent_id = ?";
+        let params: any[] = [targetName, parentId];
+        if (type) {
+            query += " AND type = ?";
+            params.push(type);
+        }
+
+        const result = this.db.prepare(query).get(...params);
+        return !!result;
     }
 
-    const file = this.db
-      .prepare(
-        "SELECT content FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'FILE'",
-      )
-      .get(fileName, parentId) as { content: string } | undefined;
+    /**
+     * read(): Membaca SELURUH isi file.
+     *
+     * Isi bisa berada di dua tempat: kolom `content` (file kecil) atau tabel `blocks`
+     * (file besar). Untuk file besar, pemanggil sebaiknya memakai `readChunk()` —
+     * kontrak `IVFS.read()` mengembalikan SATU string, jadi file 70 MB berarti string
+     * ~140 MB di heap (di UTF-16). NetFS sudah menghindari itu lewat `readChunk`.
+     */
+    public read(path: string): string | null {
+        const nodeId = this.getNodeId(path);
+        if (nodeId < 0) return null;
 
-    return file ? file.content : null;
-  }
+        const inline = this.inlineContent(nodeId);
+        if (inline !== null) return inline;
 
-  /**
-   * unlink(): Menghapus file dari database.
-   */
-  public unlink(path: string): boolean {
-    if (this.readOnly) throw new Error("Read-only filesystem");
-    this.forgetChunkCache();
-    const parts = path.split("/").filter((p) => p.length > 0);
-    const fileName = parts.pop();
-    if (!fileName) return false;
+        if (this.blockCount(nodeId) === 0) {
+            // Baris ada, tanpa isi & tanpa blok: file kosong → ""; bukan file → null.
+            return this.sizeOf(nodeId) === 0 ? "" : null;
+        }
 
-    let parentId = this.getRootId();
-    for (const part of parts) {
-      let node = this.db
-        .prepare(
-          "SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'",
-        )
-        .get(part, parentId) as { id: number } | undefined;
-      if (!node) return false;
-      parentId = node.id;
+        // Dirakit sebagai string (bukan `Buffer.concat` seluruh file) supaya tidak ada
+        // salinan Buffer tambahan seukuran file yang menumpuk di heap.
+        let out = "";
+        const rows = this.stmt("SELECT data FROM blocks WHERE vnode_id = ? ORDER BY seq").iterate(nodeId) as Iterable<{
+            data: Buffer;
+        }>;
+        for (const row of rows) out += decodeContent(row.data) ?? "";
+        return out;
     }
 
-    const result = this.db
-      .prepare(
-        "DELETE FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'FILE'",
-      )
-      .run(fileName, parentId);
+    /**
+     * unlink(): Menghapus file beserta blok-bloknya.
+     *
+     * Blok dibuang EKSPLISIT, bukan hanya mengandalkan `ON DELETE CASCADE`: CASCADE
+     * hanya aktif kalau `PRAGMA foreign_keys=ON`, dan database lama bisa dibuka oleh
+     * proses yang belum menyetelnya. Blok yatim = ruang disk bocor tanpa gejala.
+     * Keduanya dijalankan dalam satu transaksi supaya tidak ada keadaan setengah hapus.
+     */
+    public unlink(path: string): boolean {
+        if (this.readOnly) throw new Error("Read-only filesystem");
+        const parts = path.split("/").filter((p) => p.length > 0);
+        const fileName = parts.pop();
+        if (!fileName) return false;
 
-    return result.changes > 0;
-  }
+        let parentId = this.getRootId();
+        for (const part of parts) {
+            const node = this.stmt("SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'").get(
+                part,
+                parentId,
+            ) as { id: number } | undefined;
+            if (!node) return false;
+            parentId = node.id;
+        }
 
-  /**
-   * rmdir(): Menghapus direktori kosong dari database.
-   */
-  public rmdir(path: string): boolean {
-    if (this.readOnly) throw new Error("Read-only filesystem");
-    this.forgetChunkCache();
-    const parts = path.split("/").filter((p) => p.length > 0);
-    const dirName = parts.pop();
-    if (!dirName) return false;
+        const target = this.stmt("SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'FILE'").get(
+            fileName,
+            parentId,
+        ) as { id: number } | undefined;
+        if (!target) return false;
 
-    let parentId = this.getRootId();
-    for (const part of parts) {
-      let node = this.db
-        .prepare(
-          "SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'",
-        )
-        .get(part, parentId) as { id: number } | undefined;
-      if (!node) return false;
-      parentId = node.id;
+        this.forgetChunkCache();
+        return this.batch(() => {
+            this.clearBlocks(target.id);
+            const result = this.stmt("DELETE FROM vnodes WHERE id = ?").run(target.id);
+            return result.changes > 0;
+        });
     }
 
-    // Ambil ID direktori target
-    const targetNode = this.db
-      .prepare(
-        "SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'",
-      )
-      .get(dirName, parentId) as { id: number } | undefined;
+    /**
+     * rmdir(): Menghapus direktori kosong dari database.
+     */
+    public rmdir(path: string): boolean {
+        if (this.readOnly) throw new Error("Read-only filesystem");
+        this.forgetChunkCache();
+        const parts = path.split("/").filter((p) => p.length > 0);
+        const dirName = parts.pop();
+        if (!dirName) return false;
 
-    if (!targetNode) return false;
+        let parentId = this.getRootId();
+        for (const part of parts) {
+            let node = this.db
+                .prepare("SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'")
+                .get(part, parentId) as { id: number } | undefined;
+            if (!node) return false;
+            parentId = node.id;
+        }
 
-    // Cek apakah kosong
-    const childrenCount = this.db
-      .prepare("SELECT COUNT(*) as count FROM vnodes WHERE parent_id = ?")
-      .get(targetNode.id) as { count: number };
+        // Ambil ID direktori target
+        const targetNode = this.db
+            .prepare("SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'")
+            .get(dirName, parentId) as { id: number } | undefined;
 
-    if (childrenCount.count > 0) return false; // Directory not empty
+        if (!targetNode) return false;
 
-    const result = this.db
-      .prepare("DELETE FROM vnodes WHERE id = ?")
-      .run(targetNode.id);
-    return result.changes > 0;
-  }
+        // Cek apakah kosong
+        const childrenCount = this.db
+            .prepare("SELECT COUNT(*) as count FROM vnodes WHERE parent_id = ?")
+            .get(targetNode.id) as { count: number };
 
-  private getRootId(): number {
-    const root = this.db
-      .prepare("SELECT id FROM vnodes WHERE name = '/' AND parent_id IS NULL")
-      .get() as { id: number };
-    return root.id;
-  }
+        if (childrenCount.count > 0) return false; // Directory not empty
 
-  // ==================== CHUNKED I/O (Optimized) ====================
-
-  /**
-   * readChunk(): Membaca potongan konten file menggunakan SQLite SUBSTR().
-   * HANYA membaca byte yang diperlukan — tidak fetch seluruh konten ke memori.
-   * SUBSTR di SQLite 1-indexed, jadi start = offset + 1.
-   */
-  public readChunk(
-    path: string,
-    offset: number,
-    length: number,
-  ): string | null {
-    const content = this.contentForChunk(path);
-    if (content === null) return null;
-
-    const start = offset < 0 ? 0 : offset;
-    const len = length < 0 ? 0 : length;
-    if (start >= content.length) return "";
-    return content.slice(start, start + len);
-  }
-
-  /**
-   * contentForChunk(): Isi file untuk `readChunk()`, dengan cache satu entri.
-   *
-   * KENAPA TIDAK PAKAI SQL `SUBSTR(content, ?, ?)` (versi lama):
-   *
-   * Kolom `content` bertipe TEXT, dan SQLite memperlakukan TEXT sebagai
-   * C-string di fungsi karakter — ia **berhenti di byte NUL**. Terukur:
-   *
-   *     INSERT "AB\u0000\u0000\u0000Z"  ->  length() = 2, substr(c,1,6) = "AB"
-   *     (baca penuh `SELECT content` tetap 6 char — datanya utuh)
-   *
-   * Berkas biner hampir selalu memuat NUL — bahkan di byte PERTAMA: video MP4/MOV
-   * diawali `00 00 00 18 ftyp …`. Akibatnya `SUBSTR(content, 1, 4096)` = "" untuk
-   * SETIAP berkas biner, dan `readChunk` di offset berapa pun juga "" (offset >
-   * panjang C-string). Itulah penyebab `cp` berkas 70 MB dari mount NetFS
-   * "berhasil" tapi menghasilkan file 0 byte, sementara `read()`(baca penuh)
-   * baik-baik saja — berkasnya TIDAK korup.
-   *
-   * Jalan baca penuh + `slice()` di JS aman untuk byte NUL (string JS menyimpan
-   * NUL apa adanya), dan justru lebih murah untuk pembacaan berurutan: satu kali
-   * ambil isi untuk seluruh rangkaian potongan berkas yang sama.
-   *
-   * Catatan memori: hanya SATU entri yang ditahan, dan hanya kalau ukurannya di
-   * bawah `BKFS_CHUNK_CACHE_MAX_BYTES`. Berkas lebih besar tetap benar — hanya
-   * tidak di-cache (konsekuensinya O(n) per potongan, sama seperti perilaku lama).
-   */
-  private contentForChunk(path: string): string | null {
-    if (this.chunkCache && this.chunkCache.path === path) return this.chunkCache.content;
-
-    const content = this.read(path);
-    if (content === null) {
-      this.chunkCache = null;
-      return null;
+        const result = this.db.prepare("DELETE FROM vnodes WHERE id = ?").run(targetNode.id);
+        return result.changes > 0;
     }
 
-    this.chunkCache =
-      content.length <= BKFS_CHUNK_CACHE_MAX_BYTES ? { path, content } : null;
-    return content;
-  }
-
-  /** forgetChunkCache(): Dipanggil setiap operasi tulis — metadata & isi berubah. */
-  private forgetChunkCache(): void {
-    this.chunkCache = null;
-  }
-
-  /**
-   * writeChunk(): Menulis potongan konten menggunakan SQL concatenation.
-   *
-   * Untuk sequential append (offset == current size) → simple CONCAT, SUPER CEPAT.
-   * Untuk random write di tengah → SUBSTR + CONCAT.
-   *
-   * TIDAK membaca seluruh konten ke memori JS — semua dilakukan di SQL.
-   */
-  public writeChunk(path: string, chunk: string, offset: number): boolean {
-    if (this.readOnly) throw new Error("Read-only filesystem");
-    this.forgetChunkCache();
-
-    // Dapatkan node ID + current size tanpa baca konten
-    let info = this.getNodeIdAndSize(path);
-    if (!info) {
-      // Buat file baru jika belum ada
-      const success = this.touch(path, "");
-      if (!success) return false;
-      info = this.getNodeIdAndSize(path);
-      if (!info) return false;
+    private getRootId(): number {
+        const root = this.db.prepare("SELECT id FROM vnodes WHERE name = '/' AND parent_id IS NULL").get() as {
+            id: number;
+        };
+        return root.id;
     }
 
-    const { id: nodeId, sz: currentSize } = info;
-    const chunkLen = chunk.length;
-    const newSize = Math.max(currentSize, offset + chunkLen);
-    const now = Date.now();
+    // ==================== CHUNKED I/O & PENYIMPANAN BLOK ====================
 
-    // Celah (sparse write) DITOLAK — bukan diam-diam dibuat.
-    //
-    // `offset` melewati ekor biasanya tanda pemanggil salah menghitung (mis. memakai
-    // `getSize` basi atau mengira berkas lebih panjang). Dulu jalur ini "berhasil"
-    // dengan content=potongan sementara size=offset+len → kolom `size` berbohong
-    // (metadata puluhan MB, isi kosong) dan pembacaan berikutnya mengembalikan isi
-    // jauh lebih pendek/kosong. Gagal jelas jauh lebih baik daripada state setengah jadi.
-    if (offset > currentSize) return false;
-
-    if (offset === currentSize) {
-      // Sequential append — paling cepat, simple CONCAT
-      this.db
-        .prepare(
-          `
-                UPDATE vnodes SET 
-                    content = IFNULL(content,'') || ?,
-                    size = ?,
-                    modified_at = ?
-                WHERE id = ?
-            `,
-        )
-        .run(chunk, newSize, now, nodeId);
-    } else {
-      // Random write di tengah — SUBSTR + CONCAT (SQLite 1-indexed)
-      this.db
-        .prepare(
-          `
-                UPDATE vnodes SET 
-                    content = SUBSTR(content, 1, ?) || ? || SUBSTR(content, ? + 1),
-                    size = ?,
-                    modified_at = ?
-                WHERE id = ?
-            `,
-        )
-        .run(offset, chunk, offset + chunkLen, newSize, now, nodeId);
+    /** sizeOf(): Ukuran file dari kolom `size` (tanpa menyentuh isi). -1 kalau bukan file. */
+    private sizeOf(nodeId: number): number {
+        const row = this.stmt("SELECT IFNULL(size, 0) AS sz FROM vnodes WHERE id = ? AND type = 'FILE'").get(nodeId) as
+            | { sz: number }
+            | undefined;
+        return row ? row.sz : -1;
     }
 
-    return true;
-  }
-
-  /**
-   * getNodeIdAndSize(): Navigasi path → (id, size) tanpa fetch konten.
-   * Return null jika tidak ditemukan.
-   */
-  private getNodeIdAndSize(path: string): { id: number; sz: number } | null {
-    const nodeId = this.getNodeId(path);
-    if (nodeId < 0) return null;
-
-    const row = this.db
-      .prepare(
-        "SELECT IFNULL(size, 0) as sz FROM vnodes WHERE id = ? AND type = 'FILE'",
-      )
-      .get(nodeId) as { sz: number } | undefined;
-
-    return row ? { id: nodeId, sz: row.sz } : null;
-  }
-
-  /**
-   * getSize(): Membaca langsung dari kolom `size` — tanpa fetch konten.
-   */
-  public getSize(path: string): number {
-    const nodeId = this.getNodeId(path);
-    if (nodeId < 0) return -1;
-
-    const row = this.db
-      .prepare(
-        "SELECT IFNULL(size, 0) as sz FROM vnodes WHERE id = ? AND type = 'FILE'",
-      )
-      .get(nodeId) as { sz: number } | undefined;
-
-    return row ? row.sz : -1;
-  }
-
-  /**
-   * getNodeId(): Navigasi path ke node ID tanpa membaca konten.
-   */
-  private getNodeId(path: string): number {
-    const parts = path
-      .split("/")
-      .filter((p) => p.length > 0 && p !== "." && p !== "..");
-    let parentId = this.getRootId();
-
-    if (path === "/") return parentId;
-
-    const targetName = parts.pop();
-    if (!targetName) return parentId;
-
-    for (const part of parts) {
-      let node = this.db
-        .prepare(
-          "SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'",
-        )
-        .get(part, parentId) as { id: number } | undefined;
-      if (!node) return -1;
-      parentId = node.id;
+    /** inlineContent(): Isi dari kolom `content`. `null` = isi ada di tabel blok (atau kosong). */
+    private inlineContent(nodeId: number): string | null {
+        const row = this.stmt("SELECT content FROM vnodes WHERE id = ?").get(nodeId) as
+            | { content: unknown }
+            | undefined;
+        if (!row) return null;
+        return decodeContent(row.content);
     }
 
-    const target = this.db
-      .prepare("SELECT id FROM vnodes WHERE name = ? AND parent_id = ?")
-      .get(targetName, parentId) as { id: number } | undefined;
+    /** blockCount(): Jumlah blok milik vnode (0 = tidak memakai tabel blok). */
+    private blockCount(nodeId: number): number {
+        const row = this.stmt("SELECT COUNT(*) AS c FROM blocks WHERE vnode_id = ?").get(nodeId) as {
+            c: number;
+        };
+        return row?.c ?? 0;
+    }
 
-    return target ? target.id : -1;
-  }
+    /** clearBlocks(): Buang semua blok milik vnode (dipakai saat tulis-ulang / hapus). */
+    private clearBlocks(nodeId: number): void {
+        this.stmt("DELETE FROM blocks WHERE vnode_id = ?").run(nodeId);
+    }
 
-  public async getUsage(): Promise<{
-    size: number;
-    files: number;
-    dirs: number;
-    diskSize?: number;
-  }> {
-    // Ukuran total dibaca dari kolom `size`, BUKAN `length(content)`.
-    //
-    // `SUM(length(content))` berarti membaca isi SETIAP file di disk — pada DB
-    // dengan satu file 70 MB itu memaksa SQLite memuat 70 MB ekstra hanya untuk
-    // `df`, dan pada node SH yang heapnya kecil langsung OOM. Kolom `size`
-    // dipelihara oleh semua jalur tulis (`touch`/`append`/`writeChunk`), jadi
-    // hasilnya sama — sekaligus kini KONSISTEN dengan yang dilaporkan
-    // `stat`/`ls -l` (dulu bisa beda pada karakter non-BMP, karena SQLite
-    // `length()` menghitung code point sedangkan kolom `size` code unit UTF-16).
-    const stats = this.db
-      .prepare(
-        `
+    /**
+     * writeBlocks(): Tulis `text` ke tabel blok mulai posisi `offset`.
+     *
+     * INI INTI PERBAIKAN O(n²). Dulu seluruh isi file hidup di satu baris, jadi
+     * setiap potongan tulis memaksa SQLite menulis ulang seluruh baris + menyalin
+     * halaman lamanya ke journal (2× ukuran file, per potongan). Sekarang biaya satu
+     * potongan sebanding dengan UKURAN POTONGAN, bukan ukuran file.
+     *
+     * Blok yang sejajar & penuh ditulis dengan satu `INSERT OR REPLACE`. Potongan
+     * yang tidak sejajar (mis. chunk NetFS 124 KiB dengan blok 128 KiB) hanya
+     * menyentuh SATU blok: baca blok itu, splice, tulis kembali — tetap O(1).
+     *
+     * Pemanggil WAJIB sudah berada di dalam transaksi (`batch`) supaya tidak ada
+     * blok setengah tertulis kalau proses mati di tengah.
+     */
+    private writeBlocks(nodeId: number, text: string, offset: number): void {
+        const BLOCK = this.opts.blockBytes;
+        const buf = encodeContent(text);
+        const upsert = this.stmt("INSERT OR REPLACE INTO blocks (vnode_id, seq, data) VALUES (?, ?, ?)");
+        let done = 0;
+
+        while (done < buf.length) {
+            const abs = offset + done;
+            const seq = Math.floor(abs / BLOCK);
+            const within = abs - seq * BLOCK;
+
+            if (within === 0 && buf.length - done >= BLOCK) {
+                // Jalur tercepat: append besar yang sejajar blok.
+                upsert.run(nodeId, seq, buf.subarray(done, done + BLOCK));
+                done += BLOCK;
+                continue;
+            }
+
+            const take = Math.min(BLOCK - within, buf.length - done);
+            const current =
+                (
+                    this.stmt("SELECT data FROM blocks WHERE vnode_id = ? AND seq = ?").get(nodeId, seq) as
+                        | { data: Buffer }
+                        | undefined
+                )?.data ?? Buffer.alloc(0);
+            const merged = Buffer.alloc(Math.max(current.length, within + take));
+            current.copy(merged, 0);
+            buf.copy(merged, within, done, done + take);
+            upsert.run(nodeId, seq, merged);
+            done += take;
+        }
+    }
+
+    /**
+     * readChunk(): Membaca potongan isi file — HANYA data yang diminta yang dibaca.
+     *
+     * Tiga jalur, sesuai bentuk penyimpanan:
+     *   1. blok           → ambil blok yang menutupi rentang (1–2 baris), potong di JS;
+     *   2. inline (BLOB)  → `substr()` di sisi SQL: SQLite membaca halaman yang perlu
+     *                       saja, jadi kernel TIDAK menahan seluruh file di heap;
+     *   3. inline (TEXT)  → baris WARISAN: `substr()` berhenti di byte NUL, jadi harus
+     *                       baca penuh (di-cache satu entri) lalu `slice()`.
+     */
+    public readChunk(path: string, offset: number, length: number): string | null {
+        const nodeId = this.getNodeId(path);
+        if (nodeId < 0) return null;
+
+        const size = this.sizeOf(nodeId);
+        if (size < 0) return null;
+
+        const start = offset < 0 ? 0 : offset;
+        const len = length < 0 ? 0 : length;
+        if (start >= size) return "";
+
+        if (this.blockCount(nodeId) > 0) return this.readChunkFromBlocks(nodeId, start, len, size);
+
+        // Jenis nilai diperiksa tanpa mengambil isinya: SQLite menyimpan tipe di header
+        // record, jadi `typeof()` tidak mematerialisasi kolom.
+        const kind = this.stmt("SELECT typeof(content) AS t FROM vnodes WHERE id = ?").get(nodeId) as
+            | { t: string }
+            | undefined;
+
+        if (kind?.t === "blob") {
+            const row = this.stmt("SELECT substr(content, ?, ?) AS piece FROM vnodes WHERE id = ?").get(
+                start + 1, // SQLite 1-indexed
+                len,
+                nodeId,
+            ) as { piece: unknown } | undefined;
+            return decodeContent(row?.piece) ?? "";
+        }
+
+        // Legacy TEXT → baca penuh (benar untuk byte NUL) + cache satu entri.
+        const text =
+            this.chunkCache && this.chunkCache.path === path
+                ? this.chunkCache.content
+                : (this.inlineContent(nodeId) ?? "");
+        this.chunkCache = text.length <= BKFS_CHUNK_CACHE_MAX_BYTES ? { path, content: text } : null;
+        return text.slice(start, start + len);
+    }
+
+    /**
+     * readChunkFromBlocks(): Potong rentang dari tabel blok.
+     *
+     * Rentang dibatasi `size` (kolom `size` = sumber kebenaran, bukan panjang blok —
+     * blok terakhir bisa lebih pendek, dan itu normal). Blok yang diambil hanya yang
+     * beririsan dengan [start, end), jadi biaya baca sebanding panjang potongan.
+     */
+    private readChunkFromBlocks(nodeId: number, start: number, len: number, size: number): string {
+        const BLOCK = this.opts.blockBytes;
+        const end = Math.min(start + len, size);
+        if (end <= start) return "";
+
+        const firstSeq = Math.floor(start / BLOCK);
+        const lastSeq = Math.ceil(end / BLOCK) - 1;
+
+        const rows = this.stmt("SELECT data FROM blocks WHERE vnode_id = ? AND seq BETWEEN ? AND ? ORDER BY seq").all(
+            nodeId,
+            firstSeq,
+            lastSeq,
+        ) as Array<{ data: Buffer }>;
+
+        const parts = rows.map((r) => (Buffer.isBuffer(r.data) ? r.data : Buffer.from(String(r.data), "latin1")));
+        const joined = Buffer.concat(parts);
+        const localStart = start - firstSeq * BLOCK;
+        return joined.subarray(localStart, localStart + (end - start)).toString("latin1");
+    }
+
+    /** forgetChunkCache(): Dipanggil setiap operasi tulis — metadata & isi berubah. */
+    private forgetChunkCache(): void {
+        this.chunkCache = null;
+    }
+
+    /**
+     * writeChunk(): Menulis satu potongan isi pada posisi tertentu.
+     *
+     * Bentuk penyimpanan dipilih otomatis:
+     *   - hasil akhir masih ≤ `inlineMaxBytes` → splice di JS (isi kecil);
+     *   - lebih besar → pindah ke tabel blok (sekali), lalu tulis potongan sebagai blok.
+     *
+     * Pemindahan inline → blok bersifat "sekali per file": setelahnya setiap potongan
+     * hanya menyentuh blok yang bersangkutan. Untuk database lama yang isinya masih
+     * satu baris besar (mis. file 70 MB hasil NetFS versi lama), pemindahan ini
+     * membaca isi itu satu kali lalu memecahnya — biaya sekali, sesudahnya O(1) per
+     * potongan.
+     *
+     * `offset > size` (menyisakan celah) tetap DITOLAK, seperti sebelumnya: jalur itu
+     * dulu menghasilkan metadata yang berbohong (`size` besar, isi kosong). Gagal
+     * jelas lebih baik daripada state setengah jadi.
+     */
+    public writeChunk(path: string, chunk: string, offset: number): boolean {
+        if (this.readOnly) throw new Error("Read-only filesystem");
+
+        const nodeId = this.resolveForWrite(path);
+        if (nodeId < 0) return false;
+
+        const currentSize = this.sizeOf(nodeId);
+        if (currentSize < 0) return false;
+        if (offset > currentSize) return false;
+
+        const text = chunk ?? "";
+        if (text.length === 0) return true;
+
+        const newSize = Math.max(currentSize, offset + text.length);
+        const now = Date.now();
+        this.forgetChunkCache();
+
+        return this.batch(() => {
+            const hasBlocks = this.blockCount(nodeId) > 0;
+
+            if (!hasBlocks && newSize <= this.opts.inlineMaxBytes) {
+                const current = this.inlineContent(nodeId) ?? "";
+                const merged = current.slice(0, offset) + text + current.slice(offset + text.length);
+                this.stmt("UPDATE vnodes SET content = ?, size = ?, modified_at = ? WHERE id = ?").run(
+                    encodeContent(merged),
+                    merged.length,
+                    now,
+                    nodeId,
+                );
+                return true;
+            }
+
+            if (!hasBlocks) {
+                const current = this.inlineContent(nodeId) ?? "";
+                this.stmt("UPDATE vnodes SET content = NULL WHERE id = ?").run(nodeId);
+                if (current.length > 0) this.writeBlocks(nodeId, current, 0);
+            }
+
+            this.writeBlocks(nodeId, text, offset);
+            this.stmt("UPDATE vnodes SET size = ?, modified_at = ? WHERE id = ?").run(newSize, now, nodeId);
+            return true;
+        });
+    }
+
+    /**
+     * getSize(): Membaca langsung dari kolom `size` — tanpa fetch konten.
+     */
+    public getSize(path: string): number {
+        const nodeId = this.getNodeId(path);
+        return nodeId < 0 ? -1 : this.sizeOf(nodeId);
+    }
+
+    /**
+     * storageKind(): Bentuk penyimpanan sebuah file.
+     *
+     * Dipakai diagnostik/operasional: "file mana yang sudah pindah ke tabel blok?"
+     * Tanpa ini, satu-satunya cara tahu adalah membaca SQL mentah.
+     */
+    public storageKind(path: string): "inline" | "blocks" | "missing" {
+        const nodeId = this.getNodeId(path);
+        if (nodeId < 0) return "missing";
+        if (this.blockCount(nodeId) > 0) return "blocks";
+        return this.inlineContent(nodeId) === null ? "missing" : "inline";
+    }
+
+    /** countBlocks(): Jumlah blok sebuah file (0 kalau inline atau tidak ada). */
+    public countBlocks(path: string): number {
+        const nodeId = this.getNodeId(path);
+        return nodeId < 0 ? 0 : this.blockCount(nodeId);
+    }
+
+    /**
+     * getNodeId(): Navigasi path ke node ID tanpa membaca konten.
+     */
+    private getNodeId(path: string): number {
+        const parts = path.split("/").filter((p) => p.length > 0 && p !== "." && p !== "..");
+        let parentId = this.getRootId();
+
+        if (path === "/") return parentId;
+
+        const targetName = parts.pop();
+        if (!targetName) return parentId;
+
+        for (const part of parts) {
+            const node = this.stmt("SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = 'DIRECTORY'").get(
+                part,
+                parentId,
+            ) as { id: number } | undefined;
+            if (!node) return -1;
+            parentId = node.id;
+        }
+
+        const target = this.stmt("SELECT id FROM vnodes WHERE name = ? AND parent_id = ?").get(targetName, parentId) as
+            | { id: number }
+            | undefined;
+
+        return target ? target.id : -1;
+    }
+
+    public async getUsage(): Promise<{
+        size: number;
+        files: number;
+        dirs: number;
+        diskSize?: number;
+    }> {
+        // Ukuran total dibaca dari kolom `size`, BUKAN `length(content)`.
+        //
+        // `SUM(length(content))` berarti membaca isi SETIAP file di disk — pada DB
+        // dengan satu file 70 MB itu memaksa SQLite memuat 70 MB ekstra hanya untuk
+        // `df`, dan pada node SH yang heapnya kecil langsung OOM. Kolom `size`
+        // dipelihara oleh semua jalur tulis (`touch`/`append`/`writeChunk`), jadi
+        // hasilnya sama — sekaligus kini KONSISTEN dengan yang dilaporkan
+        // `stat`/`ls -l` (dulu bisa beda pada karakter non-BMP, karena SQLite
+        // `length()` menghitung code point sedangkan kolom `size` code unit UTF-16).
+        const stats = this.db
+            .prepare(
+                `
             SELECT 
                 SUM(CASE WHEN type = 'FILE' THEN IFNULL(size, 0) ELSE 0 END) as total_size,
                 SUM(CASE WHEN type = 'FILE' THEN 1 ELSE 0 END) as file_count,
@@ -744,13 +1095,13 @@ export class BKFS implements IVFS {
             FROM vnodes
             WHERE name != '/'
         `,
-      )
-      .get() as { total_size: number; file_count: number; dir_count: number };
+            )
+            .get() as { total_size: number; file_count: number; dir_count: number };
 
-    return {
-      size: stats.total_size || 0,
-      files: stats.file_count || 0,
-      dirs: stats.dir_count || 0,
-    };
-  }
+        return {
+            size: stats.total_size || 0,
+            files: stats.file_count || 0,
+            dirs: stats.dir_count || 0,
+        };
+    }
 }

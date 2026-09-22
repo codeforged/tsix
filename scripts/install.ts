@@ -565,18 +565,25 @@ async function main() {
     console.log(`[INSTALL] Database baru dibuat: ${dbPath}`);
 
     // ============ 4. SYNC ROOTFS ============
+    //
+    // SATU TRANSAKSI untuk seluruh image sistem. Dua alasan:
+    //   - Kehandalan: kalau proses mati di tengah, hasilnya "tidak ada" — bukan
+    //     image setengah jadi yang kelihatan normal (mis. `/bin` terisi separuh),
+    //     yang justru paling sulit didiagnosis di lapangan.
+    //   - Kecepatan: ribuan `touch()` tanpa transaksi = ribuan fsync.
     console.log(`[INSTALL] Menyalin rootfs dari ${MIRROR_ROOT} ...`);
-    syncDir(bkfs, MIRROR_ROOT, "/");
-    console.log("[INSTALL] Rootfs berhasil disinkronkan.");
+    bkfs.batch(() => {
+      syncDir(bkfs, MIRROR_ROOT, "/");
 
-    // Framework @common/* (SyscallCode, IPCTypes, dll) dipakai WorkerEntry via
-    // /lib/common. Sync src/common -> /lib/common (sama seperti vfs-bootstrap).
-    const COMMON_ROOT = path.resolve(__dirname, "../src/common");
-    if (fs.existsSync(COMMON_ROOT)) {
-      console.log(`[INSTALL] Menyalin framework common dari ${COMMON_ROOT} ...`);
-      syncDir(bkfs, COMMON_ROOT, "/lib/common");
-      console.log("[INSTALL] Framework common berhasil disinkronkan.");
-    }
+      // Framework @common/* (SyscallCode, IPCTypes, dll) dipakai WorkerEntry via
+      // /lib/common. Sync src/common -> /lib/common (sama seperti vfs-bootstrap).
+      const COMMON_ROOT = path.resolve(__dirname, "../src/common");
+      if (fs.existsSync(COMMON_ROOT)) {
+        console.log(`[INSTALL] Menyalin framework common dari ${COMMON_ROOT} ...`);
+        syncDir(bkfs, COMMON_ROOT, "/lib/common");
+      }
+    });
+    console.log("[INSTALL] Rootfs berhasil disinkronkan.");
 
     // File /etc tanpa ekstensi tidak ikut filter ekstensi syncDir.
     // Sync eksplisit agar image fresh lengkap & konsisten (passwd/group/shadow, dll).
@@ -687,12 +694,12 @@ async function main() {
       /* abaikan error verifikasi */
     }
 
-    // Tutup koneksi DB biar file ter-flush rapi
-    try {
-      (bkfs as any).db?.close?.();
-    } catch (_) {
-      /* proses akan exit */
-    }
+    // Tutup koneksi DB biar file ter-flush rapi.
+    //
+    // `close()` (bukan akses langsung ke `db`) sengaja dipakai: dia menjalankan
+    // checkpoint WAL dulu, sehingga `system.db` kembali utuh sebagai SATU file —
+    // penting karena image ini yang disalin ke node lain / di-backup.
+    bkfs.close();
 
     console.log("\n[INSTALL] Selesai! Image sistem siap.");
     console.log(`           DB       : ${dbPath}`);

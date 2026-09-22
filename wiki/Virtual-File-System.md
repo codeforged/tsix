@@ -101,24 +101,114 @@ Setiap file dan direktori dalam VFS disimpan di tabel `vnodes` dalam database SQ
 | `id` | INTEGER PRIMARY KEY | Unik ID vnode |
 | `parent_id` | INTEGER | Reference ke parent directory |
 | `name` | TEXT | Nama file/direktori |
-| `is_dir` | BOOLEAN | Apakah ini direktori? |
-| `content` | BLOB | Isi file (binary) |
+| `type` | TEXT | `'FILE'` atau `'DIRECTORY'` |
+| `content` | BLOB | Isi file KECIL (≤ 64 KiB). `NULL` kalau isinya ada di tabel `blocks` |
 | `uid` | INTEGER | Owner user ID |
 | `gid` | INTEGER | Owner group ID |
 | `mode` | INTEGER | Permission bits (octal) |
-| `size` | INTEGER | Ukuran file dalam bytes |
+| `size` | INTEGER | Ukuran file dalam byte (sumber kebenaran, bukan panjang blok) |
 | `created_at` | TIMESTAMP | Waktu pembuatan |
 | `modified_at` | TIMESTAMP | Waktu modifikasi terakhir |
+
+### Tabel `blocks` (isi file besar)
+
+| Kolom | Tipe | Deskripsi |
+|-------|------|-----------|
+| `vnode_id` | INTEGER | Pemilik file (FK → `vnodes.id`, `ON DELETE CASCADE`) |
+| `seq` | INTEGER | Nomor blok (0-based); PK gabungan `(vnode_id, seq)`, `WITHOUT ROWID` |
+| `data` | BLOB | Isi blok (≤ 128 KiB) |
+
+### Strategi penyimpanan: inline vs blok
+
+| Ukuran isi | Tempat | Biaya satu operasi tulis |
+|---|---|---|
+| ≤ 64 KiB (`BKFS_INLINE_MAX_BYTES`) | kolom `content` | satu baris — jalur tercepat |
+| > 64 KiB | tabel `blocks` (128 KiB per blok) | **sebanding ukuran potongan**, bukan ukuran file |
+
+Kenapa dua bentuk: mayoritas file sistem (skrip `/bin`, `/lib`, config `/etc`) kecil dan
+paling cepat dibaca sebagai satu baris — itu juga jalur yang dipakai
+`Kernel.rebuildVFSCache()` saat pre-compile `/lib`. Tapi menaruh file BESAR di satu baris
+membuat setiap potongan tulis harus menulis ulang seluruh baris: **O(n) per potongan,
+O(n²) per file**.
+
+Terukur (8 MB ditulis dalam 66 potongan @124 KiB, chunk NetFS):
+
+| Varian | Waktu | Hasil |
+|---|---|---|
+| `content TEXT` + journal `DELETE` + `content \|\| ?` (lama) | 6.370 ms | baseline |
+| `journal_mode=WAL`, masih `content \|\| ?` | 6.822 ms | **0,9×** — WAL saja tidak menolong |
+| **WAL + tabel blok** | **583 ms** | **10,9×** |
+
+Perhatikan baris kedua: penyebab lambatnya BUKAN fsync journal, melainkan SQLite
+membangun ulang string seukuran file tiap potongan (kerja CPU + memori). Karena itu
+perbaikannya harus **struktural** (blok), bukan sekadar ganti mode journal.
+
+### Jaminan operasional (PRAGMA)
+
+| PRAGMA | Nilai | Alasan |
+|---|---|---|
+| `journal_mode` | `WAL` | commit milidetik, pembaca tidak memblokir penulis, recovery otomatis |
+| `synchronous` | `NORMAL` (bisa `FULL`) | aman dari korupsi; `FULL` = fsync tiap commit |
+| `foreign_keys` | `ON` | skema sudah mendeklarasikan FK, tapi SQLite tidak menegakkannya tanpa ini |
+| `busy_timeout` | 5000 ms | tunggu penulis lain, jangan gagal `SQLITE_BUSY` |
+| `cache_size` / `mmap_size` | 8 MiB / 64 MiB | baca berurutan lebih murah |
+
+Kalau `journal_mode` tidak bisa WAL (mis. share jaringan), BKFS **mencatat peringatan**
+alih-alih diam-diam jatuh ke perilaku lambat.
+
+### Atomisitas: `batch()`
+
+```typescript
+// Seluruh image sistem dalam SATU transaksi.
+bkfs.batch(() => {
+    syncDir("src/mirror", "/");
+    syncDir("src/common", "/lib/common");
+});
+```
+
+Bootstrap/install memakai ini. Kalau proses mati di tengah, hasilnya **tidak ada** —
+bukan image setengah jadi yang tampak normal (mis. sebagian `/bin` hilang). Di sisi lain,
+ribuan `touch()` tanpa transaksi berarti ribuan `fsync`.
+
+### API bantu operasional
+
+| Method | Fungsi |
+|---|---|
+| `batch(fn)` | Jalankan operasi dalam satu transaksi atomik (nesting = SAVEPOINT) |
+| `checkpoint()` | Pindahkan WAL ke file utama → `system.db` kembali self-contained |
+| `close()` | `checkpoint()` lalu tutup koneksi |
+| `checkIntegrity(quick?)` | `quick_check`/`integrity_check`; return `"ok"` atau pesan masalah |
+| `compact()` | `VACUUM` — ciutkan file setelah banyak penghapusan |
+| `storageKind(path)` | `"inline"` \| `"blocks"` \| `"missing"` (diagnostik) |
+| `countBlocks(path)` | Jumlah blok sebuah file |
+
+### Encoding: latin1 (1 char = 1 byte)
+
+Isi file disimpan sebagai BLOB dengan `Buffer.from(text, "latin1")`. Ini bukan detail
+kecil:
+
+- **TEXT memotong data**: `SUBSTR()`/`length()` SQLite memperlakukan TEXT sebagai
+  C-string dan **berhenti di byte NUL**. Berkas biner hampir selalu memuat NUL (video
+  MP4/MOV bahkan di byte pertama) → dulu `cp` dari mount NetFS "berhasil" tapi
+  menghasilkan file 0 byte.
+- **TEXT menggelembungkan file**: byte ≥ 0x80 disimpan UTF-8 (2 byte per karakter),
+  jadi aset biner membengkak ~2× di dalam DB.
+- BLOB dihitung **per byte** dan NUL-safe, sehingga `readChunk()` bisa memotong di sisi
+  SQL — kernel tidak perlu menahan seluruh file di heap.
+
+Baris **warisan** (TEXT dari database lama) tetap terbaca: SQLite menyimpan tipe
+per-nilai, jadi konversi tidak wajib — baris lama dilayani jalur baca penuh, dan
+ter-upgrade sendiri saat ditulis ulang.
 
 ### Operasi Dasar BKFS
 
 ```typescript
 // Contoh internal — bagaimana BKFS menyimpan file
-bkfs.writeFile("/etc/hostname", "antigonon");     // INSERT/UPDATE vnodes
-bkfs.readFile("/etc/hostname");                    // SELECT content FROM vnodes
-bkfs.mkdir("/home/newuser");                       // INSERT vnode (is_dir=true)
-bkfs.readdir("/bin");                              // SELECT * WHERE parent_id=...
-bkfs.stat("/etc/passwd");                          // SELECT metadata FROM vnodes
+bkfs.touch("/etc/hostname", "antigonon");      // INSERT/UPDATE vnodes
+bkfs.read("/etc/hostname");                     // baris inline atau rakit dari blocks
+bkfs.mkdir("/home/newuser");                    // INSERT vnode (type=DIRECTORY)
+bkfs.ls("/bin");                               // SELECT ... WHERE parent_id=...
+bkfs.stat("/etc/passwd");                      // metadata saja (tanpa `content`)
 ```
 
 ---

@@ -2,16 +2,40 @@ import Database from "better-sqlite3";
 import * as fs from "fs";
 import * as path from "path";
 import { getDefaultDbPath } from "./lib/db-path";
+import { readVnodeContent } from "../src/vfs/BKFS";
 
 /**
  * VFS-PULL.TS
- * 
- * Script ini digunakan untuk menarik data dari BKFS (SQLite) balik ke host (src/root).
+ *
+ * Script ini digunakan untuk menarik data dari BKFS (SQLite) balik ke host (src/mirror).
  * Berguna untuk menyimpan perubahan permanen yang dilakukan di dalam simulator.
  */
 
 const DB_PATH = path.resolve(__dirname, "..", getDefaultDbPath());
-const HOST_ROOT = path.resolve(__dirname, "../src/root");
+
+/**
+ * hostRoot(): Root host yang dipakai kernel, dibaca dari `sysconfig.json`.
+ *
+ * Dulu nilainya di-hardcode ke `../src/root` — direktori yang sudah tidak ada
+ * sejak rootfs pindah ke `src/mirror`, jadi hasil tarikan mendarat di tempat yang
+ * tidak dibaca siapa pun. Kernel me-resolve `rootHostPath` relatif ke direktori
+ * `src/kernel` (lihat `Syscalls.GET_SYSPATH`), jadi patokannya disamakan di sini.
+ */
+function hostRoot(): string {
+    try {
+        const cfgPath = path.resolve(__dirname, "../src/sysconfig.json");
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+        const rel = cfg?.kernel?.rootHostPath;
+        if (typeof rel === "string" && rel.length > 0) {
+            return path.resolve(__dirname, "../src/kernel", rel);
+        }
+    } catch (e) {
+        // jatuh ke default di bawah
+    }
+    return path.resolve(__dirname, "../src/mirror");
+}
+
+const HOST_ROOT = hostRoot();
 
 // Daftar folder yang tidak perlu ditarik (Runtime/Temporary)
 const EXCLUDE_DIRS = ["dev", "tmp", "proc", "logs", "var"];
@@ -36,9 +60,12 @@ async function main() {
 
     // Helper rekursif berdasarkan ID
     const syncNode = (parentId: number | null, currentVfsPath: string) => {
+        // Kolom `content` SENGAJA tidak diambil: untuk file besar isinya ada di tabel
+        // `blocks`, dan mengambil `content` saja akan menulis file KOSONG ke host.
+        // `readVnodeContent()` yang menggabungkan keduanya.
         const query = parentId === null
-            ? "SELECT * FROM vnodes WHERE parent_id IS NULL"
-            : "SELECT * FROM vnodes WHERE parent_id = ?";
+            ? "SELECT id, name, type FROM vnodes WHERE parent_id IS NULL"
+            : "SELECT id, name, type FROM vnodes WHERE parent_id = ?";
 
         const nodes = db.prepare(query).all(parentId === null ? [] : [parentId]) as any[];
 
@@ -58,7 +85,7 @@ async function main() {
             if (node.type === "DIRECTORY") {
                 syncNode(node.id, cleanPath);
             } else {
-                saveToHost(cleanPath, node.content);
+                saveToHost(cleanPath, readVnodeContent(db, node.id));
             }
         }
     };
@@ -79,7 +106,13 @@ async function main() {
             fs.mkdirSync(dir, { recursive: true });
         }
 
-        fs.writeFileSync(hostPath, content || "");
+        // Tulis sebagai byte latin1 (1 char = 1 byte), BUKAN utf8.
+        //
+        // `writeFileSync(path, string)` memakai utf8: setiap karakter ≥ 0x80 jadi
+        // DUA byte, sehingga aset biner (gambar/audio .b64) rusak saat ditarik ke
+        // host. `install.ts`/`vfs-bootstrap.ts` membacanya dengan latin1, jadi ini
+        // juga yang membuat tarikan dan bootstrap konsisten (round-trip byte-per-byte).
+        fs.writeFileSync(hostPath, Buffer.from(content ?? "", "latin1"));
         console.log(`✅ Synced: ${vfsPath} -> ${path.relative(process.cwd(), hostPath)}`);
     };
 

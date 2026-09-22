@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import * as fs from "fs";
 import * as path from "path";
 import { getDefaultDbPath } from "./lib/db-path";
+import { encodeContent } from "../src/vfs/BKFS";
 
 const DB_PATH = path.resolve(__dirname, "..", getDefaultDbPath());
 
@@ -11,10 +12,14 @@ function main() {
     const upsert = (name: string, parentId: number, type: string, content: string) => {
         const existing = db.prepare('SELECT id FROM vnodes WHERE name = ? AND parent_id = ?').get(name, parentId) as { id: number } | undefined;
         if (existing) {
-            db.prepare('UPDATE vnodes SET content = ? WHERE id = ?').run(content, existing.id);
+            // `encodeContent()` → disimpan sebagai BLOB (bukan TEXT) dan `size` ikut
+            // diperbarui. Dua-duanya penting: TEXT membuat `substr()` SQLite berhenti
+            // di byte NUL, dan `size` yang basi membuat `readChunk()` memotong di
+            // batas yang salah (kolom `size` = sumber kebenaran panjang file).
+            db.prepare('UPDATE vnodes SET content = ?, size = ? WHERE id = ?').run(encodeContent(content), content.length, existing.id);
             console.log(`✅ Updated ${name} (ID: ${existing.id})`);
         } else {
-            const info = db.prepare('INSERT INTO vnodes (name, parent_id, type, content) VALUES (?, ?, ?, ?)').run(name, parentId, type, content);
+            const info = db.prepare('INSERT INTO vnodes (name, parent_id, type, content, size) VALUES (?, ?, ?, ?, ?)').run(name, parentId, type, encodeContent(content), content.length);
             console.log(`+ Inserted ${name} (New ID: ${info.lastInsertRowid})`);
         }
     };

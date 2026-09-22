@@ -6,6 +6,74 @@
 
 ## 2026-09-22
 
+### BKFS: tabel blok + WAL + BLOB — akar O(n²) yang membuat NetFS lambat
+
+- **File:** `src/vfs/BKFS.ts`, `src/vfs/BKFS.test.ts` (B3.01–B3.13),
+  `scripts/install.ts`, `scripts/vfs-bootstrap.ts`, `scripts/vfs-pull.ts`,
+  `scripts/sync-tde.ts`, `wiki/Virtual-File-System.md`
+- **Alasan:** copy 70 MB lewat NetFS butuh **12m44s**. Analisis menunjukkan akarnya
+  bukan jaringan, tapi penyimpanan: seluruh isi file ada di SATU baris, jadi setiap
+  potongan `writeChunk()` menulis ulang seluruh baris.
+- **Terukur (8 MB dalam 66 potongan @124 KiB, chunk NetFS):**
+
+  | Varian | Waktu |
+  |---|---|
+  | `content TEXT` + journal `DELETE` + `content \|\| ?` (lama) | 6.370 ms |
+  | `journal_mode=WAL`, masih `content \|\| ?` | 6.822 ms (**0,9× — WAL saja tidak menolong**) |
+  | **WAL + tabel blok** | **583 ms (10,9×)** |
+
+  Ukuran file DB juga turun 16,1 MB → 7,2 MB. Baris kedua yang penting: penyebabnya
+  **bukan fsync**, tapi SQLite membangun ulang string seukuran file tiap potongan
+  (CPU + memori) — jadi perbaikannya harus struktural.
+- **Perubahan:**
+  - **Tabel `blocks(vnode_id, seq, data BLOB)`** (`WITHOUT ROWID`, FK `ON DELETE
+    CASCADE`). Isi ≤ `BKFS_INLINE_MAX_BYTES` (64 KiB) tetap di kolom `content`;
+    di atasnya dipecah 128 KiB/blok. Append & tulis acak kini **O(ukuran potongan)**,
+    bukan O(ukuran file). Pemindahan inline → blok terjadi sekali per file, termasuk
+    untuk baris lama yang isinya masih satu baris besar.
+  - **`PRAGMA journal_mode=WAL` + `synchronous=NORMAL`** (opsional `FULL`) +
+    `busy_timeout` + `cache_size` + `mmap_size`. Kalau WAL tidak bisa dipakai
+    (filesystem tidak mendukung), BKFS **memperingatkan** — tidak diam-diam lambat.
+  - **`PRAGMA foreign_keys=ON`** dinyalakan SETELAH migrasi dedup (database lama yang
+    kotor justru yang paling butuh migrasi, dan FK aktif akan menggagalkannya).
+  - **`batch(fn)`** — satu transaksi atomik. Bootstrap/install kini membungkus seluruh
+    penyalinan image di dalamnya: mati di tengah = **tidak ada** image setengah jadi,
+    plus ribuan `fsync` menjadi satu.
+  - **`content` disimpan sebagai BLOB** (`Buffer.from(text, "latin1")`), bukan TEXT.
+    Ini menghapus dua bug sekaligus: `substr()` SQLite yang berhenti di byte NUL
+    (penyebab `cp` menghasilkan file 0 byte) dan inflasi ~2× untuk byte ≥ 0x80.
+    `readChunk()` kini memotong di sisi SQL untuk BLOB — kernel tidak lagi menahan
+    seluruh file di heap. Baris TEXT warisan tetap terbaca (SQLite menyimpan tipe
+    per-nilai), jadi **tidak ada migrasi yang bisa gagal di tengah**.
+  - **`close()` / `checkpoint()`** — dulu BKFS tidak pernah ditutup, sehingga WAL bisa
+    tertinggal dan `system.db` tidak lengkap kalau disalin. `install.ts` yang dulu
+    menembus private `db?.close?.()` kini memakai `close()` yang benar.
+  - **`checkIntegrity()`, `compact()`, `storageKind()`, `countBlocks()`** untuk
+    operasional/diagnostik.
+  - Cache prepared statement per-koneksi (sebelumnya setiap panggilan `prepare()`
+    dari awal).
+- **Perbaikan konsumen SQL mentah** (kalau ini terlewat, `vfs-pull` akan menulis file
+  besar sebagai file **kosong**, karena isinya ada di `blocks`):
+  - `scripts/vfs-pull.ts`: memakai `readVnodeContent()` (export dari BKFS), query tidak
+    lagi `SELECT *`, dan menulis dengan **latin1** — sebelumnya `writeFileSync(path,
+    "string")` memakai utf8 sehingga aset biner ≥ 0x80 rusak saat ditarik ke host
+    (padahal `install.ts` membacanya latin1 — sekarang round-trip byte-per-byte).
+    `HOST_ROOT` juga diperbaiki: dulu hardcode `src/root` yang sudah tidak ada;
+    sekarang dibaca dari `sysconfig.json` dengan patokan yang sama seperti kernel.
+  - `scripts/sync-tde.ts`: menulis lewat `encodeContent()` dan ikut memperbarui `size`
+    (kolom `size` adalah sumber kebenaran panjang file).
+- **Test:** B3.01–B3.13 — WAL aktif & integrity ok, `close()` lalu buka ulang tetap
+  utuh, `batch()` atomik (error di tengah membatalkan semua), byte 0..255 utuh &
+  tersimpan BLOB, baris TEXT warisan tetap benar (termasuk NUL), file besar memakai
+  blok, append lintas blok, `readChunk` offset tak sejajar/lintas blok, tulis acak di
+  blok, touch besar→kecil membuang blok, unlink membuang blok, invariant
+  `size` == panjang isi.
+- **Oleh:** Copilot
+
+---
+
+## 2026-09-22
+
 ### BKFS: `stat`/`getUsage` tidak lagi membaca konten file (penyebab timeout NetFS & OOM kernel SH)
 
 - **File:** `src/vfs/BKFS.ts`, `src/vfs/BKFS.test.ts` (B2.26–B2.27)

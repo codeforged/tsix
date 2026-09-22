@@ -259,16 +259,27 @@ async function main() {
             }
         };
 
-        syncDir(srcRoot, "/");
+        // SATU TRANSAKSI untuk seluruh image. Dua alasan:
+        //   - Kehandalan: bootstrap yang mati di tengah tidak meninggalkan image
+        //     setengah jadi (yang tampak normal tapi separuh `/bin` hilang).
+        //   - Kecepatan: tanpa transaksi, tiap `touch()` = 1 fsync; ribuan file
+        //     berarti ribuan fsync.
+        bkfs.batch(() => {
+            syncDir(srcRoot, "/");
 
-        const commonHostRoot = path.resolve(process.cwd(), "src/common");
-        if (fs.existsSync(commonHostRoot)) {
-            syncDir(commonHostRoot, "/lib/common");
-        }
+            const commonHostRoot = path.resolve(process.cwd(), "src/common");
+            if (fs.existsSync(commonHostRoot)) {
+                syncDir(commonHostRoot, "/lib/common");
+            }
+        });
 
         // Host-side: pastikan WorkerEntry.js sinkron dengan WorkerEntry.ts
         // (Scheduler memuatnya dari HOST, bukan VFS — lihat helper di atas).
         syncWorkerEntry();
+
+        // Pindahkan isi WAL ke file utama: `system.db` kembali self-contained
+        // (satu file yang bisa langsung disalin/di-backup tanpa `-wal`/`-shm`).
+        bkfs.close();
 
         console.log("\x1b[1;32m[VFS-Bootstrap] Bulk synchronization completed successfully!\x1b[0m");
     } catch (err: any) {
