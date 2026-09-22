@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { peekBom, readBinaryFile, readTextFile, utf8ToVfsBytes, vfsBytesToUtf8 } from "./text-file";
-import { encodeContent } from "../../src/vfs/BKFS";
+import { BKFS, encodeContent } from "../../src/vfs/BKFS";
 
 /**
  * BOM UTF-8 di berkas sumber pernah mematikan SELURUH skrip DOME di browser:
@@ -93,5 +93,43 @@ describe("scripts/lib/text-file", () => {
         const biner = Array.from({ length: 256 }, (_, i) => String.fromCharCode(i)).join("");
         expect(vfsBytesToUtf8(biner)).not.toBe(biner);
         expect(Buffer.from(biner, "latin1")[0xff]).toBe(0xff); // jalan yang benar untuk biner
+    });
+
+    it("T1.08 round-trip SIMPAN EDITOR (alur atto): byte-identik setelah buka → edit → simpan", () => {
+        // Meniru persis urutan panggilan `bin/atto.ts`:
+        //   sync:  touch(path, utf8ToVfsBytes(teks))
+        //   buka:  read → vfsBytesToUtf8
+        //   simpan: touch(path, utf8ToVfsBytes(teksHasilEdit))
+        const dbPath = path.join(dir, "atto.db");
+        const bkfs = new BKFS(dbPath);
+        try {
+            const awal = "ikon: 📺  tabel: ┌──┬──┐  aksen: é ✓  → ✓\n";
+            bkfs.touch("/ui.txt", utf8ToVfsBytes(awal));
+
+            // Buka di editor
+            const rawBuka = bkfs.read("/ui.txt");
+            const diEditor = vfsBytesToUtf8(rawBuka);
+            expect(diEditor).toBe(awal); // tampil benar, bukan mojibake
+
+            // Edit lalu simpan
+            const hasilEdit = diEditor + "baris baru 🚀\n";
+            bkfs.touch("/ui.txt", utf8ToVfsBytes(hasilEdit));
+
+            // Byte di VFS harus persis UTF-8 dari teks hasil edit
+            const byteVfs = Buffer.from(bkfs.read("/ui.txt")!, "latin1");
+            expect(byteVfs.equals(Buffer.from(hasilEdit, "utf8"))).toBe(true);
+            expect(vfsBytesToUtf8(bkfs.read("/ui.txt")!)).toBe(hasilEdit);
+
+            // Dan `size` = jumlah BYTE (bukan jumlah karakter)
+            expect(bkfs.getSize("/ui.txt")).toBe(Buffer.byteLength(hasilEdit, "utf8"));
+
+            // Bukti jalur lama (tanpa encode) MERUSAK berkas — ini yang dulu terjadi:
+            bkfs.touch("/rusak.txt", hasilEdit);
+            const rusak = Buffer.from(bkfs.read("/rusak.txt")!, "latin1");
+            expect(rusak.equals(Buffer.from(hasilEdit, "utf8"))).toBe(false);
+            expect(rusak.length).toBe(hasilEdit.length); // dipotong 1 byte per karakter
+        } finally {
+            bkfs.close();
+        }
     });
 });

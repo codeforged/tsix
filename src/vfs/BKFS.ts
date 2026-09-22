@@ -499,6 +499,7 @@ export class BKFS implements IVFS {
         this.forgetChunkCache();
         const text = content ?? "";
         const now = Date.now();
+        this.warnIfTextNotEncoded(path, text);
 
         return this.batch(() => {
             if (text.length <= this.opts.inlineMaxBytes) {
@@ -1112,6 +1113,36 @@ export class BKFS implements IVFS {
     public countBlocks(path: string): number {
         const nodeId = this.getNodeId(path);
         return nodeId < 0 ? 0 : this.blockCount(nodeId);
+    }
+
+    /**
+     * warnIfTextNotEncoded(): Peringatkan kalau pemanggil menulis **teks** tanpa
+     * `utf8ToVfsBytes()` lebih dulu.
+     *
+     * Isi VFS adalah BYTE: encode yang dipakai adalah latin1, sehingga setiap karakter
+     * > U+00FF DIPOTONG ke byte rendahnya (`✕` U+2715 → `0x15`, `─` U+2500 → `0x00`).
+     * Berkasnya rusak **diam-diam** — tanpa galat, tanpa jejak, hanya isi yang salah.
+     *
+     * Kelas bug ini sudah dua kali terjadi (glyph UI & jalur simpan editor `atto`), dan
+     * keduanya mahal untuk dilacak karena tidak ada petunjuk apa pun di log. Karena itu
+     * penjagaan ini dipasang di jalur tulis SELURUH berkas (`touch()`), bukan di
+     * `writeChunk()`: potongan besar datang dari NetFS/paket yang memang byte.
+     *
+     * Bit warna: pemanggil yang benar (sync, editor, paket) selalu mengirim byte — jadi
+     * peringatan ini berarti ada jalur yang lupa, dan itu yang ingin kita lihat.
+     */
+    private warnIfTextNotEncoded(path: string, text: string): void {
+        for (let i = 0; i < text.length; i++) {
+            const c = text.charCodeAt(i);
+            if (c > 0xff) {
+                this.logger.warn(
+                    `Tulis teks TANPA encode ke ${path}: U+${c.toString(16).toUpperCase()} ` +
+                        `di posisi ${i} akan terpotong jadi byte 0x${(c & 0xff).toString(16).toUpperCase()} ` +
+                        `(berkas rusak diam-diam). Gunakan utf8ToVfsBytes() dari src/common/VfsText.ts.`,
+                );
+                return;
+            }
+        }
     }
 
     /** countOf(): Jalankan query `SELECT COUNT(*) AS n ...` tanpa parameter. */
