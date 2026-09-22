@@ -302,7 +302,18 @@ export class NetFSServer {
                         `read ${size} byte melebihi batas balasan ${NETFS_MAX_RESPONSE_BYTES} — gunakan readChunk`,
                     );
                 }
-                return blob(await b.read(path));
+
+                const content = await b.read(path);
+                // Deteksi korupsi: metadata bilang ada isi, tapi isinya kosong.
+                // Lebih baik gagal jelas daripada mengirim "" — dulu berakhir
+                // jadi file 0 byte yang dilaporkan SUKSES di sisi klien.
+                if (content !== null && content !== undefined && size > 0 && content.length === 0) {
+                    throw new NetFSError(
+                        "EIO",
+                        `${path}: isi kosong padahal size=${size} — baris korup di backend/ekspor (metadata tidak sesuai isi)`,
+                    );
+                }
+                return blob(content);
             }
             case "touch":
                 // Args: [content, uid, gid, mode]

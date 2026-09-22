@@ -316,7 +316,10 @@ export class NetFS implements IVFS {
             if (piece === null || piece.length === 0) {
                 throw new NetFSError(
                     "EIO",
-                    `NetFS[${this.describe()}]: readChunk ${path} offset ${offset} mengembalikan KOSONG (minta ${want} byte, ukuran file ${size}) — SL di sisi peer kemungkinan belum mendukung/menolak readChunk`,
+                    `NetFS[${this.describe()}]: readChunk ${path} offset ${offset} mengembalikan KOSONG ` +
+                        `(minta ${want} byte, ukuran file ${size}) — berkas di peer kemungkinan KORUP: ` +
+                        `metadata menyebut ${size} byte tapi isinya kosong/tidak terbaca. ` +
+                        `Periksa dengan 'netfs probe <peer> ${path}' dan salin ulang berkasnya.`,
                     "read",
                 );
             }

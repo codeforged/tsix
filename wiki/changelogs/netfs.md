@@ -8,6 +8,53 @@ Dokumentasi lengkap: [`wiki/netfs.md`](../netfs.md).
 
 ## 2026-09-22
 
+### `cp` 70 MB "sukses" tapi 0 byte — ternyata BARIS di bkfs SH korup; guard ditambahkan
+
+- **File:** `src/vfs/NetFS.ts`, `src/common/netfs/NetFSServer.ts`, `src/vfs/BKFS.ts`,
+  `src/mirror/bin/cp.ts`, `src/mirror/bin/netfs.ts` (subcommand `probe`)
+  (+ test `NetFS.test.ts` N2.19, `NetFSServer.test.ts` N1.14–N1.15, `BKFS.test.ts` B2.22b)
+- **Gejala:** `cp /mnt/net/video.mov ./` melaporkan sukses dalam ~580 ms, hasilnya file
+  **0 byte**. Setelah pengerasan driver, pesannya jadi:
+  `readChunk /video.mov offset 0 mengembalikan KOSONG (minta 126976 byte, ukuran file 70499395)`.
+- **Diagnosa berlapis (semua terukur):**
+    1. Relay klien (`netfsd --client`) **bukan** penyebab — `netfs probe jatitsix:7777`
+       langsung ke SL (tanpa relay) memberi hasil sama.
+    2. Jaringan/transport **bukan** penyebab — `info`/`stat`/`getSize` 15–100 ms, dan
+       `read` file besar ditolak rapi `ETOOBIG`.
+    3. `readChunk` **bukan** rusak — untuk `/readfile-net.ts` (365 B) hasilnya `365 byte ok`.
+    4. Baris besar **bukan** masalah SQLite — uji lokal BKFS 60 MB: `readChunk` 4096 byte ✅.
+    5. Rantai penuh (driver → SL → `NetFSBackend` → BKFS) direproduksi lokal: tulis 1,75 MB
+       lewat driver, dibaca ulang **utuh** ✅.
+    ⇒ Kesimpulan: **baris `video.mov` di `systembak.db` SH memang korup** — metadata
+      `size=70499395` sementara `content` kosong. Sisa dari jalur tulis build lama, bukan
+      dari kode sekarang.
+- **Guard yang ditambahkan (supaya kelas ini tidak pernah senyap lagi):**
+    - `NetFS.readChunked()`: potongan kosong/pendek/total ≠ ukuran = **ERROR**, pesannya
+      menyebut kemungkinan berkas korup + saran `netfs probe` & salin ulang. Dulu
+      `return null`/`""` → `cp` menulis 0 byte dan melaporkan SUKSES.
+    - SL (`read`): kalau `size > 0` tapi isi kosong → `EIO "...baris korup..."`,
+      bukan mengirim `""`.
+    - `BKFS.writeChunk()`: **sparse write ditolak** (`offset > ekor`). Dulu jalur ini
+      "berhasil" dengan `content=potongan` tapi `size=offset+len` — kolom `size`
+      berbohong, dan itu justru kondisi korup yang kita temukan. Celah memang tidak bisa
+      direpresentasikan di sini: SQLite lewat better-sqlite3 **memotong TEXT pada byte
+      NUL** (terukur: `length()` = 2 untuk `"AB\u0000\u0000\u0000Z"`), jadi `read()` dan
+      `readChunk()` akan membacanya berbeda. Gagal jelas > state setengah jadi.
+    - `cp`: membandingkan panjang hasil `read` dengan metadata sebelum menulis —
+      korupsi senyap dari lapisan mana pun jadi pesan jelas.
+    - Alat diagnosa baru: `netfs probe <addr> <path>` (info/stat/getSize/read/readChunk
+      head+tail, tanpa mencetak isi berkas).
+- **Verifikasi:** 79 test NetFS/VFS hijau (termasuk regresi N2.19, N1.15, B2.22b);
+  `npm test` = **1151 passed**, 8 kegagalan pra-ada. Reproduksi lokal e2e (driver → SL →
+  NetFSBackend → BKFS): 1,75 MB tulis-baca **utuh**.
+- **Pemulihan berkas korup:** salin ulang (`rm` dulu, lalu `cp` lagi) dan pastikan dengan
+  `netfs probe ... /video.mov` → `readChunk head ok 4096 byte`.
+- **Deploy:** klien — restart kernel + `npm run vfs:bootstrap`; SH — `git pull`,
+  `vfs:bootstrap`, restart kernel & `netfsd`.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
+## 2026-09-22
+
 ### `cp` dari NetFS → VFS: `stat` timeout 5 s + kernel SH OOM (jalur metadata & pagar balasan)
 
 - **File:** `src/vfs/BKFS.ts`, `src/vfs/NetFS.ts`, `src/common/netfs/NetFSProtocol.ts`,

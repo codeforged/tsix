@@ -142,6 +142,23 @@ describe("BKFS (SQLite-based)", () => {
         expect(bkfs.read("/mid.bin")).toBe("012XX56789");
     });
 
+    it("B2.22b writeChunk – offset melewati ekor ditolak (bukan metadata bohong)", () => {
+        // Dulu jalur ini menulis dengan content=potongan, size=offset+len →
+        // metadata bilang ada isi yang sebenarnya tidak ada.
+        bkfs.touch("/hole.bin", "AB");
+        expect(bkfs.writeChunk("/hole.bin", "Z", 5)).toBe(false);
+
+        // Tidak boleh ada state setengah jadi: isi & size tetap sinkron.
+        expect(bkfs.getSize("/hole.bin")).toBe(2);
+        expect(bkfs.read("/hole.bin")).toBe("AB");
+        expect(bkfs.readChunk("/hole.bin", 0, 2)).toBe("AB");
+
+        // Tulis tepat di ekor tetap append biasa.
+        expect(bkfs.writeChunk("/hole.bin", "Z", 2)).toBe(true);
+        expect(bkfs.read("/hole.bin")).toBe("ABZ");
+        expect(bkfs.getSize("/hole.bin")).toBe(3);
+    });
+
     // ============================================================
     // B2.23–B2.25: getSize / getUsage
     // ============================================================

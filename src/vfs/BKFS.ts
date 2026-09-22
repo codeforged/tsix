@@ -557,7 +557,20 @@ export class BKFS implements IVFS {
     const newSize = Math.max(currentSize, offset + chunkLen);
     const now = Date.now();
 
-    if (offset >= currentSize) {
+    // Celah (sparse write) DITOLAK — bukan diam-diam dibuat.
+    //
+    // Pada storage ini celah tidak bisa direpresentasikan: SQLite lewat
+    // better-sqlite3 memotong nilai TEXT pada byte NUL (terukur: `length()` = 2
+    // untuk "AB\u0000\u0000\u0000Z"), sehingga penambal celah akan terbaca
+    // BEDA oleh `read()` dan `readChunk()` (SUBSTR). Dulu jalur ini menulis
+    // "berhasil" dengan content=potongan sementara size=offset+len → kolom
+    // `size` berbohong (metadata puluhan MB, isi kosong) dan pembacaan
+    // berikutnya mengembalikan isi jauh lebih pendek/kosong — kelas kegagalan
+    // yang membuat salinan file besar tampak sukses padahal datanya hilang.
+    // Gagal jelas jauh lebih baik daripada state setengah jadi.
+    if (offset > currentSize) return false;
+
+    if (offset === currentSize) {
       // Sequential append — paling cepat, simple CONCAT
       this.db
         .prepare(

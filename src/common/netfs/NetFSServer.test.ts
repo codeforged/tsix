@@ -242,6 +242,36 @@ describe("NetFSServer — SL core (N1)", () => {
         expect(small.ok).toBe(true);
         expect(blobData(small.result)).toBe("halo netfs");
     });
+
+    it("N1.15 baris korup (size>0 tapi isi kosong) dilaporkan EIO, bukan dikirim sebagai ''", async () => {
+        // Kejadian nyata: metadata bilang 70 MB tapi isi baris kosong; dulu SL
+        // mengirim "" dan klien menuliskannya sebagai file 0 byte yang dilaporkan
+        // SUKSES. Sekarang harus gagal jelas.
+        const corrupt = {
+            ls: () => [],
+            mkdir: () => true,
+            read: () => "", // isi kosong
+            touch: () => true,
+            stat: () => ({ name: "x", type: "FILE", size: 100 }),
+            chmod: () => true,
+            chown: () => true,
+            unlink: () => true,
+            rmdir: () => true,
+            exists: () => true,
+            append: () => true,
+            getUsage: async () => ({ size: 100, files: 1, dirs: 0 }),
+            readChunk: () => "",
+            writeChunk: () => true,
+            getSize: () => 100, // klaim 100 byte
+        } as any;
+
+        const srv = new NetFSServer(corrupt, { prefix: "/" });
+        const res = await srv.handle(req(23, "read", "/rusak.bin"));
+
+        expect(res.ok).toBe(false);
+        expect(res.code).toBe("EIO");
+        expect(res.err).toContain("korup");
+    });
 });
 
 describe("NetFS protocol utils (N3)", () => {
