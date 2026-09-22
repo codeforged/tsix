@@ -9,6 +9,38 @@
 
 ## 2026-09-22
 
+### Backlight "tidak bekerja": feedback izin sysfs + konfigurasi awal senyap
+
+- **File:** `src/kernel/devices/aux-devices/ILI9341Device.ts` (`FbDevPanel`:
+  `applyInitialConfig`, `sysfsDiag`), `src/mirror/opt/test/test-ILI9341.ts`,
+  `ILI9341Device.test.ts` (C10.155-C10.156).
+- **Gejala (laporan lapangan):** `/opt/test/test-ILI9341 backlight off` tidak
+  mematikan lampu, tanpa penjelasan apa pun. Di boot masih muncul `brightness
+  EINVAL` + `fb1/blank` hanya-root.
+- **Sebab:** `bl_power` memang ada dan polarnya sudah benar, tapi proses TSIX
+  tidak punya izin tulis ke sysfs backlight. Karena nilainya saat boot sudah
+  sama (`0`), tulisnya dilewati — jadi tidak ada peringatan tentang `bl_power`
+  sama sekali, dan saat app memanggil `setBacklight()` pun tidak ada feedback
+  (pesan console kernel tidak sampai ke TTY app).
+- **Perubahan:**
+    - `applyInitialConfig()` — penerapan konfigurasi awal saat `begin()`:
+      **senyap**, hanya menulis atribut yang nilainya berubah & yang boleh
+      ditulis. Menghapus noise `EINVAL`/`EACCES` di boot.
+    - `sysfsDiag()` + `init()` melaporkan **sekali** di boot, lengkap dengan
+      perintah siap-tempel:
+      `sudo chmod 666 /sys/class/backlight/fb_ili9341/bl_power .../brightness /sys/class/graphics/fb1/blank`.
+    - `SET_BACKLIGHT` mengembalikan **status yang berlaku** (dibaca balik dari
+      `bl_power`), bukan yang diminta — jadi app bisa tahu kalau izin tulis
+      kurang (permintaan `off` → hasil `on`).
+    - `test-ILI9341 backlight on|off` mencetak status berlaku + dir sysfs, dan
+      bila gagal menyertakan perintah `chmod` yang perlu dijalankan;
+      `brightness` membaca balik nilai sysfs dan menyebut bila panel menolak.
+- **Tindakan operator yang diperlukan:** beri izin tulis sysfs (root atau udev
+  rule `chmod 0666`). Selama itu belum dilakukan, on/off hanya mengubah status
+  di driver — bukan bug, tapi sekarang terlihat jelas di log & output app.
+- **Deploy:** restart kernel + `npm run vfs:bootstrap` (app test).
+- **Oleh:** Copilot
+
 ### Sysfs: tulis hanya bila berubah + pesan galat sesuai sebab (`EINVAL` ≠ `EACCES`)
 
 - **File:** `src/kernel/devices/aux-devices/ILI9341Device.ts` (`FbDevPanel`),

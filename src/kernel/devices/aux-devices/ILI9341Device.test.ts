@@ -591,7 +591,10 @@ describe("ILI9341Device — kontrol tampilan & info (C10.137-C10.146)", () => {
 
   it("C10.138 backlight / brightness / displayOn diteruskan ke panel", () => {
     const { dev, panel } = makeReadyDevice();
-    expect(dev.ioctl(TFTIOCTL.SET_BACKLIGHT, { on: false })).toBe(false);
+    // SET_BACKLIGHT mengembalikan status yang BERLAKU (dibaca balik dari panel),
+    // bukan yang diminta — fake panel ini `getBacklight()` selalu `true`, jadi
+    // hasil baliknya `true` walau permintaannya `false`.
+    expect(dev.ioctl(TFTIOCTL.SET_BACKLIGHT, { on: false })).toBe(true);
     expect(panel.setBacklight).toHaveBeenLastCalledWith(false);
     expect(dev.ioctl(TFTIOCTL.GET_BACKLIGHT, null)).toBe(true); // fake panel: selalu true
 
@@ -802,5 +805,45 @@ describe("FbDevPanel — backlight sysfs (C10.149-C10.152)", () => {
     // peringatan read-only yang menyesatkan).
     const none = new FbDevPanel({ backlightPath: "/nonexistent/bl-dir" });
     expect(none.isBacklightWritable()).toBe(false);
+  });
+
+  it("C10.155 applyInitialConfig(): senyap & hanya menulis yang berubah", () => {
+    const dir = mk();
+    const panel = new FbDevPanel({ backlightPath: dir });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // Nilai sudah sesuai (bl_power "0", brightness "128") → nol tulis & nol
+    // peringatan; inilah yang dulu memunculkan EINVAL/EACCES palsu di boot.
+    const first = panel.applyInitialConfig(128, true, true);
+    expect(first.applied).toEqual(["brightness", "bl_power"]);
+    expect(first.skipped).toEqual([]);
+    expect(first.failed).toEqual([]);
+    expect(warn).not.toHaveBeenCalled();
+
+    // Nilai berbeda → ditulis, tetap tanpa peringatan (dilaporkan sekali oleh
+    // init() lewat sysfsDiag, bukan di sini).
+    const second = panel.applyInitialConfig(64, false, true);
+    expect(second.failed).toEqual([]);
+    expect(readBl(dir, "bl_power")).toBe("1"); // OFF = tulis 1
+    expect(readBl(dir, "brightness")).toBe("64");
+    expect(warn).not.toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+
+  it("C10.156 sysfsDiag(): laporkan direktori, izin tulis, & yang tidak didukung", () => {
+    const dir = mk();
+    const panel = new FbDevPanel({ backlightPath: dir });
+    const diag = panel.sysfsDiag();
+
+    expect(diag.backlightDir).toBe(dir);
+    expect(diag.backlightWritable).toBe(true); // temp dir milik user test
+    expect(diag.readOnly).toEqual([]); // tidak ada yang perlu chmod
+    expect(diag.unsupported).toEqual([]);
+
+    // Panel tanpa sysfs backlight → tidak ada apa-apa untuk dilaporkan.
+    const none = new FbDevPanel({ backlightPath: "/nonexistent/bl-dir" });
+    expect(none.sysfsDiag().backlightDir).toBeNull();
+    expect(none.sysfsDiag().readOnly).toEqual([]);
   });
 });

@@ -253,6 +253,29 @@ export interface TftPanelHandle {
   getBacklightDir?(): string | null;
   /** true kalau on/off & kecerahan benar-benar bisa ditulis (root/udev). */
   isBacklightWritable?(): boolean;
+  /**
+   * Ringkasan sysfs untuk log/diagnosa: mana yang ada, mana yang boleh ditulis,
+   * mana yang dilaporkan panel sebagai tidak didukung.
+   */
+  sysfsDiag?(): {
+    backlightDir: string | null;
+    backlightWritable: boolean;
+    displayWritable: boolean;
+    /** Jalur yang ADA tapi tidak boleh ditulis proses ini (butuh root/udev). */
+    readOnly: string[];
+    /** Atribut yang ditolak panel, mis. `brightness (EINVAL)`. */
+    unsupported: string[];
+  };
+  /**
+   * Terapkan konfigurasi awal secara SENYAP (dipakai saat begin): hanya yang
+   * berubah & boleh ditulis; yang dilewati/ditolak dilaporkan sekali oleh
+   * `init()` — bukan peringatan berulang per atribut.
+   */
+  applyInitialConfig?(
+    brightness: number,
+    backlight: boolean,
+    displayOn: boolean,
+  ): { applied: string[]; skipped: string[]; failed: string[] };
   /** Tutup node (dipakai saat pindah device). */
   close?(): void;
 }
@@ -476,6 +499,8 @@ export class FbDevPanel implements TftPanelHandle {
   private bl: BacklightPaths | null = null;
   /** Atribut sysfs yang sudah tidak perlu dicoba lagi (read-only / ditolak). */
   private deadSysfs = new Set<string>();
+  /** Atribut yang pernah GAGAL ditulis → kode errornya (untuk diagnosa). */
+  private failedSysfs = new Map<string, string>();
   /** Status boleh-tulis per jalur (izin sysfs tidak berubah saat runtime). */
   private writableCache = new Map<string, boolean>();
   /** true kalau peringatan "sysfs hanya-baca" sudah dicetak. */
@@ -512,16 +537,63 @@ export class FbDevPanel implements TftPanelHandle {
     return ok;
   }
 
-  /** Peringatan sekali: sysfs backlight ada tapi milik root. */
+  /**
+   * Peringatan sekali: sysfs backlight ada tapi milik root. Sebutkan jalur
+   * KONKRET yang perlu di-chmod — pesan generik "<dev>" menyulitkan di lapangan.
+   */
   private noteReadOnly(file: string): void {
     if (this.roNotified) return;
     this.roNotified = true;
     console.warn(
       `[TFT] ${file} hanya bisa ditulis oleh root — kontrol on/off & kecerahan ` +
-        `TFT dilewati (status tetap dilacak driver). Jalankan TSIX sebagai root, ` +
-        `atau beri izin tulis: udev rule / chmod 666 pada ` +
-        `/sys/class/backlight/<dev>/{bl_power,brightness} + /sys/class/graphics/fbN/blank`,
+        `TFT tidak menyentuh hardware (status tetap dilacak driver). Perbaiki ` +
+        `dengan udev rule chmod 0666, atau sesi ini saja: ${this.chmodHint()}`,
     );
+  }
+
+  /** Perintah chmod siap-tempel untuk jalur sysfs yang tidak boleh ditulis. */
+  private chmodHint(): string {
+    const paths = this.sysfsPaths().filter((p) => !this.isWritable(p));
+    return paths.length
+      ? `sudo chmod 666 ${paths.join(" ")}`
+      : "jalankan TSIX sebagai root";
+  }
+
+  /** Semua jalur sysfs yang dipakai panel ini (yang ada saja). */
+  private sysfsPaths(): string[] {
+    const bl = this.ensureBacklight();
+    return [bl?.power, bl?.brightness, this.blankPath()].filter(
+      (p): p is string => !!p,
+    );
+  }
+
+  /**
+   * Ringkasan sysfs: ada/tidak, boleh ditulis/tidak, didukung/tidak.
+   * Dipakai `init()` untuk melaporkan SEKALI di boot (bukan per atribut).
+   */
+  public sysfsDiag(): {
+    backlightDir: string | null;
+    backlightWritable: boolean;
+    displayWritable: boolean;
+    readOnly: string[];
+    unsupported: string[];
+  } {
+    const bl = this.ensureBacklight();
+    const paths = this.sysfsPaths();
+    const readOnly = paths.filter((p) => !this.isWritable(p));
+    const blank = this.blankPath();
+
+    return {
+      backlightDir: bl?.dir ?? null,
+      backlightWritable: [bl?.power, bl?.brightness].some(
+        (p) => !!p && this.isWritable(p),
+      ),
+      displayWritable: !!blank && this.isWritable(blank),
+      readOnly,
+      unsupported: [...this.failedSysfs]
+        .filter(([f]) => !readOnly.includes(f))
+        .map(([f, code]) => `${f} (${code})`),
+    };
   }
 
   /**
@@ -533,7 +605,7 @@ export class FbDevPanel implements TftPanelHandle {
     const code = String(e?.code ?? "");
     const hint =
       code === "EACCES" || code === "EPERM"
-        ? "butuh root (jalankan TSIX sebagai root atau pakai udev rule chmod 666)"
+        ? `butuh root (jalankan TSIX sebagai root, atau: ${this.chmodHint()})`
         : code === "EINVAL"
           ? "panel menolak nilai/atribut ini — fitur itu kemungkinan tidak didukung panel"
           : `perangkat/atribut tidak mendukung operasi ini (${e?.message ?? e})`;
@@ -547,8 +619,11 @@ export class FbDevPanel implements TftPanelHandle {
    * menambah error/permission noise di log; (2) sysfs tidak suka ditulis ulang
    * tanpa perubahan — `brightness` fbtft bisa menjawab `EINVAL`; (3) satu kali
    * gagal → atribut itu tidak dicoba lagi supaya log tidak dibanjiri pesan sama.
+   *
+   * `quiet = true` (dipakai penerapan konfigurasi awal) tidak mencetak apa pun:
+   * sebabnya dilaporkan sekali oleh `init()` lewat `sysfsDiag()`.
    */
-  private writeSysfs(file: string | null, value: number | string): boolean {
+  private writeSysfs(file: string | null, value: number | string, quiet = false): boolean {
     if (!file || this.deadSysfs.has(file)) return false;
     const want = String(value);
 
@@ -557,7 +632,7 @@ export class FbDevPanel implements TftPanelHandle {
 
     if (!this.isWritable(file)) {
       this.deadSysfs.add(file);
-      this.noteReadOnly(file);
+      if (!quiet) this.noteReadOnly(file);
       return false;
     }
 
@@ -566,9 +641,45 @@ export class FbDevPanel implements TftPanelHandle {
       return true;
     } catch (e: any) {
       this.deadSysfs.add(file);
-      this.noteWriteFailure(file, e);
+      this.failedSysfs.set(file, String(e?.code ?? e?.message ?? "EIO"));
+      if (!quiet) this.noteWriteFailure(file, e);
       return false;
     }
+  }
+
+  /**
+   * Terapkan konfigurasi awal (kecerahan, on/off backlight, blank) saat
+   * `begin()` — SENYAP, supaya boot log tidak penuh peringatan untuk nilai yang
+   * sebenarnya sudah sesuai atau memang tidak bisa diubah.
+   */
+  public applyInitialConfig(
+    brightness: number,
+    backlight: boolean,
+    displayOn: boolean,
+  ): { applied: string[]; skipped: string[]; failed: string[] } {
+    const applied: string[] = [];
+    const skipped: string[] = [];
+    const failed: string[] = [];
+
+    this.backlight = !!backlight;
+    this.displayOn = !!displayOn;
+    this.brightness = Math.max(0, Math.min(255, Math.floor(num(brightness))));
+
+    const bl = this.ensureBacklight();
+
+    const tryApply = (name: string, file: string | null, value: number | string) => {
+      if (!file) return;
+      if (this.writeSysfs(file, value, true)) applied.push(name);
+      else (this.isWritable(file) ? failed : skipped).push(name);
+    };
+
+    tryApply("brightness", bl?.brightness ?? null, this.toRawBrightness(this.brightness));
+    // `bl_power`: 0 = NYALA, 1 = MATI (polaritas kebalikan!).
+    tryApply("bl_power", bl?.power ?? null, backlight ? "0" : "1");
+    // `blank`: 0 = unblank, 1 = blank (FB_BLANK_NORMAL).
+    tryApply("blank", this.blankPath(), displayOn ? "0" : "1");
+
+    return { applied, skipped, failed };
   }
 
   /**
@@ -960,6 +1071,8 @@ export class ILI9341Device implements IDevice {
 
   private initialized = false;
   private autoFlush: boolean;
+  /** Hasil penerapan konfigurasi awal saat begin (untuk log & diagnosa). */
+  private applyReport: { applied: string[]; skipped: string[]; failed: string[] } | null = null;
 
   // Geometri & status tampilan
   private rotation = 0;
@@ -1035,8 +1148,9 @@ export class ILI9341Device implements IDevice {
           (v?.name ? ` [${v.name}]` : "") +
           ` (${TFT_FRAMEBUFFER_SIZE} byte/frame, stride ${TFT_STRIDE})`,
       );
-      const blDir = this.panel?.getBacklightDir?.() ?? null;
-      const blOk = this.panel?.isBacklightWritable?.() ?? true;
+      const diag = this.panel?.sysfsDiag?.() ?? null;
+      const blDir = diag?.backlightDir ?? this.panel?.getBacklightDir?.() ?? null;
+      const blOk = diag?.backlightWritable ?? this.panel?.isBacklightWritable?.() ?? true;
       this.log(
         blDir
           ? `Backlight sysfs: ${blDir}` +
@@ -1045,6 +1159,21 @@ export class ILI9341Device implements IDevice {
                 : " — hanya root, kontrol on/off dilewati (status tetap dilacak)")
           : `Backlight: sysfs tidak ditemukan — opsional, set ${TFT_BACKLIGHT_ENV}`,
       );
+
+      // Satu peringatan saja (bukan per atribut) + perintah chmod konkret:
+      // tanpa ini, pengguna hanya melihat "tidak bekerja" tanpa tahu sebabnya.
+      if (diag && diag.readOnly.length) {
+        const chmod = `sudo chmod 666 ${diag.readOnly.join(" ")}`;
+        console.warn(
+          `[TFT] Kontrol backlight TFT belum aktif: ${diag.readOnly.join(", ")} ` +
+            `hanya bisa ditulis oleh root. Sesi ini saja: ${chmod} — permanen: ` +
+            `udev rule chmod 0666. Tanpa itu on/off & kecerahan hanya mengubah ` +
+            `status di driver.`,
+        );
+      }
+      if (diag && diag.unsupported.length) {
+        this.log(`Backlight: ditolak panel → ${diag.unsupported.join(", ")}`);
+      }
     } else {
       this.log(
         "ILI9341 tidak terdeteksi: " +
@@ -1087,9 +1216,24 @@ export class ILI9341Device implements IDevice {
       }
 
       // Konfigurasi awal — hanya sekali, saat begin sukses pertama.
-      panel.setBrightness?.(this.brightness);
-      panel.setBacklight?.(this.backlight);
-      panel.setDisplayOn?.(this.displayOn);
+      //
+      // `applyInitialConfig` menulis HANYA atribut yang nilainya berubah dan
+      // HANYA yang boleh ditulis; sisanya dicatat untuk dilaporkan SEKALI oleh
+      // `init()` (lihat sysfsDiag). Dulu di sini langsung 3x tulis sysfs, jadi
+      // boot log penuh EACCES/EINVAL untuk nilai yang toh sudah sesuai.
+      if (panel.applyInitialConfig) {
+        this.applyReport = panel.applyInitialConfig(
+          this.brightness,
+          this.backlight,
+          this.displayOn,
+        );
+      } else {
+        // Panel injeksi / pihak ketiga tanpa applyInitialConfig: setter biasa.
+        panel.setBrightness?.(this.brightness);
+        panel.setBacklight?.(this.backlight);
+        panel.setDisplayOn?.(this.displayOn);
+        this.applyReport = null;
+      }
 
       this.initialized = true;
       this.lastError = null;
@@ -1337,7 +1481,10 @@ export class ILI9341Device implements IDevice {
         case TFTIOCTL.SET_BACKLIGHT: {
           const on = boolFrom(arg, ["on", "value"]);
           this.backlight = this.panel.setBacklight ? !!this.panel.setBacklight(on) : on;
-          return this.backlight;
+          // Yang DIKEMBALIKAN = status yang benar-benar berlaku (dibaca balik dari
+          // sysfs), bukan yang diminta. Kalau izin tulis kurang, hardware tidak
+          // berubah dan app bisa tahu dari nilai balik ini.
+          return this.panel.getBacklight ? !!this.panel.getBacklight() : this.backlight;
         }
         case TFTIOCTL.GET_BACKLIGHT:
           return this.panel.getBacklight ? !!this.panel.getBacklight() : this.backlight;

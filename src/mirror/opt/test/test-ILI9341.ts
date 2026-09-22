@@ -801,15 +801,38 @@ export const main = Program(async (args: string[]) => {
                     await std.println("   Set: test-ILI9341 brightness 0..255");
                     break;
                 }
-                const used = await tft.setBrightness(parseInt(positional[1], 10));
-                await std.println(`✔ Kecerahan → ${used} (no-op bila panel tanpa sysfs backlight).`);
+                const want = parseInt(positional[1], 10);
+                const used = await tft.setBrightness(Number.isFinite(want) ? want : 0);
+                // Dibaca BALIK dari sysfs: kalau panel menolak nilainya (EINVAL
+                // pada fb_ili9341), angka ini tidak akan berubah.
+                const actual = await tft.getBrightness();
+                await std.println(`✔ Kecerahan → ${used} (sysfs: ${actual ?? "-"})`);
+                if (actual === null) {
+                    await std.println("   Panel ini tidak mengekspos sysfs `brightness`.");
+                } else if (Math.abs(actual - used) > 2) {
+                    await std.println(
+                        "⚠ Panel menolak nilai itu — kecerahan tampaknya tidak didukung panel ini.",
+                    );
+                }
                 break;
             }
 
             case "backlight": {
                 const on = (positional[1] || "on").toLowerCase() !== "off";
-                await tft.setBacklight(on);
-                await std.println(`✔ Backlight ${on ? "ON" : "OFF"}.`);
+                // Nilai balik = status yang BENAR-BENAR berlaku (dibaca balik dari
+                // sysfs `bl_power`), jadi beda dari permintaan = hardware tidak ikut.
+                const applied = await tft.setBacklight(on);
+                await std.println(`✔ Backlight ${on ? "ON" : "OFF"} → berlaku: ${applied ? "ON" : "OFF"}`);
+                if (applied !== on) {
+                    const info = await tft.getInfo();
+                    await std.println("⚠ Lampu panel tidak berubah: sysfs backlight tidak bisa ditulis.");
+                    if (info?.backlightDir) {
+                        await std.println(`   Dir: ${info.backlightDir}`);
+                        await std.println(
+                            `   Coba: sudo chmod 666 ${info.backlightDir}/{bl_power,brightness}`,
+                        );
+                    }
+                }
                 break;
             }
 
