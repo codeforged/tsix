@@ -2054,7 +2054,7 @@ class SimpleTextEditor {
     // Deteksi ekstensi file dan Shebang secara aman (cek null/undefined)
     const fileExtension = this.filename.split(".").pop()?.toLowerCase() || "";
     const firstLine = this.lines[0] || "";
-    const isShellScript: boolean = (fileExtension === "sh") || (firstLine.startsWith("#!") && firstLine.includes("sh"));
+    const isShellScript: boolean = (fileExtension === "sh") || (fileExtension === "conf") || (fileExtension === "cfg") || (fileExtension === "ini") || (firstLine.startsWith("#!") && firstLine.includes("sh"));
 
     std.log(`[DEBUG] toggleComment: fileExtension=${fileExtension}, isShellScript=${isShellScript}`);
 
@@ -2375,7 +2375,7 @@ class SimpleTextEditor {
   private async showHelp() {
     const helpText = [
       "┌────────────────────────────────────────────────────────────────────────┐",
-      "│                          ATTO Text Editor v1.88                        │",
+      "│                          ATTO Text Editor v1.89                        │",
       "├────────────────────────────────────────────────────────────────────────┤",
       "│ Ctrl+S: Save          │ Ctrl+F: Find     │ Ctrl+L: Find Next           │",
       "│ Ctrl+W: Save & Exit   │ Alt+R:  Replace  │ F1:     Help                │",

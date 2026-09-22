@@ -35,7 +35,7 @@ const MAX_CHUNK_BYTES = 124 * 1024;
  * Gunanya membungkus Syscall yang ribet jadi fungsi yang manusiawi.
  */
 export class UserLib {
-    private version: string = "1.2.20260830.1";
+    private version: string = "1.3.20260922.1";
     private pid: number;
     private responseMap: Map<string, (res: SyscallResponse) => void> = new Map();
     private eventListeners: Map<string, ((data: any) => void)[]> = new Map();
