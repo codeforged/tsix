@@ -9,6 +9,38 @@
 
 ## 2026-09-22
 
+### Sysfs: tulis hanya bila berubah + pesan galat sesuai sebab (`EINVAL` ≠ `EACCES`)
+
+- **File:** `src/kernel/devices/aux-devices/ILI9341Device.ts` (`FbDevPanel`),
+  `src/mirror/lib/tftLib.ts` (`TftInfo.backlightWritable`),
+  `ILI9341Device.test.ts` (C10.153-C10.154).
+- **Gejala (laporan lapangan, Pi):** log boot menyemburkan tiga peringatan sekaligus:
+  `brightness: EINVAL`, `bl_power: EACCES`, `fb1/blank: EACCES` — padahal semua
+  nilai yang ditulis sama dengan yang sudah ada di sysfs.
+- **Akar masalah:**
+    1. Driver menerapkan konfigurasi awal dengan menulis sysfs **tanpa membandingkan**
+       nilai sekarang. Menulis nilai yang sama itu sia-sia, dan `brightness` fbtft
+       bisa menjawab `EINVAL` (panel menolaknya).
+    2. Pesan galatnya mengasumsikan semua kegagalan = urusan izin, jadi `EINVAL`
+       ikut disarankan "jalankan sebagai root" — menyesatkan.
+- **Perubahan:**
+    - `writeSysfs()`: **baca dulu**, tulis hanya kalau nilainya berubah. Saat boot
+      praktis tidak ada tulis sama sekali → log bersih.
+    - Sebelum menulis dicek `accessSync(W_OK)`. Kalau tidak boleh tulis: **satu**
+      peringatan ringkas (bukan tiga), dan atribut itu **tidak dicoba lagi**.
+    - Pesan dibedakan: `EACCES`/`EPERM` → butuh root/udev; `EINVAL` → panel
+      menolak nilai/atributnya (fitur tidak didukung); lainnya → pesan generik.
+    - Boot log: `Backlight sysfs: /sys/class/backlight/fb_ili9341`
+      (+ `— hanya root, kontrol on/off dilewati` bila tidak bisa ditulis), atau
+      `Backlight: sysfs tidak ditemukan — opsional, set TSIX_TFT_BL`.
+    - `GET_INFO`/`TftInfo` menambah `backlightWritable` — jadi app bisa tahu apakah
+      `setBacklight()` benar-benar menyentuh hardware.
+- **Catatan lapangan:** pada `fb_ili9341` atribut `brightness` ditolak (`EINVAL`),
+  jadi **kecerahan** memang tidak bisa diatur lewat panel ini; on/off tetap lewat
+  `bl_power`. Untuk menulis sysfs, TSIX harus punya izin tulis (root / udev rule).
+- **Deploy:** restart kernel.
+- **Oleh:** Copilot
+
 ### Backlight on/off: `bl_power` (0 = NYALA, 1 = MATI) + auto-deteksi `fb_ili9341`
 
 - **File:** `src/kernel/devices/aux-devices/ILI9341Device.ts` (`FbDevPanel`,

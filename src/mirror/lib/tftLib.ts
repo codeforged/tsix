@@ -260,6 +260,13 @@ export interface TftInfo {
    */
   backlightDir?: string | null;
   /**
+   * `false` = proses TSIX tidak punya izin tulis ke sysfs backlight, jadi
+   * `setBacklight()`/`setBrightness()` hanya mengubah status di driver.
+   * Perbaikannya butuh root atau udev rule `chmod 666` pada
+   * `/sys/class/backlight/<dev>/{bl_power,brightness}`. `null` = tidak diketahui.
+   */
+  backlightWritable?: boolean | null;
+  /**
    * Kecerahan 0..255 (diskalakan dari `max_brightness` perangkat) — `null`
    * kalau panel tidak punya `brightness` di sysfs.
    */

@@ -251,6 +251,8 @@ export interface TftPanelHandle {
   getFbVar?(): FbVarInfo | null;
   /** Direktori sysfs backlight yang dipakai (null = panel tanpa backlight). */
   getBacklightDir?(): string | null;
+  /** true kalau on/off & kecerahan benar-benar bisa ditulis (root/udev). */
+  isBacklightWritable?(): boolean;
   /** Tutup node (dipakai saat pindah device). */
   close?(): void;
 }
@@ -472,8 +474,12 @@ export class FbDevPanel implements TftPanelHandle {
   private blSpec: string;
   /** Jalur sysfs backlight (null = panel tidak mengekspos backlight). */
   private bl: BacklightPaths | null = null;
-  /** Jalur sysfs yang gagal ditulis — peringatannya hanya dicetak sekali. */
-  private blWarned = new Set<string>();
+  /** Atribut sysfs yang sudah tidak perlu dicoba lagi (read-only / ditolak). */
+  private deadSysfs = new Set<string>();
+  /** Status boleh-tulis per jalur (izin sysfs tidak berubah saat runtime). */
+  private writableCache = new Map<string, boolean>();
+  /** true kalau peringatan "sysfs hanya-baca" sudah dicetak. */
+  private roNotified = false;
 
   constructor(private options: FbDevPanelOptions = {}) {
     this.blSpec = (options.backlightPath || process.env[TFT_BACKLIGHT_ENV] || "").trim();
@@ -491,15 +497,88 @@ export class FbDevPanel implements TftPanelHandle {
     return this.bl;
   }
 
-  /** Catat kegagalan tulis sysfs SEKALI per jalur — biar sebabnya kelihatan. */
-  private noteBlFailure(file: string, e: any): void {
-    if (this.blWarned.has(file)) return;
-    this.blWarned.add(file);
+  /** true kalau atribut sysfs ini ada dan bisa ditulis proses ini (root/udev). */
+  private isWritable(file: string): boolean {
+    const hit = this.writableCache.get(file);
+    if (hit !== undefined) return hit;
+    let ok = false;
+    try {
+      fs.accessSync(file, fs.constants.W_OK);
+      ok = true;
+    } catch (_) {
+      ok = false;
+    }
+    this.writableCache.set(file, ok);
+    return ok;
+  }
+
+  /** Peringatan sekali: sysfs backlight ada tapi milik root. */
+  private noteReadOnly(file: string): void {
+    if (this.roNotified) return;
+    this.roNotified = true;
     console.warn(
-      `[TFT] Gagal menulis ${file}: ${e?.message ?? e}. ` +
-        `Sysfs backlight hanya bisa ditulis oleh root — jalankan TSIX sebagai ` +
-        `root atau tambahkan udev rule untuk perangkat ini.`,
+      `[TFT] ${file} hanya bisa ditulis oleh root — kontrol on/off & kecerahan ` +
+        `TFT dilewati (status tetap dilacak driver). Jalankan TSIX sebagai root, ` +
+        `atau beri izin tulis: udev rule / chmod 666 pada ` +
+        `/sys/class/backlight/<dev>/{bl_power,brightness} + /sys/class/graphics/fbN/blank`,
     );
+  }
+
+  /**
+   * Peringatan sekali saat tulis sysfs gagal — pesannya dibedakan menurut
+   * sebabnya. `EACCES` = soal izin, `EINVAL` = panel MENOLAK nilai/atributnya
+   * (bukan soal root!), jadi menyarankan "jalankan sebagai root" di situ salah.
+   */
+  private noteWriteFailure(file: string, e: any): void {
+    const code = String(e?.code ?? "");
+    const hint =
+      code === "EACCES" || code === "EPERM"
+        ? "butuh root (jalankan TSIX sebagai root atau pakai udev rule chmod 666)"
+        : code === "EINVAL"
+          ? "panel menolak nilai/atribut ini — fitur itu kemungkinan tidak didukung panel"
+          : `perangkat/atribut tidak mendukung operasi ini (${e?.message ?? e})`;
+    console.warn(`[TFT] Gagal menulis ${file}: ${code || e?.message} — ${hint}.`);
+  }
+
+  /**
+   * Tulis atribut sysfs HANYA kalau nilainya benar-benar berubah.
+   *
+   * Alasan: (1) saat boot sebagian besar nilai sudah pas, jadi menulisnya cuma
+   * menambah error/permission noise di log; (2) sysfs tidak suka ditulis ulang
+   * tanpa perubahan — `brightness` fbtft bisa menjawab `EINVAL`; (3) satu kali
+   * gagal → atribut itu tidak dicoba lagi supaya log tidak dibanjiri pesan sama.
+   */
+  private writeSysfs(file: string | null, value: number | string): boolean {
+    if (!file || this.deadSysfs.has(file)) return false;
+    const want = String(value);
+
+    // Baca dulu: kalau isinya sudah sama, tidak ada yang perlu ditulis.
+    if (readSysfsFile(file) === want) return true;
+
+    if (!this.isWritable(file)) {
+      this.deadSysfs.add(file);
+      this.noteReadOnly(file);
+      return false;
+    }
+
+    try {
+      fs.writeFileSync(file, want);
+      return true;
+    } catch (e: any) {
+      this.deadSysfs.add(file);
+      this.noteWriteFailure(file, e);
+      return false;
+    }
+  }
+
+  /**
+   * true kalau setidaknya satu atribut backlight bisa ditulis proses ini.
+   * Dipakai driver untuk melaporkan status di boot log & GET_INFO.
+   */
+  public isBacklightWritable(): boolean {
+    const bl = this.ensureBacklight();
+    if (!bl) return false;
+    return [bl.power, bl.brightness].some((f) => f !== null && this.isWritable(f));
   }
 
   /** 0..255 (domain API driver) → rentang perangkat `max_brightness`. */
@@ -585,19 +664,12 @@ export class FbDevPanel implements TftPanelHandle {
     const bl = this.ensureBacklight();
     if (!bl) return this.backlight; // panel tanpa backlight sysfs → status saja
 
-    try {
-      if (bl.power) {
-        // bl_power: 0 = nyala, 1 = mati (FB_BLANK_POWERDOWN) — JANGAN dibalik.
-        fs.writeFileSync(bl.power, on ? "0" : "1");
-      } else if (bl.brightness) {
-        // Tanpa bl_power: 0 = mati, selainnya kembali ke kecerahan tersimpan.
-        fs.writeFileSync(
-          bl.brightness,
-          String(on ? this.toRawBrightness(this.brightness) : 0),
-        );
-      }
-    } catch (e: any) {
-      this.noteBlFailure(bl.power ?? bl.brightness ?? bl.dir, e);
+    if (bl.power) {
+      // bl_power: 0 = NYALA, 1 = MATI (FB_BLANK_POWERDOWN) — JANGAN dibalik.
+      this.writeSysfs(bl.power, on ? "0" : "1");
+    } else if (bl.brightness) {
+      // Tanpa bl_power: 0 = mati, selainnya kembali ke kecerahan tersimpan.
+      this.writeSysfs(bl.brightness, on ? this.toRawBrightness(this.brightness) : 0);
     }
     return this.backlight;
   }
@@ -618,11 +690,7 @@ export class FbDevPanel implements TftPanelHandle {
     this.brightness = lvl;
     const bl = this.ensureBacklight();
     if (bl?.brightness && this.backlight) {
-      try {
-        fs.writeFileSync(bl.brightness, String(this.toRawBrightness(lvl)));
-      } catch (e: any) {
-        this.noteBlFailure(bl.brightness, e);
-      }
+      this.writeSysfs(bl.brightness, this.toRawBrightness(lvl));
     }
     return lvl;
   }
@@ -639,16 +707,9 @@ export class FbDevPanel implements TftPanelHandle {
   /** Blank/unblank lewat /sys/class/graphics/fbN/blank (bila ada). */
   public setDisplayOn(on: boolean): boolean {
     this.displayOn = !!on;
-    const p = this.blankPath();
-    if (p) {
-      try {
-        // 0 = unblank, 1 = normal blank (FB_BLANK_NORMAL).
-        fs.writeFileSync(p, on ? "0" : "1");
-      } catch (e: any) {
-        // Tidak fatal: status tetap dipegang driver.
-        this.noteBlFailure(p, e);
-      }
-    }
+    // 0 = unblank, 1 = normal blank. Saat boot nilainya sudah 0 → dilewati,
+    // jadi tidak ada EACCES palsu di log untuk yang memang tidak berubah.
+    this.writeSysfs(this.blankPath(), on ? "0" : "1");
     return this.displayOn;
   }
 
@@ -975,9 +1036,13 @@ export class ILI9341Device implements IDevice {
           ` (${TFT_FRAMEBUFFER_SIZE} byte/frame, stride ${TFT_STRIDE})`,
       );
       const blDir = this.panel?.getBacklightDir?.() ?? null;
+      const blOk = this.panel?.isBacklightWritable?.() ?? true;
       this.log(
         blDir
-          ? `Backlight sysfs: ${blDir} (bl_power: 0=nyala, 1=mati)`
+          ? `Backlight sysfs: ${blDir}` +
+              (blOk
+                ? " (bl_power: 0=nyala, 1=mati)"
+                : " — hanya root, kontrol on/off dilewati (status tetap dilacak)")
           : `Backlight: sysfs tidak ditemukan — opsional, set ${TFT_BACKLIGHT_ENV}`,
       );
     } else {
@@ -1386,6 +1451,11 @@ export class ILI9341Device implements IDevice {
         : null,
       /** Direktori sysfs backlight yang dipakai (null = tidak terdeteksi). */
       backlightDir: alive ? this.panel!.getBacklightDir?.() ?? null : null,
+      /**
+       * true kalau on/off & kecerahan benar-benar bisa ditulis (proses ini
+       * punya izin tulis ke sysfs — butuh root / udev rule).
+       */
+      backlightWritable: alive ? this.panel!.isBacklightWritable?.() ?? null : null,
       brightness: alive && this.panel!.getBrightness ? this.panel!.getBrightness() : null,
       autoFlush: this.autoFlush,
       fontId: this.fontId,

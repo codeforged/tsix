@@ -766,4 +766,41 @@ describe("FbDevPanel — backlight sysfs (C10.149-C10.152)", () => {
     expect(panel.getBacklight()).toBe(false);
     expect(panel.getBrightness()).toBeNull();
   });
+
+  it("C10.153 sysfs tidak ditulis ulang bila isinya sudah sama", () => {
+    const dir = mk();
+    const panel = new FbDevPanel({ backlightPath: dir });
+    const power = path.join(dir, "bl_power");
+    const bright = path.join(dir, "brightness");
+
+    // Umur file dibuat tua supaya perubahan mtime kelihatan jelas (>5 detik).
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(power, old, old);
+    fs.utimesSync(bright, old, old);
+    const rewritten = (f: string) =>
+      Math.abs(fs.statSync(f).mtimeMs - old.getTime()) > 5000;
+
+    // Nilai sudah pas → tidak menulis (inilah yang dulu memunculkan EINVAL/
+    // EACCES palsu di boot padahal tidak ada yang perlu diubah).
+    expect(panel.setBacklight(true)).toBe(true); // bl_power sudah "0"
+    expect(rewritten(power)).toBe(false);
+    expect(panel.setBrightness(128)).toBe(128); // brightness sudah "128"
+    expect(rewritten(bright)).toBe(false);
+
+    // Yang benar-benar berubah tetap ditulis.
+    expect(panel.setBrightness(64)).toBe(64);
+    expect(rewritten(bright)).toBe(true);
+  });
+
+  it("C10.154 isBacklightWritable() membedakan sysfs ada vs tidak ada", () => {
+    const dir = mk();
+    const panel = new FbDevPanel({ backlightPath: dir });
+    expect(panel.getBacklightDir()).toBe(dir);
+    expect(panel.isBacklightWritable()).toBe(true); // temp dir milik user test
+
+    // Tanpa perangkat backlight: tidak ada yang bisa ditulis (dan tidak ada
+    // peringatan read-only yang menyesatkan).
+    const none = new FbDevPanel({ backlightPath: "/nonexistent/bl-dir" });
+    expect(none.isBacklightWritable()).toBe(false);
+  });
 });
