@@ -74,6 +74,13 @@ Dokumentasi lengkap: [`wiki/netfs.md`](../netfs.md).
   Reproduksi lokal e2e (driver → SL → NetFSBackend → BKFS) dengan konten biner
   ber-NUL seperti `.mov` (`00 00 00 18 ftyp …`): `readChunk(0,4096)` = 4096 byte ✅ dan
   tulis-baca penuh **utuh** ✅.
+- **HASIL LAPANGAN (verifikasi user, 2026-09-22):** `cp /mnt/net/video.mov ./` di `tsix`
+  **berhasil** — **102 s** untuk 70.499.395 byte (**≈ 690 KB/s**), berkas utuh dan lancar
+  diputar di VLC. Arah balik `cp video.mov /mnt/shared/` (host fs) cuma **1,95 s**.
+  Bandingkan arah TULIS ke export **bkfs** yang dulu 12 menit 44 s (≈ 92 KB/s): plafon
+  berikutnya ada di jalur TULIS (`writeChunk` bkfs O(n²) — tiap potongan menulis ulang
+  seluruh kolom `content`), bukan di jalur baca. Untuk salinan besar, export direktori
+  `host` (`pwrite` O(1)) tetap rekomendasi; `fs.copyWithProgress()` untuk hemat RAM klien.
 - **Deploy:** perbaikan intinya di `BKFS.ts` (KERNEL) → **kedua node** harus restart
   kernel (`npm start` untuk jalur cepat) + `npm run vfs:bootstrap`; SH juga restart
   `netfsd`. Tidak ada berkas yang perlu disalin ulang — data lama tetap valid.
