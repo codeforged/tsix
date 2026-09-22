@@ -89,6 +89,20 @@ Dokumentasi lengkap: [`wiki/netfs.md`](../netfs.md).
   entri 124 KiB di bawah), jadi kabel saja tidak banyak menolong. Untuk membandingkan
   link secara jujur, ukur RTT-nya: `netfs info <peer>` (dulu 182 ms lewat WiFi) dan lihat
   `ms` per op di `netfs probe`.
+- **Tabel lapangan lengkap (70 MB = `video.mov`, semua terukur):**
+
+  | Jalur | Link | Waktu | ≈ throughput |
+  |---|---|---|---|
+  | **baca** dari mount (export bkfs SH) | LAN | **102 s** | **690 KB/s** |
+  | **tulis** ke export bkfs | LAN | **8 m 6 s** (486.229 ms) | 145 KB/s |
+  | **tulis** ke export bkfs | WiFi | 12 m 44 s (763.938 ms) | 92 KB/s |
+  | tulis ke direktori `host` (di SH) | — | 1,95 s | — |
+
+  ⇒ Kabel LAN menolong **~1,6×** di jalur tulis (92 → 145 KB/s) tapi tidak menghapus
+    plafonnya: sisanya tetap backend. Tulis ke bkfs **≈ 4,8× lebih lambat** daripada baca
+    dari bkfs, karena tiap `writeChunk` menulis ulang seluruh kolom `content`.
+    Konsekuensi praktis: untuk berkas besar, **export direktori `host`** dulu
+    (`pwrite` O(1)) — atau ubah penyimpanan bkfs agar ramah append (bukan satu kolom).
 - **Deploy:** perbaikan intinya di `BKFS.ts` (KERNEL) → **kedua node** harus restart
   kernel (`npm start` untuk jalur cepat) + `npm run vfs:bootstrap`; SH juga restart
   `netfsd`. Tidak ada berkas yang perlu disalin ulang — data lama tetap valid.
