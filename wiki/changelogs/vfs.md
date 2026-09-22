@@ -6,6 +6,32 @@
 
 ## 2026-09-23
 
+### VFS menyimpan BYTE: glyph UI kacau (latin1 memotong karakter > U+00FF)
+
+- **File:** `src/common/VfsText.ts` (baru), `scripts/lib/text-file.ts`,
+  `scripts/lib/text-file.test.ts` (`T1.06`–`T1.07`), `scripts/{vfs-bootstrap,install,sync-vfs,sync-tde}.ts`,
+  `src/kernel/{Kernel,Syscalls}.ts`, `src/userland/WorkerEntry.ts`,
+  `src/mirror/opt/dome/dome.ts`
+- **Masalah:** berkas teks dibaca `utf8` (string berisi karakter asli) lalu disimpan
+  `Buffer.from(s,"latin1")` — dan encode latin1 **memotong** setiap karakter > U+00FF
+  ke byte rendahnya: `✕` U+2715 → `0x15`, `─` U+2500 → `0x00`, `→` U+2192 → `0x92`.
+  Akibatnya 243 berkas (`emerald.ts`, `asteracea.ts`, `tableLib.ts`, `file-cruiser.ts`,
+  …) kehilangan glyph-nya di VFS: **tombol minimize/maximize/close dan border tabel
+  jadi kacau**, begitu juga emoji.
+- **Perubahan:** aturan eksplisit “isi VFS = byte berkas” (bukan karakter):
+  `readTextFile()` mengembalikan byte apa adanya (BOM dibuang di level byte),
+  `utf8ToVfsBytes()`/`vfsBytesToUtf8()` (`src/common/VfsText.ts`) untuk konversi di
+  batas teks, dan semua jalur host→VFS memakainya — termasuk hasil transpile esbuild
+  (dulu dikirim sebagai teks → terpotong). Titik konversi dipasang di
+  `Kernel.rebuildVFSCache()`, `Syscalls` EXEC, `WorkerEntry` (modul relatif), dan
+  `dome.ts` (aset disajikan `latin1` = byte apa adanya, bukan `utf8`).
+- **Dampak:** VFS sekarang byte-identical dengan berkas sumber — terverifikasi pada
+  `emerald.ts`, `tableLib.ts`, `asteracea.ts`, `file-cruiser.ts`, `dome-client-core.js`
+  (termasuk UTF-8 asli `—` `→` emoji) dan aset biner (MP3 `FF FB`, JPEG `FF D8`).
+  Sidecar hasil transpile juga benar: `/lib/emerald.js` berisi `// ── TRAVE…` dengan
+  byte UTF-8 asli. Tes: `T1.06` (glyph) & `T1.07` (batas teks vs byte biner).
+- **Oleh:** Copilot
+
 ### BOM UTF-8 → byte `0xFF` di VFS: seluruh skrip DOME mati di browser
 
 - **File:** `scripts/lib/text-file.ts` (baru), `scripts/lib/text-file.test.ts` (baru),

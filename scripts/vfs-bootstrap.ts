@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as esbuild from "esbuild";
 import { getDefaultDbPath } from "./lib/db-path";
-import { peekBom, readBinaryFile, readTextFile } from "./lib/text-file";
+import { peekBom, readBinaryFile, readTextFile, utf8ToVfsBytes, vfsBytesToUtf8 } from "./lib/text-file";
 
 /**
  * Direktori executable standar (FHS) — semua file .ts/.js di sini diberi bit
@@ -93,9 +93,8 @@ function syncHostSidecar(name: string): void {
         }
     }
 
-    // `readTextFile()` membuang BOM UTF-8 supaya sidecar .js yang dihasilkan tidak
-    // mewarisi BOM (kalau tidak, berkas di VFS diawali byte 0xFF).
-    const content = readTextFile(tsPath);
+    // Berkas di host: `readTextFile()` mengembalikan BYTE; untuk esbuild ubah ke teks.
+    const content = vfsBytesToUtf8(readTextFile(tsPath));
     try {
         const result = esbuild.transformSync(content, {
             loader: "ts",
@@ -243,7 +242,10 @@ async function main() {
                     // Auto-transpilation for .ts files (Framework optimization)
                     if (fullVfsPath.endsWith(".ts")) {
                         try {
-                            const result = esbuild.transformSync(content, {
+                            // `content` = BYTE berkas; esbuild butuh TEKS. Tanpa
+                            // `vfsBytesToUtf8()` setiap karakter non-ASCII (emoji, `─`,
+                            // `→`) masuk ke hasil transpile sebagai mojibake.
+                            const result = esbuild.transformSync(vfsBytesToUtf8(content), {
                                 loader: "ts",
                                 format: "cjs",
                                 target: "node18",
@@ -252,7 +254,10 @@ async function main() {
 
                             if (result.code) {
                                 const jsPath = fullVfsPath.substring(0, fullVfsPath.length - 3) + ".js";
-                                bkfs.touch(jsPath, result.code);
+                                // Kembalikan ke byte UTF-8 sebelum masuk VFS — kalau
+                                // ditulis apa adanya, teks di-encode latin1 dan karakter
+                                // > U+00FF terpotong (bug tombol jendela kacau).
+                                bkfs.touch(jsPath, utf8ToVfsBytes(result.code));
 
                                 // Auto-executable untuk file di direktori eksekusi
                                 if (isSetuidBinary(jsPath) || isExecutableBinary(jsPath)) {

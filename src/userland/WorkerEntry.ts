@@ -1,6 +1,7 @@
 import { workerData, parentPort } from "worker_threads";
 import { WorkerInitData, SyscallResponse } from "../common/IPCTypes";
 import { collectRelativeModules, resolveVfsRelative } from "./VfsModuleResolver";
+import { vfsBytesToUtf8 } from "../common/VfsText";
 
 /**
  * WORKER ENTRY POINT
@@ -454,7 +455,8 @@ async function main() {
                     programModules = await collectRelativeModules({
                         entryId: stackBkfsPath.replace(/\.(ts|js)$/i, ""),
                         source: content,
-                        readFile: (vfsPath: string) => lib.fs.readFile(vfsPath),
+                        // Isi VFS = BYTE; modul relatif dikompilasi sebagai TEKS.
+                        readFile: async (vfsPath: string) => vfsBytesToUtf8(await lib.fs.readFile(vfsPath)),
                         transpile: (src: string, moduleId: string) =>
                             esbuildMod.transformSync(src, {
                                 loader: "ts",

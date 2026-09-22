@@ -6,6 +6,7 @@ import {
   IWindowEntry,
 } from "@common/GUITypes";
 import { SyscallCode } from "@common/SyscallCode";
+import { utf8ToVfsBytes, vfsBytesToUtf8 } from "@common/VfsText";
 
 // Capture REAL Node.js require at module top level (before sandbox locks it)
 // Module._compile wraps code with (exports, require, module, ...) â€”
@@ -260,14 +261,17 @@ export const main = Program(async (args: string[]) => {
         await fs.close(fbTsFd);
         try {
           const esbuild = _hostRequire("esbuild");
-          const result = esbuild.transformSync(String(fbTs), {
+          // Isi VFS = BYTE; esbuild butuh TEKS → konversi eksplisit (lihat VfsText.ts).
+          const result = esbuild.transformSync(vfsBytesToUtf8(String(fbTs)), {
             loader: "ts",
             format: "iife",
             target: "es2019",
             // tanpa globalName — ekspos lewat footer window.FrameBuffer
           });
           staticAssets.set("/dome/framebuffer.js", {
-            content: result.code,
+            // Dikirim sebagai byte apa adanya (lihat `respond` di handler request),
+            // jadi hasil esbuild (teks) diubah ke byte UTF-8 lebih dulu.
+            content: utf8ToVfsBytes(result.code),
             type: "application/javascript",
           });
           await std.log(
@@ -302,13 +306,16 @@ export const main = Program(async (args: string[]) => {
       const url = (request.url || "/").split("?")[0];
       const asset = staticAssets.get(url);
       if (asset) {
+        // `latin1` = byte apa adanya. WAJIB: isi VFS adalah byte (lihat VfsText.ts),
+        // sedang `utf8` akan meng-encode ulang setiap char ≥ 0x80 → berkas JS/HTML
+        // sampai di browser sebagai mojibake (glyph tombol jendela, emoji, `─`).
         await web.respond(
           request.reqId,
           200,
           asset.type,
           asset.content,
           undefined,
-          "utf8",
+          "latin1",
         );
         return;
       }
@@ -317,6 +324,8 @@ export const main = Program(async (args: string[]) => {
         200,
         "text/html; charset=utf-8",
         htmlContent,
+        undefined,
+        "latin1",
       );
     });
 

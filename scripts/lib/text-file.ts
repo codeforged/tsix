@@ -1,30 +1,28 @@
 import * as fs from "fs";
 
 /**
- * PEMBACA BERKAS HOST UNTUK VFS — sadar-BOM.
+ * PEMBACA BERKAS HOST UNTUK VFS.
  *
- * KENAPA ADA (bug nyata, 2026-09-23):
- * VFS menyimpan isi file sebagai BLOB latin1 (1 char = 1 byte). Kalau berkas teks
- * dibaca dengan `readFileSync(p, "utf8")`, BOM UTF-8 (`EF BB BF`) menjadi SATU
- * karakter `U+FEFF` — dan saat di-encode latin1, `U+FEFF & 0xFF` = **byte `0xFF`**.
- * Hasilnya berkas JS di VFS diawali byte sampah:
+ * ATURAN UTAMA: yang disimpan VFS adalah **byte berkas**, bukan karakter. Jadi semua
+ * pembaca di sini mengembalikan string **latin1 yang byte-nya persis sama** dengan
+ * berkas di disk (1 char = 1 byte) — lihat `src/common/VfsText.ts` untuk alasannya.
  *
- *     Uncaught ReferenceError: ÿ is not defined      (dome-client-core.js:1:1)
+ * Kenapa penting (dua bug nyata, 2026-09-23):
+ *   1. `readFileSync(p, "utf8")` + `Buffer.from(s, "latin1")` MEMOTONG karakter
+ *      > U+00FF (`✕` U+2715 → `0x15`, `─` U+2500 → `0x00`) → tombol jendela, border
+ *      tabel, dan emoji jadi kacau.
+ *   2. BOM UTF-8 (`EF BB BF`) yang dibaca sebagai teks menjadi `U+FEFF` → encode
+ *      latin1 → byte `0xFF` di awal berkas JS → browser menolak SELURUH skrip
+ *      (`Uncaught ReferenceError: ÿ is not defined`).
  *
- * Browser menolak seluruh skrip, jadi satu BOM di berkas sumber = satu fitur mati.
- * BOM juga tidak pernah diinginkan di file yang disajikan browser, jadi jalur
- * pembacaan VFS membuangnya (dan mencatatnya, supaya terlihat — bukan diam-diam).
- *
- * Catatan: BOM UTF-16 (`FF FE` / `FE FF`) TIDAK diperbaiki di sini. Berkas seperti
- * itu bukan teks yang bisa dipakai apa adanya; `peekBom()` melaporkannya supaya
- * operator bisa memperbaiki sumbernya (bukan ditebak-tebak oleh loader).
+ * BOM tetap dibuang (di level BYTE, jadi bebas dari risiko di atas) karena berkas yang
+ * disajikan browser tidak seharusnya membawa BOM — dan pembuangannya terlihat di log
+ * sinkronisasi, bukan diam-diam.
  */
-
-/** Baca berkas teks, buang BOM UTF-8 kalau ada. */
 export function readTextFile(filePath: string): string {
     const buf = fs.readFileSync(filePath);
-    const text = buf.toString("utf8");
-    return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+    const punyaBom = buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf;
+    return (punyaBom ? buf.subarray(3) : buf).toString("latin1");
 }
 
 /**
@@ -56,3 +54,6 @@ export function peekBom(filePath: string): "utf8" | "utf16le" | "utf16be" | null
         if (fd !== null) fs.closeSync(fd);
     }
 }
+
+// Konversi batas teks: dipakai saat isi VFS (byte) harus jadi teks (esbuild/parse).
+export { utf8ToVfsBytes, vfsBytesToUtf8 } from "../../src/common/VfsText";

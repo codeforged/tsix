@@ -494,34 +494,39 @@ Syscall `SYNC_TO_HOST` memungkinkan sinkronisasi balik (root-only):
 vfs-pull    # Tarik perubahan VFS ke host filesystem
 ```
 
-### BOM UTF-8: satu berkas sumber bisa mematikan seluruh skrip
+### Isi VFS = BYTE, bukan karakter
 
-Isi teks dimasukkan sebagai string lalu di-encode **latin1** (1 char = 1 byte). BOM
-UTF-8 (`EF BB BF`) yang dibaca sebagai teks menjadi SATU karakter `U+FEFF`, dan
-`U+FEFF & 0xFF` = **byte `0xFF`** — sehingga berkas JS di VFS diawali byte sampah:
+VFS menyimpan isi berkas sebagai string **latin1 dengan 1 char = 1 byte**. Itu wajib:
+aset biner tetap utuh (`Buffer.from(raw, "latin1")` → byte persis sama), offset
+`readChunk()`/`writeChunk()` benar-benar byte (yang dikirim NetFS), dan `size` sungguh
+byte. Konsekuensinya: **string itu adalah wadah byte, bukan teks** — berkas teks UTF-8
+disimpan sebagai byte-nya, jadi teks non-ASCII tampak “mojibake” bila dibaca mentah.
 
-```
-Uncaught ReferenceError: ÿ is not defined     (dome-client-core.js:1:1)
-```
+Dua bug nyata (2026-09-23) lahir dari mencampur dua hal itu:
 
-Browser menolak seluruh skrip, jadi satu BOM di berkas sumber = satu fitur mati
-(pernah terjadi pada 9 berkas `src/mirror/opt/dome/*` dari editor Windows).
+| Kejadian | Sebab | Gejala |
+|---|---|---|
+| Glyph UI kacau | `readFileSync(p,"utf8")` lalu `Buffer.from(s,"latin1")` **memotong** setiap karakter > U+00FF ke byte rendahnya (`✕` U+2715 → `0x15`, `─` U+2500 → `0x00`) | tombol minimize/maximize/close dan border tabel jadi sampah |
+| Seluruh skrip mati | BOM UTF-8 (`EF BB BF`) dibaca sebagai teks → `U+FEFF` → encode latin1 → byte `0xFF` di awal berkas JS | `Uncaught ReferenceError: ÿ is not defined` — `window.TSIX` tidak pernah terbentuk |
 
-Karena itu setiap pembacaan host→VFS memakai `scripts/lib/text-file.ts`:
+**Aturan**: kalau isi VFS harus dipakai sebagai TEKS (dikompilasi, di-parse, disajikan ke
+browser), konversi eksplisit — jangan menebak, dan jangan pernah meng-encode string
+latin1 dengan `utf8`.
 
-| Fungsi | Perilaku |
+| Batas | Fungsi |
 |---|---|
-| `readTextFile(path)` | baca `utf8`, **buang BOM UTF-8** — dipakai semua sinkronisasi `.ts/.js/.html/.json/.css` |
-| `readBinaryFile(path)` | baca `latin1` byte-untuk-byte — **tidak menyentuh apa pun**: `0xFF` di aset biner (JPEG `FF D8`, MP3 `FF FB`) adalah data asli |
-| `peekBom(path)` | laporkan jenis BOM (`utf8`/`utf16le`/`utf16be`/`null`) tanpa membaca seluruh berkas |
+| host → VFS | `readTextFile(path)` — byte berkas apa adanya, BOM UTF-8 dibuang di level byte |
+| host → VFS (biner) | `readBinaryFile(path)` — byte apa adanya, **tanpa** membuang apa pun (`0xFF` di JPEG/MP3 adalah data) |
+| teks → VFS | `utf8ToVfsBytes(text)` (`src/common/VfsText.ts`) |
+| VFS → teks | `vfsBytesToUtf8(raw)` (`src/common/VfsText.ts`) |
 
-Sinkronisasi (`vfs:bootstrap`, `install`) mencetak `-> BOM UTF-8 dibuang: <path>` supaya
-kejadian seperti ini **terlihat**, dan memberi peringatan keras kalau menemukan BOM
-UTF-16 (berkas seperti itu bukan teks UTF-8 yang bisa dipakai apa adanya — perbaiki
-sumbernya, jangan ditebak oleh loader).
+Titik konversi yang sudah dipasang: `vfs:bootstrap`/`install` (baca + hasil transpile
+esbuild), `Kernel.rebuildVFSCache()` (pre-compile `/lib/*.ts`), `Syscalls` EXEC
+(`appContent`), `WorkerEntry` (modul relatif program), dan `dome.ts` (menyajikan aset +
+`/dome/framebuffer.js` dengan encoding `latin1` = byte apa adanya).
 
 Server (DOME) menyajikan aset statis dari VFS dan browser men-cache skripnya, jadi
-setelah memperbaiki berkas dome: **restart TSIX** lalu **hard-reload** halaman TDE
+setelah mengubah berkas dome: **restart TSIX** lalu **hard-reload** halaman TDE
 (Cmd+Shift+R) — tanpa itu browser tetap memakai salinan lama.
 
 ---

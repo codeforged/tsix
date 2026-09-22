@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import { Logger } from "../common/Logger";
 import { BKFS } from "../vfs/BKFS"; // Pakai BKFS (SQLite)
+import { vfsBytesToUtf8 } from "../common/VfsText";
 import { Scheduler } from "./Scheduler";
 import { SyscallDispatcher } from "./Syscalls";
 import { SyscallCode } from "../common/SyscallCode";
@@ -759,7 +760,10 @@ export class Kernel {
             const content = this.bkfs!.read(p);
             if (!content) continue;
 
-            let code = content;
+            // Isi VFS = BYTE. esbuild butuh TEKS, jadi konversi eksplisit: tanpa ini
+            // setiap karakter non-ASCII (emoji, `─`, `→`) di `/lib/*.ts` masuk ke
+            // worker sebagai mojibake — UI/terminal jadi kacau walau berkasnya benar.
+            let code = vfsBytesToUtf8(content);
             try {
               // PENTING: JANGAN pakai sourcemap di sini. Cache ini dikirim ke
               // SETIAP worker, dan inline sourcemap menambah ~70% ukuran

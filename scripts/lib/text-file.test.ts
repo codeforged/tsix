@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { peekBom, readBinaryFile, readTextFile } from "./text-file";
+import { peekBom, readBinaryFile, readTextFile, utf8ToVfsBytes, vfsBytesToUtf8 } from "./text-file";
 import { encodeContent } from "../../src/vfs/BKFS";
 
 /**
@@ -60,5 +60,38 @@ describe("scripts/lib/text-file", () => {
         expect(peekBom(write("u16le.txt", Buffer.from([0xff, 0xfe, 0x41, 0x00])))).toBe("utf16le");
         expect(peekBom(write("u16be.txt", Buffer.from([0xfe, 0xff, 0x00, 0x41])))).toBe("utf16be");
         expect(peekBom(write("bersih.txt", Buffer.from("hello")))).toBeNull();
+    });
+
+    it("T1.06 teks non-ASCII disimpan sebagai BYTE yang persis sama (glyph tombol jendela)", () => {
+        // `✕` (U+2715) = E2 9C 95, `─` (U+2500) = E2 94 80 — glyph tombol close &
+        // border tabel. Kalau teks dibaca sebagai string lalu di-encode latin1, dua
+        // karakter ini masing-masing tinggal 1 byte (0x15 dan 0x00) → UI kacau.
+        const asli = Buffer.from("tombol ✕ ─ selesai", "utf8");
+        const p = write("glyph.js", asli);
+
+        const bytes = readTextFile(p);
+        // 1 char = 1 byte, byte identik dengan berkas di disk.
+        expect(Buffer.from(bytes, "latin1").equals(asli)).toBe(true);
+        // Panjang string = panjang byte (bukan jumlah karakter) → `size` VFS = byte.
+        expect(bytes.length).toBe(asli.length);
+        // Dan bisa dibalik jadi teks aslinya lagi (jalur kompilasi/serving).
+        expect(vfsBytesToUtf8(bytes)).toBe("tombol ✕ ─ selesai");
+        // Tanpa konversi, karakter non-ASCII akan rusak — inilah yang dulu terjadi.
+        expect(encodeContent("tombol ✕ ─ selesai")[7]).not.toBe(0xe2);
+    });
+
+    it("T1.07 batas teks: round-trip untuk UTF-8, dan TIDAK untuk byte acak", () => {
+        // Aturan: `vfsBytesToUtf8()`/`utf8ToVfsBytes()` hanya untuk berkas TEKS.
+        // Teks apa pun (termasuk emoji) bolak-balik tanpa berubah.
+        for (const t of ["halo", "emoji 🚀 é", "border ┌──┬──┐", "✕ ─ → °"]) {
+            expect(vfsBytesToUtf8(utf8ToVfsBytes(t))).toBe(t);
+        }
+
+        // Byte BINER acak TIDAK selamat melewatinya (byte 0x80–0xFF bukan UTF-8 yang
+        // sah → jadi U+FFFD). Itu memang benar: untuk biner, byte dibaca langsung
+        // (`Buffer.from(raw, "latin1")`), tidak pernah lewat konversi teks.
+        const biner = Array.from({ length: 256 }, (_, i) => String.fromCharCode(i)).join("");
+        expect(vfsBytesToUtf8(biner)).not.toBe(biner);
+        expect(Buffer.from(biner, "latin1")[0xff]).toBe(0xff); // jalan yang benar untuk biner
     });
 });

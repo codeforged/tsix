@@ -1,6 +1,7 @@
 import { Logger, LogLevel } from "../common/Logger";
 import { BKFS } from "../vfs/BKFS";
 import { IVFS } from "../vfs/IVFS";
+import { vfsBytesToUtf8 } from "../common/VfsText";
 import { Scheduler } from "./Scheduler";
 import { IDevice } from "./devices/IDevice";
 import { FileSystemDevice } from "./devices/FileSystemDevice";
@@ -1063,7 +1064,10 @@ export class SyscallDispatcher {
                     // Gunakan vfs.read() sesuai kontrak IVFS (stat = metadata, read = konten)
                     // Jangan mengandalkan node.content karena tidak semua IVFS menyertakan
                     // konten di stat() (BKFS kebetulan return full DB row, RamFS/HostVFS tidak)
-                    appContent = (await vfs.read(relativePath)) ?? undefined;
+                    //
+                    // Isi VFS = BYTE (latin1), sedangkan worker akan men-_compile()-nya
+                    // sebagai teks → konversi ke UTF-8 di sini (lihat `VfsText.ts`).
+                    appContent = vfsBytesToUtf8(await vfs.read(relativePath));
                 }
 
                 // --- SHEBANG: file executable yang BUKAN aplikasi .ts/.js ---

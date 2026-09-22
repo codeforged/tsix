@@ -1,7 +1,7 @@
 import { BKFS } from "../src/vfs/BKFS";
 import { createUserAccount } from "./lib/user-account";
 import { FRESH_FSTAB_INI } from "./lib/fresh-fstab";
-import { peekBom, readBinaryFile, readTextFile } from "./lib/text-file";
+import { peekBom, readBinaryFile, readTextFile, utf8ToVfsBytes, vfsBytesToUtf8 } from "./lib/text-file";
 import * as fs from "fs";
 import * as path from "path";
 import * as esbuild from "esbuild";
@@ -184,7 +184,8 @@ function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string): void {
     // Transpile TS -> JS sidecar (yang dieksekusi runtime)
     if (fullVfsPath.endsWith(".ts")) {
       try {
-        const result = esbuild.transformSync(content, {
+        // `content` = BYTE berkas; esbuild butuh TEKS (lihat `VfsText.ts`).
+        const result = esbuild.transformSync(vfsBytesToUtf8(content), {
           loader: "ts",
           format: "cjs",
           target: "node18",
@@ -193,7 +194,8 @@ function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string): void {
         if (result.code) {
           const jsPath =
             fullVfsPath.substring(0, fullVfsPath.length - 3) + ".js";
-          bkfs.touch(jsPath, result.code);
+          // Hasil esbuild adalah TEKS → ubah ke byte sebelum masuk VFS.
+          bkfs.touch(jsPath, utf8ToVfsBytes(result.code));
 
           if (isSetuidBinary(jsPath) || isExecutableBinary(jsPath)) {
             applyBinaryMode(bkfs, jsPath);

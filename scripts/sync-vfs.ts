@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as esbuild from "esbuild";
 import { getDefaultDbPath } from "./lib/db-path";
-import { readTextFile } from "./lib/text-file";
+import { readTextFile, utf8ToVfsBytes, vfsBytesToUtf8 } from "./lib/text-file";
 
 /**
  * Direktori executable standar (FHS) — semua file .ts/.js di sini diberi bit
@@ -114,7 +114,8 @@ async function main() {
       if (vfsPath.endsWith(".ts")) {
         try {
           console.log(`[VFS-Sync] Auto-compiling ${vfsPath} -> .js ...`);
-          const result = esbuild.transformSync(content, {
+          // `content` = BYTE berkas; esbuild butuh TEKS (lihat `VfsText.ts`).
+          const result = esbuild.transformSync(vfsBytesToUtf8(content), {
             loader: "ts",
             format: "cjs",
             target: "esnext",
@@ -122,7 +123,9 @@ async function main() {
 
           if (result.code) {
             const jsPath = vfsPath.substring(0, vfsPath.length - 3) + ".js";
-            bkfs.touch(jsPath, result.code);
+            // Hasil esbuild = TEKS → ubah ke byte sebelum masuk VFS, kalau tidak
+            // karakter non-ASCII terpotong (bug tombol jendela kacau).
+            bkfs.touch(jsPath, utf8ToVfsBytes(result.code));
 
             // Auto-executable untuk file di direktori eksekusi
             if (isSetuidBinary(jsPath) || isExecutableBinary(jsPath)) {
