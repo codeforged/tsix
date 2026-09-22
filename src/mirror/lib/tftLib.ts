@@ -248,10 +248,20 @@ export interface TftInfo {
   rotation: number;
   invert: boolean;
   displayOn: boolean;
+  /**
+   * Status lampu backlight — dibaca dari sysfs `bl_power` (0 = nyala).
+   * `null` kalau panel tidak mengekspos backlight di sysfs.
+   */
   backlight: boolean | null;
   /**
-   * Kecerahan 0..255 — null kalau driver tidak dikonfigurasi dengan
-   * `backlightPath` (TFT lewat fbtft tidak mengekspos backlight sendiri).
+   * Direktori sysfs backlight yang dipakai driver, mis.
+   * `/sys/class/backlight/fb_ili9341`. `null` = tidak terdeteksi
+   * (on/off backlight hanya mengubah status, tidak menyentuh hardware).
+   */
+  backlightDir?: string | null;
+  /**
+   * Kecerahan 0..255 (diskalakan dari `max_brightness` perangkat) — `null`
+   * kalau panel tidak punya `brightness` di sysfs.
    */
   brightness: number | null;
   autoFlush: boolean;
@@ -871,9 +881,37 @@ export class TftLib {
   // KONTROL TAMPILAN
   // ================================================================
 
-  /** Nyalakan/matikan backlight (butuh `backlightPath` di driver agar nyata). */
+  /**
+   * Nyalakan/matikan lampu backlight panel.
+   *
+   * Di panel fbtft driver menulis ke sysfs `bl_power` — dan isinya
+   * **KEBALIKAN** dari yang biasa disangka (`0` = NYALA, `1` = MATI):
+   *
+   *     echo 0 | sudo tee /sys/class/backlight/fb_ili9341/bl_power   # nyala
+   *     echo 1 | sudo tee /sys/class/backlight/fb_ili9341/bl_power   # mati
+   *
+   * Perangkatnya dideteksi otomatis (nama dicocokkan dengan driver fbdev
+   * panel) atau ditunjuk lewat env `TSIX_TFT_BL`. Menulis sysfs butuh root;
+   * tanpa itu status tetap berubah di driver tapi lampu tidak ikut mati.
+   */
   public async setBacklight(on: boolean): Promise<boolean> {
     return !!(await this.cmd(T_SET_BACKLIGHT, { on }));
+  }
+
+  /** Nyalakan backlight (singkatan dari `setBacklight(true)`). */
+  public async backlightOn(): Promise<boolean> {
+    return await this.setBacklight(true);
+  }
+
+  /** Matikan backlight — panel tetap hidup, hanya lampunya padam. */
+  public async backlightOff(): Promise<boolean> {
+    return await this.setBacklight(false);
+  }
+
+  /** Balikkan status backlight dan kembalikan status barunya. */
+  public async toggleBacklight(): Promise<boolean> {
+    const on = (await this.getBacklight()) ?? true;
+    return await this.setBacklight(!on);
   }
 
   /** Status backlight. */

@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterAll } from "vitest";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 
 import {
   ILI9341Device,
@@ -13,6 +16,7 @@ import {
   hex565,
   unpack565,
   detectFbDevices,
+  resolveBacklightPaths,
   type FbVarInfo,
   type TftPanelHandle,
 } from "./ILI9341Device";
@@ -663,5 +667,103 @@ describe("FbDevPanel — pemilihan node & sysfs (C10.147-C10.148)", () => {
     expect(panel.getDevicePath()).toBeNull();
     expect(panel.setBacklight(false)).toBe(false); // tetap bisa dipanggil
     expect(panel.close?.()).toBeUndefined();
+  });
+});
+
+/**
+ * Backlight panel (C10.149-C10.152) — memakai sysfs PALSU di temp dir, jadi
+ * uji ini tidak pernah menyentuh `/sys/class/backlight` asli (mis. backlight
+ * laptop yang kebetulan ada di mesin dev).
+ */
+function makeFakeBacklightDir(opts: { max?: number; writeMax?: boolean } = {}): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tsix-bl-"));
+  fs.writeFileSync(path.join(dir, "bl_power"), "0"); // 0 = nyala
+  fs.writeFileSync(path.join(dir, "brightness"), "128");
+  if (opts.writeMax !== false) {
+    fs.writeFileSync(path.join(dir, "max_brightness"), String(opts.max ?? 255));
+  }
+  return dir;
+}
+
+describe("FbDevPanel — backlight sysfs (C10.149-C10.152)", () => {
+  const tmpDirs: string[] = [];
+  const mk = (opts: { max?: number; writeMax?: boolean } = {}): string => {
+    const dir = makeFakeBacklightDir(opts);
+    tmpDirs.push(dir);
+    return dir;
+  };
+  const readBl = (dir: string, file: string): string =>
+    fs.readFileSync(path.join(dir, file), "utf8").trim();
+
+  afterAll(() => {
+    for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("C10.149 resolveBacklightPaths(): terima direktori, file, & max_brightness", () => {
+    const dir = mk({ max: 100 });
+
+    const fromDir = resolveBacklightPaths(dir, null);
+    expect(fromDir?.dir).toBe(dir);
+    expect(fromDir?.power).toBe(path.join(dir, "bl_power"));
+    expect(fromDir?.brightness).toBe(path.join(dir, "brightness"));
+    expect(fromDir?.max).toBe(100);
+
+    // Menunjuk FILE juga sah (bentuk nilai env TSIX_TFT_BL) — direktorinya dipakai.
+    expect(resolveBacklightPaths(path.join(dir, "bl_power"), null)?.dir).toBe(dir);
+    expect(resolveBacklightPaths(path.join(dir, "brightness"), null)?.dir).toBe(dir);
+
+    // Direktori tanpa `max_brightness` → skala default 0..255.
+    expect(resolveBacklightPaths(mk({ writeMax: false }), null)?.max).toBe(255);
+
+    // Path tidak ada & tanpa petunjuk fbdev → tidak ada perangkat backlight.
+    expect(resolveBacklightPaths("/nonexistent/bl-dir", null)).toBeNull();
+  });
+
+  it("C10.150 setBacklight(): bl_power 0=NYALA / 1=MATI (polaritas kebalikan)", () => {
+    const dir = mk();
+    const panel = new FbDevPanel({ backlightPath: dir });
+
+    expect(panel.getBacklightDir()).toBe(dir);
+    expect(panel.getBacklight()).toBe(true); // file berisi "0" = nyala
+
+    expect(panel.setBacklight(false)).toBe(false);
+    expect(readBl(dir, "bl_power")).toBe("1"); // MATI → tulis 1, bukan 0
+    expect(panel.getBacklight()).toBe(false);
+
+    expect(panel.setBacklight(true)).toBe(true);
+    expect(readBl(dir, "bl_power")).toBe("0"); // NYALA → tulis 0
+    expect(panel.getBacklight()).toBe(true);
+  });
+
+  it("C10.151 setBrightness(): 0..255 diskalakan ke max_brightness", () => {
+    const dir = mk({ max: 100 });
+    const panel = new FbDevPanel({ backlightPath: dir });
+
+    expect(panel.setBrightness(128)).toBe(128);
+    expect(readBl(dir, "brightness")).toBe("50"); // 128/255 * 100
+    expect(panel.getBrightness()).toBe(128); // dibaca ulang dari sysfs
+
+    expect(panel.setBrightness(300)).toBe(255); // clamp ke 0..255
+    expect(readBl(dir, "brightness")).toBe("100");
+
+    // Saat lampu mati `brightness` TIDAK ditulis (bisa menyalakan lampu lagi),
+    // jadi sysfs tetap 100 → yang terbaca kembali = 255.
+    panel.setBacklight(false);
+    expect(panel.setBrightness(64)).toBe(64); // nilainya tetap disimpan
+    expect(readBl(dir, "brightness")).toBe("100");
+    expect(panel.getBrightness()).toBe(255);
+  });
+
+  it("C10.152 tanpa bl_power/brightness: hanya status, getBrightness() null", () => {
+    const dir = mk({ writeMax: false });
+    fs.rmSync(path.join(dir, "bl_power"));
+    fs.rmSync(path.join(dir, "brightness"));
+    const panel = new FbDevPanel({ backlightPath: dir });
+
+    expect(panel.getBacklightDir()).toBe(dir); // direktorinya tetap dikenali
+    expect(panel.getBacklight()).toBe(true); // jatuh ke status tersimpan
+    expect(panel.setBacklight(false)).toBe(false);
+    expect(panel.getBacklight()).toBe(false);
+    expect(panel.getBrightness()).toBeNull();
   });
 });

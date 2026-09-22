@@ -70,9 +70,21 @@
  *
  * Referensi host: `fb_ili9341` (fbtft), `fbset`, `/sys/class/graphics/fbN/`.
  * Catatan: fbdev tidak punya ioctl INVON/kontras, jadi `SET_INVERT` diemulasi
- * driver (XOR saat flush), dan kecerahan/backlight hanya benar-benar dikirim
- * bila `backlightPath` (atau env `TSIX_TFT_BL`) diisi eksplisit — tanpa itu
- * statusnya disimpan tapi hardware tidak disentuh.
+ * driver (XOR saat flush).
+ *
+ * ── BACKLIGHT (on/off lampu panel) ──
+ * Panel fbtft mengekspos backlight-nya di kelas sysfs backlight, dan perangkat
+ * itu punya `bl_power` yang **kebalikan** dari yang biasa disangka:
+ *
+ *     echo 0 | sudo tee /sys/class/backlight/fb_ili9341/bl_power   # NYALA
+ *     echo 1 | sudo tee /sys/class/backlight/fb_ili9341/bl_power   # MATI
+ *
+ * Direktori itu dideteksi otomatis (nama disamakan dengan driver fbdev panel,
+ * mis. `fb_ili9341`), atau ditunjuk lewat `TSIX_TFT_BL` / opsi `backlightPath`.
+ * `SET_BACKLIGHT` menulis `bl_power`; `SET_BRIGHTNESS` menulis `brightness`
+ * (0..255 diskalakan ke `max_brightness`). Menulis sysfs butuh hak root —
+ * kalau TSIX jalan sebagai user biasa, statusnya berubah tapi lampu tidak, dan
+ * sebabnya dicatat sekali di console (bukan diam-diam gagal).
  *
  * (c) 2026 TSIX Project
  */
@@ -116,7 +128,12 @@ export const TFT_DEFAULT_FB_DEVICE = "/dev/fb1";
  */
 export const TFT_FB_ENV = "TSIX_TFT_FB";
 
-/** Env untuk path sysfs kecerahan/backlight TFT (opsional). */
+/** Env untuk menunjuk sysfs backlight TFT (opsional). Menerima salah satu:
+ *   - nama perangkat : `fb_ili9341`
+ *   - direktori      : `/sys/class/backlight/fb_ili9341`
+ *   - file langsung   : `.../bl_power` atau `.../brightness`
+ * Kosong = auto-deteksi (lihat `detectBacklightDir`).
+ */
 export const TFT_BACKLIGHT_ENV = "TSIX_TFT_BL";
 
 // ================================================================
@@ -232,6 +249,8 @@ export interface TftPanelHandle {
   getDevicePath?(): string | null;
   /** Ringkasan sysfs (null bila belum terbuka / tanpa sysfs). */
   getFbVar?(): FbVarInfo | null;
+  /** Direktori sysfs backlight yang dipakai (null = panel tanpa backlight). */
+  getBacklightDir?(): string | null;
   /** Tutup node (dipakai saat pindah device). */
   close?(): void;
 }
@@ -239,7 +258,11 @@ export interface TftPanelHandle {
 export interface FbDevPanelOptions {
   /** Path eksplisit (menang atas auto-deteksi). */
   device?: string;
-  /** Path sysfs kecerahan, mis. `/sys/class/backlight/<dev>/brightness`. */
+  /**
+   * Sysfs backlight: nama perangkat (`fb_ili9341`), direktorinya, atau file di
+   * dalamnya (`.../bl_power`, `.../brightness`). Kosong = env `TSIX_TFT_BL`,
+   * lalu auto-deteksi.
+   */
   backlightPath?: string;
   /** Resolusi yang diharapkan untuk auto-deteksi (default 320x240). */
   width?: number;
@@ -253,6 +276,115 @@ function readSysfs(dir: string, file: string): string | null {
   } catch (_) {
     return null;
   }
+}
+
+/** Baca isi satu file sysfs (null kalau tidak ada / tidak terbaca). */
+function readSysfsFile(file: string | null): string | null {
+  if (!file) return null;
+  try {
+    return fs.readFileSync(file, "utf8").trim();
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Kelas perangkat backlight di sysfs. */
+export const BACKLIGHT_CLASS_DIR = "/sys/class/backlight";
+
+/** Nama file di dalam direktori backlight. */
+const BL_POWER_FILE = "bl_power";
+const BL_BRIGHTNESS_FILE = "brightness";
+const BL_MAX_FILE = "max_brightness";
+
+/**
+ * Jalur sysfs backlight yang dipakai panel.
+ *
+ * `bl_power` (ada di panel fbtft: `fb_ili9341`) isinya **KEBALIKAN** dari yang
+ * biasa disangka — `0` = NYALA, `1` = MATI (FB_BLANK_POWERDOWN):
+ *
+ *     echo 0 | sudo tee /sys/class/backlight/fb_ili9341/bl_power   # nyala
+ *     echo 1 | sudo tee /sys/class/backlight/fb_ili9341/bl_power   # mati
+ */
+export interface BacklightPaths {
+  /** Direktori perangkat, mis. `/sys/class/backlight/fb_ili9341`. */
+  dir: string;
+  /** `bl_power` (0 = nyala, 1 = mati) — null bila panel tidak menyediakannya. */
+  power: string | null;
+  /** `brightness` 0..max_brightness — null bila tidak ada. */
+  brightness: string | null;
+  /** `max_brightness`: skala untuk mengubah 0..255 (API driver) ↔ perangkat. */
+  max: number;
+}
+
+/** true kalau nama perangkat backlight jelas milik panel ini. */
+function isPanelBacklight(entry: string, fbName?: string | null): boolean {
+  const name = entry.toLowerCase();
+  const fb = (fbName || "").toLowerCase();
+  if (fb && (name === fb || name.includes(fb))) return true;
+  return name.includes("ili9341");
+}
+
+/**
+ * Auto-deteksi direktori backlight panel:
+ *   1. nama yang sama dengan driver framebuffer panel (`fb_ili9341`) atau
+ *      memuat `ili9341`;
+ *   2. SATU-SATUNYA entri di `/sys/class/backlight` — hanya kalau node
+ *      framebuffer TFT sudah benar-benar teridentifikasi (`fbName` diketahui),
+ *      supaya `setBacklight()` tidak pernah menyentuh backlight laptop/host
+ *      yang kebetulan terdaftar di sysfs.
+ */
+export function detectBacklightDir(fbName?: string | null): string | null {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(BACKLIGHT_CLASS_DIR);
+  } catch (_) {
+    return null; // host tanpa sysfs backlight (mis. non-Linux)
+  }
+  if (!entries.length) return null;
+
+  const hit = entries.find((e) => isPanelBacklight(e, fbName));
+  if (hit) return path.join(BACKLIGHT_CLASS_DIR, hit);
+  if (entries.length === 1 && fbName) return path.join(BACKLIGHT_CLASS_DIR, entries[0]);
+  return null;
+}
+
+/**
+ * Terjemahkan permintaan pengguna (env `TSIX_TFT_BL` / opsi `backlightPath`)
+ * menjadi jalur konkret. Menerima nama perangkat, direktori, atau file di
+ * dalamnya; kosong / tidak ketemu → auto-deteksi.
+ */
+export function resolveBacklightPaths(
+  spec: string,
+  fbName?: string | null,
+): BacklightPaths | null {
+  let dir: string | null = null;
+  const raw = (spec || "").trim();
+
+  if (raw) {
+    const base = path.basename(raw);
+    if (base === BL_POWER_FILE || base === BL_BRIGHTNESS_FILE || base === BL_MAX_FILE) {
+      dir = path.dirname(raw); // pengguna menunjuk file di dalam direktori
+    } else if (/[\\/]/.test(raw)) {
+      dir = raw; // pengguna menunjuk direktorinya
+    } else {
+      const guess = path.join(BACKLIGHT_CLASS_DIR, raw); // pengguna menunjuk nama
+      dir = fs.existsSync(guess) ? guess : null;
+    }
+  }
+
+  if (!dir || !fs.existsSync(dir)) dir = detectBacklightDir(fbName);
+  if (!dir) return null;
+
+  const power = path.join(dir, BL_POWER_FILE);
+  const bright = path.join(dir, BL_BRIGHTNESS_FILE);
+  const max = Number(readSysfsFile(path.join(dir, BL_MAX_FILE)));
+
+  return {
+    dir,
+    power: fs.existsSync(power) ? power : null,
+    brightness: fs.existsSync(bright) ? bright : null,
+    max: Number.isFinite(max) && max > 0 ? max : 255,
+  };
 }
 
 /** Nomor fb dari path "/dev/fb1" (null bila bukan pola fbN). */
@@ -336,10 +468,50 @@ export class FbDevPanel implements TftPanelHandle {
   private backlight = true;
   private brightness = 255;
   private displayOn = true;
-  private blPath: string | null;
+  /** Permintaan backlight dari opsi/env ("" = biarkan auto-deteksi). */
+  private blSpec: string;
+  /** Jalur sysfs backlight (null = panel tidak mengekspos backlight). */
+  private bl: BacklightPaths | null = null;
+  /** Jalur sysfs yang gagal ditulis — peringatannya hanya dicetak sekali. */
+  private blWarned = new Set<string>();
 
   constructor(private options: FbDevPanelOptions = {}) {
-    this.blPath = options.backlightPath || null;
+    this.blSpec = (options.backlightPath || process.env[TFT_BACKLIGHT_ENV] || "").trim();
+  }
+
+  /**
+   * Pastikan jalur sysfs backlight sudah ketemu. Selama belum ada hasil, ini
+   * dicoba lagi tiap panggilan (mis. modul fbtft baru dimuat setelah boot).
+   * Nama driver framebuffer dipakai untuk memastikan perangkat yang dipilih
+   * memang milik panel ini.
+   */
+  private ensureBacklight(): BacklightPaths | null {
+    if (this.bl) return this.bl;
+    this.bl = resolveBacklightPaths(this.blSpec, this.varInfo?.name ?? null);
+    return this.bl;
+  }
+
+  /** Catat kegagalan tulis sysfs SEKALI per jalur — biar sebabnya kelihatan. */
+  private noteBlFailure(file: string, e: any): void {
+    if (this.blWarned.has(file)) return;
+    this.blWarned.add(file);
+    console.warn(
+      `[TFT] Gagal menulis ${file}: ${e?.message ?? e}. ` +
+        `Sysfs backlight hanya bisa ditulis oleh root — jalankan TSIX sebagai ` +
+        `root atau tambahkan udev rule untuk perangkat ini.`,
+    );
+  }
+
+  /** 0..255 (domain API driver) → rentang perangkat `max_brightness`. */
+  private toRawBrightness(level: number): number {
+    const max = this.bl?.max ?? 255;
+    return Math.round((Math.max(0, Math.min(255, level)) / 255) * max);
+  }
+
+  /** Nilai `brightness` perangkat → 0..255 (domain API driver). */
+  private fromRawBrightness(raw: number, max: number): number {
+    const m = max > 0 ? max : 255;
+    return Math.max(0, Math.min(255, Math.round((raw / m) * 255)));
   }
 
   /** Path sysfs blank milik node aktif (null bila tidak ada). */
@@ -384,7 +556,12 @@ export class FbDevPanel implements TftPanelHandle {
 
   public getFbVar(): FbVarInfo | null {
     if (!this.varInfo) return null;
-    return { ...this.varInfo, brightness: this.blPath ? this.brightness : null };
+    return { ...this.varInfo, brightness: this.getBrightness() };
+  }
+
+  /** Direktori sysfs backlight yang dipakai (null bila panel tidak punya). */
+  public getBacklightDir(): string | null {
+    return this.ensureBacklight()?.dir ?? null;
   }
 
   /** Kirim frame penuh ke node framebuffer (1 syscall write). */
@@ -394,38 +571,69 @@ export class FbDevPanel implements TftPanelHandle {
     fs.writeSync(fd, frame, 0, frame.length, 0);
   }
 
+  /**
+   * Nyalakan/matikan lampu backlight panel.
+   *
+   * Ditulis ke `bl_power` — dan di panel fbtft (`fb_ili9341`) isinya
+   * **kebalikan**: `0` = NYALA, `1` = MATI. Bila perangkat tidak menyediakan
+   * `bl_power`, `brightness` yang dipakai (0 = mati, nilai tersimpan = nyala).
+   * Gagal tulis (biasanya bukan root) tidak fatal: status tetap dipegang
+   * driver, dan sebabnya diberitahukan sekali lewat `console.warn`.
+   */
   public setBacklight(on: boolean): boolean {
     this.backlight = !!on;
-    if (this.blPath) {
-      try {
-        // sysfs backlight: 0 = mati, selainnya kecerahan aktif.
-        fs.writeFileSync(this.blPath, String(this.backlight ? this.brightness || 255 : 0));
-      } catch (_) {
-        /* sysfs read-only / hilang → cukup simpan status */
+    const bl = this.ensureBacklight();
+    if (!bl) return this.backlight; // panel tanpa backlight sysfs → status saja
+
+    try {
+      if (bl.power) {
+        // bl_power: 0 = nyala, 1 = mati (FB_BLANK_POWERDOWN) — JANGAN dibalik.
+        fs.writeFileSync(bl.power, on ? "0" : "1");
+      } else if (bl.brightness) {
+        // Tanpa bl_power: 0 = mati, selainnya kembali ke kecerahan tersimpan.
+        fs.writeFileSync(
+          bl.brightness,
+          String(on ? this.toRawBrightness(this.brightness) : 0),
+        );
       }
+    } catch (e: any) {
+      this.noteBlFailure(bl.power ?? bl.brightness ?? bl.dir, e);
     }
     return this.backlight;
   }
 
+  /** Status backlight: dibaca dari `bl_power` (0 = nyala) bila ada. */
   public getBacklight(): boolean {
-    return this.backlight;
+    const raw = readSysfsFile(this.ensureBacklight()?.power ?? null);
+    return raw === null ? this.backlight : raw === "0";
   }
 
+  /**
+   * Kecerahan 0..255 → nilai terpakai; diskalakan ke `max_brightness`
+   * perangkat. Nilainya tetap disimpan walau backlight sedang mati (akan
+   * dipakai lagi saat dinyalakan).
+   */
   public setBrightness(level: number): number {
     const lvl = Math.max(0, Math.min(255, Math.floor(num(level))));
     this.brightness = lvl;
-    if (this.blPath && this.backlight) {
+    const bl = this.ensureBacklight();
+    if (bl?.brightness && this.backlight) {
       try {
-        fs.writeFileSync(this.blPath, String(lvl));
-      } catch (_) {
-        /* diabaikan — lihat catatan getFbVar() */
+        fs.writeFileSync(bl.brightness, String(this.toRawBrightness(lvl)));
+      } catch (e: any) {
+        this.noteBlFailure(bl.brightness, e);
       }
     }
     return lvl;
   }
 
+  /** Kecerahan sekarang (null = panel tanpa sysfs backlight). */
   public getBrightness(): number | null {
-    return this.blPath ? this.brightness : null;
+    const bl = this.ensureBacklight();
+    if (!bl?.brightness) return null;
+    const raw = readSysfsFile(bl.brightness);
+    const n = raw === null ? NaN : Number(raw);
+    return Number.isFinite(n) ? this.fromRawBrightness(n, bl.max) : this.brightness;
   }
 
   /** Blank/unblank lewat /sys/class/graphics/fbN/blank (bila ada). */
@@ -436,8 +644,9 @@ export class FbDevPanel implements TftPanelHandle {
       try {
         // 0 = unblank, 1 = normal blank (FB_BLANK_NORMAL).
         fs.writeFileSync(p, on ? "0" : "1");
-      } catch (_) {
-        /* tidak fatal: status tetap dipegang driver */
+      } catch (e: any) {
+        // Tidak fatal: status tetap dipegang driver.
+        this.noteBlFailure(p, e);
       }
     }
     return this.displayOn;
@@ -604,11 +813,12 @@ export interface ILI9341Options {
    */
   fbDevice?: string;
   /**
-   * Path sysfs kecerahan (opsional), mis.
-   * `/sys/class/backlight/rpi_backlight/brightness`. Kosong = env
-   * `TSIX_TFT_BL`, kalau tidak ada juga → SET_BACKLIGHT/SET_BRIGHTNESS hanya
-   * menyimpan status (tidak menyentuh hardware); TFT lewat fbtft memang tidak
-   * mengekspos backlight sendiri.
+   * Backlight sysfs (opsional). Terima nama perangkat (`fb_ili9341`),
+   * direktorinya, atau file di dalamnya (`.../bl_power` / `.../brightness`).
+   * Kosong = env `TSIX_TFT_BL`; kalau itu juga kosong → auto-deteksi
+   * (`/sys/class/backlight` yang namanya cocok dengan driver fbdev panel).
+   * Tanpa perangkat backlight, SET_BACKLIGHT/SET_BRIGHTNESS hanya menyimpan
+   * status (tidak menyentuh hardware).
    */
   backlightPath?: string;
   /** Rotasi awal 0..3 (default: 0 = 320x240 landscape). */
@@ -763,6 +973,12 @@ export class ILI9341Device implements IDevice {
           ` → ${this.panel?.getDevicePath?.() ?? "(?)"}` +
           (v?.name ? ` [${v.name}]` : "") +
           ` (${TFT_FRAMEBUFFER_SIZE} byte/frame, stride ${TFT_STRIDE})`,
+      );
+      const blDir = this.panel?.getBacklightDir?.() ?? null;
+      this.log(
+        blDir
+          ? `Backlight sysfs: ${blDir} (bl_power: 0=nyala, 1=mati)`
+          : `Backlight: sysfs tidak ditemukan — opsional, set ${TFT_BACKLIGHT_ENV}`,
       );
     } else {
       this.log(
@@ -1168,6 +1384,8 @@ export class ILI9341Device implements IDevice {
           ? !!this.panel!.getBacklight()
           : this.backlight
         : null,
+      /** Direktori sysfs backlight yang dipakai (null = tidak terdeteksi). */
+      backlightDir: alive ? this.panel!.getBacklightDir?.() ?? null : null,
       brightness: alive && this.panel!.getBrightness ? this.panel!.getBrightness() : null,
       autoFlush: this.autoFlush,
       fontId: this.fontId,

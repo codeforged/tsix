@@ -24,8 +24,8 @@
  *   test-ILI9341 fps [detik]            → benchmark 8 fase (default 3s/fase)
  *   test-ILI9341 fbdev                  → tampilkan node framebuffer host
  *   test-ILI9341 fbdev /dev/fb2         → pindah node framebuffer host
- *   test-ILI9341 brightness 0..255      → kecerahan (butuh backlightPath)
- *   test-ILI9341 backlight|invert|display on|off
+ *   test-ILI9341 brightness 0..255    → kecerahan (sysfs `brightness`)
+ *   test-ILI9341 backlight|invert|display on|off   → bl_power / blank panel
  *   test-ILI9341 pixel <x> <y>          → baca warna satu piksel (round-trip)
  *
  * Konstanta ioctl sudah dibungkus `src/mirror/lib/tftLib.ts` — aplikasi cukup
@@ -802,7 +802,7 @@ export const main = Program(async (args: string[]) => {
                     break;
                 }
                 const used = await tft.setBrightness(parseInt(positional[1], 10));
-                await std.println(`✔ Kecerahan → ${used} (no-op bila driver tanpa backlightPath).`);
+                await std.println(`✔ Kecerahan → ${used} (no-op bila panel tanpa sysfs backlight).`);
                 break;
             }
 

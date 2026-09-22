@@ -338,6 +338,20 @@ describe("TftLib — kontrol tampilan (C11.53-C11.55)", () => {
     expect(await lib.getInvert()).toBe(false);
   });
 
+  it("C11.53b backlightOn/backlightOff/toggleBacklight = pembungkus setBacklight", async () => {
+    const { lib, ioctl } = makeLib();
+
+    expect(await lib.backlightOff()).toBe(false);
+    expect(ioctl.mock.calls.slice(-1)[0][2].on).toBe(false);
+
+    expect(await lib.backlightOn()).toBe(true);
+    expect(ioctl.mock.calls.slice(-1)[0][2].on).toBe(true);
+
+    // getBacklight() mock selalu true → toggle = matikan lampu.
+    expect(await lib.toggleBacklight()).toBe(false);
+    expect(ioctl.mock.calls.slice(-1)[0][2].on).toBe(false);
+  });
+
   it("C11.54 brightness di-clamp & getter bekerja", async () => {
     const { lib } = makeLib();
     expect(await lib.setBrightness(300)).toBe(255);

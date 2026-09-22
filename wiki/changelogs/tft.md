@@ -7,6 +7,56 @@
 
 ---
 
+## 2026-09-22
+
+### Backlight on/off: `bl_power` (0 = NYALA, 1 = MATI) + auto-deteksi `fb_ili9341`
+
+- **File:** `src/kernel/devices/aux-devices/ILI9341Device.ts` (`FbDevPanel`,
+  `resolveBacklightPaths`, `detectBacklightDir`), `src/mirror/lib/tftLib.ts`
+  (`backlightOn/backlightOff/toggleBacklight`), `src/kernel/devices/aux-devices/
+  ILI9341Device.test.ts` (C10.149-C10.152).
+- **Gejala:** `tft.setBacklight(false)` tidak mematikan lampu panel. Cara yang
+  terbukti di lapangan:
+
+  ```bash
+  echo 0 | sudo tee /sys/class/backlight/fb_ili9341/bl_power   # NYALA
+  echo 1 | sudo tee /sys/class/backlight/fb_ili9341/bl_power   # MATI
+  ```
+
+- **Akar masalah:** dua hal. (1) `FbDevPanel` hanya menulis sysfs kalau
+  `backlightPath`/`TSIX_TFT_BL` diisi manual — kalau tidak, status disimpan
+  tanpa menyentuh hardware (yang benar-benar terjadi di panel fbtft). (2) File
+  yang ditulis dulu `brightness` dengan asumsi `0 = mati`; `bl_power` adalah
+  file yang benar untuk on/off, dan **polaritasnya kebalikan**: `0` = NYALA,
+  `1` = MATI (FB_BLANK_POWERDOWN).
+- **Perubahan:**
+    - `bl_power` didahulukan untuk on/off; `brightness` hanya dipakai kalau panel
+      tidak punya `bl_power` (tulis 0 = mati, nilai tersimpan = nyala).
+    - Deteksi otomatis `/sys/class/backlight`: nama yang sama dengan driver fbdev
+      panel (`fb_ili9341`) atau memuat `ili9341`; fallback "satu-satunya entri"
+      HANYA kalau node framebuffer TFT sudah teridentifikasi (supaya backlight
+      laptop/host tidak pernah tersentuh). `TSIX_TFT_BL`/`backlightPath` menerima
+      nama perangkat, direktori, atau filenya langsung.
+    - `getBacklight()` membaca `bl_power` (bukan status internal), dan
+      `getBrightness()` membaca `brightness` lalu diskalakan `max_brightness` →
+      domain 0..255. `GET_INFO` menambah `backlightDir` untuk diagnostik.
+    - Kegagalan tulis sysfs (bukan root) dulu **diam-diam diabaikan**; sekarang
+      dicatat sekali lewat `console.warn` dengan petunjuk penyebabnya. Boot log
+      menampilkan direktori backlight yang terdeteksi (atau bahwa tidak ada).
+- **Dampak:** `tft.setBacklight(false)` benar-benar mematikan lampu panel.
+- **Penting — hak akses:** sysfs `bl_power` hanya bisa ditulis root. Kalau TSIX
+  jalan sebagai user biasa, tambahkan udev rule:
+
+  ```bash
+  echo 'SUBSYSTEM=="backlight", ACTION=="add", RUN+="/bin/chmod 666 /sys/class/backlight/%k/bl_power"' \
+    | sudo tee /etc/udev/rules.d/60-tsix-backlight.rules
+  sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=backlight
+  ```
+
+- **Deploy:** restart kernel (perubahan driver); `npm run vfs:bootstrap` untuk
+  `tftLib.ts`.
+- **Oleh:** Copilot
+
 ## 2026-09-21
 
 ### Demo animasi stress `/opt/test/tft-objs` — semua efek di userland, 1 syscall/frame
