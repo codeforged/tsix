@@ -4,6 +4,55 @@
 
 ---
 
+## 2026-09-22
+
+### fstab: parser INI dipisah + `.conf` diutamakan (`.json` tetap dibaca) + pengaman salah-tulis
+
+- **File:** `src/kernel/FstabParser.ts` (baru), `src/kernel/FstabParser.test.ts` (baru),
+  `src/kernel/Kernel.ts` (`processFstab` → memakai parser itu).
+- **Konteks:** percobaan pertama (di Kernel.ts) mengganti path ke `/etc/fstab.conf`
+  dengan parser INI inline. Dua masalah ditemukan saat review:
+    1. **Berkas `.conf` belum ada di mana pun** (mirror & `scripts/install.ts` masih
+       `fstab.json`). Karena `if (!exists) return;`, akibatnya **semua mount hilang
+       tanpa pesan** — `/tmp` (ramfs), `/mnt/shared`, `/mnt/sbak`, `/hostsrc`, dan netfs;
+       `/tmp` ikut jadi persisten di BKFS root.
+    2. Nilai `.conf`/INI gampang salah tulis secara **senyap**: `mode = 775` (niat oktal)
+       dibaca 775 desimal = 0o1363; `type` typo diam-diam jatuh ke `HostVFS`;
+       `active = no` tetap AKTIF (string `"no"` truthy); satu entri rusak menjatuhkan
+       seluruh loop mount karena semuanya di dalam satu `try`.
+- **Perubahan:**
+    - Parser dipindah ke `src/kernel/FstabParser.ts` — murni teks → objek (tanpa I/O),
+      jadi bisa diuji tanpa menyalakan kernel. Deteksi format deterministik: coba
+      `JSON.parse` dulu (array = format lama), kalau gagal → INI.
+    - `Kernel.processFstab()` membaca **`/etc/fstab.conf` dulu**, fallback
+      `/etc/fstab.json`; kalau keduanya tidak ada → dicatat di log (bukan senyap).
+    - **Aturan `mode`** (didokumentasikan di kepala berkas parser): `0o775` & `0775` =
+      oktal eksplisit; angka telanjang = desimal (kompatibel `fstab.json` lama: 509 =
+      0o775, 1023 = 0o1777); nilai > 0o777 yang telanjang **diberi peringatan** karena
+      hampir selalu maksudnya oktal. Nilai di luar `0..0o7777` / bukan angka → diabaikan.
+    - Hanya key numerik (`uid`,`gid`,`mode`,`via`,`timeoutMs`,`cacheTtlMs`) diubah jadi
+      Number — **`key` NetFS (64 hex) tetap string** walau isinya kebetulan semua digit.
+    - Boolean menerima `true/false`, `yes/no`, `on/off`, `1/0`. Komentar sebaris
+      (`nilai # catatan`) dibuang selama nilainya tidak dikutip.
+    - Validasi `type ∈ {bkfs,host,ramfs,netfs}` + wajib `hostPath` untuk bkfs/host/netfs:
+      entri salah **dilewati dengan pesan**, bukan menebak driver.
+    - `try` **per-entri** supaya satu entri rusak tidak membatalkan mount sisanya;
+      semua peringatan parser masuk `logger` + `/var/log/syslog`.
+- **Verifikasi:** 8 test (`FstabParser.test.ts` A4.01–A4.08: INI dasar, JSON lama &
+  mode desimal, oktal vs telanjang, kunci hex tetap string, typo `type`, `active=no`,
+  isolasi entri rusak, komentar sebaris). Parser diuji juga dengan
+  `src/mirror/etc/fstab.json` asli → **0 peringatan** dan nilai identik dengan perilaku
+  lama (`/tmp` 1023 = 0o1777 sticky, `/mnt/shared` & `/mnt/sbak` 509 = 0o775,
+  `/hostsrc` 448 = 0o700 read-only). Suite: 1161 passed, 8 gagal pra-ada.
+- **Belum dikerjakan (opsi 2):** menulis `src/mirror/etc/fstab.conf` sebagai berkas resmi
+  + memindahkan `scripts/install.ts`, `src/mirror/etc/fstab.md`, dan wiki ke format INI,
+  plus migrasi DB lama. Jadi saat ini `.json` masih sumber efektif — perilaku runtime
+  **tidak berubah**, hanya lebih aman & teruji.
+- **Deploy:** kernel saja (`src/kernel/*`) → restart kernel; tidak perlu `vfs:bootstrap`.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
+---
+
 ## 2026-09-19
 
 ### `/bin/ps` — output diubah dari teks sejajar manual ke tabel `@tsix/tableLib`

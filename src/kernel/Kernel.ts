@@ -28,6 +28,7 @@ import {
   parseNetFSSpec,
 } from "../common/netfs/NetFSProtocol";
 import { GUIRegistry } from "./GUIRegistry";
+import { parseFstabContent } from "./FstabParser";
 
 import path from "path";
 import { std } from "@tsix/Application";
@@ -41,8 +42,9 @@ import { std } from "@tsix/Application";
 export class Kernel {
   // Versi kernel saat ini
   private codename: string = "Dinawari";
-  private version: string = "0.3.0.20260917.1";
+  private version: string = "0.3.1.20260922.1";
   // 0.3.0 adalah fitur netfs di tsix diimplementasikan, setiap node tsix bisa mengakses storage ke node tsix yang lain! canggih bukan?
+  // 0.3.1: fstab pindah ke format INI (/etc/fstab.conf) — /etc/fstab.json tetap dibaca sebagai fallback.
 
   public getCodename(): string {
     return this.codename;
@@ -957,118 +959,200 @@ export class Kernel {
   private async processFstab() {
     if (!this.bkfs) return;
 
-    const fstabPath = "/etc/fstab.json";
-    if (!this.bkfs.exists(fstabPath)) return;
+    // FSTAB: `.conf` (INI, gaya Unix) DIUTAMAKAN; `.json` tetap dibaca sebagai
+    // fallback supaya DB lama / node yang belum di-migrasi tidak kehilangan
+    // mount-nya. Kalau keduanya ada, `.conf` yang menang.
+    //
+    // Catatan: pembacaan & validasi isi ada di `FstabParser.ts` (murni, teruji
+    // terpisah). Berkas itu memberi PERINGATAN untuk hal yang dulu senyap,
+    // mis. `mode = 775` (desimal, bukan oktal) atau `type` yang typo.
+    const fstabPath = ["/etc/fstab.conf", "/etc/fstab.json"].find((p) =>
+      this.bkfs!.exists(p),
+    );
+    if (!fstabPath) {
+      // Bukan error (image minimal memang begitu), tapi layak terlihat: semua
+      // mount non-esensial (mis. netfs dari fstab) hanya ada di berkas ini.
+      this.logger.info(
+        "FSTAB: /etc/fstab.conf & /etc/fstab.json tidak ada — hanya mount esensial",
+      );
+      return;
+    }
 
     try {
       const content = this.bkfs.read(fstabPath);
-      if (!content) return;
+      if (!content) {
+        this.bootLog(`FSTAB: ${fstabPath} kosong`, false);
+        return;
+      }
 
-      const entries = JSON.parse(content) as any[];
+      const { format, entries, warnings } = parseFstabContent(content);
+
+      // Peringatan parser TIDAK menggagalkan boot, tapi harus terbaca operator:
+      // salah tulis di sini bisa berarti izin ngawur atau mount tak terpasang.
+      for (const message of warnings) {
+        this.logger.warn(`FSTAB(${fstabPath}): ${message}`);
+        await this.syslog("fstab", message);
+      }
+      if (format === "json") {
+        this.logger.info(
+          "FSTAB: memakai format lama (.json) — pertimbangkan /etc/fstab.conf",
+        );
+      }
+
+      if (entries.length === 0) {
+        this.bootLogStart(`FSTAB: ${fstabPath} (${format})`);
+        this.bootLogEnd(false, "tidak ada entri mount yang valid");
+        return;
+      }
+
+      // --- Loop mount ---
       for (const entry of entries) {
-        const { vfsPath, hostPath, type, readOnly, uid, gid, active, mode } =
-          entry;
-
-        // Skip if explicitly marked inactive (default: active = true)
-        if (active === false) {
-          this.bootLogStart(`FSTAB: Skipping ${vfsPath} (inactive)`);
-          this.bootLogEnd(true);
-          continue;
-        }
-
-        // Ensure mount point exists with correct ownership & permissions
-        const dirMode = mode ?? 0o755;
-        if (!this.bkfs.exists(vfsPath)) {
-          this.bkfs.mkdir(vfsPath, uid ?? 0, gid ?? 0, dirMode);
-        } else {
-          if (uid !== undefined || gid !== undefined) {
-            // Re-apply ownership if dir already existed (e.g. created by ensureDefaultAuth)
-            this.bkfs.chown(vfsPath, uid ?? 0, gid ?? 0);
-          }
-          if (mode !== undefined) {
-            this.bkfs.chmod(vfsPath, dirMode);
-          }
-        }
-
-        let driver: IVFS;
-        if (type === "bkfs") {
-          driver = new BKFS(
-            path.resolve(process.cwd(), hostPath),
-            readOnly || false,
+        // try per-ENTRI: satu entri rusak tidak boleh membatalkan mount sisanya.
+        // Dulu seluruh loop ada di dalam satu `try`, jadi entri yang gagal
+        // membuat entri berikutnya ikut hilang tanpa jejak.
+        try {
+          // `FstabEntry` punya index signature (key tambahan netfs: via/key/…),
+          // jadi bentuk field yang dipakai di sini dinyatakan eksplisit.
+          const {
+            vfsPath,
+            hostPath,
+            type,
+            readOnly,
             uid,
             gid,
-            dirMode,
-          );
-        } else if (type === "ramfs") {
-          // RamFS tidak butuh hostPath — murni di RAM
-          const label = vfsPath.replace(/\//g, "_").replace(/^_/, "");
-          driver = new RamFS(label, uid, gid, dirMode);
-        } else if (type === "netfs") {
-          // --- NETFS dari fstab: filesystem node lain lewat MQTNL ---
-          // Contoh entri:
-          //   { vfsPath: "/mnt/net", hostPath: "tsix_2:7777", type: "netfs",
-          //     via: 7778, key: "<64 hex>", timeoutMs: 5000 }
-          // `via` = port daemon klien lokal (netfsd --client); tanpa `via`
-          // kernel bicara langsung ke SL (--direct).
-          try {
-            const spec = parseNetFSSpec(hostPath);
-            const viaPort = (entry as any).via;
-            const target = viaPort
-              ? typeof viaPort === "number"
-                ? { address: "localhost", port: viaPort }
-                : parseNetFSSpec(String(viaPort))
-              : spec;
+            active,
+            mode,
+          } = entry as {
+            vfsPath: string;
+            hostPath?: string;
+            type?: string;
+            readOnly?: boolean;
+            uid?: number;
+            gid?: number;
+            active?: boolean;
+            mode?: number;
+          };
 
-            const channel = MQTNLNetFSChannel.open(this, {
-              address: target.address,
-              port: target.port,
-              iface: (entry as any).iface,
-              key: (entry as any).key,
-              agent: (entry as any).agent,
-              procName: `netfs:${vfsPath}`,
-            });
-            const netfs = new NetFS({
-              channel,
-              timeoutMs: (entry as any).timeoutMs,
-              cacheTtlMs: (entry as any).cacheTtlMs,
-              readOnly: readOnly === true,
-              label: vfsPath,
-            });
+          // Skip if explicitly marked inactive (default: active = true)
+          if (active === false) {
+            this.bootLogStart(`FSTAB: Skipping ${vfsPath} (inactive)`);
+            this.bootLogEnd(true);
+            continue;
+          }
 
-            await netfs.handshake();
-            this.bootLogStart(`FSTAB: Mounting ${vfsPath} (netfs)`);
-            this.mountManager.mount(
-              vfsPath,
-              netfs,
-              "netfs",
-              formatNetFSSpec(spec.address, spec.port),
+          // `type` wajib: tanpa ini entri tidak bisa dipetakan ke driver mana pun
+          // (dulu langsung jatuh ke HostVFS dan menebak-nebak).
+          if (!type) {
+            this.bootLog(`FSTAB: ${vfsPath} tanpa 'type' → dilewati`, false);
+            continue;
+          }
+
+          // `hostPath` wajib untuk bkfs/host/netfs — ramfs murni di RAM.
+          const hostSpec = hostPath ?? "";
+          if (!hostSpec && type !== "ramfs") {
+            this.bootLog(`FSTAB: ${vfsPath} (${type}) tanpa 'hostPath' → dilewati`, false);
+            continue;
+          }
+
+          // Ensure mount point exists with correct ownership & permissions
+          const dirMode = mode ?? 0o755;
+          if (!this.bkfs.exists(vfsPath)) {
+            this.bkfs.mkdir(vfsPath, uid ?? 0, gid ?? 0, dirMode);
+          } else {
+            if (uid !== undefined || gid !== undefined) {
+              // Re-apply ownership if dir already existed (e.g. created by ensureDefaultAuth)
+              this.bkfs.chown(vfsPath, uid ?? 0, gid ?? 0);
+            }
+            if (mode !== undefined) {
+              this.bkfs.chmod(vfsPath, dirMode);
+            }
+          }
+
+          let driver: IVFS;
+          if (type === "bkfs") {
+            driver = new BKFS(
+              path.resolve(process.cwd(), hostSpec),
               readOnly || false,
               uid,
               gid,
+              dirMode,
             );
-            this.bootLogEnd(true);
-          } catch (e: any) {
-            // NetFS tidak boleh menggagalkan boot: node peer mungkin sedang
-            // mati. Mount bisa dilakukan manual nanti setelah peer hidup.
-            this.bootLogStart(`FSTAB: Mounting ${vfsPath} (netfs)`);
-            this.bootLogEnd(false, `NetFS gagal: ${e.message}`);
-          }
-          continue;
-        } else {
-          driver = new HostVFS(hostPath, readOnly || false, uid, gid, dirMode);
-        }
+          } else if (type === "ramfs") {
+            // RamFS tidak butuh hostPath — murni di RAM
+            const label = vfsPath.replace(/\//g, "_").replace(/^_/, "");
+            driver = new RamFS(label, uid, gid, dirMode);
+          } else if (type === "netfs") {
+            // --- NETFS dari fstab: filesystem node lain lewat MQTNL ---
+            // Contoh entri:
+            //   [/mnt/net]
+            //   hostPath = tsix_2:7777
+            //   type     = netfs
+            //   via      = 7778          (port daemon klien lokal)
+            //   key      = <64 hex>
+            // `via` = port daemon klien lokal (netfsd --client); tanpa `via`
+            // kernel bicara langsung ke SL (--direct).
+            try {
+              const spec = parseNetFSSpec(hostSpec);
+              const viaPort = (entry as any).via;
+              const target = viaPort
+                ? typeof viaPort === "number"
+                  ? { address: "localhost", port: viaPort }
+                  : parseNetFSSpec(String(viaPort))
+                : spec;
 
-        this.bootLogStart(`FSTAB: Mounting ${vfsPath} (${type})`);
-        this.mountManager.mount(
-          vfsPath,
-          driver,
-          type,
-          hostPath,
-          readOnly || false,
-          uid,
-          gid,
-        );
-        this.bootLogEnd(true);
+              const channel = MQTNLNetFSChannel.open(this, {
+                address: target.address,
+                port: target.port,
+                iface: (entry as any).iface,
+                key: (entry as any).key,
+                agent: (entry as any).agent,
+                procName: `netfs:${vfsPath}`,
+              });
+              const netfs = new NetFS({
+                channel,
+                timeoutMs: (entry as any).timeoutMs,
+                cacheTtlMs: (entry as any).cacheTtlMs,
+                readOnly: readOnly === true,
+                label: vfsPath,
+              });
+
+              await netfs.handshake();
+              this.bootLogStart(`FSTAB: Mounting ${vfsPath} (netfs)`);
+              this.mountManager.mount(
+                vfsPath,
+                netfs,
+                "netfs",
+                formatNetFSSpec(spec.address, spec.port),
+                readOnly || false,
+                uid,
+                gid,
+              );
+              this.bootLogEnd(true);
+            } catch (e: any) {
+              // NetFS tidak boleh menggagalkan boot: node peer mungkin sedang
+              // mati. Mount bisa dilakukan manual nanti setelah peer hidup.
+              this.bootLogStart(`FSTAB: Mounting ${vfsPath} (netfs)`);
+              this.bootLogEnd(false, `NetFS gagal: ${e.message}`);
+            }
+            continue;
+          } else {
+            driver = new HostVFS(hostSpec, readOnly || false, uid, gid, dirMode);
+          }
+
+          this.bootLogStart(`FSTAB: Mounting ${vfsPath} (${type})`);
+          this.mountManager.mount(
+            vfsPath,
+            driver,
+            type,
+            hostSpec,
+            readOnly || false,
+            uid,
+            gid,
+          );
+          this.bootLogEnd(true);
+        } catch (e: any) {
+          this.bootLog(`FSTAB: ${String(entry?.vfsPath ?? "?")} gagal: ${e.message}`, false);
+        }
       }
     } catch (e: any) {
       this.bootLog(`FSTAB: Error processing fstab: ${e.message}`, false);
