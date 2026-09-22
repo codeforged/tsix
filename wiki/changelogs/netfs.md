@@ -81,6 +81,14 @@ Dokumentasi lengkap: [`wiki/netfs.md`](../netfs.md).
   berikutnya ada di jalur TULIS (`writeChunk` bkfs O(n²) — tiap potongan menulis ulang
   seluruh kolom `content`), bukan di jalur baca. Untuk salinan besar, export direktori
   `host` (`pwrite` O(1)) tetap rekomendasi; `fs.copyWithProgress()` untuk hemat RAM klien.
+- **Catatan link (laporan user, 2026-09-22):** dengan **kabel LAN** 70 MB ≈ **1,7 menit**
+  (≈ 690 KB/s — sama dengan angka baca di atas), sedangkan lewat **WiFi** salinan ke
+  export bkfs dulu **12 menit**. Bacaan: keduanya bukan apel-ke-apel — jalur **baca**
+  dihitung per round-trip (`throughput ≈ chunk / RTT`), jadi link cepat langsung terasa;
+  jalur **tulis ke bkfs** biayanya didominasi backend (terukur ~80% waktu di sana, lihat
+  entri 124 KiB di bawah), jadi kabel saja tidak banyak menolong. Untuk membandingkan
+  link secara jujur, ukur RTT-nya: `netfs info <peer>` (dulu 182 ms lewat WiFi) dan lihat
+  `ms` per op di `netfs probe`.
 - **Deploy:** perbaikan intinya di `BKFS.ts` (KERNEL) → **kedua node** harus restart
   kernel (`npm start` untuk jalur cepat) + `npm run vfs:bootstrap`; SH juga restart
   `netfsd`. Tidak ada berkas yang perlu disalin ulang — data lama tetap valid.
