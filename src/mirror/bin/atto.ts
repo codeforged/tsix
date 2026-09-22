@@ -2,8 +2,8 @@ import { std } from "@tsix/Application";
 import { IProgram, OSContext } from "../lib/IProgram";
 
 /**
- * ATTO Text Editor
- * Ported from NOS for TSIX.
+ * ATTO Text Editor         
+ * Ported from NOS for TSIX. 
  * Robust implementation matching texteditor.js logic.
  */
 
@@ -2375,7 +2375,7 @@ class SimpleTextEditor {
   private async showHelp() {
     const helpText = [
       "┌────────────────────────────────────────────────────────────────────────┐",
-      "│                          ATTO Text Editor v1.87                        │",
+      "│                          ATTO Text Editor v1.88                        │",
       "├────────────────────────────────────────────────────────────────────────┤",
       "│ Ctrl+S: Save          │ Ctrl+F: Find     │ Ctrl+L: Find Next           │",
       "│ Ctrl+W: Save & Exit   │ Alt+R:  Replace  │ F1:     Help                │",
