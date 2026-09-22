@@ -525,6 +525,24 @@ esbuild), `Kernel.rebuildVFSCache()` (pre-compile `/lib/*.ts`), `Syscalls` EXEC
 (`appContent`), `WorkerEntry` (modul relatif program), dan `dome.ts` (menyajikan aset +
 `/dome/framebuffer.js` dengan encoding `latin1` = byte apa adanya).
 
+**Konsumen di dalam TSIX juga wajib decode kalau memperlakukan isi berkas sebagai
+teks.** Ini sempat terlewat dan gejalanya muncul sebagai ikon launcher kacau:
+`/opt/asteracea/menu/*.menu` berisi `icon=📺` (byte `f0 9f 93 ba`), tapi loader menu
+meneruskan byte mentah ke browser → tampil `ðº`. Yang sudah diperbaiki:
+
+| Konsumen | Perubahan |
+|---|---|
+| `opt/asteracea/asteracea.ts` (loader `.menu`) | `vfsBytesToUtf8()` sebelum parsing |
+| `bin/atto.ts` (editor) | `vfsBytesToUtf8()` saat buka, `utf8ToVfsBytes()` saat **simpan** — tanpa encode di jalur simpan, berkas yang disunting kehilangan emoji/box-drawing |
+
+Aturan praktisnya:
+
+- membaca untuk **ditampilkan/di-parse** → decode (`vfsBytesToUtf8`)
+- menulis **teks** ke VFS → encode dulu (`utf8ToVfsBytes`), jangan kirim string teks mentah
+- berkas **biner** → biarkan byte apa adanya (jangan pernah decode)
+- `cat`/`head`/`tail` **sengaja tetap byte-transparan** supaya `cat a > b` tetap
+  byte-exact (menyalin berkas biner tidak rusak)
+
 Server (DOME) menyajikan aset statis dari VFS dan browser men-cache skripnya, jadi
 setelah mengubah berkas dome: **restart TSIX** lalu **hard-reload** halaman TDE
 (Cmd+Shift+R) — tanpa itu browser tetap memakai salinan lama.

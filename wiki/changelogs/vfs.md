@@ -6,8 +6,23 @@
 
 ## 2026-09-23
 
-### VFS menyimpan BYTE: glyph UI kacau (latin1 memotong karakter > U+00FF)
+### Ikon launcher kacau (`ðº` bukan `📺`): konsumen teks di dalam TSIX harus decode
 
+- **File:** `src/mirror/opt/asteracea/asteracea.ts` (loader menu), `src/mirror/bin/atto.ts`
+- **Masalah:** berkasnya sendiri SEHAT — `/opt/asteracea/menu/retroterm.menu` berisi
+  byte `f0 9f 93 ba` (`icon=📺`) dan VFS byte-identical dengan sumber. Yang salah: loader
+  menu memperlakukan isi berkas sebagai teks tanpa decode, jadi 4 byte UTF-8 sampai ke
+  browser sebagai 4 karakter latin1 (`ðº`) dan ikon launcher tampak kacau.
+- **Perubahan:** loader `.menu` memakai `vfsBytesToUtf8()`; editor `atto` decode saat
+  buka **dan** encode (`utf8ToVfsBytes()`) saat simpan — jalur simpan yang tidak
+  di-encode akan MEMOTONG karakter > U+00FF (menyimpan hasil edit = kehilangan emoji,
+  data loss).
+- **Dampak:** ikon/label app dari `.menu` tampil benar (`📺`, `🔊`, …). `cat`/`head`/`tail`
+  sengaja dibiarkan byte-transparan supaya `cat a > b` tetap byte-exact (biner aman).
+  Aturan konsumen didokumentasikan di `wiki/Virtual-File-System.md`.
+- **Oleh:** Copilot
+
+### VFS menyimpan BYTE: glyph UI kacau (latin1 memotong karakter > U+00FF)
 - **File:** `src/common/VfsText.ts` (baru), `scripts/lib/text-file.ts`,
   `scripts/lib/text-file.test.ts` (`T1.06`–`T1.07`), `scripts/{vfs-bootstrap,install,sync-vfs,sync-tde}.ts`,
   `src/kernel/{Kernel,Syscalls}.ts`, `src/userland/WorkerEntry.ts`,

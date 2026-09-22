@@ -1,5 +1,6 @@
 import { std } from "@tsix/Application";
 import { IProgram, OSContext } from "../lib/IProgram";
+import { utf8ToVfsBytes, vfsBytesToUtf8 } from "@common/VfsText";
 
 /**
  * ATTO Text Editor         
@@ -650,7 +651,8 @@ class SimpleTextEditor {
         const raw = await this.os.fs.read(fd);
         await this.os.fs.close(fd);
         if (raw) {
-          const cfg = JSON.parse(String(raw));
+          // Isi VFS = byte; konfigurasi adalah TEKS → decode UTF-8 (VfsText.ts).
+          const cfg = JSON.parse(vfsBytesToUtf8(String(raw)));
           const apply = (o: any) => {
             if (!o || typeof o !== "object") return;
             if (o.keyword) theme.keyword = codeOf(o.keyword, theme.keyword);
@@ -2415,7 +2417,10 @@ class SimpleTextEditor {
       const content = this.lines.join("\n");
       const fd = await this.os.fs.open(this.filename, "w");
       if (fd !== null) {
-        await this.os.fs.write(fd, content);
+        // WAJIB di-encode: isi VFS = BYTE. Menulis teks apa adanya membuat
+        // `touch()` meng-encode latin1 dan MEMOTONG karakter > U+00FF — menyimpan
+        // hasil edit akan menghapus emoji/box-drawing dari berkas (data loss).
+        await this.os.fs.write(fd, utf8ToVfsBytes(content));
         await this.os.fs.close(fd);
         this.changed = false;
         this.originalLines = [...this.lines];
@@ -2463,8 +2468,9 @@ export class main implements IProgram {
     try {
       const fd = await os.fs.open(filename);
       if (fd !== null) {
+        // Isi VFS = byte → decode UTF-8 supaya isi berkas tampil benar di editor.
         const rawContent = await os.fs.read(fd);
-        content = rawContent || "";
+        content = vfsBytesToUtf8(rawContent);
         await os.fs.close(fd);
       }
     } catch (e) { }

@@ -17,6 +17,7 @@ import {
   textarea,
 } from "../../lib/emerald";
 import { IDOMNode } from "@common/GUITypes";
+import { vfsBytesToUtf8 } from "@common/VfsText";
 
 // ================================================================
 // TYPES
@@ -187,9 +188,13 @@ async function loadMenuFromFiles(): Promise<AppEntry[]> {
     const files = await fs.ls(menuDir);
     for (const f of files || []) {
       if (f.type !== "FILE" || !f.name.endsWith(".menu")) continue;
-      const content = await fs.readFile(menuDir + "/" + f.name);
-      if (!content) continue;
-      const lines = String(content)
+      const raw = await fs.readFile(menuDir + "/" + f.name);
+      if (!raw) continue;
+      // Isi VFS = BYTE berkas (1 char = 1 byte), sedangkan `.menu` adalah TEKS →
+      // decode UTF-8 di sini. Tanpa langkah ini `icon=📺` (byte f0 9f 93 ba) sampai
+      // ke browser sebagai mojibake ("ðº") dan ikon launcher tampak kacau.
+      const content = vfsBytesToUtf8(String(raw));
+      const lines = content
         .split("\n")
         .map((l) => l.trim())
         .filter((l) => l && !l.startsWith("#"));
