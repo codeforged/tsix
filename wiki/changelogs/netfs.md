@@ -8,11 +8,12 @@ Dokumentasi lengkap: [`wiki/netfs.md`](../netfs.md).
 
 ## 2026-09-22
 
-### `cp` 70 MB "sukses" tapi 0 byte — ternyata BARIS di bkfs SH korup; guard ditambahkan
+### `cp` 70 MB "sukses" tapi 0 byte — `SUBSTR()` pada kolom TEXT ber-NUL
 
-- **File:** `src/vfs/NetFS.ts`, `src/common/netfs/NetFSServer.ts`, `src/vfs/BKFS.ts`,
-  `src/mirror/bin/cp.ts`, `src/mirror/bin/netfs.ts` (subcommand `probe`)
-  (+ test `NetFS.test.ts` N2.19, `NetFSServer.test.ts` N1.14–N1.15, `BKFS.test.ts` B2.22b)
+- **File:** `src/vfs/BKFS.ts` (inti perbaikan), `src/vfs/NetFS.ts`,
+  `src/common/netfs/NetFSServer.ts`, `src/mirror/bin/cp.ts`, `src/mirror/bin/netfs.ts`
+  (subcommand `probe`) — test: `BKFS.test.ts` B2.22b–B2.22d/B2.26–B2.27,
+  `NetFS.test.ts` N2.17–N2.19, `NetFSServer.test.ts` N1.14–N1.15
 - **Gejala:** `cp /mnt/net/video.mov ./` melaporkan sukses dalam ~580 ms, hasilnya file
   **0 byte**. Setelah pengerasan driver, pesannya jadi:
   `readChunk /video.mov offset 0 mengembalikan KOSONG (minta 126976 byte, ukuran file 70499395)`.
@@ -25,9 +26,35 @@ Dokumentasi lengkap: [`wiki/netfs.md`](../netfs.md).
     4. Baris besar **bukan** masalah SQLite — uji lokal BKFS 60 MB: `readChunk` 4096 byte ✅.
     5. Rantai penuh (driver → SL → `NetFSBackend` → BKFS) direproduksi lokal: tulis 1,75 MB
        lewat driver, dibaca ulang **utuh** ✅.
-    ⇒ Kesimpulan: **baris `video.mov` di `systembak.db` SH memang korup** — metadata
-      `size=70499395` sementara `content` kosong. Sisa dari jalur tulis build lama, bukan
-      dari kode sekarang.
+    ⇒ Dugaan awal "baris korup" **SALAH**: laporan lapangan membuktikannya —
+      `cp /mnt/sbak/video.mov /mnt/shared/` **di SH** menghasilkan berkas utuh dan
+      videonya normal diputar di VLC. Isi berkas memang ada; yang rusak adalah CARA
+      membacanya per potongan.
+- **AKAR MASALAH (terukur):** `BKFS.readChunk()` memakai SQL
+  `SUBSTR(content, ?, ?)`, sedangkan kolom `content` bertipe **TEXT** — dan SQLite
+  memperlakukan TEXT sebagai C-string di fungsi karakter: **berhenti di byte NUL**.
+  ```
+  INSERT "AB\u0000\u0000\u0000Z"   ->  length() = 2, substr(c,1,6) = "AB"
+                                        (SELECT content tetap 6 char — datanya utuh)
+  ```
+  Berkas biner hampir selalu memuat NUL — bahkan di byte PERTAMA: video MP4/MOV
+  diawali `00 00 00 18 ftyp …`. Jadi `SUBSTR(content, 1, 4096)` = `""` untuk SETIAP
+  berkas biner, dan offset berapa pun (mis. ekor 70 MB) juga `""` karena sudah di
+  luar "panjang C-string". Itu sebabnya:
+    - `read()` (baca penuh) **utuh** ✅ — dan berkasnya bisa diputar normal;
+    - `readChunk()` selalu **0 byte** ✗ untuk berkas biner, sedangkan berkas teks
+      (mis. `readfile-net.ts` 365 B, tanpa NUL) **baik-baik saja** ✅;
+    - uji lokal dengan `'x'.repeat(...)` (tanpa NUL) juga lolos — itulah kenapa bug
+      ini sempat tersembunyi.
+  ⇒ **Semua berkas biner** (video/gambar/font) tidak bisa dibaca chunked — termasuk
+    seluruh `cp` dari mount NetFS, yang jalurnya wajib lewat `readChunk`.
+- **Perbaikan:** `BKFS.readChunk()` tidak lagi memakai `SUBSTR()`; isi diambil lewat
+  `read()` (aman untuk NUL) lalu `slice()` di JS, dengan **cache satu entri** per berkas.
+  Efek sampingnya menguntungkan: pembacaan berurutan hanya mengambil isi SEKALI
+  (sebelumnya `SUBSTR` men-scan seluruh nilai per potongan — O(n) tiap potongan, jadi
+  O(n²) untuk satu berkas utuh). Cache dibuang di setiap operasi tulis
+  (`touch`/`append`/`writeChunk`/`unlink`/`rmdir`) dan dibatasi
+  `BKFS_CHUNK_CACHE_MAX_BYTES` (192 MB, satu entri).
 - **Guard yang ditambahkan (supaya kelas ini tidak pernah senyap lagi):**
     - `NetFS.readChunked()`: potongan kosong/pendek/total ≠ ukuran = **ERROR**, pesannya
       menyebut kemungkinan berkas korup + saran `netfs probe` & salin ulang. Dulu
@@ -36,21 +63,20 @@ Dokumentasi lengkap: [`wiki/netfs.md`](../netfs.md).
       bukan mengirim `""`.
     - `BKFS.writeChunk()`: **sparse write ditolak** (`offset > ekor`). Dulu jalur ini
       "berhasil" dengan `content=potongan` tapi `size=offset+len` — kolom `size`
-      berbohong, dan itu justru kondisi korup yang kita temukan. Celah memang tidak bisa
-      direpresentasikan di sini: SQLite lewat better-sqlite3 **memotong TEXT pada byte
-      NUL** (terukur: `length()` = 2 untuk `"AB\u0000\u0000\u0000Z"`), jadi `read()` dan
-      `readChunk()` akan membacanya berbeda. Gagal jelas > state setengah jadi.
+      berbohong. Offset melewati ekor hampir selalu berarti pemanggil salah hitung
+      (mis. `getSize` basi), jadi gagal jelas lebih baik daripada state setengah jadi.
     - `cp`: membandingkan panjang hasil `read` dengan metadata sebelum menulis —
       korupsi senyap dari lapisan mana pun jadi pesan jelas.
     - Alat diagnosa baru: `netfs probe <addr> <path>` (info/stat/getSize/read/readChunk
       head+tail, tanpa mencetak isi berkas).
-- **Verifikasi:** 79 test NetFS/VFS hijau (termasuk regresi N2.19, N1.15, B2.22b);
-  `npm test` = **1151 passed**, 8 kegagalan pra-ada. Reproduksi lokal e2e (driver → SL →
-  NetFSBackend → BKFS): 1,75 MB tulis-baca **utuh**.
-- **Pemulihan berkas korup:** salin ulang (`rm` dulu, lalu `cp` lagi) dan pastikan dengan
-  `netfs probe ... /video.mov` → `readChunk head ok 4096 byte`.
-- **Deploy:** klien — restart kernel + `npm run vfs:bootstrap`; SH — `git pull`,
-  `vfs:bootstrap`, restart kernel & `netfsd`.
+- **Verifikasi:** 81 test NetFS/VFS hijau (termasuk regresi N2.19, N1.15, N1.14,
+  B2.22b–B2.22d, B2.26–B2.27); `npm test` = 8 kegagalan pra-ada (tidak ada regresi).
+  Reproduksi lokal e2e (driver → SL → NetFSBackend → BKFS) dengan konten biner
+  ber-NUL seperti `.mov` (`00 00 00 18 ftyp …`): `readChunk(0,4096)` = 4096 byte ✅ dan
+  tulis-baca penuh **utuh** ✅.
+- **Deploy:** perbaikan intinya di `BKFS.ts` (KERNEL) → **kedua node** harus restart
+  kernel (`npm start` untuk jalur cepat) + `npm run vfs:bootstrap`; SH juga restart
+  `netfsd`. Tidak ada berkas yang perlu disalin ulang — data lama tetap valid.
 - **Oleh:** Copilot · **Laporan:** andriansah
 
 ## 2026-09-22

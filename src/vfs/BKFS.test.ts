@@ -159,6 +159,41 @@ describe("BKFS (SQLite-based)", () => {
         expect(bkfs.getSize("/hole.bin")).toBe(3);
     });
 
+    it("B2.22c readChunk – konten biner ber-NUL dibaca utuh (bukan via SQL SUBSTR)", () => {
+        // Regresi nyata: kolom `content` bertipe TEXT, dan SQLite memperlakukan
+        // TEXT sebagai C-string di `SUBSTR()`/`length()` — berhenti di byte NUL.
+        // Berkas biner hampir selalu memuat NUL (video MP4/MOV bahkan di byte
+        // PERTAMA: `00 00 00 18 ftyp`), sehingga `readChunk` selalu mengembalikan
+        // "" dan `cp` dari mount NetFS menghasilkan file 0 byte (padahal `read()`
+        // utuh dan berkasnya tidak korup).
+        const bin = "\u0000MOV\u0000\u0000DATA\u0000END";
+        bkfs.touch("/bin.dat", bin);
+
+        expect(bkfs.readChunk("/bin.dat", 0, bin.length)).toBe(bin);
+        expect(bkfs.readChunk("/bin.dat", 0, 4)).toBe(bin.slice(0, 4));
+        expect(bkfs.readChunk("/bin.dat", 5, 4)).toBe(bin.slice(5, 9));
+        expect(bkfs.readChunk("/bin.dat", bin.length + 10, 8)).toBe("");
+        expect(bkfs.getSize("/bin.dat")).toBe(bin.length);
+        expect(bkfs.read("/bin.dat")).toBe(bin);
+    });
+
+    it("B2.22d readChunk – cache satu entri dibuang saat berkas berubah", () => {
+        bkfs.touch("/cache.bin", "AAAABBBB");
+        expect(bkfs.readChunk("/cache.bin", 0, 4)).toBe("AAAA"); // isi masuk cache
+
+        bkfs.append("/cache.bin", "CCCC");
+        expect(bkfs.readChunk("/cache.bin", 4, 4)).toBe("BBBB");
+        expect(bkfs.readChunk("/cache.bin", 8, 4)).toBe("CCCC"); // append terlihat
+
+        bkfs.touch("/cache.bin", "ZZZ");
+        expect(bkfs.readChunk("/cache.bin", 0, 3)).toBe("ZZZ"); // touch terlihat
+
+        // Berkas lain tidak memakai cache lama.
+        bkfs.touch("/other.bin", "123456");
+        expect(bkfs.readChunk("/other.bin", 0, 3)).toBe("123");
+        expect(bkfs.readChunk("/cache.bin", 0, 3)).toBe("ZZZ");
+    });
+
     // ============================================================
     // B2.23–B2.25: getSize / getUsage
     // ============================================================

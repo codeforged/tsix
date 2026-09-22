@@ -18,6 +18,15 @@ import { VNodeType } from "./VFS";
 const VNODE_META_COLUMNS = "id, parent_id, name, type, size, uid, gid, mode, created_at, modified_at";
 
 /**
+ * Batas ukuran isi yang BOLEH ditahan untuk cache `readChunk()` (byte).
+ *
+ * Satu entri saja (berkas yang sedang dibaca berurutan). Angka ini sengaja
+ * cukup besar untuk berkas media biasa, tapi tetap jauh di bawah plafon heap
+ * node kecil, karena kernel juga memegang salinan isi saat `fs.read()`.
+ */
+const BKFS_CHUNK_CACHE_MAX_BYTES = 192 * 1024 * 1024;
+
+/**
  * BKFS (Bukan Kernel File System)
  *
  * VFS berbasis SQLite untuk penyimpanan persisten di User-land.
@@ -27,6 +36,8 @@ export class BKFS implements IVFS {
   private db: Database.Database;
   private logger: Logger;
   private readOnly: boolean;
+  /** Cache satu entri untuk `readChunk()` — lihat `contentForChunk()`. */
+  private chunkCache: { path: string; content: string } | null = null;
 
   constructor(
     dbPath: string = "system.db",
@@ -169,6 +180,7 @@ export class BKFS implements IVFS {
     mode: number = 420,
   ): boolean {
     if (this.readOnly) throw new Error("Read-only filesystem");
+    this.forgetChunkCache();
     const parts = path
       .split("/")
       .filter((p) => p.length > 0 && p !== "." && p !== "..");
@@ -231,6 +243,7 @@ export class BKFS implements IVFS {
    */
   public append(path: string, content: string): boolean {
     if (this.readOnly) throw new Error("Read-only filesystem");
+    this.forgetChunkCache();
 
     const parts = path
       .split("/")
@@ -434,6 +447,7 @@ export class BKFS implements IVFS {
    */
   public unlink(path: string): boolean {
     if (this.readOnly) throw new Error("Read-only filesystem");
+    this.forgetChunkCache();
     const parts = path.split("/").filter((p) => p.length > 0);
     const fileName = parts.pop();
     if (!fileName) return false;
@@ -463,6 +477,7 @@ export class BKFS implements IVFS {
    */
   public rmdir(path: string): boolean {
     if (this.readOnly) throw new Error("Read-only filesystem");
+    this.forgetChunkCache();
     const parts = path.split("/").filter((p) => p.length > 0);
     const dirName = parts.pop();
     if (!dirName) return false;
@@ -519,16 +534,58 @@ export class BKFS implements IVFS {
     offset: number,
     length: number,
   ): string | null {
-    const nodeId = this.getNodeId(path);
-    if (nodeId < 0) return null;
+    const content = this.contentForChunk(path);
+    if (content === null) return null;
 
-    const row = this.db
-      .prepare(
-        "SELECT SUBSTR(content, ? + 1, ?) as chunk FROM vnodes WHERE id = ? AND type = 'FILE'",
-      )
-      .get(offset, length, nodeId) as { chunk: string | null } | undefined;
+    const start = offset < 0 ? 0 : offset;
+    const len = length < 0 ? 0 : length;
+    if (start >= content.length) return "";
+    return content.slice(start, start + len);
+  }
 
-    return row?.chunk ?? null;
+  /**
+   * contentForChunk(): Isi file untuk `readChunk()`, dengan cache satu entri.
+   *
+   * KENAPA TIDAK PAKAI SQL `SUBSTR(content, ?, ?)` (versi lama):
+   *
+   * Kolom `content` bertipe TEXT, dan SQLite memperlakukan TEXT sebagai
+   * C-string di fungsi karakter — ia **berhenti di byte NUL**. Terukur:
+   *
+   *     INSERT "AB\u0000\u0000\u0000Z"  ->  length() = 2, substr(c,1,6) = "AB"
+   *     (baca penuh `SELECT content` tetap 6 char — datanya utuh)
+   *
+   * Berkas biner hampir selalu memuat NUL — bahkan di byte PERTAMA: video MP4/MOV
+   * diawali `00 00 00 18 ftyp …`. Akibatnya `SUBSTR(content, 1, 4096)` = "" untuk
+   * SETIAP berkas biner, dan `readChunk` di offset berapa pun juga "" (offset >
+   * panjang C-string). Itulah penyebab `cp` berkas 70 MB dari mount NetFS
+   * "berhasil" tapi menghasilkan file 0 byte, sementara `read()`(baca penuh)
+   * baik-baik saja — berkasnya TIDAK korup.
+   *
+   * Jalan baca penuh + `slice()` di JS aman untuk byte NUL (string JS menyimpan
+   * NUL apa adanya), dan justru lebih murah untuk pembacaan berurutan: satu kali
+   * ambil isi untuk seluruh rangkaian potongan berkas yang sama.
+   *
+   * Catatan memori: hanya SATU entri yang ditahan, dan hanya kalau ukurannya di
+   * bawah `BKFS_CHUNK_CACHE_MAX_BYTES`. Berkas lebih besar tetap benar — hanya
+   * tidak di-cache (konsekuensinya O(n) per potongan, sama seperti perilaku lama).
+   */
+  private contentForChunk(path: string): string | null {
+    if (this.chunkCache && this.chunkCache.path === path) return this.chunkCache.content;
+
+    const content = this.read(path);
+    if (content === null) {
+      this.chunkCache = null;
+      return null;
+    }
+
+    this.chunkCache =
+      content.length <= BKFS_CHUNK_CACHE_MAX_BYTES ? { path, content } : null;
+    return content;
+  }
+
+  /** forgetChunkCache(): Dipanggil setiap operasi tulis — metadata & isi berubah. */
+  private forgetChunkCache(): void {
+    this.chunkCache = null;
   }
 
   /**
@@ -541,6 +598,7 @@ export class BKFS implements IVFS {
    */
   public writeChunk(path: string, chunk: string, offset: number): boolean {
     if (this.readOnly) throw new Error("Read-only filesystem");
+    this.forgetChunkCache();
 
     // Dapatkan node ID + current size tanpa baca konten
     let info = this.getNodeIdAndSize(path);
@@ -559,15 +617,11 @@ export class BKFS implements IVFS {
 
     // Celah (sparse write) DITOLAK — bukan diam-diam dibuat.
     //
-    // Pada storage ini celah tidak bisa direpresentasikan: SQLite lewat
-    // better-sqlite3 memotong nilai TEXT pada byte NUL (terukur: `length()` = 2
-    // untuk "AB\u0000\u0000\u0000Z"), sehingga penambal celah akan terbaca
-    // BEDA oleh `read()` dan `readChunk()` (SUBSTR). Dulu jalur ini menulis
-    // "berhasil" dengan content=potongan sementara size=offset+len → kolom
-    // `size` berbohong (metadata puluhan MB, isi kosong) dan pembacaan
-    // berikutnya mengembalikan isi jauh lebih pendek/kosong — kelas kegagalan
-    // yang membuat salinan file besar tampak sukses padahal datanya hilang.
-    // Gagal jelas jauh lebih baik daripada state setengah jadi.
+    // `offset` melewati ekor biasanya tanda pemanggil salah menghitung (mis. memakai
+    // `getSize` basi atau mengira berkas lebih panjang). Dulu jalur ini "berhasil"
+    // dengan content=potongan sementara size=offset+len → kolom `size` berbohong
+    // (metadata puluhan MB, isi kosong) dan pembacaan berikutnya mengembalikan isi
+    // jauh lebih pendek/kosong. Gagal jelas jauh lebih baik daripada state setengah jadi.
     if (offset > currentSize) return false;
 
     if (offset === currentSize) {
