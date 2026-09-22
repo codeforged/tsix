@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseFstabContent, FSTAB_MOUNT_TYPES } from "./FstabParser";
+import { FRESH_FSTAB_INI } from "../../scripts/lib/fresh-fstab";
 
 /**
  * FSTAB parser (A4) — pembacaan `/etc/fstab.conf` (INI) & `/etc/fstab.json` (lama).
@@ -188,5 +189,24 @@ hostPath = RAM        ; tanpa hostPath pun boleh
         const empty = parseFstabContent("\n# cuma komentar\n");
         expect(empty.entries).toEqual([]);
         expect(empty.format).toBe("ini");
+    });
+
+    it("A4.09 templat installer (scripts/lib/fresh-fstab.ts) diurai tanpa peringatan", () => {
+        // Penjaga anti-drift: apa pun yang ditulis installer untuk image fresh
+        // HARUS lolos parser ini tanpa peringatan — kalau tidak, mount esensial
+        // (/tmp & /var/run ramfs) bisa salah izin atau tidak terpasang.
+        const { format, entries, warnings } = parseFstabContent(FRESH_FSTAB_INI);
+
+        expect(warnings).toEqual([]);
+        expect(format).toBe("ini");
+        expect(entries.map((e) => e.vfsPath)).toEqual(["/tmp", "/var/run"]);
+        expect(entries[0]).toMatchObject({
+            type: "ramfs",
+            mode: 0o1777, // sticky
+            uid: 0,
+            gid: 100,
+            active: true,
+        });
+        expect(entries[1]).toMatchObject({ type: "ramfs", mode: 0o755, uid: 0, gid: 0 });
     });
 });

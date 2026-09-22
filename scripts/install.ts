@@ -1,5 +1,6 @@
 import { BKFS } from "../src/vfs/BKFS";
 import { createUserAccount } from "./lib/user-account";
+import { FRESH_FSTAB_INI } from "./lib/fresh-fstab";
 import * as fs from "fs";
 import * as path from "path";
 import * as esbuild from "esbuild";
@@ -615,42 +616,23 @@ async function main() {
     }
 
     // Image fresh: fstab hanya berisi mount esensial.
-    //   /tmp      → ramfs (sticky) — file sementara
-    //   /var/run  → ramfs — state runtime (marker/PID). WAJIB volatile: kalau
-    //               ikut persisten, marker seperti /var/run/dome.ready dari boot
-    //               sebelumnya terbaca sebagai "sudah siap" (Asteracea lalu start
-    //               sebelum DOME hidup). Ini juga yang dilakukan Linux (tmpfs).
-    // Mount dev-specific (/mnt/shared, /mnt/sbak) TIDAK dibawa.
-    const FSTAB_FRESH = JSON.stringify(
-      [
-        {
-          vfsPath: "/tmp",
-          hostPath: "RAM",
-          type: "ramfs",
-          readOnly: false,
-          uid: 0,
-          gid: 100,
-          mode: 0o1777, // 1023 = drwxrwxrwt (sticky)
-          active: true,
-        },
-        {
-          vfsPath: "/var/run",
-          hostPath: "RAM",
-          type: "ramfs",
-          readOnly: false,
-          uid: 0,
-          gid: 0,
-          mode: 0o755,
-          active: true,
-        },
-      ],
-      null,
-      2,
-    );
-    bkfs.touch("/etc/fstab.json", FSTAB_FRESH + "\n", 0, 0, 0o644);
+    //
+    // Isinya ada di `scripts/lib/fresh-fstab.ts` (bisa diuji: `FstabParser.test.ts`
+    // A4.09 memvalidasi templatnya diurai TANPA peringatan). Format kini INI
+    // (`/etc/fstab.conf`) — kernel mengutamakan `.conf` dan tetap membaca
+    // `/etc/fstab.json` sebagai fallback untuk DB lama.
+    bkfs.touch("/etc/fstab.conf", FRESH_FSTAB_INI, 0, 0, 0o644);
     console.log(
-      "[INSTALL] /etc/fstab.json: /tmp + /var/run (ramfs); mount dev dihapus",
+      "[INSTALL] /etc/fstab.conf: /tmp + /var/run (ramfs); mount dev dihapus",
     );
+
+    // `.json` dari image lama (kalau ada) dibuang: kernel memilih `.conf` lebih
+    // dulu, jadi berkas itu tidak terpakai lagi — kalau dibiarkan hanya jadi
+    // decoy yang membingungkan admin (dua sumber kebenaran).
+    if (bkfs.exists("/etc/fstab.json")) {
+      bkfs.unlink("/etc/fstab.json");
+      console.log("[INSTALL] /etc/fstab.json lama dihapus (pindah ke .conf)");
+    }
     // Crontab dikosongkan (tidak membawa jadwal bawaan developer).
     bkfs.touch(
       "/etc/crontab",
