@@ -257,7 +257,43 @@ export class NetFS implements IVFS {
     }
 
     public async read(path: string): Promise<string | null> {
-        return blobData(await this.rpc<any>("read", path));
+        try {
+            return blobData(await this.rpc<any>("read", path));
+        } catch (e) {
+            // SL menolak mengirim konten besar dalam satu frame (`ETOOBIG`):
+            // 70 MB dalam satu balasan tidak mungkin selesai dalam satu timeout,
+            // dan mematerialisasinya membuat RAM node SH habis. Baca per potongan
+            // — cermin dari `writeContent()` yang sudah memecah jalur tulis.
+            if (netfsErrorCodeOf(e) !== "ETOOBIG") throw e;
+        }
+        return await this.readChunked(path);
+    }
+
+    /**
+     * readChunked(): Ambil konten file besar per `readChunk` (124 KiB).
+     *
+     * Dipakai hanya sebagai fallback setelah SL menolak `read` (ETOOBIG) — jalur
+     * normal tetap 1 round-trip supaya file kecil (config, skrip) tidak kena
+     * biaya tambahan. Isi dirakit sebagai string; pemanggil yang butuh hemat RAM
+     * (mis. copy 70 MB) sebaiknya memakai `readChunk` sendiri (lihat
+     * `fs.copyWithProgress()` di userland).
+     */
+    private async readChunked(path: string): Promise<string | null> {
+        const size = await this.getSize(path);
+        if (size < 0) return null; // tidak ada / bukan file biasa
+        if (size === 0) return "";
+
+        let out = "";
+        for (let offset = 0; offset < size; offset += NETFS_MAX_CHUNK_BYTES) {
+            const length = Math.min(NETFS_MAX_CHUNK_BYTES, size - offset);
+            const piece = blobData(await this.rpc<any>("readChunk", path, [offset, length]));
+            if (piece === null) return null;
+            out += piece;
+            // Pengaman: potongan pendek/kosong berarti file berubah di tengah
+            // pembacaan — berhenti daripada menggantung tanpa akhir.
+            if (piece.length < length) break;
+        }
+        return out;
     }
 
     public async touch(

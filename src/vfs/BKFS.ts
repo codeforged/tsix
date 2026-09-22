@@ -5,6 +5,19 @@ import { IVFS } from "./IVFS";
 import { VNodeType } from "./VFS";
 
 /**
+ * Kolom METADATA vnode — `content` SENGAJA tidak ikut.
+ *
+ * `SELECT *` di tabel ini berarti ikut membaca `content`. Untuk file besar itu
+ * bencana: satu baris 70 MB memaksa SQLite mematerialisasi seluruh isi + membuat
+ * string JS ~2x ukuran byte (UTF-16). Terukur di lapangan: `stat` satu file 70 MB
+ * pada export bkfs melewati timeout 5 s klien NetFS, dan beberapa kali percobaan
+ * berturut-turut menghabiskan heap kernel SH (~800 MB, `--max-old-space-size=512`)
+ * -> `FATAL ERROR: Reached heap limit`. Kontrak IVFS sendiri jelas:
+ * `stat` = metadata, `read` = konten (lihat komentar di `Syscalls.EXEC`).
+ */
+const VNODE_META_COLUMNS = "id, parent_id, name, type, size, uid, gid, mode, created_at, modified_at";
+
+/**
  * BKFS (Bukan Kernel File System)
  *
  * VFS berbasis SQLite untuk penyimpanan persisten di User-land.
@@ -258,6 +271,9 @@ export class BKFS implements IVFS {
 
   /**
    * stat(): Mengambil metadata file/folder.
+   *
+   * TIDAK membaca `content` (lihat `VNODE_META_COLUMNS`): pemanggil stat hanya
+   * butuh ukuran/mode/uid, dan konten tersedia lewat `read()`/`readChunk()`.
    */
   public stat(path: string) {
     const parts = path
@@ -267,7 +283,7 @@ export class BKFS implements IVFS {
 
     if (path === "/") {
       return this.db
-        .prepare("SELECT * FROM vnodes WHERE id = ?")
+        .prepare(`SELECT ${VNODE_META_COLUMNS} FROM vnodes WHERE id = ?`)
         .get(parentId) as any;
     }
 
@@ -285,7 +301,7 @@ export class BKFS implements IVFS {
     }
 
     return this.db
-      .prepare("SELECT * FROM vnodes WHERE name = ? AND parent_id = ?")
+      .prepare(`SELECT ${VNODE_META_COLUMNS} FROM vnodes WHERE name = ? AND parent_id = ?`)
       .get(targetName, parentId) as any;
   }
 
@@ -642,11 +658,20 @@ export class BKFS implements IVFS {
     dirs: number;
     diskSize?: number;
   }> {
+    // Ukuran total dibaca dari kolom `size`, BUKAN `length(content)`.
+    //
+    // `SUM(length(content))` berarti membaca isi SETIAP file di disk — pada DB
+    // dengan satu file 70 MB itu memaksa SQLite memuat 70 MB ekstra hanya untuk
+    // `df`, dan pada node SH yang heapnya kecil langsung OOM. Kolom `size`
+    // dipelihara oleh semua jalur tulis (`touch`/`append`/`writeChunk`), jadi
+    // hasilnya sama — sekaligus kini KONSISTEN dengan yang dilaporkan
+    // `stat`/`ls -l` (dulu bisa beda pada karakter non-BMP, karena SQLite
+    // `length()` menghitung code point sedangkan kolom `size` code unit UTF-16).
     const stats = this.db
       .prepare(
         `
             SELECT 
-                SUM(CASE WHEN type = 'FILE' THEN length(content) ELSE 0 END) as total_size,
+                SUM(CASE WHEN type = 'FILE' THEN IFNULL(size, 0) ELSE 0 END) as total_size,
                 SUM(CASE WHEN type = 'FILE' THEN 1 ELSE 0 END) as file_count,
                 SUM(CASE WHEN type = 'DIRECTORY' THEN 1 ELSE 0 END) as dir_count
             FROM vnodes

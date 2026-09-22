@@ -4,6 +4,35 @@
 
 ---
 
+## 2026-09-22
+
+### BKFS: `stat`/`getUsage` tidak lagi membaca konten file (penyebab timeout NetFS & OOM kernel SH)
+
+- **File:** `src/vfs/BKFS.ts`, `src/vfs/BKFS.test.ts` (B2.26–B2.27)
+- **Gejala:** `cp` file 70 MB dari mount NetFS gagal `timeout 5000ms pada stat /video.mov`
+  (klien), `df` menandai mount `STALE`, dan kernel di node SH mati
+  `FATAL ERROR: Reached heap limit` — Mark-Compact melompat 100.5 MB → 823.8 MB.
+  Detail lengkap + analisis: `wiki/changelogs/netfs.md` (2026-09-22).
+- **Akar masalah:** `stat()` memakai `SELECT *` sehingga ikut membaca kolom `content`.
+  Untuk file 70 MB itu mematerialisasi seluruh isi + string JS ~2× ukuran byte **hanya
+  untuk membaca `size`/`mode`**. Diukur pada file 60 MB dengan plafon heap 256 MB:
+  perilaku lama **+60 MB heap per panggilan** → `FATAL ERROR` di iterasi ke-3. Kontrak
+  `IVFS` sendiri sudah tegas: `stat` = metadata, `read` = konten (lihat komentar di
+  `Syscalls.EXEC` yang sengaja TIDAK memakai `node.content`).
+  `getUsage()` memakai `SUM(length(content))` — artinya membaca isi SETIAP file demi `df`.
+- **Perubahan:** `stat()` memilih kolom metadata saja (`VNODE_META_COLUMNS`), `getUsage()`
+  menghitung dari kolom `size` yang sudah dipelihara `touch`/`append`/`writeChunk`.
+- **Efek samping yang diperbaiki sekaligus:** `df` kini konsisten dengan `ls -l` (dulu bisa
+  berbeda pada karakter non-BMP, karena SQLite `length()` menghitung code point sedangkan
+  kolom `size` code unit UTF-16), dan `stat` tak lagi mengembalikan properti `content`.
+- **Verifikasi:** test B2.26 (`stat` tanpa `content`, metadata tetap lengkap) & B2.27
+  (`getUsage` tetap benar walau `content` dikosongkan lewat koneksi kedua) + pengukuran
+  heap A/B datar setelah fix. Seluruh suite: 1148 passed, 8 kegagalan pra-ada.
+- **Deploy:** `BKFS.ts` ada di **kernel** → restart kernel (`npm start`).
+- **Oleh:** Copilot · **Laporan:** andriansah
+
+---
+
 ## 2026-09-17
 
 ### Kontrak `IVFS` jadi `MaybePromise` — backend filesystem jaringan (NetFS)

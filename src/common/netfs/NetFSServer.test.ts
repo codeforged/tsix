@@ -4,6 +4,7 @@ import { NetFSServer } from "./NetFSServer";
 import {
     NETFS_MAX_CHUNK_BYTES,
     NETFS_MAX_REQUEST_BYTES,
+    NETFS_MAX_RESPONSE_BYTES,
     NETFS_VERSION,
     blob,
     blobData,
@@ -216,6 +217,30 @@ describe("NetFSServer — SL core (N1)", () => {
 
         const size = await server.handle(req(18, "getSize", "/docs/chunked.bin"));
         expect(size.result).toBe(NETFS_MAX_CHUNK_BYTES * 2);
+    });
+
+    it("N1.14 read konten besar ditolak ETOOBIG (pagar balasan), readChunk tetap jalan", async () => {
+        // Kejadian nyata: klien `cp` file 70 MB dari export bkfs → SL mencoba
+        // mengirim seluruh isi dalam SATU balasan → node SH OOM, dan klien
+        // timeout 5 s lebih dulu. Pagar ini menolaknya SEBELUM konten dibaca.
+        const big = "B".repeat(NETFS_MAX_RESPONSE_BYTES + 1);
+        await server.handle(req(19, "writeChunk", "/docs/big.bin", [blob(big.slice(0, NETFS_MAX_CHUNK_BYTES)), 0]));
+        backend.touch(`${PREFIX}/docs/big.bin`, big, 0, 0, 0o644);
+
+        const rejected = await server.handle(req(20, "read", "/docs/big.bin"));
+        expect(rejected.ok).toBe(false);
+        expect(rejected.code).toBe("ETOOBIG");
+        expect(rejected.err).toContain("readChunk"); // pesannya menuntun ke solusi
+
+        // Jalur pengganti: potongan tetap dilayani (ini yang dipakai klien).
+        const piece = await server.handle(req(21, "readChunk", "/docs/big.bin", [0, NETFS_MAX_CHUNK_BYTES]));
+        expect(piece.ok).toBe(true);
+        expect(blobData(piece.result)!.length).toBe(NETFS_MAX_CHUNK_BYTES);
+
+        // File kecil tetap 1 balasan (jalur cepat tidak dikorbankan).
+        const small = await server.handle(req(22, "read", "/docs/a.txt"));
+        expect(small.ok).toBe(true);
+        expect(blobData(small.result)).toBe("halo netfs");
     });
 });
 

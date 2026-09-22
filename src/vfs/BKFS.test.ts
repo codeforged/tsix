@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { BKFS } from "./BKFS";
 import Database from "better-sqlite3";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 
 describe("BKFS (SQLite-based)", () => {
     let bkfs: BKFS;
@@ -155,5 +158,48 @@ describe("BKFS (SQLite-based)", () => {
         const u = await bkfs.getUsage();
         expect(u.files).toBeGreaterThanOrEqual(2);
         expect(u.size).toBeGreaterThanOrEqual(10);
+    });
+
+    // ============================================================
+    // B2.26–B2.27: metadata TIDAK boleh membaca konten
+    // ============================================================
+    it("B2.26 stat – hanya metadata, kolom content tidak ikut terbawa", async () => {
+        bkfs.touch("/meta.txt", "12345");
+        const s = bkfs.stat("/meta.txt")!;
+
+        // `SELECT *` dulu ikut mengambil `content`: untuk file besar itu berarti
+        // mematerialisasi seluruh isi (string JS ~2x ukuran byte) hanya untuk
+        // membaca `size` — di lapangan ini membuat klien NetFS timeout 5 s dan
+        // kernel SH OOM. Metadata yang dibutuhkan pemanggil tetap lengkap.
+        expect("content" in s).toBe(false);
+        expect(s.name).toBe("meta.txt");
+        expect(s.size).toBe(5);
+        expect(s.type).toBe("FILE");
+        expect(typeof s.mode).toBe("number");
+        expect(typeof s.uid).toBe("number");
+        expect(typeof s.gid).toBe("number");
+        expect(typeof s.created_at).toBe("number");
+        expect(typeof s.modified_at).toBe("number");
+        expect(typeof s.parent_id).toBe("number");
+    });
+
+    it("B2.27 getUsage – dihitung dari kolom size, bukan length(content)", async () => {
+        // Bukti paling langsung: isi `content` dikosongkan lewat koneksi SQLite
+        // kedua (mensimulasikan "konten tidak dibaca/tidak ada"), angka `size`
+        // HARUS tetap utuh karena kolom itulah sumbernya.
+        const dbPath = path.join(os.tmpdir(), `bkfs-usage-${process.pid}-${Date.now()}.db`);
+        const local = new BKFS(dbPath);
+        try {
+            local.touch("/big.bin", "1234567890");
+
+            const raw = new Database(dbPath);
+            raw.prepare("UPDATE vnodes SET content = '' WHERE name = 'big.bin'").run();
+            raw.close();
+
+            const u = await local.getUsage();
+            expect(u.size).toBe(10);
+        } finally {
+            fs.rmSync(dbPath, { force: true });
+        }
     });
 });

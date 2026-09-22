@@ -73,6 +73,23 @@ export const NETFS_DEFAULT_TIMEOUT_MS = 5000;
 export const NETFS_MAX_REQUEST_BYTES = 256 * 1024;
 
 /**
+ * Batas ukuran satu frame RESPONSE yang boleh dikirim SL dalam satu balasan.
+ *
+ * Sengaja sama dengan `NETFS_MAX_REQUEST_BYTES` supaya kedua arah simetris:
+ * potongan sah (`NETFS_MAX_CHUNK_BYTES` = 124 KiB) selalu lolos, sedangkan
+ * balasan raksasa **ditolak `ETOOBIG` sebelum kontennya dibaca**.
+ *
+ * Kenapa perlu pagar di arah balasan: `read` satu file 70 MB berarti SL
+ * mematerialisasi isi file (string JS ~2x ukuran byte), meng-encode frame
+ * raksasa, lalu MQTNL memecahnya jadi ribuan paket — semuanya menahan satu
+ * event loop, dan RAM node SH bisa habis (kejadian nyata: kernel SH OOM
+ * `Reached heap limit` saat klien menyalin file 70 MB). Klien yang menerima
+ * `ETOOBIG` otomatis memakai `readChunk` (lihat `NetFS.read()`), jadi
+ * operasi tetap berjalan — hanya per potongan.
+ */
+export const NETFS_MAX_RESPONSE_BYTES = 256 * 1024;
+
+/**
  * Ukuran maksimum konten per potongan (`readChunk`/`writeChunk`) — sekaligus
  * batas konten inline untuk `touch`/`append`/`read`, byte.
  *

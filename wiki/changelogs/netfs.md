@@ -8,6 +8,61 @@ Dokumentasi lengkap: [`wiki/netfs.md`](../netfs.md).
 
 ## 2026-09-22
 
+### `cp` dari NetFS → VFS: `stat` timeout 5 s + kernel SH OOM (jalur metadata & pagar balasan)
+
+- **File:** `src/vfs/BKFS.ts`, `src/vfs/NetFS.ts`, `src/common/netfs/NetFSProtocol.ts`,
+  `src/common/netfs/NetFSServer.ts` (+ test: `BKFS.test.ts` B2.26–B2.27,
+  `NetFSServer.test.ts` N1.14, `NetFS.test.ts` N2.17–N2.18)
+- **Gejala (dua laporan berurutan):**
+    ```
+    root@tsix# cp /mnt/net/video.mov ./
+    cp: error copying '/mnt/net/video.mov': NetFS[/mnt/net → localhost:8888]: timeout 5000ms pada stat /video.mov
+    root@tsix# df
+    tsix://jatit...    STALE   -   0   0   /mnt/net
+    ```
+    lalu di SH (`jatitsix`), kernel mati:
+    ```
+    Mark-Compact 100.5 (105.7) -> 29.6 (36.2) MB ...
+    Mark-Compact 823.8 (830.4) -> 823.8 (827.1) MB ... allocation failure
+    FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+    ```
+- **Catatan penting (laporan lapangan):** arah **tulis** sudah aman — copy 70 MB ke mount
+  NetFS jalan karena driver sudah memecah otomatis (`writeContent()`). Yang belum dipecah
+  adalah arah **baca**.
+- **Akar 1 — `BKFS.stat()` memakai `SELECT *`** sehingga ikut menarik kolom `content`:
+  untuk file 70 MB itu berarti mematerialisasi seluruh isi + string JS ~2× ukuran byte
+  **hanya untuk membaca `size`/`mode`**. Diukur pada file 60 MB (plafon heap 256 MB):
+  perilaku lama menambah **+60 MB heap per panggilan** (126 → 185 → 245 MB) dan `FATAL
+  ERROR` di iterasi ke-3; setelah fix **datar 0 MB**. Itu persis pola OOM di SH: beberapa
+  `stat`/`OPEN` beruntun (klien retry) menghabiskan heap.
+  `BKFS.getUsage()` punya penyakit sama — `SUM(length(content))` membaca isi SETIAP file,
+  jadi `df` lambat/timeout → mount ditandai `STALE`.
+- **Akar 2 — `read` tak dibatasi & tak dipecah:** satu op `read` = satu balasan berisi
+  SELURUH file. 70 MB dalam satu frame tidak mungkin selesai dalam timeout 5 s, dan
+  memaksanya membuat SL (satu event loop) mematerialisasi isi + MQTNL memecahnya jadi
+  ribuan paket — RAM node SH habis.
+- **Perubahan:**
+    1. `BKFS.stat()` memilih kolom metadata saja (`VNODE_META_COLUMNS` — `content`
+       sengaja tidak ikut) dan `getUsage()` menghitung dari kolom `size` yang dipelihara
+       `touch`/`append`/`writeChunk` (sekaligus kini konsisten dengan `ls -l`).
+    2. Konstanta baru `NETFS_MAX_RESPONSE_BYTES` (256 KiB, sama dengan pagar request) +
+       pagar di SL: `read` memeriksa `getSize` **dulu** → `ETOOBIG` sebelum konten dibaca.
+    3. Driver `NetFS.read()` menangkap `ETOOBIG` lalu membaca per `readChunk` (cermin
+       `writeContent()`); file kecil tetap **1 round-trip** — jalur cepat tidak dikorbankan.
+- **Verifikasi:** 84 test NetFS/VFS/kernel-netfs hijau (N1.14 membuktikan pagar balasan,
+  N2.17 fallback chunk, N2.18 tetap 1 frame untuk file kecil, B2.26/B2.27 metadata tanpa
+  konten). `npm test` = **1148 passed**, 8 kegagalan **pra-ada** (tidak ada regresi).
+- **Deploy:** `BKFS.ts` + `NetFS.ts` + `NetFSProtocol.ts` ada di **kernel** → restart
+  kernel di **kedua** node. `NetFSServer.ts`/`NetFSBackend.ts` ada di **userland** →
+  `npm run vfs:bootstrap` **dan restart `netfsd` di SH** (pagar balasan ditegakkan di SL).
+- **Sisa (belum dikerjakan):** `cp` masih pola baca-semua → tulis-semua (puncak ~70 MB di
+  klien). Untuk file besar, `fs.copyWithProgress()` (124 KiB per potongan) sudah tersedia
+  dan aman dari sisi RAM; `writeChunk` di export **bkfs** tetap O(n²) seperti dicatat di
+  entri di bawah — export direktori `host` tetap rekomendasi untuk file besar.
+- **Oleh:** Copilot · **Laporan:** andriansah
+
+## 2026-09-22
+
 ### NetFS — chunk 124 KiB (4 fragmen) + temuan bottleneck RTT & O(n²) di bkfs
 
 - **File:** `src/common/netfs/NetFSProtocol.ts`, `src/mirror/lib/UserLib.ts`, `src/mirror/opt/test/file-operation.ts`, `src/common/netfs/NetFSServer.test.ts`.

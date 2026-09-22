@@ -3,6 +3,7 @@ import {
     NETFS_HEADER_SIZE,
     NETFS_MAX_CHUNK_BYTES,
     NETFS_MAX_REQUEST_BYTES,
+    NETFS_MAX_RESPONSE_BYTES,
     NETFS_OP_LIST,
     NETFS_TYPE_REQUEST,
     NETFS_VERSION,
@@ -282,8 +283,27 @@ export class NetFSServer {
                     this.numOrUndef(args[1]),
                     this.numOrUndef(args[2]),
                 );
-            case "read":
+            case "read": {
+                // Pagar BALASAN — konten besar tidak boleh dikirim dalam satu frame.
+                //
+                // Ukuran diperiksa DULU (lewat `getSize`, metadata saja) supaya
+                // isi file yang besar tidak pernah masuk memori hanya untuk ditolak.
+                // Klien menerima `ETOOBIG` lalu pindah ke `readChunk`.
+                let size = -1;
+                try {
+                    size = Number(await b.getSize(path));
+                } catch {
+                    // Bukan file biasa (ENOENT / direktori) → jalur lama yang
+                    // menjawab, supaya pesan/null-nya tetap tepat.
+                }
+                if (Number.isFinite(size) && size > NETFS_MAX_RESPONSE_BYTES) {
+                    throw new NetFSError(
+                        "ETOOBIG",
+                        `read ${size} byte melebihi batas balasan ${NETFS_MAX_RESPONSE_BYTES} — gunakan readChunk`,
+                    );
+                }
                 return blob(await b.read(path));
+            }
             case "touch":
                 // Args: [content, uid, gid, mode]
                 return await b.touch(

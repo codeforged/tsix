@@ -5,6 +5,7 @@ import { NetFSServer } from "../common/netfs/NetFSServer";
 import {
     NETFS_MAX_CHUNK_BYTES,
     NETFS_MAX_REQUEST_BYTES,
+    NETFS_MAX_RESPONSE_BYTES,
     NetFSError,
     encodeNetFSResponse,
 } from "../common/netfs/NetFSProtocol";
@@ -311,5 +312,33 @@ describe("NetFS client driver (N2)", () => {
         expect(await fs.append("/docs/bin.dat", big)).toBe(true);
         expect(await fs.getSize("/docs/bin.dat")).toBe(big.length);
         expect(await fs.read("/docs/bin.dat")).toBe(big);
+    });
+
+    it("N2.17 read file besar jatuh ke readChunk otomatis (arah baca, kebalikan writeContent)", async () => {
+        // Jalur tulis sudah dipecah otomatis (N2.14). Arah BACA dulu belum: satu
+        // `read` file 70 MB = satu balasan raksasa → klien timeout 5 s dan node SH
+        // kehabisan heap. SL kini menolaknya (ETOOBIG) dan klien memakai readChunk.
+        const fs = mountFS();
+        const big = "R".repeat(NETFS_MAX_RESPONSE_BYTES + 3 * 1024);
+
+        // Siapkan lewat jalur tulis (sudah teruji aman).
+        expect(await fs.append("/docs/huge.bin", big)).toBe(true);
+
+        const before = channel.sent;
+        expect(await fs.read("/docs/huge.bin")).toBe(big);
+
+        // Terbukti dipecah: banyak frame, dan tidak ada yang melewati pagar.
+        expect(channel.sent - before).toBeGreaterThan(2);
+        expect(channel.maxSent).toBeLessThanOrEqual(NETFS_MAX_REQUEST_BYTES);
+    });
+
+    it("N2.18 read file kecil tetap satu round-trip (jalur cepat tidak dikorbankan)", async () => {
+        const fs = mountFS();
+        const before = channel.sent;
+
+        expect(await fs.read("/docs/a.txt")).toBe("halo netfs");
+
+        // 1 frame request saja — fallback chunk hanya untuk konten besar.
+        expect(channel.sent - before).toBe(1);
     });
 });
