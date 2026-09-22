@@ -11,7 +11,8 @@
       "items": [
         {
           "src": "/opt/test/hello-pkg.ts",
-          "dst": "/root/bucket/hello-pkg.ts"
+          "dst": "/opt/test/hello-pkg.ts",
+          "isExecutable": true
         },
         {
           "src": "/etc/pkg-demo.conf",

@@ -44,7 +44,9 @@ export class Main {
                     needReboot: false,
                     onAfterDownload: "/opt/test/hello-pkg.ts",
                     items: [
-                        { src: sampleBin, dst: "/opt/test/hello-pkg.ts" },
+                        // `isExecutable` wajib untuk skrip di luar /bin: tanpa itu file
+                        // baru dibuat dengan mode 0o644 dan post-install gagal (126).
+                        { src: sampleBin, dst: "/opt/test/hello-pkg.ts", isExecutable: true },
                         { src: sampleConfig, dst: "/etc/pkg-demo.conf" }
                     ]
                 }
