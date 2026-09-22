@@ -307,6 +307,14 @@ berdasarkan identitas `netfsd`. Jadi klien tidak bisa memalsukan kepemilikan.
 
 ### 7.1 Kenapa transfer bisa terasa pelan (penting untuk ekspektasi)
 
+**Data lapangan (2026-09-22, 70 MB dari `/mnt/shared` ke mount NetFS, SH `jatitsix`):**
+
+| Build                                    | Waktu           | Rata-rata | Terukur                                                          |
+| ---------------------------------------- | --------------- | --------- | ---------------------------------------------------------------- |
+| chunk 31 KB                              | ~40 menit       | ~29 KB/s  | 1 chunk = 1 round-trip; backend bkfs menulis ulang seluruh baris |
+| chunk 124 KB                             | **12 mnt 44 s** | ~92 KB/s  | `cp` → `Time execution: 763938ms` (~3,1×)                        |
+| chunk 124 KB + export `host` (perkiraan) | ~2,4–3 menit    | ~490 KB/s | sisa ~80% waktu hilang di bkfs                                   |
+
 - **Round-trip adalah biaya dominan.** RTT broker publik sering 150–250 ms, dan
   jalur tulis NetFS sekuensial (1 chunk = 1 round-trip). Ukur dulu dengan
   `netfs info <addr>` (mencetak RTT) sebelum menyalahkan bandwidth:
@@ -314,9 +322,9 @@ berdasarkan identitas `netfsd`. Jadi klien tidak bisa memalsukan kepemilikan.
 - Karena itu chunk dibuat **kelipatan 4 fragmen MQTNL** — menaikkan chunk tidak
   menambah byte/publish, hanya memangkas jumlah balasan.
 - **Rantai hop ikut menambah latensi**: `mount --via` menambah hop relay userland
-    - batas syscall di node klien; `--direct` melewatinya. Kalau kedua node di LAN
-      yang sama, menaruh broker **di LAN** adalah satu-satunya cara menghilangkan
-      latensi jaringan tanpa mengubah protokol.
+  dan batas syscall di node klien; `--direct` melewatinya. Kalau kedua node di LAN
+  yang sama, menaruh broker **di LAN** adalah satu-satunya cara menghilangkan
+  latensi jaringan tanpa mengubah protokol.
 - **Target export juga berpengaruh.** `netfsd --export` menulis lewat
   `lib.fs.writeChunk` di SH:
     - `host` (HostVFS) → `pwrite` di offset = **O(1) per chunk**, ini yang ideal;
@@ -325,6 +333,10 @@ berdasarkan identitas `netfsd`. Jadi klien tidak bisa memalsukan kepemilikan.
       chunk / O(n²) per file**. Untuk file ratusan MB, export-kan direktori `host`
       (mis. `netfsd --export /mnt/host/data`), bukan mount `bkfs`.
     - `ramfs` → `VFS.writeChunk` menyambung string di memori, juga O(n) per chunk.
+
+    Kenapa chunk besar juga membantu di sini: total kerja backend ≈
+    `N² / (2 × chunk)` — chunk 4× lebih besar juga memotong kerja rewrite bkfs 4×
+    (77 GB → 19 GB untuk file 70 MB), bukan cuma jumlah round-trip.
 
 ---
 
