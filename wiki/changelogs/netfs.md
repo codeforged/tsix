@@ -103,6 +103,14 @@ Dokumentasi lengkap: [`wiki/netfs.md`](../netfs.md).
     dari bkfs, karena tiap `writeChunk` menulis ulang seluruh kolom `content`.
     Konsekuensi praktis: untuk berkas besar, **export direktori `host`** dulu
     (`pwrite` O(1)) — atau ubah penyimpanan bkfs agar ramah append (bukan satu kolom).
+- **Konteks pemakaian (laporan user, 2026-09-22) — jadi O(n²) bkfs TIDAK mendesak:**
+  berkas 70 MB itu **stress test**. Berkas terbesar di `tsix` saat ini **< 200 KB**
+  (`emerald.ts` 188K, `cashew.ts` 104K, `asteracea.ts` 108K, `tsh.ts` 100K, …), dan pada
+  ukuran itu satu berkas hanya butuh 1–2 potongan 124 KiB — tulis/baca selesai dalam
+  hitungan round-trip, O(n²) tidak terasa. Catatan plafon di atas disimpan sebagai
+  **data & pemicu**: kalau suatu saat aset media besar jadi kasus nyata di mount NetFS,
+  baru opsi (2) dipertimbangkan. Baca 70 MB yang tadinya 0 byte sekarang bekerja normal
+  (ini yang penting).
 - **Deploy:** perbaikan intinya di `BKFS.ts` (KERNEL) → **kedua node** harus restart
   kernel (`npm start` untuk jalur cepat) + `npm run vfs:bootstrap`; SH juga restart
   `netfsd`. Tidak ada berkas yang perlu disalin ulang — data lama tetap valid.
