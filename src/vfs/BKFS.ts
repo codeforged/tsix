@@ -209,6 +209,11 @@ export class BKFS implements IVFS {
         // justru yang paling butuh migrasi.
         this.db.pragma("foreign_keys = ON");
 
+        // Bersihkan blok tidak sah (lihat `repairStorage()`). Idempoten dan murah —
+        // dua COUNT + (bila perlu) dua DELETE pada tabel blok. Tanpa ini sampah tersebut
+        // menumpuk tanpa gejala dan baru ketahuan saat ruang disk habis.
+        this.repairStorage();
+
         // Override root ownership/permissions if specified
         if (uid !== undefined || gid !== undefined || mode !== undefined) {
             this.stmt("UPDATE vnodes SET uid = ?, gid = ?, mode = ? WHERE name = '/' AND parent_id IS NULL").run(
@@ -496,22 +501,10 @@ export class BKFS implements IVFS {
         const now = Date.now();
 
         return this.batch(() => {
-            this.clearBlocks(nodeId);
-
             if (text.length <= this.opts.inlineMaxBytes) {
-                this.stmt("UPDATE vnodes SET content = ?, size = ?, modified_at = ? WHERE id = ?").run(
-                    encodeContent(text),
-                    text.length,
-                    now,
-                    nodeId,
-                );
+                this.writeInline(nodeId, text, text.length, now);
             } else {
-                this.writeBlocks(nodeId, text, 0);
-                this.stmt("UPDATE vnodes SET content = NULL, size = ?, modified_at = ? WHERE id = ?").run(
-                    text.length,
-                    now,
-                    nodeId,
-                );
+                this.writeToBlocks(nodeId, text, 0, text.length, now, true);
             }
             return true;
         });
@@ -541,16 +534,21 @@ export class BKFS implements IVFS {
 
         // Masih inline dan hasilnya tetap muat → baca-gabung-tulis (isi ≤ 64 KiB,
         // jadi biayanya kecil dan tidak perlu menyentuh tabel blok).
+        //
+        // `blockCount() === 0` adalah syarat WAJIB, bukan sekadar optimasi: kalau baris
+        // ini punya blok sisa (keadaan campuran — lihat `writeInline()`), maka isi file
+        // yang sebenarnya ada di blok, dan menggabung ke `content` akan menulis di atas
+        // data yang tidak dibaca siapa pun. Lebih baik lewat jalur potongan, yang
+        // memindahkan isi ke blok secara benar.
         const inlineText = this.inlineContent(nodeId);
-        if (inlineText !== null && inlineText.length + text.length <= this.opts.inlineMaxBytes) {
+        if (
+            inlineText !== null &&
+            this.blockCount(nodeId) === 0 &&
+            inlineText.length + text.length <= this.opts.inlineMaxBytes
+        ) {
             const merged = inlineText + text;
             return this.batch(() => {
-                this.stmt("UPDATE vnodes SET content = ?, size = ?, modified_at = ? WHERE id = ?").run(
-                    encodeContent(merged),
-                    merged.length,
-                    Date.now(),
-                    nodeId,
-                );
+                this.writeInline(nodeId, merged, merged.length, Date.now());
                 return true;
             });
         }
@@ -851,6 +849,48 @@ export class BKFS implements IVFS {
     }
 
     /**
+     * writeInline(): SATU-SATUNYA jalur yang boleh menulis kolom `content`.
+     *
+     * ATURAN PENYIMPANAN BKFS: "content ATAU blok, tidak pernah keduanya".
+     *
+     * Sebelum ini aturan itu hanya diingat oleh pemanggil (`clearBlocks()` dipanggil
+     * manual di setiap jalur tulis) — dan satu jalur yang lupa sudah cukup untuk
+     * merusak baris secara DIAM-DIAM. Kasus nyata yang ditemukan di database asli
+     * (`/var/log/syslog`, vnode 493): `content` 17 KB *dan* blok sisa 2,6 MB. Karena
+     * `read()` membaca `content`, isinya tidak salah — tapi 260 KB blok menjadi sampah
+     * tak terlihat yang tidak pernah dibaca maupun dibuang. Lebih buruk lagi: kalau
+     * `content` di-NULL-kan (mis. saat promosi ke blok), isi LAMA akan "menyembul"
+     * kembali.
+     *
+     * Karena itu pembuangan blok sekarang MENEMPEL pada penulisan inline: mustahil
+     * menulis `content` tanpa membuang blok, dari jalur mana pun (termasuk skrip host
+     * yang memakai class ini).
+     */
+    private writeInline(nodeId: number, text: string, size: number, now: number): void {
+        this.clearBlocks(nodeId);
+        this.stmt("UPDATE vnodes SET content = ?, size = ?, modified_at = ? WHERE id = ?").run(
+            encodeContent(text),
+            size,
+            now,
+            nodeId,
+        );
+    }
+
+    /**
+     * writeToBlocks(): Jalur tulis untuk isi besar.
+     *
+     * `content` dipastikan NULL lebih dulu — kalau tidak ada DUA sumber kebenaran
+     * (lihat `writeInline()`). `reset=true` untuk tulis-ulang penuh (`touch()`);
+     * `reset=false` untuk potongan (`writeChunk()`), di mana blok lain dipertahankan.
+     */
+    private writeToBlocks(nodeId: number, text: string, offset: number, size: number, now: number, reset: boolean): void {
+        if (reset) this.clearBlocks(nodeId);
+        this.stmt("UPDATE vnodes SET content = NULL WHERE id = ?").run(nodeId);
+        this.writeBlocks(nodeId, text, offset);
+        this.stmt("UPDATE vnodes SET size = ?, modified_at = ? WHERE id = ?").run(size, now, nodeId);
+    }
+
+    /**
      * writeBlocks(): Tulis `text` ke tabel blok mulai posisi `offset`.
      *
      * INI INTI PERBAIKAN O(n²). Dulu seluruh isi file hidup di satu baris, jadi
@@ -919,13 +959,20 @@ export class BKFS implements IVFS {
         const len = length < 0 ? 0 : length;
         if (start >= size) return "";
 
-        if (this.blockCount(nodeId) > 0) return this.readChunkFromBlocks(nodeId, start, len, size);
-
+        // Sumber isi ditentukan oleh kolom `content` — SAMA seperti `read()`. Memakai
+        // jumlah blok saja akan salah pada baris campuran (blok sisa): `read()` membaca
+        // `content`, `readChunk()` membaca blok, dan keduanya menjawab berbeda untuk
+        // file yang sama.
+        //
         // Jenis nilai diperiksa tanpa mengambil isinya: SQLite menyimpan tipe di header
         // record, jadi `typeof()` tidak mematerialisasi kolom.
         const kind = this.stmt("SELECT typeof(content) AS t FROM vnodes WHERE id = ?").get(nodeId) as
             | { t: string }
             | undefined;
+
+        if ((!kind || kind.t === "null") && this.blockCount(nodeId) > 0) {
+            return this.readChunkFromBlocks(nodeId, start, len, size);
+        }
 
         if (kind?.t === "blob") {
             const row = this.stmt("SELECT substr(content, ?, ?) AS piece FROM vnodes WHERE id = ?").get(
@@ -1012,24 +1059,23 @@ export class BKFS implements IVFS {
         this.forgetChunkCache();
 
         return this.batch(() => {
-            const hasBlocks = this.blockCount(nodeId) > 0;
+            // Sumber kebenaran bentuk penyimpanan adalah KOLOM `content`, bukan jumlah
+            // blok: `content` terisi = file inline; `content` NULL = file memakai blok.
+            // (Menjumlahkan blok saja akan salah pada baris campuran — lihat `writeInline()`.)
+            const inline = this.inlineContent(nodeId);
 
-            if (!hasBlocks && newSize <= this.opts.inlineMaxBytes) {
-                const current = this.inlineContent(nodeId) ?? "";
-                const merged = current.slice(0, offset) + text + current.slice(offset + text.length);
-                this.stmt("UPDATE vnodes SET content = ?, size = ?, modified_at = ? WHERE id = ?").run(
-                    encodeContent(merged),
-                    merged.length,
-                    now,
-                    nodeId,
-                );
+            if (inline !== null && newSize <= this.opts.inlineMaxBytes) {
+                const merged = inline.slice(0, offset) + text + inline.slice(offset + text.length);
+                this.writeInline(nodeId, merged, merged.length, now);
                 return true;
             }
 
-            if (!hasBlocks) {
-                const current = this.inlineContent(nodeId) ?? "";
+            if (inline !== null) {
+                // Promosi inline → blok, sekali per file. Sisa blok (kalau ada) dibuang
+                // lebih dulu supaya tidak ada blok lama yang ikut terbaca.
+                this.clearBlocks(nodeId);
                 this.stmt("UPDATE vnodes SET content = NULL WHERE id = ?").run(nodeId);
-                if (current.length > 0) this.writeBlocks(nodeId, current, 0);
+                if (inline.length > 0) this.writeBlocks(nodeId, inline, 0);
             }
 
             this.writeBlocks(nodeId, text, offset);
@@ -1055,14 +1101,115 @@ export class BKFS implements IVFS {
     public storageKind(path: string): "inline" | "blocks" | "missing" {
         const nodeId = this.getNodeId(path);
         if (nodeId < 0) return "missing";
-        if (this.blockCount(nodeId) > 0) return "blocks";
-        return this.inlineContent(nodeId) === null ? "missing" : "inline";
+        // Urutan penting: `content` diperiksa lebih dulu karena itulah yang dibaca
+        // `read()`. Dengan urutan lama (blok dulu), baris campuran dilaporkan "blocks"
+        // padahal yang dibaca `content` — laporan yang menyembunyikan masalah.
+        if (this.inlineContent(nodeId) !== null) return "inline";
+        return this.blockCount(nodeId) > 0 ? "blocks" : "missing";
     }
 
     /** countBlocks(): Jumlah blok sebuah file (0 kalau inline atau tidak ada). */
     public countBlocks(path: string): number {
         const nodeId = this.getNodeId(path);
         return nodeId < 0 ? 0 : this.blockCount(nodeId);
+    }
+
+    /** countOf(): Jalankan query `SELECT COUNT(*) AS n ...` tanpa parameter. */
+    private countOf(sql: string): number {
+        const row = this.stmt(sql).get() as { n: number } | undefined;
+        return row ? row.n : 0;
+    }
+
+    /**
+     * storageHealth(): Laporan kesehatan penyimpanan (untuk diagnostik/operasional).
+     *
+     * Kenapa perlu: `quick_check` SQLite hanya memeriksa integritas HALAMAN. Bentuk
+     * penyimpanan yang tidak konsisten (content + blok, blok yatim, blok bolong) tetap
+     * dilaporkan "ok" — padahal itu kehilangan ruang dan sumber bug di masa depan.
+     */
+    public storageHealth(): {
+        inlineFiles: number;
+        blockFiles: number;
+        legacyTextFiles: number;
+        legacyNulFiles: number;
+        orphanBlocks: number;
+        staleBlocks: number;
+        holeyFiles: number;
+        sizeMismatch: number;
+        emptyWithoutBlocks: number;
+    } {
+        return {
+            inlineFiles: this.countOf("SELECT COUNT(*) AS n FROM vnodes WHERE type = 'FILE' AND content IS NOT NULL"),
+            blockFiles: this.countOf("SELECT COUNT(DISTINCT vnode_id) AS n FROM blocks"),
+            // Baris WARISAN: isi disimpan sebagai TEXT (bukan BLOB). Binernya di-encode
+            // UTF-8 → byte ≥ 0x80 memakai 2 byte, jadi aset biner ~2× lebih besar.
+            legacyTextFiles: this.countOf(
+                "SELECT COUNT(*) AS n FROM vnodes WHERE type = 'FILE' AND typeof(content) = 'text'",
+            ),
+            // TEXT yang panjang `size`-nya MELEBIHI `length()` berarti isinya punya byte
+            // NUL: SQLite `length()` pada TEXT berhenti di NUL pertama (makanya PNG 180 KB
+            // terbaca "8 karakter"). Hanya bisa dipastikan benar setelah ditulis ulang
+            // sebagai BLOB.
+            legacyNulFiles: this.countOf(
+                "SELECT COUNT(*) AS n FROM vnodes WHERE type = 'FILE' AND typeof(content) = 'text' AND IFNULL(size, 0) > length(content)",
+            ),
+            orphanBlocks: this.countOf(
+                "SELECT COUNT(*) AS n FROM blocks WHERE vnode_id NOT IN (SELECT id FROM vnodes)",
+            ),
+            staleBlocks: this.countOf(
+                "SELECT COUNT(*) AS n FROM blocks WHERE vnode_id IN (SELECT id FROM vnodes WHERE content IS NOT NULL)",
+            ),
+            holeyFiles: this.countOf(
+                "SELECT COUNT(*) AS n FROM (SELECT vnode_id, COUNT(*) AS c, MAX(seq) + 1 AS m FROM blocks GROUP BY vnode_id HAVING c <> m)",
+            ),
+            // HANYA baris BLOB yang diperiksa: pada TEXT, `length()` berhenti di byte NUL
+            // sehingga perbandingannya akan selalu salah untuk aset biner warisan dan
+            // menghasilkan alarm palsu (147 "masalah" padahal cuma bentuk lama).
+            sizeMismatch: this.countOf(
+                "SELECT COUNT(*) AS n FROM vnodes WHERE type = 'FILE' AND typeof(content) = 'blob' AND length(content) <> IFNULL(size, 0)",
+            ),
+            emptyWithoutBlocks: this.countOf(
+                "SELECT COUNT(*) AS n FROM vnodes WHERE type = 'FILE' AND content IS NULL AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocks.vnode_id = vnodes.id)",
+            ),
+        };
+    }
+
+    /**
+     * repairStorage(): Buang blok yang tidak sah, lalu laporkan apa yang dibuang.
+     *
+     * Dua bentuk blok tidak sah:
+     *   1. YATIM — vnode-nya sudah tidak ada. Terjadi kalau ada yang menghapus baris
+     *      `vnodes` tanpa FK aktif sehingga CASCADE tidak jalan — termasuk migrasi dedup
+     *      di `initSchema()`, yang memang sengaja berjalan SEBELUM `foreign_keys = ON`.
+     *   2. BASI — barisnya PUNYA `content`, jadi isi file ada di `content` dan bloknya
+     *      sisa dari bentuk sebelumnya. Kasus nyata: `/var/log/syslog` (vnode 493) di
+     *      database asli: `content` 17 KB + blok sisa 2,6 MB.
+     *
+     * Dijalankan otomatis setiap database dibuka: sampah seperti ini tidak menghasilkan
+     * galat apa pun — hanya ruang terbuang dan potensi "isi hantu" muncul kembali kalau
+     * `content` di-NULL-kan — jadi tidak ada cara menemukannya tanpa memeriksa.
+     *
+     * AMAN terhadap data: yang dibuang hanya blok yang memang TIDAK dibaca siapa pun,
+     * karena `read()` membaca `content` bila `content` tidak NULL.
+     */
+    public repairStorage(): { orphan: number; stale: number } {
+        if (this.readOnly) return { orphan: 0, stale: 0 };
+
+        const orphan = this.countOf("SELECT COUNT(*) AS n FROM blocks WHERE vnode_id NOT IN (SELECT id FROM vnodes)");
+        const stale = this.countOf(
+            "SELECT COUNT(*) AS n FROM blocks WHERE vnode_id IN (SELECT id FROM vnodes WHERE content IS NOT NULL)",
+        );
+        if (orphan === 0 && stale === 0) return { orphan: 0, stale: 0 };
+
+        this.batch(() => {
+            this.stmt("DELETE FROM blocks WHERE vnode_id NOT IN (SELECT id FROM vnodes)").run();
+            this.stmt("DELETE FROM blocks WHERE vnode_id IN (SELECT id FROM vnodes WHERE content IS NOT NULL)").run();
+        });
+        this.logger.warn(
+            `Blok tidak sah dibersihkan: ${orphan} yatim + ${stale} basi. ` +
+                `Isi file (kolom content) tidak disentuh — hanya sampah yang dibuang.`,
+        );
+        return { orphan, stale };
     }
 
     /**

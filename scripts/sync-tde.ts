@@ -16,6 +16,13 @@ function main() {
             // diperbarui. Dua-duanya penting: TEXT membuat `substr()` SQLite berhenti
             // di byte NUL, dan `size` yang basi membuat `readChunk()` memotong di
             // batas yang salah (kolom `size` = sumber kebenaran panjang file).
+            // ATURAN PENYIMPANAN BKFS: isi file ada di kolom `content` ATAU di tabel
+            // `blocks`, tidak pernah keduanya. Baris yang sudah pindah ke blok punya
+            // `content` NULL. Skrip ini menulis `content` langsung (pernah menjadi satu-
+            // satunya jalur yang melewati aturan itu) — jadi bloknya WAJIB dibuang lebih
+            // dulu, kalau tidak blok sisa akan tertinggal sebagai sampah yang tidak
+            // pernah dibaca siapa pun (kasus nyata: `/var/log/syslog`, 260 KB).
+            db.prepare('DELETE FROM blocks WHERE vnode_id = ?').run(existing.id);
             db.prepare('UPDATE vnodes SET content = ?, size = ? WHERE id = ?').run(encodeContent(content), content.length, existing.id);
             console.log(`✅ Updated ${name} (ID: ${existing.id})`);
         } else {

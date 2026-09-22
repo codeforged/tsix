@@ -143,6 +143,27 @@ Perhatikan baris kedua: penyebab lambatnya BUKAN fsync journal, melainkan SQLite
 membangun ulang string seukuran file tiap potongan (kerja CPU + memori). Karena itu
 perbaikannya harus **struktural** (blok), bukan sekadar ganti mode journal.
 
+#### Aturan: `content` ATAU `blocks` — tidak pernah keduanya
+
+Baris dengan `content` terisi = file inline (itu yang dibaca `read()`); baris dengan
+`content` NULL = file memakai blok.
+
+Aturan itu dulu hanya “diingat” pemanggil: `clearBlocks()` dipanggil manual di setiap
+jalur tulis, dan **satu jalur yang lupa sudah cukup merusak baris secara diam-diam**.
+Kasus nyata di database asli: `/var/log/syslog` punya `content` 17 KB *dan* blok sisa
+2,6 MB (`seq` 0, 1, 19 — bolong). Isinya tidak salah (yang dibaca `content`), tapi
+260 KB jadi sampah tak terlihat — dan `readChunk()` menjawab berbeda dari `read()`
+untuk file yang sama.
+
+Sekarang aturannya **struktural**, bukan hafalan:
+
+| Penjaga | Perilaku |
+|---|---|
+| `writeInline()` | satu-satunya jalur yang menulis `content` — blok SELALU dibuang lebih dulu |
+| `writeToBlocks()` | selalu men-NULL-kan `content` sebelum menulis blok |
+| `repairStorage()` | dipanggil otomatis setiap DB dibuka: buang blok yatim & basi (idempoten) |
+| `readChunk()` | memilih sumber dari `content` (sama seperti `read()`), bukan dari jumlah blok |
+
 ### Jaminan operasional (PRAGMA)
 
 | PRAGMA | Nilai | Alasan |
@@ -181,6 +202,8 @@ ribuan `touch()` tanpa transaksi berarti ribuan `fsync`.
 | `compact()` | `VACUUM` — ciutkan file setelah banyak penghapusan |
 | `storageKind(path)` | `"inline"` \| `"blocks"` \| `"missing"` (diagnostik) |
 | `countBlocks(path)` | Jumlah blok sebuah file |
+| `storageHealth()` | Ringkasan kesehatan: inline/ber-blok/warisan TEXT, blok yatim & basi, file bolong |
+| `repairStorage()` | Buang blok yatim/basi (otomatis saat DB dibuka; aman & idempoten) |
 
 **Saat shutdown, storage ditutup otomatis.** `Kernel.closeFilesystems()` →
 `MountManager.closeAll()` menutup root (`/`) dan semua mount (termasuk BKFS sekunder
@@ -192,6 +215,54 @@ Tanpa itu — karena root memakai `journal_mode=WAL` — setelah shutdown masih 
 sehingga **`system.db` sendirian tidak lengkap** bila disalin sebagai backup atau
 dikirim ke node lain. Setelah `close()`, SQLite membuang sidecar-nya dan image kembali
 menjadi satu file.
+
+### Melihat kondisi BKFS (diagnostik)
+
+Optimasi penyimpanan **tidak terlihat dari luar**: `ls -l` tidak membedakan file inline
+vs ber-blok, dan `df` (`getUsage`) hanya memberi total. Karena itu ada alat khusus:
+
+```bash
+npm run bkfs:info                      # laporan lengkap (read-only — aman saat sistem hidup)
+npm run bkfs:info -- --top 15          # 15 file terbesar + bentuk penyimpanannya
+npm run bkfs:info -- --json            # keluaran mesin (CI / monitoring)
+npm run bkfs:info -- --repair          # MENULIS: buang blok yatim & basi
+npm run bkfs:info -- --migrate-legacy  # MENULIS: tulis ulang baris TEXT warisan jadi BLOB
+npm run bkfs:info -- --checkpoint      # MENULIS: pindahkan WAL ke system.db
+npm run bkfs:info -- --compact         # MENULIS: VACUUM
+```
+
+Contoh keluaran:
+
+```
+📦 BKFS — system.db
+   ukuran db       : 14.9 MB
+   WAL             : —  ✅ sudah rapi (satu file)
+   journal_mode    : wal  · synchronous=1
+   integritas      : ok  (quick_check)
+
+📊 Isi
+   direktori       : 81     file: 749     total isi: 13.5 MB
+   penyimpanan     : inline 749 · blok 0   0 blok (0 B isi blok)
+   warisan TEXT    : 745  termasuk 147 biner/ber-NUL (~2× lebih besar di DB)
+
+🩺 Kesehatan penyimpanan
+   file ber-blok   : 0  isi besar dipotong per 128 KB
+   blok tidak sah  : 0  ✅ tidak ada
+```
+
+Kenapa perlu seksi kesehatan tersendiri: `quick_check` SQLite hanya memeriksa integritas
+**halaman**. Bentuk penyimpanan yang tidak konsisten (baris punya `content` *dan* blok
+sisa) tetap dilaporkan `ok` — padahal itu ruang terbuang dan sumber bug di masa depan.
+
+Dua hal yang alat ini temukan di database asli:
+
+1. **3 blok basi (260 KB)** milik `/var/log/syslog` — sampah yang tidak pernah terbaca
+   siapa pun. `--repair` membuangnya; isi file tidak disentuh.
+2. **147 baris warisan TEXT berisi biner** (`level*.png` 180 KB, `laser-beam.mp3`
+   192 KB). Isinya masih TEXT: byte ≥ 0x80 di-encode UTF-8 (≈2× lebih besar), dan
+   `length()`/`substr()` SQLite berhenti di byte NUL sehingga PNG 180 KB terbaca
+   “8 karakter”. `--migrate-legacy` menulis ulang semuanya jadi BLOB dalam SATU
+   transaksi (file > 64 KiB otomatis pindah ke tabel blok).
 
 ### Encoding: latin1 (1 char = 1 byte)
 

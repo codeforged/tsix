@@ -8,6 +8,7 @@
         "vfs:pull": "node -r esbuild-register -r tsconfig-paths/register scripts/vfs-pull.ts",
         "vfs:bootstrap": "node -r esbuild-register -r tsconfig-paths/register scripts/vfs-bootstrap.ts",
         "bkfs:create": "node -r esbuild-register -r tsconfig-paths/register scripts/create-bkfs.ts",
+    "bkfs:info": "node -r esbuild-register scripts/bkfs-info.ts",
         "install": "node -r esbuild-register -r tsconfig-paths/register scripts/install.ts",
         "course:serve": "node -r esbuild-register -r tsconfig-paths/register wiki/course/course-server.ts",
         "typecheck": "tsc --noEmit",

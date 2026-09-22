@@ -4,6 +4,48 @@
 
 ---
 
+## 2026-09-23
+
+### Invarian “content ATAU blok” ditegakkan + pembersihan otomatis (bug nyata di syslog)
+
+- **File:** `src/vfs/BKFS.ts`, `src/vfs/BKFS.test.ts` (`B4.01`–`B4.06`),
+  `scripts/sync-tde.ts`
+- **Masalah:** Aturan penyimpanan “isi file ada di `content` ATAU di `blocks`” hanya
+  diingat pemanggil (`clearBlocks()` manual di setiap jalur). Di database asli
+  ditemukan `/var/log/syslog` dengan `content` 17 KB **dan** blok sisa 2,6 MB
+  (`seq` 0, 1, 19 — bolong). Isi tidak salah, tapi 260 KB jadi sampah tak terlihat,
+  `readChunk()` menjawab berbeda dari `read()` untuk file yang sama, dan
+  `scripts/sync-tde.ts` masih menulis `content` lewat SQL mentah (melewati aturan).
+- **Perubahan:** `writeInline()` menjadi satu-satunya jalur penulis `content` (selalu
+  membuang blok lebih dulu); `writeToBlocks()` selalu men-NULL-kan `content`;
+  `readChunk()`/`storageKind()` memilih sumber dari `content` (bukan jumlah blok);
+  `append()` hanya memakai jalur inline bila tidak ada blok; `repairStorage()`
+  (idempoten, dipanggil otomatis setiap DB dibuka) + `storageHealth()`;
+  `sync-tde.ts` membuang blok sebelum menulis `content`.
+- **Dampak:** Bentuk penyimpanan campuran tidak bisa lagi terbentuk dari jalur mana pun,
+  dan yang sudah ada dibersihkan sendiri saat database dibuka (dicatat sebagai
+  peringatan di log). Terverifikasi: 3 blok basi di `system.db` hilang, isi file utuh.
+- **Oleh:** Copilot
+
+### `bkfs:info` — alat diagnostik penyimpanan (dan `--repair` / `--migrate-legacy`)
+
+- **File:** `scripts/bkfs-info.ts` (npm: `bkfs:info`)
+- **Masalah:** Hasil kerja storage (tabel blok, WAL, BLOB) tidak bisa dilihat: `ls -l`
+  tidak membedakan inline vs ber-blok, `df` hanya total, dan `quick_check` hanya
+  memeriksa integritas halaman — bentuk penyimpanan tidak konsisten tetap “ok”.
+- **Perubahan:** Alat baru dengan laporan ukuran (+ peringatan `-wal` tertinggal),
+  pragma, integritas, sebaran inline/blok, baris warisan TEXT, file terbesar beserta
+  bentuk penyimpanannya, dan seksi “Kesehatan penyimpanan” (blok yatim/basi, file
+  bolong, `size` ≠ isi). Opsi: `--top`, `--check`, `--json`, `--repair`,
+  `--migrate-legacy`, `--checkpoint`, `--compact`. Read-only secara default.
+- **Dampak:** Perubahan storage jadi **terverifikasi secara visual**, dan masalah yang
+  sebelumnya tidak terlihat muncul sebagai angka. Langsung menemukan 147 baris warisan
+  TEXT berisi biner (`level*.png` 180 KB, `laser-beam.mp3` 192 KB) yang membengkak ≈2×
+  dan tidak bisa diukur dengan `length()` SQLite.
+- **Oleh:** Copilot
+
+---
+
 ## 2026-09-22
 
 ### Kernel menutup storage saat shutdown (dulu `system.db-wal` tertinggal)

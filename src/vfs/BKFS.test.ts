@@ -533,4 +533,126 @@ describe("BKFS — ketahanan operasional & penyimpanan blok (B3)", () => {
             wipe(dbPath);
         }
     });
+
+    // ============================================================
+    // B4.01–B4.06: invarian "content ATAU blok" + pembersihan blok tidak sah
+    //
+    // Latar: di database asli ditemukan `/var/log/syslog` dengan `content` 17 KB
+    // *dan* blok sisa 2,6 MB (seq 0, 1, 19 — bolong). Isi tidak salah (read()
+    // memprioritaskan `content`), tapi 260 KB jadi sampah tak terlihat. Sumbernya:
+    // aturan "content ATAU blok" hanya diingat pemanggil, dan ada penulis yang
+    // melewatinya (SQL mentah). Tes di bawah mengunci aturan itu.
+    // ============================================================
+    it("B4.01 blok basi dibersihkan otomatis saat database dibuka", () => {
+        const dbPath = tmp("staleblocks");
+        const kecil = { inlineMaxBytes: 64, blockBytes: 128 };
+        const b1 = new BKFS(dbPath, false, 0, 0, 0o755, kecil);
+        b1.touch("/syslog", binari(300)); // > 64 byte → pindah ke tabel blok
+        expect(b1.storageKind("/syslog")).toBe("blocks");
+        b1.close();
+
+        // Tiru penulis yang melewati aturan: menulis `content` tanpa membuang blok.
+        const raw = new Database(dbPath);
+        raw.prepare("UPDATE vnodes SET content = ?, size = ? WHERE name = 'syslog'").run("baris terakhir\n", 15);
+        raw.close();
+
+        const b2 = new BKFS(dbPath, false, 0, 0, 0o755, kecil);
+        try {
+            // Isi benar SEBELUM maupun sesudah pembersihan (content menang) …
+            expect(b2.read("/syslog")).toBe("baris terakhir\n");
+            expect(b2.getSize("/syslog")).toBe(15);
+            // … dan blok sisanya sudah dibuang saat dibuka (dulu: 300 byte sampah).
+            expect(b2.countBlocks("/syslog")).toBe(0);
+            expect(b2.storageKind("/syslog")).toBe("inline");
+            expect(b2.storageHealth().staleBlocks).toBe(0);
+        } finally {
+            b2.close();
+            wipe(dbPath);
+        }
+    });
+
+    it("B4.02 append pada file ber-blok tetap ber-blok (tidak jadi baris campuran)", () => {
+        const b = bkfsSmall();
+        b.touch("/log", binari(300));
+        b.append("/log", "tambahan");
+
+        expect(b.storageKind("/log")).toBe("blocks");
+        expect(b.countBlocks("/log")).toBeGreaterThan(0);
+        expect(b.getSize("/log")).toBe(308);
+        expect(b.read("/log")).toBe(binari(300) + "tambahan");
+    });
+
+    it("B4.03 append pada baris campuran tidak menulis di atas blok sisa", () => {
+        const dbPath = tmp("hybrid");
+        const kecil = { inlineMaxBytes: 64, blockBytes: 128 };
+        const b = new BKFS(dbPath, false, 0, 0, 0o755, kecil);
+        b.touch("/syslog", binari(300));
+
+        const raw = new Database(dbPath);
+        raw.prepare("UPDATE vnodes SET content = ?, size = ? WHERE name = 'syslog'").run("kecil", 5);
+        raw.close();
+
+        // `content` = sumber kebenaran (sama seperti read()) → "kecil" + "X".
+        // Blok sisa tidak boleh ikut terbaca, dan harus dibuang oleh penulisan inline.
+        b.append("/syslog", "X");
+        expect(b.read("/syslog")).toBe("kecilX");
+        expect(b.getSize("/syslog")).toBe(6);
+        expect(b.countBlocks("/syslog")).toBe(0);
+        b.close();
+        wipe(dbPath);
+    });
+
+    it("B4.04 repairStorage() membuang blok yatim dan melaporkannya", () => {
+        const dbPath = tmp("orphan");
+        const kecil = { inlineMaxBytes: 64, blockBytes: 128 };
+        const b = new BKFS(dbPath, false, 0, 0, 0o755, kecil);
+        b.touch("/besar.bin", binari(300));
+        expect(b.countBlocks("/besar.bin")).toBeGreaterThan(0);
+
+        // Hapus baris vnode via koneksi LAIN tanpa FK → CASCADE tidak jalan,
+        // persis seperti penghapus lama/migrasi dedup di `initSchema()`.
+        const raw = new Database(dbPath);
+        raw.pragma("foreign_keys = OFF");
+        raw.prepare("DELETE FROM vnodes WHERE name = 'besar.bin'").run();
+        expect((raw.prepare("SELECT COUNT(*) AS n FROM blocks").get() as { n: number }).n).toBeGreaterThan(0);
+        raw.close();
+
+        const hasil = b.repairStorage();
+        expect(hasil.orphan).toBeGreaterThan(0);
+        expect(b.storageHealth().orphanBlocks).toBe(0);
+        b.close();
+        wipe(dbPath);
+    });
+
+    it("B4.05 storageHealth() nol pada database sehat", () => {
+        const b = bkfsSmall();
+        b.touch("/kecil.txt", "abc");
+        b.touch("/besar.bin", binari(300));
+
+        const h = b.storageHealth();
+        expect(h.staleBlocks).toBe(0);
+        expect(h.orphanBlocks).toBe(0);
+        expect(h.holeyFiles).toBe(0);
+        expect(h.sizeMismatch).toBe(0);
+        expect(h.inlineFiles).toBe(1);
+        expect(h.blockFiles).toBe(1);
+    });
+
+    it("B4.06 read() dan readChunk() menjawab sama pada baris campuran", () => {
+        const dbPath = tmp("mixchunk");
+        const kecil = { inlineMaxBytes: 64, blockBytes: 128 };
+        const b = new BKFS(dbPath, false, 0, 0, 0o755, kecil);
+        b.touch("/mix.bin", binari(300));
+
+        const raw = new Database(dbPath);
+        raw.prepare("UPDATE vnodes SET content = ?, size = ? WHERE name = 'mix.bin'").run("ABCDE", 5);
+        raw.close();
+
+        expect(b.read("/mix.bin")).toBe("ABCDE");
+        // Dulu `readChunk()` memilih sumber dari JUMLAH BLOK → membaca dari blok
+        // ("01234") padahal `read()` membaca `content` ("ABCDE"): satu file, dua jawaban.
+        expect(b.readChunk("/mix.bin", 0, 5)).toBe("ABCDE");
+        b.close();
+        wipe(dbPath);
+    });
 });
