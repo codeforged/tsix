@@ -3,6 +3,7 @@ import type { IVFS } from "./IVFS";
 import {
     NETFS_DEFAULT_TIMEOUT_MS,
     NETFS_MAX_CHUNK_BYTES,
+    NETFS_MAX_RESPONSE_BYTES,
     NETFS_VERSION,
     NetFSError,
     NetFSExportInfo,
