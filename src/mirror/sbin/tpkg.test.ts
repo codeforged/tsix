@@ -27,6 +27,15 @@ interface NodeFs {
 /** World: dua node (client & server) + jaringan loopback di antara keduanya. */
 class World {
     public nodes = new Map<string, NodeFs>();
+    /**
+     * "HOST FS" palsu — file di luar VFS (kernel & komponen engine).
+     * Dipakai `syncToHost`/`syncFromHost`; per node supaya uji rollback bisa
+     * memeriksa bahwa isi lama benar-benar kembali.
+     */
+    public hostFiles = new Map<string, string>();
+    public hostSyncs: Array<{ op: "to" | "from"; hostPath: string }> = [];
+    /** Kalau diisi, `syncToHost` untuk hostPath ini mengembalikan false (uji gagal). */
+    public failHostSync: string | null = null;
     public prints: string[] = [];
     public logs: string[] = [];
     public execs: Array<{ node: string; cmd: string }> = [];
@@ -43,7 +52,10 @@ class World {
     private nextFd = 3;
     private nextPort = 10000;
 
-    constructor(public readonly clientNode = "client", public readonly serverNode = "server") {
+    constructor(
+        public readonly clientNode = "client",
+        public readonly serverNode = "server",
+    ) {
         for (const n of [clientNode, serverNode]) {
             this.nodes.set(n, {
                 files: new Map(),
@@ -187,6 +199,22 @@ class World {
                     return true;
                 },
                 getMounts: async () => [],
+                // --- HOST FS (di luar VFS): dipakai paket engine ---
+                syncToHost: async (vfsPath: string, hostPath: string) => {
+                    if (world.failHostSync === hostPath) return false;
+                    if (!fs.files.has(vfsPath)) return false;
+                    world.hostFiles.set(hostPath, fs.files.get(vfsPath)!);
+                    world.hostSyncs.push({ op: "to", hostPath });
+                    return true;
+                },
+                syncFromHost: async (hostPath: string, vfsPath: string) => {
+                    if (!world.hostFiles.has(hostPath)) {
+                        throw new Error(`Host file not found: ${hostPath}`);
+                    }
+                    fs.files.set(vfsPath, world.hostFiles.get(hostPath)!);
+                    world.hostSyncs.push({ op: "from", hostPath });
+                    return true;
+                },
             },
         };
     }
@@ -473,11 +501,187 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         // spec benar-benar dipakai — bukan hardcode 80 seperti versi lama.
         expect(world.ioctls.map((i) => i.arg.port)).toContain(8090);
 
-        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, [
-            "update",
-            "server:8090",
-        ]);
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["update", "server:8090"]);
         expect(out(world)).toContain("Successfully updated");
         expect((daemon as any).sessions.size).toBe(1);
+    });
+
+    // ========================================================================
+    // PAKET ENGINE — menulis ke HOST FS (kernel & komponennya)
+    //
+    // Ini jalur paling berbahaya: file di luar VFS. Yang diuji bukan cuma
+    // "berhasil menulis", tapi juga bahwa yang GAGAL tidak meninggalkan sistem
+    // separuh ter-update, dan bahwa non-root tidak bisa melakukannya.
+    // ========================================================================
+
+    it("P2.12 paket engine menulis ke host + backup + tetap ke VFS", async () => {
+        setupServer(world, {
+            name: "engine",
+            version: "9.9.9",
+            onAfterDownload: undefined,
+            items: [
+                { src: "/bin/init.ts", dst: "/bin/init.ts", isExecutable: true, hostDst: "src/mirror/bin/init.ts" },
+                {
+                    src: "/tmp/tpkg-stage/kernel/Kernel.ts",
+                    dst: "/tmp/tpkg-stage/kernel/Kernel.ts",
+                    hostDst: "src/kernel/Kernel.ts",
+                },
+            ],
+        });
+        const serverFs = world.fs(world.serverNode);
+        serverFs.files.set("/bin/init.ts", "// init v2");
+        serverFs.files.set("/tmp/tpkg-stage/kernel/Kernel.ts", "// kernel v3");
+
+        // Isi host SEBELUM update (harus dibackup supaya rollback mungkin).
+        world.hostFiles.set("src/kernel/Kernel.ts", "// kernel LAMA");
+        world.hostFiles.set("src/mirror/bin/init.ts", "// init LAMA");
+
+        await boot();
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, [
+            "install",
+            "engine",
+            "--from",
+            "server",
+        ]);
+
+        const text = out(world);
+        // Konfirmasi tulis-host ditampilkan (bukan diam-diam menulis).
+        expect(text).toMatch(/menulis ke HOST FS/);
+        expect(text).toMatch(/src\/kernel\/Kernel\.ts/);
+
+        // VFS ter-update…
+        const fs = world.fs(world.clientNode);
+        expect(fs.files.get("/bin/init.ts")).toBe("// init v2");
+        // …dan HOST ikut ter-update.
+        expect(world.hostFiles.get("src/kernel/Kernel.ts")).toBe("// kernel v3");
+        expect(world.hostFiles.get("src/mirror/bin/init.ts")).toBe("// init v2");
+
+        // Backup host memakai syncFromHost (isi lama terbaca dari host).
+        expect(world.hostSyncs.filter((s) => s.op === "from").map((s) => s.hostPath)).toContain("src/kernel/Kernel.ts");
+        const backups = await world.makeLib(world.clientNode).fs.ls("/var/lib/tpkg/backup/engine");
+        expect(backups).toHaveLength(1);
+    });
+
+    it("P2.13 konfirmasi tulis-host ditolak → tidak ada yang berubah", async () => {
+        setupServer(world, {
+            name: "engine",
+            version: "9.9.9",
+            onAfterDownload: undefined,
+            items: [{ src: "/bin/init.ts", dst: "/bin/init.ts", hostDst: "src/mirror/bin/init.ts" }],
+        });
+        world.fs(world.serverNode).files.set("/bin/init.ts", "// init v2");
+        world.hostFiles.set("src/mirror/bin/init.ts", "// init LAMA");
+
+        await boot();
+        // Jawaban: [0] = prompt TOFU fingerprint ("y"), [1] = konfirmasi tulis-host (kosong = TIDAK).
+        world.answers = ["y", ""];
+
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, [
+            "install",
+            "engine",
+            "--from",
+            "server",
+        ]);
+
+        expect(out(world)).toMatch(/Instalasi dibatalkan/);
+        expect(world.hostFiles.get("src/mirror/bin/init.ts")).toBe("// init LAMA");
+        expect(world.fs(world.clientNode).files.has("/bin/init.ts")).toBe(false);
+    });
+
+    it("P2.14 gagal sync ke host → VFS dipulihkan (tidak separuh ter-update)", async () => {
+        setupServer(world, {
+            name: "engine",
+            version: "9.9.9",
+            onAfterDownload: undefined,
+            items: [{ src: "/bin/init.ts", dst: "/bin/init.ts", hostDst: "src/kernel/Kernel.ts" }],
+        });
+        world.fs(world.serverNode).files.set("/bin/init.ts", "// init v2");
+        world.fs(world.clientNode).files.set("/bin/init.ts", "// init LAMA");
+        world.hostFiles.set("src/kernel/Kernel.ts", "// kernel LAMA");
+        world.failHostSync = "src/kernel/Kernel.ts";
+
+        await boot();
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, [
+            "install",
+            "engine",
+            "--from",
+            "server",
+        ]);
+
+        expect(out(world)).toMatch(/Gagal menulis/);
+        // VFS kembali ke isi lama — bukan tertinggal versi baru tanpa host-nya.
+        expect(world.fs(world.clientNode).files.get("/bin/init.ts")).toBe("// init LAMA");
+        expect(world.hostFiles.get("src/kernel/Kernel.ts")).toBe("// kernel LAMA");
+    });
+
+    it("P2.15 rollback paket engine memulihkan file HOST juga", async () => {
+        setupServer(world, {
+            name: "engine",
+            version: "9.9.9",
+            onAfterDownload: undefined,
+            items: [{ src: "/bin/init.ts", dst: "/bin/init.ts", hostDst: "src/kernel/Kernel.ts" }],
+        });
+        world.fs(world.serverNode).files.set("/bin/init.ts", "// init BARU");
+        world.hostFiles.set("src/kernel/Kernel.ts", "// kernel LAMA");
+
+        await boot();
+        const lib = world.makeLib(world.clientNode) as any;
+        await new TpkgClient().execute(lib, ["install", "engine", "--from", "server"]);
+        expect(world.hostFiles.get("src/kernel/Kernel.ts")).toBe("// init BARU");
+
+        world.prints.length = 0;
+        await new TpkgClient().execute(lib, ["rollback", "engine"]);
+
+        expect(out(world)).toMatch(/Rollback selesai/);
+        expect(world.hostFiles.get("src/kernel/Kernel.ts")).toBe("// kernel LAMA");
+    });
+
+    it("P2.16 server menolak manifest dengan hostDst tidak aman", async () => {
+        setupServer(world, {
+            name: "jahat",
+            version: "1.0.0",
+            onAfterDownload: undefined,
+            items: [{ src: "/bin/init.ts", dst: "/bin/init.ts", hostDst: "../../etc/shadow" }],
+        });
+        world.fs(world.serverNode).files.set("/bin/init.ts", "// x");
+
+        await boot();
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, [
+            "install",
+            "jahat",
+            "--from",
+            "server",
+        ]);
+
+        // Gagal, dan tidak ada file host yang tersentuh di luar root proyek.
+        expect([...world.hostFiles.keys()]).not.toContain("../../etc/shadow");
+        expect(world.fs(world.clientNode).files.has("/bin/init.ts")).toBe(false);
+    });
+
+    it("P2.17 tpkg menolak perintah pengubah sistem saat non-root", async () => {
+        setupServer(world);
+        await boot();
+
+        for (const cmd of ["install", "update", "download", "rollback"]) {
+            world.prints.length = 0;
+            await new TpkgClient().execute(world.makeLib(world.clientNode, { uid: 1000 }) as any, [
+                cmd,
+                "hello-world",
+                "--from",
+                "server",
+            ]);
+            expect(out(world)).toMatch(/requires root privileges/);
+        }
+
+        // Bukti tambahan: tidak ada file yang ditulis ke VFS klien.
+        expect(world.fs(world.clientNode).files.has("/opt/test/hello-pkg.ts")).toBe(false);
+    });
+
+    it("P2.18 tpkgd menolak dijalankan non-root", async () => {
+        const lib = world.makeLib(world.serverNode, { uid: 1000 });
+        await new TpkgDaemon().execute(lib as any, ["--port", "8091"]);
+
+        expect(out(world)).toMatch(/tpkgd requires root privileges/);
+        expect(world.ioctls).toHaveLength(0); // tidak bind, tidak pin protokol
     });
 });

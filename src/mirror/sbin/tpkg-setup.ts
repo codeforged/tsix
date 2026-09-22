@@ -8,7 +8,7 @@ export class Main {
         await lib.std.print("Setting up test repository...\n");
 
         const repoPath = "/etc/tpkg";
-        if (!await this.exists(lib, repoPath)) {
+        if (!(await this.exists(lib, repoPath))) {
             await lib.fs.mkdir(repoPath);
         }
 
@@ -23,7 +23,7 @@ export class Main {
 }
         `;
         // Pastikan /opt/test ada (lokasi script test/demo)
-        if (!await this.exists(lib, "/opt/test")) {
+        if (!(await this.exists(lib, "/opt/test"))) {
             await lib.fs.mkdir("/opt/test");
         }
         await lib.fs.writeFile(sampleBin, sampleContent);
@@ -47,10 +47,10 @@ export class Main {
                         // `isExecutable` wajib untuk skrip di luar /bin: tanpa itu file
                         // baru dibuat dengan mode 0o644 dan post-install gagal (126).
                         { src: sampleBin, dst: "/opt/test/hello-pkg.ts", isExecutable: true },
-                        { src: sampleConfig, dst: "/etc/pkg-demo.conf" }
-                    ]
-                }
-            ]
+                        { src: sampleConfig, dst: "/etc/pkg-demo.conf" },
+                    ],
+                },
+            ],
         };
 
         await lib.fs.writeFile(`${repoPath}/packages.json`, JSON.stringify(manifest, null, 2));

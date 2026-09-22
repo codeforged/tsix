@@ -36,12 +36,58 @@ export const TPKG_DEFAULT_MAX_BUNDLE = 4 * 1024 * 1024;
 /** Mode untuk file yang ditandai executable bila `permissions` tidak diisi. */
 export const TPKG_EXEC_MODE = 0o755;
 
+/**
+ * Mode untuk binary di `/sbin` — root-only, sama dengan `scripts/vfs-bootstrap.ts`.
+ * `/sbin` bukan untuk user biasa, jadi tidak 0o755 seperti `/bin`.
+ */
+export const TPKG_SBIN_MODE = 0o744;
+
+/**
+ * Mode SetUID untuk binary yang harus membaca `/etc/shadow` (0640 root).
+ * Sama dengan aturan `isSetuidBinary()` di `scripts/vfs-bootstrap.ts` agar mode
+ * hasil `tpkg` identik dengan hasil bootstrap (kalau beda, `sudo`/`passwd`
+ * mendadak tidak bisa baca shadow setelah update).
+ */
+export const TPKG_SETUID_MODE = 0o4755;
+
+/**
+ * Direktori yang isinya (.ts/.js) otomatis dianggap executable — SALINAN dari
+ * `EXEC_DIRS` di `scripts/vfs-bootstrap.ts` + `install.ts`.
+ *
+ * Kenapa diduplikasi: bootstrap userland (`tpkg install`) harus menghasilkan mode
+ * yang sama dengan bootstrap host. Kalau daftarnya tidak sinkron, ada file yang
+ * executable setelah `npm run vfs:bootstrap` tapi tidak setelah `tpkg install`
+ * (atau sebaliknya) — bug yang sulit dilacak.
+ */
+export const TPKG_EXEC_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin", "/opt"];
+
+/** Binary istimewa SetUID — salinan dari `isSetuidBinary()` di `vfs-bootstrap.ts`. */
+export function isSetuidPath(path: string): boolean {
+    return /\/bin\/(login|passwd|sudo)\.(ts|js)$/.test(String(path ?? ""));
+}
+
 /** Satu item (file) di dalam paket — bagian dari `packages.json`. */
 export interface TpkgItem {
     /** Path sumber di node server. */
     src: string;
-    /** Path tujuan di node klien (absolut). */
+    /**
+     * Path tujuan di node klien (absolut).
+     *
+     * Untuk file yang HANYA hidup di host (mis. kernel: `src/kernel/*.ts`),
+     * `dst` adalah jalur staging sementara di VFS yang dipakai `syncToHost` —
+     * lihat `hostDst`.
+     */
     dst: string;
+    /**
+     * Path tujuan di HOST, relatif terhadap root proyek (mis.
+     * `src/kernel/Kernel.ts`). Menandai file yang juga harus ditulis keluar dari
+     * VFS — kernel & komponennya tidak ada di VFS, jadi tanpa field ini paket
+     * "engine update" hanya bisa mengubah userland.
+     *
+     * Isinya divalidasi oleh `isSafeHostDst()` di kedua sisi. Klien menulis ke
+     * `dst` (VFS) lalu `syncToHost(dst, hostDst)`.
+     */
+    hostDst?: string;
     /** Mode chmod eksplisit (mis. 493 = 0o755). Menang atas `isExecutable`. */
     permissions?: number;
     /** Tandai file executable → chmod `TPKG_EXEC_MODE`. */
@@ -75,6 +121,8 @@ export interface TpkgManifest {
 export interface TpkgBundleFile {
     /** Path tujuan (yang ditulis klien). */
     path: string;
+    /** Path tujuan di host (relatif root proyek), kalau file ini juga keluar VFS. */
+    hostDst?: string;
     /** Ukuran byte (panjang string latin1 = 1 char 1 byte). */
     size: number;
     /** SHA-256 byte konten (latin1) — dihitung server, diperiksa klien. */
@@ -90,6 +138,12 @@ export interface TpkgBundleFile {
 /** Metadata file yang IKUT ditandatangani server (tanpa konten). */
 export interface TpkgBundleMeta {
     path: string;
+    /**
+     * Tujuan host ikut ditandatangani: tanpa ini, pihak ketiga yang bisa
+     * menyisipkan di transport (bukan server) bisa membelokkan file engine ke
+     * path host lain selama `signature` tetap valid.
+     */
+    hostDst: string;
     size: number;
     sha256: string;
 }
@@ -110,19 +164,37 @@ export interface TpkgVerifyResult {
  * pernah terjadi di implementasi lain).
  */
 export function sha256Hex(content: string): string {
-    return crypto
-        .createHash("sha256")
-        .update(Buffer.from(content, "latin1"))
-        .digest("hex");
+    return crypto.createHash("sha256").update(Buffer.from(content, "latin1")).digest("hex");
 }
 
-/** bundleMeta(): Ambil metadata (path/size/sha) dari daftar file bundle. */
+/** bundleMeta(): Ambil metadata (path/hostDst/size/sha) dari daftar file bundle. */
 export function bundleMeta(files: TpkgBundleFile[]): TpkgBundleMeta[] {
     return (files ?? []).map((f) => ({
         path: f?.path ?? "",
+        // Selalu diisi ("" kalau tidak ada) supaya bentuk kanonik digest stabil:
+        // kalau field-nya hilang saat undefined, signature dua sisi bisa beda
+        // hanya karena key-nya tidak ikut di-JSON.stringify.
+        hostDst: f?.hostDst ?? "",
         size: typeof f?.size === "number" ? f.size : 0,
         sha256: f?.sha256 ?? "",
     }));
+}
+
+/**
+ * isSafeHostDst(): Tolak tujuan host yang bisa keluar dari root proyek.
+ *
+ * `SYNC_TO_HOST` sendiri sudah membatasi ke `process.cwd()`, tapi menolak lebih
+ * awal memberi pesan yang jelas ("manifest paket salah") alih-alih kegagalan
+ * syscall yang membingungkan di tengah instalasi.
+ */
+export function isSafeHostDst(hostDst: string): boolean {
+    const p = String(hostDst ?? "");
+    if (p.trim() === "") return false;
+    if (p.startsWith("/") || p.startsWith("~")) return false; // wajib relatif
+    if (p.includes("\\")) return false;
+    const parts = p.split("/");
+    if (parts.some((s) => s === ".." || s === "")) return false;
+    return true;
 }
 
 /**
@@ -168,14 +240,28 @@ export function verifyBundleFiles(files: TpkgBundleFile[]): TpkgVerifyResult {
     return { ok: true };
 }
 
-/** resumeMode(): Mode akhir sebuah file setelah instalasi. */
+/** resolveMode(): Mode akhir sebuah file setelah instalasi. */
 export function resolveMode(file: TpkgBundleFile): number | undefined {
     if (typeof file.permissions === "number" && Number.isFinite(file.permissions)) {
         return file.permissions;
     }
+    const path = String(file?.path ?? "");
+
+    // SetUID lebih dulu dari `isExecutable`: login/passwd/sudo WAJIB 0o4755,
+    // kalau tidak bisa membaca /etc/shadow (0640 root).
+    if (isSetuidPath(path)) return TPKG_SETUID_MODE;
     if (file.isExecutable) return TPKG_EXEC_MODE;
-    // Kompatibilitas repo lama: apa pun di bawah /bin dianggap executable.
-    if (file.path.startsWith("/bin/")) return TPKG_EXEC_MODE;
+
+    // Kompatibilitas repo lama: isi direktori eksekusi dianggap executable,
+    // TAPI hanya .ts/.js — supaya file data di bawah /opt (mis. kunci OTA)
+    // tidak mendadak jadi 0o755 seperti yang dilakukan bootstrap.
+    if (/\.(ts|js)$/.test(path)) {
+        for (const dir of TPKG_EXEC_DIRS) {
+            if (path.startsWith(dir + "/")) {
+                return path.startsWith("/sbin/") ? TPKG_SBIN_MODE : TPKG_EXEC_MODE;
+            }
+        }
+    }
     return undefined; // biarkan mode bawaan VFS (0o644 untuk file baru)
 }
 
@@ -192,10 +278,7 @@ export interface TpkgHostPort {
  * mentah sebagai alamat, sehingga `tpkg install x --from node:8090` mengirim ke
  * address literal "node:8090" — gagal tanpa pesan yang jelas.
  */
-export function parseHostPort(
-    spec: string,
-    defaultPort: number = TPKG_DEFAULT_PORT,
-): TpkgHostPort {
+export function parseHostPort(spec: string, defaultPort: number = TPKG_DEFAULT_PORT): TpkgHostPort {
     const raw = String(spec ?? "").trim();
     if (!raw) throw new Error("alamat repository kosong");
 

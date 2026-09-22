@@ -3,10 +3,13 @@ import * as crypto from "crypto";
 import {
     TPKG_DEFAULT_PORT,
     TPKG_EXEC_MODE,
+    TPKG_SBIN_MODE,
+    TPKG_SETUID_MODE,
     bundleDigest,
     bundleMeta,
     compareVersions,
     formatBytes,
+    isSafeHostDst,
     parseHostPort,
     resolveMode,
     sha256Hex,
@@ -65,18 +68,41 @@ describe("TpkgProtocol — util (P1)", () => {
         expect(sha256Hex(content)).not.toBe(viaUtf8);
     });
 
-    it("P1.05 bundleMeta/bundleDigest hanya memuat path+size+sha (stabil)", () => {
+    it("P1.05 bundleMeta/bundleDigest memuat path+hostDst+size+sha (stabil)", () => {
         const files = [file("/bin/a", "aaa"), file("/etc/b.conf", "bbb")];
         const meta = bundleMeta(files);
 
         expect(meta).toEqual([
-            { path: "/bin/a", size: 3, sha256: files[0].sha256 },
-            { path: "/etc/b.conf", size: 3, sha256: files[1].sha256 },
+            { path: "/bin/a", hostDst: "", size: 3, sha256: files[0].sha256 },
+            { path: "/etc/b.conf", hostDst: "", size: 3, sha256: files[1].sha256 },
         ]);
         // Deterministik: dua pemanggilan dengan data sama → string identik.
         expect(bundleDigest(files)).toBe(bundleDigest([...files]));
         // Digest TIDAK memuat konten (payload tanda tangan kecil).
         expect(bundleDigest(files)).not.toContain("aaa");
+    });
+
+    it("P1.05b hostDst ikut ditandatangani (anti belokkan file engine ke path lain)", () => {
+        const plain = file("/tmp/tpkg-stage/kernel/Kernel.ts", "// kernel");
+        const withHost = file("/tmp/tpkg-stage/kernel/Kernel.ts", "// kernel", {
+            hostDst: "src/kernel/Kernel.ts",
+        });
+
+        expect(bundleDigest([withHost])).not.toBe(bundleDigest([plain]));
+        expect(bundleDigest([withHost])).toContain("src/kernel/Kernel.ts");
+    });
+
+    it("P1.05c isSafeHostDst menolak path yang keluar dari root proyek", () => {
+        expect(isSafeHostDst("src/kernel/Kernel.ts")).toBe(true);
+        expect(isSafeHostDst("src/mirror/bin/ls.ts")).toBe(true);
+
+        expect(isSafeHostDst("/etc/shadow")).toBe(false); // absolut
+        expect(isSafeHostDst("~/x")).toBe(false);
+        expect(isSafeHostDst("../../etc/shadow")).toBe(false);
+        expect(isSafeHostDst("src/../../x")).toBe(false);
+        expect(isSafeHostDst("src//kernel")).toBe(false); // segmen kosong
+        expect(isSafeHostDst("src\\kernel")).toBe(false);
+        expect(isSafeHostDst("")).toBe(false);
     });
 
     it("P1.06 verifyBundleFiles menerima bundle sehat (termasuk byte 0..255)", () => {
@@ -101,14 +127,24 @@ describe("TpkgProtocol — util (P1)", () => {
         expect(verifyBundleFiles([{ path: "", size: 0, sha256: "", content: "" }]).error).toMatch(/path/i);
     });
 
-    it("P1.08 resolveMode: permissions menang, lalu isExecutable, lalu /bin/*", () => {
+    it("P1.08 resolveMode: permissions menang, lalu SetUID/EXEC_DIRS (sama dgn vfs-bootstrap)", () => {
         expect(resolveMode(file("/opt/skrip.ts", "x", { isExecutable: true }))).toBe(TPKG_EXEC_MODE);
         expect(resolveMode(file("/bin/ls.ts", "x"))).toBe(TPKG_EXEC_MODE);
+        expect(resolveMode(file("/usr/bin/x.ts", "x"))).toBe(TPKG_EXEC_MODE);
         expect(resolveMode(file("/opt/skrip.ts", "x", { permissions: 0o700 }))).toBe(0o700);
         // permissions menang walau isExecutable juga diset
         expect(resolveMode(file("/opt/skrip.ts", "x", { isExecutable: true, permissions: 0o600 }))).toBe(0o600);
         // file biasa → biarkan mode bawaan VFS
         expect(resolveMode(file("/etc/app.conf", "x"))).toBeUndefined();
+
+        // `/sbin` = root-only (0o744), bukan 0o755 seperti /bin.
+        expect(resolveMode(file("/sbin/apply-update.ts", "x"))).toBe(TPKG_SBIN_MODE);
+        // SetUID wajib untuk login/passwd/sudo (baca /etc/shadow), dan menang atas
+        // `isExecutable` — kalau tidak, sudo mendadak tidak bisa baca shadow.
+        expect(resolveMode(file("/bin/sudo.ts", "x", { isExecutable: true }))).toBe(TPKG_SETUID_MODE);
+        // File DATA di dalam direktori eksekusi tidak ikut jadi executable
+        // (bootstrap lama men-chmod 0o755 semua isi /opt — kunci rahasia pun).
+        expect(resolveMode(file("/opt/esp-ota/activation-keys.txt", "x"))).toBeUndefined();
     });
 
     it("P1.09 formatBytes untuk pesan CLI", () => {

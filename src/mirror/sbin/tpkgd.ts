@@ -7,6 +7,7 @@ import {
     TPKG_PROTOCOL_VERSION,
     bundleDigest,
     formatBytes,
+    isSafeHostDst,
     sha256Hex,
     type TpkgBundleFile,
     type TpkgManifest,
@@ -19,6 +20,9 @@ import {
  * Melayani repository paket (`/etc/tpkg/packages.json`) ke klien `tpkg`:
  * handshake RSA → session key ChaCha20 → LIST / INFO / GET_BUNDLE.
  *
+ * Wajib root: memakai kunci identitas privat `/etc/keys/rsa` dan menyajikan isi
+ * sistem (termasuk file kernel untuk paket "engine update").
+ *
  * Perbaikan dari versi lama:
  *   - `--port` / `--repo` / `--max-bundle` bisa diatur (dulu port 80 di-hardcode);
  *   - protocol MQTNL di-PIN ke JSON per-port (dulu mengikuti `protocolRegistry`,
@@ -26,7 +30,8 @@ import {
  *   - session punya TTL + dibersihkan berkala (dulu Map tumbuh selamanya);
  *   - rate limit per alamat pengirim;
  *   - bundle punya batas ukuran eksplisit, digest SHA-256 per file, dan yang
- *     ditandatangani adalah METADATA (path/size/sha256) — bukan seluruh konten.
+ *     ditandatangani adalah METADATA (path/hostDst/size/sha256) — bukan seluruh
+ *     konten.
  */
 export class Main {
     private lib!: UserLib;
@@ -48,6 +53,20 @@ export class Main {
 
         if (args.includes("--help") || args.includes("-h")) {
             await this.printHelp();
+            return;
+        }
+
+        // GERBANG ROOT.
+        //
+        // tpkgd memakai kunci identitas privat (`/etc/keys/rsa`) dan menyajikan isi
+        // sistem — termasuk file kernel untuk paket "engine update". Membiarkannya
+        // jalan sebagai user biasa berarti file sistem bisa dibaca dan
+        // didistribusikan tanpa kontrol root. Sama seperti tsshd/netfsd.
+        const who = await this.lib.shell.whoami();
+        if (who.uid !== 0) {
+            await this.lib.std.print(
+                "❌ Error: tpkgd requires root privileges (membaca /etc/keys/rsa & menyajikan file sistem). Use sudo.\n",
+            );
             return;
         }
 
@@ -155,22 +174,21 @@ export class Main {
         await this.lib.std.print("Options:\n");
         await this.lib.std.print(`  --port <n>          MQTNL port (default: ${TPKG_DEFAULT_PORT})\n`);
         await this.lib.std.print("  --repo <path>       Manifest repository (default: /etc/tpkg/packages.json)\n");
-        await this.lib.std.print(
-            `  --max-bundle <byte> Batas ukuran bundle (default: ${TPKG_DEFAULT_MAX_BUNDLE})\n`,
-        );
+        await this.lib.std.print(`  --max-bundle <byte> Batas ukuran bundle (default: ${TPKG_DEFAULT_MAX_BUNDLE})\n`);
         await this.lib.std.print("  --help              Show this help\n");
+        await this.lib.std.print("\n⚠️  tpkgd wajib dijalankan sebagai root (sudo) — memakai /etc/keys/rsa\n");
+        await this.lib.std.print("    dan menyajikan file sistem termasuk kernel.\n");
     }
 
-
     private async ensureKeys() {
-        if (!await this.exists(this.keysPath)) {
+        if (!(await this.exists(this.keysPath))) {
             await this.lib.fs.mkdir(this.keysPath);
         }
 
         const privPath = `${this.keysPath}/id_rsa`;
         const pubPath = `${this.keysPath}/id_rsa.pub`;
 
-        if (!await this.exists(privPath)) {
+        if (!(await this.exists(privPath))) {
             await this.lib.std.print("Generating system RSA keys (id_rsa)...");
             const pair = SecurityAgent.generateKeyPair();
             await this.lib.fs.writeFile(privPath, pair.privateKey);
@@ -179,8 +197,8 @@ export class Main {
             this.publicKey = pair.publicKey;
             await this.lib.std.print(" Done.\n");
         } else {
-            this.privateKey = await this.lib.fs.readFile(privPath) || "";
-            this.publicKey = await this.lib.fs.readFile(pubPath) || "";
+            this.privateKey = (await this.lib.fs.readFile(privPath)) || "";
+            this.publicKey = (await this.lib.fs.readFile(pubPath)) || "";
         }
     }
 
@@ -301,8 +319,7 @@ export class Main {
             };
 
             await this.lib.net.sendto(fd, src, srcPort, session.agent.securePacketOut(JSON.stringify(reply)));
-        }
-        else if (request.type === "INFO" && request.name) {
+        } else if (request.type === "INFO" && request.name) {
             this.stats.infos++;
             await this.lib.std.log(`[INFO] request: ${request.name} from ${src}`, "tpkgd");
             const manifest = await this.getManifest();
@@ -328,8 +345,7 @@ export class Main {
             };
 
             await this.lib.net.sendto(fd, src, srcPort, session.agent.securePacketOut(JSON.stringify(reply)));
-        }
-        else if (request.type === "GET_BUNDLE" && request.name) {
+        } else if (request.type === "GET_BUNDLE" && request.name) {
             this.stats.bundles++;
             await this.lib.std.log(`[BUNDLE] request: ${request.name} for ${src}`, "tpkgd");
             const manifest = await this.getManifest();
@@ -398,6 +414,15 @@ export class Main {
             if (content === null || content === undefined) {
                 throw new Error(`file sumber tidak ada: ${item.src}`);
             }
+
+            // Tujuan host divalidasi di sisi server supaya manifest yang salah
+            // ketahuan saat itu juga (bukan setelah klien menulis setengah paket).
+            if (item.hostDst !== undefined && !isSafeHostDst(item.hostDst)) {
+                throw new Error(
+                    `hostDst tidak aman di paket '${pkg.name}': '${item.hostDst}' (harus relatif, tanpa '..')`,
+                );
+            }
+
             total += content.length;
             if (total > this.maxBundle) {
                 throw new Error(
@@ -410,6 +435,7 @@ export class Main {
                 size: content.length,
                 sha256: sha256Hex(content),
                 content,
+                ...(item.hostDst !== undefined ? { hostDst: item.hostDst } : {}),
                 ...(typeof item.permissions === "number" ? { permissions: item.permissions } : {}),
                 ...(item.isExecutable ? { isExecutable: true } : {}),
             });
@@ -480,9 +506,9 @@ export class Main {
             for (let j = 1; j <= len2; j++) {
                 const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
                 matrix[i][j] = Math.min(
-                    matrix[i - 1][j] + 1,      // deletion
-                    matrix[i][j - 1] + 1,      // insertion
-                    matrix[i - 1][j - 1] + cost // substitution
+                    matrix[i - 1][j] + 1, // deletion
+                    matrix[i][j - 1] + 1, // insertion
+                    matrix[i - 1][j - 1] + cost, // substitution
                 );
             }
         }
@@ -490,16 +516,16 @@ export class Main {
     }
 
     private findSuggestions(input: string, choices: string[]): string[] {
-        const results = choices.map(choice => ({
+        const results = choices.map((choice) => ({
             name: choice,
-            dist: this.levenshteinDistance(input, choice)
+            dist: this.levenshteinDistance(input, choice),
         }));
 
         return results
-            .filter(r => r.dist < 4) // Max 3 edits
+            .filter((r) => r.dist < 4) // Max 3 edits
             .sort((a, b) => a.dist - b.dist)
-            .map(r => r.name)
-            .filter(name => name !== input) // Don't suggest the exact same thing (though logic usually handles this)
+            .map((r) => r.name)
+            .filter((name) => name !== input) // Don't suggest the exact same thing (though logic usually handles this)
             .slice(0, 3);
     }
 }

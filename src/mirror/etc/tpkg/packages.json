@@ -1,354 +1,1243 @@
 {
-  "version": "1.0",
-  "packages": [
-    {
-      "name": "hello-world",
-      "version": "1.0.0",
-      "description": "Sample package for TPKG testing",
-      "author": "Antigravity",
-      "needReboot": false,
-      "onAfterDownload": "/opt/test/hello-pkg.ts",
-      "items": [
+    "version": "1.0",
+    "packages": [
         {
-          "src": "/opt/test/hello-pkg.ts",
-          "dst": "/opt/test/hello-pkg.ts",
-          "isExecutable": true
+            "name": "hello-world",
+            "version": "1.0.0",
+            "description": "Sample package for TPKG testing",
+            "author": "Antigravity",
+            "needReboot": false,
+            "onAfterDownload": "/opt/test/hello-pkg.ts",
+            "items": [
+                {
+                    "src": "/opt/test/hello-pkg.ts",
+                    "dst": "/opt/test/hello-pkg.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/etc/pkg-demo.conf",
+                    "dst": "/root/bucket/pkg-demo.conf"
+                }
+            ]
         },
         {
-          "src": "/etc/pkg-demo.conf",
-          "dst": "/root/bucket/pkg-demo.conf"
+            "name": "packages-list",
+            "version": "1.0.1",
+            "description": "List of packages",
+            "author": "TSIX",
+            "needReboot": false,
+            "items": [
+                {
+                    "src": "/etc/tpkg/packages.json",
+                    "dst": "/etc/tpkg/packages.json"
+                }
+            ]
+        },
+        {
+            "name": "system-update",
+            "version": "0.3.0.20260917.1",
+            "description": "TSIX engine update — kernel + semua file sistem (/bin, /sbin, /usr/bin, /lib, /lib/common, /etc)",
+            "author": "TSIX",
+            "needReboot": true,
+            "onAfterDownload": "/sbin/apply-update.ts",
+            "items": [
+                {
+                    "src": "/bin/atto.ts",
+                    "dst": "/bin/atto.ts",
+                    "hostDst": "src/mirror/bin/atto.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/awk.ts",
+                    "dst": "/bin/awk.ts",
+                    "hostDst": "src/mirror/bin/awk.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/cat.ts",
+                    "dst": "/bin/cat.ts",
+                    "hostDst": "src/mirror/bin/cat.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/chgrp.ts",
+                    "dst": "/bin/chgrp.ts",
+                    "hostDst": "src/mirror/bin/chgrp.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/chmod.ts",
+                    "dst": "/bin/chmod.ts",
+                    "hostDst": "src/mirror/bin/chmod.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/chown.ts",
+                    "dst": "/bin/chown.ts",
+                    "hostDst": "src/mirror/bin/chown.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/chvt.ts",
+                    "dst": "/bin/chvt.ts",
+                    "hostDst": "src/mirror/bin/chvt.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/clear.ts",
+                    "dst": "/bin/clear.ts",
+                    "hostDst": "src/mirror/bin/clear.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/cp.ts",
+                    "dst": "/bin/cp.ts",
+                    "hostDst": "src/mirror/bin/cp.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/df.ts",
+                    "dst": "/bin/df.ts",
+                    "hostDst": "src/mirror/bin/df.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/echo.ts",
+                    "dst": "/bin/echo.ts",
+                    "hostDst": "src/mirror/bin/echo.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/find.ts",
+                    "dst": "/bin/find.ts",
+                    "hostDst": "src/mirror/bin/find.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/grep.ts",
+                    "dst": "/bin/grep.ts",
+                    "hostDst": "src/mirror/bin/grep.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/groupadd.ts",
+                    "dst": "/bin/groupadd.ts",
+                    "hostDst": "src/mirror/bin/groupadd.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/groupdel.ts",
+                    "dst": "/bin/groupdel.ts",
+                    "hostDst": "src/mirror/bin/groupdel.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/groupmod.ts",
+                    "dst": "/bin/groupmod.ts",
+                    "hostDst": "src/mirror/bin/groupmod.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/groups.ts",
+                    "dst": "/bin/groups.ts",
+                    "hostDst": "src/mirror/bin/groups.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/head.ts",
+                    "dst": "/bin/head.ts",
+                    "hostDst": "src/mirror/bin/head.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/history.ts",
+                    "dst": "/bin/history.ts",
+                    "hostDst": "src/mirror/bin/history.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/id.ts",
+                    "dst": "/bin/id.ts",
+                    "hostDst": "src/mirror/bin/id.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/init.ts",
+                    "dst": "/bin/init.ts",
+                    "hostDst": "src/mirror/bin/init.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/kill.ts",
+                    "dst": "/bin/kill.ts",
+                    "hostDst": "src/mirror/bin/kill.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/less.ts",
+                    "dst": "/bin/less.ts",
+                    "hostDst": "src/mirror/bin/less.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/login.ts",
+                    "dst": "/bin/login.ts",
+                    "hostDst": "src/mirror/bin/login.ts",
+                    "permissions": 2541
+                },
+                {
+                    "src": "/bin/ls.ts",
+                    "dst": "/bin/ls.ts",
+                    "hostDst": "src/mirror/bin/ls.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/lsblk.ts",
+                    "dst": "/bin/lsblk.ts",
+                    "hostDst": "src/mirror/bin/lsblk.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/mkdir.ts",
+                    "dst": "/bin/mkdir.ts",
+                    "hostDst": "src/mirror/bin/mkdir.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/more.ts",
+                    "dst": "/bin/more.ts",
+                    "hostDst": "src/mirror/bin/more.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/mount.ts",
+                    "dst": "/bin/mount.ts",
+                    "hostDst": "src/mirror/bin/mount.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/mv.ts",
+                    "dst": "/bin/mv.ts",
+                    "hostDst": "src/mirror/bin/mv.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/netfs.ts",
+                    "dst": "/bin/netfs.ts",
+                    "hostDst": "src/mirror/bin/netfs.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/openvt.ts",
+                    "dst": "/bin/openvt.ts",
+                    "hostDst": "src/mirror/bin/openvt.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/passwd.ts",
+                    "dst": "/bin/passwd.ts",
+                    "hostDst": "src/mirror/bin/passwd.ts",
+                    "permissions": 2541
+                },
+                {
+                    "src": "/bin/ping.ts",
+                    "dst": "/bin/ping.ts",
+                    "hostDst": "src/mirror/bin/ping.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/ps.ts",
+                    "dst": "/bin/ps.ts",
+                    "hostDst": "src/mirror/bin/ps.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/pwd.ts",
+                    "dst": "/bin/pwd.ts",
+                    "hostDst": "src/mirror/bin/pwd.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/rm.ts",
+                    "dst": "/bin/rm.ts",
+                    "hostDst": "src/mirror/bin/rm.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/scp.ts",
+                    "dst": "/bin/scp.ts",
+                    "hostDst": "src/mirror/bin/scp.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/sleep.ts",
+                    "dst": "/bin/sleep.ts",
+                    "hostDst": "src/mirror/bin/sleep.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/sort.ts",
+                    "dst": "/bin/sort.ts",
+                    "hostDst": "src/mirror/bin/sort.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/sudo.ts",
+                    "dst": "/bin/sudo.ts",
+                    "hostDst": "src/mirror/bin/sudo.ts",
+                    "permissions": 2541
+                },
+                {
+                    "src": "/bin/tail.ts",
+                    "dst": "/bin/tail.ts",
+                    "hostDst": "src/mirror/bin/tail.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/tsh.ts",
+                    "dst": "/bin/tsh.ts",
+                    "hostDst": "src/mirror/bin/tsh.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/umount.ts",
+                    "dst": "/bin/umount.ts",
+                    "hostDst": "src/mirror/bin/umount.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/uname.ts",
+                    "dst": "/bin/uname.ts",
+                    "hostDst": "src/mirror/bin/uname.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/uptime.ts",
+                    "dst": "/bin/uptime.ts",
+                    "hostDst": "src/mirror/bin/uptime.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/useradd.ts",
+                    "dst": "/bin/useradd.ts",
+                    "hostDst": "src/mirror/bin/useradd.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/userdel.ts",
+                    "dst": "/bin/userdel.ts",
+                    "hostDst": "src/mirror/bin/userdel.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/usermod.ts",
+                    "dst": "/bin/usermod.ts",
+                    "hostDst": "src/mirror/bin/usermod.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/users.ts",
+                    "dst": "/bin/users.ts",
+                    "hostDst": "src/mirror/bin/users.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/uuid-gen.ts",
+                    "dst": "/bin/uuid-gen.ts",
+                    "hostDst": "src/mirror/bin/uuid-gen.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/wc.ts",
+                    "dst": "/bin/wc.ts",
+                    "hostDst": "src/mirror/bin/wc.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/which.ts",
+                    "dst": "/bin/which.ts",
+                    "hostDst": "src/mirror/bin/which.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/whoami.ts",
+                    "dst": "/bin/whoami.ts",
+                    "hostDst": "src/mirror/bin/whoami.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/xargs.ts",
+                    "dst": "/bin/xargs.ts",
+                    "hostDst": "src/mirror/bin/xargs.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/bin/xxd.ts",
+                    "dst": "/bin/xxd.ts",
+                    "hostDst": "src/mirror/bin/xxd.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/sbin/TpkgProtocol.ts",
+                    "dst": "/sbin/TpkgProtocol.ts",
+                    "hostDst": "src/mirror/sbin/TpkgProtocol.ts"
+                },
+                {
+                    "src": "/sbin/airtermd.ts",
+                    "dst": "/sbin/airtermd.ts",
+                    "hostDst": "src/mirror/sbin/airtermd.ts"
+                },
+                {
+                    "src": "/sbin/apply-update.ts",
+                    "dst": "/sbin/apply-update.ts",
+                    "hostDst": "src/mirror/sbin/apply-update.ts"
+                },
+                {
+                    "src": "/sbin/crond.ts",
+                    "dst": "/sbin/crond.ts",
+                    "hostDst": "src/mirror/sbin/crond.ts"
+                },
+                {
+                    "src": "/sbin/iot-listener.ts",
+                    "dst": "/sbin/iot-listener.ts",
+                    "hostDst": "src/mirror/sbin/iot-listener.ts"
+                },
+                {
+                    "src": "/sbin/mem.ts",
+                    "dst": "/sbin/mem.ts",
+                    "hostDst": "src/mirror/sbin/mem.ts"
+                },
+                {
+                    "src": "/sbin/netfsd.ts",
+                    "dst": "/sbin/netfsd.ts",
+                    "hostDst": "src/mirror/sbin/netfsd.ts"
+                },
+                {
+                    "src": "/sbin/otad.ts",
+                    "dst": "/sbin/otad.ts",
+                    "hostDst": "src/mirror/sbin/otad.ts"
+                },
+                {
+                    "src": "/sbin/reboot.ts",
+                    "dst": "/sbin/reboot.ts",
+                    "hostDst": "src/mirror/sbin/reboot.ts"
+                },
+                {
+                    "src": "/sbin/scpd.ts",
+                    "dst": "/sbin/scpd.ts",
+                    "hostDst": "src/mirror/sbin/scpd.ts"
+                },
+                {
+                    "src": "/sbin/secagent.ts",
+                    "dst": "/sbin/secagent.ts",
+                    "hostDst": "src/mirror/sbin/secagent.ts"
+                },
+                {
+                    "src": "/sbin/shutdown.ts",
+                    "dst": "/sbin/shutdown.ts",
+                    "hostDst": "src/mirror/sbin/shutdown.ts"
+                },
+                {
+                    "src": "/sbin/tpkg-setup.ts",
+                    "dst": "/sbin/tpkg-setup.ts",
+                    "hostDst": "src/mirror/sbin/tpkg-setup.ts"
+                },
+                {
+                    "src": "/sbin/tpkg.ts",
+                    "dst": "/sbin/tpkg.ts",
+                    "hostDst": "src/mirror/sbin/tpkg.ts"
+                },
+                {
+                    "src": "/sbin/tpkgd.ts",
+                    "dst": "/sbin/tpkgd.ts",
+                    "hostDst": "src/mirror/sbin/tpkgd.ts"
+                },
+                {
+                    "src": "/sbin/userlib-update.ts",
+                    "dst": "/sbin/userlib-update.ts",
+                    "hostDst": "src/mirror/sbin/userlib-update.ts"
+                },
+                {
+                    "src": "/sbin/vfs-pull.ts",
+                    "dst": "/sbin/vfs-pull.ts",
+                    "hostDst": "src/mirror/sbin/vfs-pull.ts"
+                },
+                {
+                    "src": "/usr/bin/airterm.ts",
+                    "dst": "/usr/bin/airterm.ts",
+                    "hostDst": "src/mirror/usr/bin/airterm.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/bitshark.ts",
+                    "dst": "/usr/bin/bitshark.ts",
+                    "hostDst": "src/mirror/usr/bin/bitshark.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/bkfs.ts",
+                    "dst": "/usr/bin/bkfs.ts",
+                    "hostDst": "src/mirror/usr/bin/bkfs.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/crontab.ts",
+                    "dst": "/usr/bin/crontab.ts",
+                    "hostDst": "src/mirror/usr/bin/crontab.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/debug_tpkg.ts",
+                    "dst": "/usr/bin/debug_tpkg.ts",
+                    "hostDst": "src/mirror/usr/bin/debug_tpkg.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/esp-send.ts",
+                    "dst": "/usr/bin/esp-send.ts",
+                    "hostDst": "src/mirror/usr/bin/esp-send.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/forward.ts",
+                    "dst": "/usr/bin/forward.ts",
+                    "hostDst": "src/mirror/usr/bin/forward.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/ifconfig.ts",
+                    "dst": "/usr/bin/ifconfig.ts",
+                    "hostDst": "src/mirror/usr/bin/ifconfig.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/img2b64.ts",
+                    "dst": "/usr/bin/img2b64.ts",
+                    "hostDst": "src/mirror/usr/bin/img2b64.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/ipc-listen.ts",
+                    "dst": "/usr/bin/ipc-listen.ts",
+                    "hostDst": "src/mirror/usr/bin/ipc-listen.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/ipc-send.ts",
+                    "dst": "/usr/bin/ipc-send.ts",
+                    "hostDst": "src/mirror/usr/bin/ipc-send.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/keygen.ts",
+                    "dst": "/usr/bin/keygen.ts",
+                    "hostDst": "src/mirror/usr/bin/keygen.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/listen_net.ts",
+                    "dst": "/usr/bin/listen_net.ts",
+                    "hostDst": "src/mirror/usr/bin/listen_net.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/nettop.ts",
+                    "dst": "/usr/bin/nettop.ts",
+                    "hostDst": "src/mirror/usr/bin/nettop.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/ota-gen-ak.ts",
+                    "dst": "/usr/bin/ota-gen-ak.ts",
+                    "hostDst": "src/mirror/usr/bin/ota-gen-ak.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/ping_net.ts",
+                    "dst": "/usr/bin/ping_net.ts",
+                    "hostDst": "src/mirror/usr/bin/ping_net.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/portfwd.ts",
+                    "dst": "/usr/bin/portfwd.ts",
+                    "hostDst": "src/mirror/usr/bin/portfwd.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/scanif.ts",
+                    "dst": "/usr/bin/scanif.ts",
+                    "hostDst": "src/mirror/usr/bin/scanif.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/ssh-keygen.ts",
+                    "dst": "/usr/bin/ssh-keygen.ts",
+                    "hostDst": "src/mirror/usr/bin/ssh-keygen.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/sys-diag.ts",
+                    "dst": "/usr/bin/sys-diag.ts",
+                    "hostDst": "src/mirror/usr/bin/sys-diag.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/usr/bin/tbuild.ts",
+                    "dst": "/usr/bin/tbuild.ts",
+                    "hostDst": "src/mirror/usr/bin/tbuild.ts",
+                    "isExecutable": true
+                },
+                {
+                    "src": "/lib/Application.ts",
+                    "dst": "/lib/Application.ts",
+                    "hostDst": "src/mirror/lib/Application.ts"
+                },
+                {
+                    "src": "/lib/DbLib.ts",
+                    "dst": "/lib/DbLib.ts",
+                    "hostDst": "src/mirror/lib/DbLib.ts"
+                },
+                {
+                    "src": "/lib/IProgram.ts",
+                    "dst": "/lib/IProgram.ts",
+                    "hostDst": "src/mirror/lib/IProgram.ts"
+                },
+                {
+                    "src": "/lib/NetFSBackend.ts",
+                    "dst": "/lib/NetFSBackend.ts",
+                    "hostDst": "src/mirror/lib/NetFSBackend.ts"
+                },
+                {
+                    "src": "/lib/NetFSClient.ts",
+                    "dst": "/lib/NetFSClient.ts",
+                    "hostDst": "src/mirror/lib/NetFSClient.ts"
+                },
+                {
+                    "src": "/lib/NetworkLib.ts",
+                    "dst": "/lib/NetworkLib.ts",
+                    "hostDst": "src/mirror/lib/NetworkLib.ts"
+                },
+                {
+                    "src": "/lib/PacketForwarder.ts",
+                    "dst": "/lib/PacketForwarder.ts",
+                    "hostDst": "src/mirror/lib/PacketForwarder.ts"
+                },
+                {
+                    "src": "/lib/RandomLib.ts",
+                    "dst": "/lib/RandomLib.ts",
+                    "hostDst": "src/mirror/lib/RandomLib.ts"
+                },
+                {
+                    "src": "/lib/ShellScript.ts",
+                    "dst": "/lib/ShellScript.ts",
+                    "hostDst": "src/mirror/lib/ShellScript.ts"
+                },
+                {
+                    "src": "/lib/UserLib.ts",
+                    "dst": "/lib/UserLib.ts",
+                    "hostDst": "src/mirror/lib/UserLib.ts"
+                },
+                {
+                    "src": "/lib/ansiLib.ts",
+                    "dst": "/lib/ansiLib.ts",
+                    "hostDst": "src/mirror/lib/ansiLib.ts"
+                },
+                {
+                    "src": "/lib/cashew.ts",
+                    "dst": "/lib/cashew.ts",
+                    "hostDst": "src/mirror/lib/cashew.ts"
+                },
+                {
+                    "src": "/lib/common/GUITypes.ts",
+                    "dst": "/lib/common/GUITypes.ts",
+                    "hostDst": "src/mirror/lib/common/GUITypes.ts"
+                },
+                {
+                    "src": "/lib/ddc.ts",
+                    "dst": "/lib/ddc.ts",
+                    "hostDst": "src/mirror/lib/ddc.ts"
+                },
+                {
+                    "src": "/lib/emerald.ts",
+                    "dst": "/lib/emerald.ts",
+                    "hostDst": "src/mirror/lib/emerald.ts"
+                },
+                {
+                    "src": "/lib/framebuffer.ts",
+                    "dst": "/lib/framebuffer.ts",
+                    "hostDst": "src/mirror/lib/framebuffer.ts"
+                },
+                {
+                    "src": "/lib/joystickLib.ts",
+                    "dst": "/lib/joystickLib.ts",
+                    "hostDst": "src/mirror/lib/joystickLib.ts"
+                },
+                {
+                    "src": "/lib/lantana/lantana-core.ts",
+                    "dst": "/lib/lantana/lantana-core.ts",
+                    "hostDst": "src/mirror/lib/lantana/lantana-core.ts"
+                },
+                {
+                    "src": "/lib/lantana/lantana-device-bank.ts",
+                    "dst": "/lib/lantana/lantana-device-bank.ts",
+                    "hostDst": "src/mirror/lib/lantana/lantana-device-bank.ts"
+                },
+                {
+                    "src": "/lib/lantana/lantana-distributor.ts",
+                    "dst": "/lib/lantana/lantana-distributor.ts",
+                    "hostDst": "src/mirror/lib/lantana/lantana-distributor.ts"
+                },
+                {
+                    "src": "/lib/lantana/lantana-listener.ts",
+                    "dst": "/lib/lantana/lantana-listener.ts",
+                    "hostDst": "src/mirror/lib/lantana/lantana-listener.ts"
+                },
+                {
+                    "src": "/lib/lcdLib.ts",
+                    "dst": "/lib/lcdLib.ts",
+                    "hostDst": "src/mirror/lib/lcdLib.ts"
+                },
+                {
+                    "src": "/lib/resbank.ts",
+                    "dst": "/lib/resbank.ts",
+                    "hostDst": "src/mirror/lib/resbank.ts"
+                },
+                {
+                    "src": "/lib/tableLib.ts",
+                    "dst": "/lib/tableLib.ts",
+                    "hostDst": "src/mirror/lib/tableLib.ts"
+                },
+                {
+                    "src": "/lib/tftLib.ts",
+                    "dst": "/lib/tftLib.ts",
+                    "hostDst": "src/mirror/lib/tftLib.ts"
+                },
+                {
+                    "src": "/lib/theme.ts",
+                    "dst": "/lib/theme.ts",
+                    "hostDst": "src/mirror/lib/theme.ts"
+                },
+                {
+                    "src": "/lib/common/GUITypes.ts",
+                    "dst": "/lib/common/GUITypes.ts",
+                    "hostDst": "src/common/GUITypes.ts"
+                },
+                {
+                    "src": "/etc/fstab.md",
+                    "dst": "/etc/fstab.md",
+                    "hostDst": "src/mirror/etc/fstab.md"
+                },
+                {
+                    "src": "/etc/motd",
+                    "dst": "/etc/motd",
+                    "hostDst": "src/mirror/etc/motd"
+                },
+                {
+                    "src": "/etc/motd.json",
+                    "dst": "/etc/motd.json",
+                    "hostDst": "src/mirror/etc/motd.json"
+                },
+                {
+                    "src": "/etc/profile",
+                    "dst": "/etc/profile",
+                    "hostDst": "src/mirror/etc/profile"
+                },
+                {
+                    "src": "/etc/rc.local",
+                    "dst": "/etc/rc.local",
+                    "hostDst": "src/mirror/etc/rc.local"
+                },
+                {
+                    "src": "/etc/tpkg/packages.json",
+                    "dst": "/etc/tpkg/packages.json",
+                    "hostDst": "src/mirror/etc/tpkg/packages.json"
+                },
+                {
+                    "src": "/lib/common/AesGcmAgent.ts",
+                    "dst": "/lib/common/AesGcmAgent.ts",
+                    "hostDst": "src/common/AesGcmAgent.ts"
+                },
+                {
+                    "src": "/lib/common/Config.ts",
+                    "dst": "/lib/common/Config.ts",
+                    "hostDst": "src/common/Config.ts"
+                },
+                {
+                    "src": "/lib/common/IPCTypes.ts",
+                    "dst": "/lib/common/IPCTypes.ts",
+                    "hostDst": "src/common/IPCTypes.ts"
+                },
+                {
+                    "src": "/lib/common/ISecurityAgent.ts",
+                    "dst": "/lib/common/ISecurityAgent.ts",
+                    "hostDst": "src/common/ISecurityAgent.ts"
+                },
+                {
+                    "src": "/lib/common/Logger.ts",
+                    "dst": "/lib/common/Logger.ts",
+                    "hostDst": "src/common/Logger.ts"
+                },
+                {
+                    "src": "/lib/common/MaybePromise.ts",
+                    "dst": "/lib/common/MaybePromise.ts",
+                    "hostDst": "src/common/MaybePromise.ts"
+                },
+                {
+                    "src": "/lib/common/PacketFlags.ts",
+                    "dst": "/lib/common/PacketFlags.ts",
+                    "hostDst": "src/common/PacketFlags.ts"
+                },
+                {
+                    "src": "/lib/common/PathResolver.ts",
+                    "dst": "/lib/common/PathResolver.ts",
+                    "hostDst": "src/common/PathResolver.ts"
+                },
+                {
+                    "src": "/lib/common/SecurityAgent.ts",
+                    "dst": "/lib/common/SecurityAgent.ts",
+                    "hostDst": "src/common/SecurityAgent.ts"
+                },
+                {
+                    "src": "/lib/common/Shebang.ts",
+                    "dst": "/lib/common/Shebang.ts",
+                    "hostDst": "src/common/Shebang.ts"
+                },
+                {
+                    "src": "/lib/common/SyscallCode.ts",
+                    "dst": "/lib/common/SyscallCode.ts",
+                    "hostDst": "src/common/SyscallCode.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/ExecutableRegistry.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/ExecutableRegistry.ts",
+                    "hostDst": "src/kernel/ExecutableRegistry.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/GUIRegistry.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/GUIRegistry.ts",
+                    "hostDst": "src/kernel/GUIRegistry.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/Kernel.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/Kernel.ts",
+                    "hostDst": "src/kernel/Kernel.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/MountManager.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/MountManager.ts",
+                    "hostDst": "src/kernel/MountManager.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/PTYManager.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/PTYManager.ts",
+                    "hostDst": "src/kernel/PTYManager.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/PermissionManager.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/PermissionManager.ts",
+                    "hostDst": "src/kernel/PermissionManager.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/PortManager.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/PortManager.ts",
+                    "hostDst": "src/kernel/PortManager.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/Scheduler.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/Scheduler.ts",
+                    "hostDst": "src/kernel/Scheduler.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/Syscalls.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/Syscalls.ts",
+                    "hostDst": "src/kernel/Syscalls.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/FileSystemDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/FileSystemDevice.ts",
+                    "hostDst": "src/kernel/devices/FileSystemDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/IDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/IDevice.ts",
+                    "hostDst": "src/kernel/devices/IDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/KeyboardDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/KeyboardDevice.ts",
+                    "hostDst": "src/kernel/devices/KeyboardDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/NullDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/NullDevice.ts",
+                    "hostDst": "src/kernel/devices/NullDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/PTYDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/PTYDevice.ts",
+                    "hostDst": "src/kernel/devices/PTYDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/PTYSlaveDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/PTYSlaveDevice.ts",
+                    "hostDst": "src/kernel/devices/PTYSlaveDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/PipeDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/PipeDevice.ts",
+                    "hostDst": "src/kernel/devices/PipeDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/ScreenDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/ScreenDevice.ts",
+                    "hostDst": "src/kernel/devices/ScreenDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/SerialDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/SerialDevice.ts",
+                    "hostDst": "src/kernel/devices/SerialDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/SerialDeviceManager.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/SerialDeviceManager.ts",
+                    "hostDst": "src/kernel/devices/SerialDeviceManager.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/SimpleMQTNLDriver.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/SimpleMQTNLDriver.ts",
+                    "hostDst": "src/kernel/devices/SimpleMQTNLDriver.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/SocketDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/SocketDevice.ts",
+                    "hostDst": "src/kernel/devices/SocketDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/TTYDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/TTYDevice.ts",
+                    "hostDst": "src/kernel/devices/TTYDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/aux-devices/HttpServerDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/HttpServerDevice.ts",
+                    "hostDst": "src/kernel/devices/aux-devices/HttpServerDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/aux-devices/ILI9341Device.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/ILI9341Device.ts",
+                    "hostDst": "src/kernel/devices/aux-devices/ILI9341Device.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/aux-devices/LM6029Device.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/LM6029Device.ts",
+                    "hostDst": "src/kernel/devices/aux-devices/LM6029Device.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/aux-devices/MCP23017Device.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/MCP23017Device.ts",
+                    "hostDst": "src/kernel/devices/aux-devices/MCP23017Device.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/aux-devices/MySQLDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/MySQLDevice.ts",
+                    "hostDst": "src/kernel/devices/aux-devices/MySQLDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/aux-devices/PLCDDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/PLCDDevice.ts",
+                    "hostDst": "src/kernel/devices/aux-devices/PLCDDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/aux-devices/RandomDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/RandomDevice.ts",
+                    "hostDst": "src/kernel/devices/aux-devices/RandomDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/aux-devices/WebSocketDevice.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/WebSocketDevice.ts",
+                    "hostDst": "src/kernel/devices/aux-devices/WebSocketDevice.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/aux-devices/joystick.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/joystick.ts",
+                    "hostDst": "src/kernel/devices/aux-devices/joystick.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/aux-devices/lcdFontClassic.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/lcdFontClassic.ts",
+                    "hostDst": "src/kernel/devices/aux-devices/lcdFontClassic.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/aux-devices/lcdFonts.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/lcdFonts.ts",
+                    "hostDst": "src/kernel/devices/aux-devices/lcdFonts.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/devices/aux-devices/plcdFont5x7.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/plcdFont5x7.ts",
+                    "hostDst": "src/kernel/devices/aux-devices/plcdFont5x7.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/netfs/MQTNLNetFSChannel.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/netfs/MQTNLNetFSChannel.ts",
+                    "hostDst": "src/kernel/netfs/MQTNLNetFSChannel.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/tty/TTY.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/tty/TTY.ts",
+                    "hostDst": "src/kernel/tty/TTY.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/tty/TTYManager.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/tty/TTYManager.ts",
+                    "hostDst": "src/kernel/tty/TTYManager.ts"
+                },
+                {
+                    "src": "/hostsrc/userland/WorkerEntry.ts",
+                    "dst": "/tmp/tpkg-stage/userland/WorkerEntry.ts",
+                    "hostDst": "src/userland/WorkerEntry.ts"
+                }
+            ]
+        },
+        {
+            "name": "coreutils",
+            "version": "1.1.2",
+            "description": "Standard TSIX userland utilities and core libraries",
+            "author": "Antigravity",
+            "needReboot": false,
+            "items": [
+                {
+                    "src": "/bin/atto.ts",
+                    "dst": "/bin/atto.ts"
+                },
+                {
+                    "src": "/bin/cat.ts",
+                    "dst": "/bin/cat.ts"
+                },
+                {
+                    "src": "/bin/chmod.ts",
+                    "dst": "/bin/chmod.ts"
+                },
+                {
+                    "src": "/bin/chown.ts",
+                    "dst": "/bin/chown.ts"
+                },
+                {
+                    "src": "/bin/cp.ts",
+                    "dst": "/bin/cp.ts"
+                },
+                {
+                    "src": "/bin/head.ts",
+                    "dst": "/bin/head.ts"
+                },
+                {
+                    "src": "/bin/ls.ts",
+                    "dst": "/bin/ls.ts"
+                },
+                {
+                    "src": "/usr/bin/sys-diag.ts",
+                    "dst": "/usr/bin/sys-diag.ts"
+                },
+                {
+                    "src": "/bin/mkdir.ts",
+                    "dst": "/bin/mkdir.ts"
+                },
+                {
+                    "src": "/bin/mv.ts",
+                    "dst": "/bin/mv.ts"
+                },
+                {
+                    "src": "/bin/pwd.ts",
+                    "dst": "/bin/pwd.ts"
+                },
+                {
+                    "src": "/bin/rm.ts",
+                    "dst": "/bin/rm.ts"
+                },
+                {
+                    "src": "/bin/tail.ts",
+                    "dst": "/bin/tail.ts"
+                },
+                {
+                    "src": "/bin/wc.ts",
+                    "dst": "/bin/wc.ts"
+                },
+                {
+                    "src": "/bin/whoami.ts",
+                    "dst": "/bin/whoami.ts"
+                },
+                {
+                    "src": "/bin/id.ts",
+                    "dst": "/bin/id.ts"
+                },
+                {
+                    "src": "/bin/groups.ts",
+                    "dst": "/bin/groups.ts"
+                },
+                {
+                    "src": "/bin/uname.ts",
+                    "dst": "/bin/uname.ts"
+                },
+                {
+                    "src": "/bin/uptime.ts",
+                    "dst": "/bin/uptime.ts"
+                },
+                {
+                    "src": "/bin/sleep.ts",
+                    "dst": "/bin/sleep.ts"
+                },
+                {
+                    "src": "/bin/sort.ts",
+                    "dst": "/bin/sort.ts"
+                },
+                {
+                    "src": "/bin/clear.ts",
+                    "dst": "/bin/clear.ts"
+                },
+                {
+                    "src": "/bin/grep.ts",
+                    "dst": "/bin/grep.ts"
+                },
+                {
+                    "src": "/bin/find.ts",
+                    "dst": "/bin/find.ts"
+                },
+                {
+                    "src": "/bin/xxd.ts",
+                    "dst": "/bin/xxd.ts"
+                },
+                {
+                    "src": "/bin/mount.ts",
+                    "dst": "/bin/mount.ts"
+                },
+                {
+                    "src": "/bin/umount.ts",
+                    "dst": "/bin/umount.ts"
+                },
+                {
+                    "src": "/sbin/vfs-pull.ts",
+                    "dst": "/sbin/vfs-pull.ts"
+                },
+                {
+                    "src": "/lib/UserLib.ts",
+                    "dst": "/lib/UserLib.ts"
+                },
+                {
+                    "src": "/lib/IProgram.ts",
+                    "dst": "/lib/IProgram.ts"
+                },
+                {
+                    "src": "/lib/NetworkLib.ts",
+                    "dst": "/lib/NetworkLib.ts"
+                },
+                {
+                    "src": "/lib/RandomLib.ts",
+                    "dst": "/lib/RandomLib.ts"
+                }
+            ]
+        },
+        {
+            "name": "nettools",
+            "version": "1.0.6",
+            "description": "Networking utilities and daemons for TSIX",
+            "author": "Antigravity",
+            "needReboot": false,
+            "items": [
+                {
+                    "src": "/bin/ping.ts",
+                    "dst": "/bin/ping.ts"
+                },
+                {
+                    "src": "/usr/bin/ifconfig.ts",
+                    "dst": "/usr/bin/ifconfig.ts"
+                },
+                {
+                    "src": "/usr/bin/nettop.ts",
+                    "dst": "/usr/bin/nettop.ts"
+                },
+                {
+                    "src": "/usr/bin/scanif.ts",
+                    "dst": "/usr/bin/scanif.ts"
+                },
+                {
+                    "src": "/usr/bin/forward.ts",
+                    "dst": "/usr/bin/forward.ts"
+                },
+                {
+                    "src": "/usr/bin/portfwd.ts",
+                    "dst": "/usr/bin/portfwd.ts"
+                },
+                {
+                    "src": "/sbin/tpkg.ts",
+                    "dst": "/sbin/tpkg.ts"
+                },
+                {
+                    "src": "/sbin/tpkgd.ts",
+                    "dst": "/sbin/tpkgd.ts"
+                },
+                {
+                    "src": "/usr/bin/airterm.ts",
+                    "dst": "/usr/bin/airterm.ts"
+                },
+                {
+                    "src": "/sbin/airtermd.ts",
+                    "dst": "/sbin/airtermd.ts"
+                },
+                {
+                    "src": "/bin/scp.ts",
+                    "dst": "/bin/scp.ts"
+                },
+                {
+                    "src": "/sbin/scpd.ts",
+                    "dst": "/sbin/scpd.ts"
+                },
+                {
+                    "src": "/usr/bin/listen_net.ts",
+                    "dst": "/usr/bin/listen_net.ts"
+                },
+                {
+                    "src": "/usr/bin/ping_net.ts",
+                    "dst": "/usr/bin/ping_net.ts"
+                },
+                {
+                    "src": "/sbin/iot-listener.ts",
+                    "dst": "/sbin/iot-listener.ts"
+                },
+                {
+                    "src": "/lib/NetworkLib.ts",
+                    "dst": "/lib/NetworkLib.ts"
+                },
+                {
+                    "src": "/lib/PacketForwarder.ts",
+                    "dst": "/lib/PacketForwarder.ts"
+                }
+            ]
+        },
+        {
+            "name": "ota-server",
+            "version": "1.0.1",
+            "description": "Secure OTA Update Server for ESP8266/ESP32 with Metadata and Smart Cache support",
+            "author": "Antigravity",
+            "needReboot": false,
+            "items": [
+                {
+                    "src": "/sbin/otad.ts",
+                    "dst": "/sbin/otad.ts"
+                },
+                {
+                    "src": "/usr/bin/ota-gen-ak.ts",
+                    "dst": "/usr/bin/ota-gen-ak.ts"
+                },
+                {
+                    "src": "/opt/esp-ota/activation-keys.txt",
+                    "dst": "/opt/esp-ota/activation-keys.txt"
+                },
+                {
+                    "src": "/opt/esp-ota/firmwares/test/mytest.json",
+                    "dst": "/opt/esp-ota/firmwares/test/mytest.json"
+                }
+            ]
         }
-      ]
-    },
-    {
-      "name": "packages-list",
-      "version": "1.0.1",
-      "description": "List of packages",
-      "author": "TSIX",
-      "needReboot": false,
-      "items": [
-        {
-          "src": "/etc/tpkg/packages.json",
-          "dst": "/etc/tpkg/packages.json"
-        }
-      ]
-    },
-    {
-      "name": "system-update",
-      "version": "1.7.4",
-      "description": "Full system kernel, configuration, and core library update (Production-Ready Parity Build)",
-      "author": "Antigravity",
-      "needReboot": true,
-      "onAfterDownload": "/sbin/apply-update.ts",
-      "items": [
-        {
-          "src": "/sbin/apply-update.ts",
-          "dst": "/sbin/apply-update.ts"
-        },
-        {
-          "src": "/bin/init.ts",
-          "dst": "/tmp/system-updates/bin/init.ts"
-        },
-        {
-          "src": "/bin/tsh.ts",
-          "dst": "/tmp/system-updates/bin/tsh.ts"
-        },
-        {
-          "src": "/bin/login.ts",
-          "dst": "/tmp/system-updates/bin/login.ts"
-        },
-        {
-          "src": "/sbin/tpkg.ts",
-          "dst": "/tmp/system-updates/bin/tpkg.ts"
-        },
-        {
-          "src": "/sbin/tpkgd.ts",
-          "dst": "/tmp/system-updates/bin/tpkgd.ts"
-        },
-        {
-          "src": "/bin/ls.ts",
-          "dst": "/tmp/system-updates/bin/ls.ts"
-        },
-        {
-          "src": "/lib/UserLib.ts",
-          "dst": "/tmp/system-updates/lib/UserLib.ts"
-        },
-        {
-          "src": "/lib/Application.ts",
-          "dst": "/tmp/system-updates/lib/Application.ts"
-        },
-        {
-          "src": "/lib/common/SyscallCode.ts",
-          "dst": "/tmp/system-updates/lib/common/SyscallCode.ts"
-        },
-        {
-          "src": "/lib/common/IPCTypes.ts",
-          "dst": "/tmp/system-updates/lib/common/IPCTypes.ts"
-        },
-        {
-          "src": "/lib/common/Logger.ts",
-          "dst": "/tmp/system-updates/lib/common/Logger.ts"
-        },
-        {
-          "src": "/lib/common/SecurityAgent.ts",
-          "dst": "/tmp/system-updates/lib/common/SecurityAgent.ts"
-        },
-        {
-          "src": "/lib/common/PacketFlags.ts",
-          "dst": "/tmp/system-updates/lib/common/PacketFlags.ts"
-        },
-        {
-          "src": "/lib/common/PathResolver.ts",
-          "dst": "/tmp/system-updates/lib/common/PathResolver.ts"
-        },
-        {
-          "src": "/lib/common/Config.ts",
-          "dst": "/tmp/system-updates/lib/common/Config.ts"
-        },
-        {
-          "src": "/etc/tpkg/packages.json",
-          "dst": "/tmp/system-updates/etc/tpkg/packages.json"
-        }
-      ]
-    },
-    {
-      "name": "coreutils",
-      "version": "1.1.2",
-      "description": "Standard TSIX userland utilities and core libraries",
-      "author": "Antigravity",
-      "needReboot": false,
-      "items": [
-        {
-          "src": "/bin/atto.ts",
-          "dst": "/bin/atto.ts"
-        },
-        {
-          "src": "/bin/cat.ts",
-          "dst": "/bin/cat.ts"
-        },
-        {
-          "src": "/bin/chmod.ts",
-          "dst": "/bin/chmod.ts"
-        },
-        {
-          "src": "/bin/chown.ts",
-          "dst": "/bin/chown.ts"
-        },
-        {
-          "src": "/bin/cp.ts",
-          "dst": "/bin/cp.ts"
-        },
-        {
-          "src": "/bin/head.ts",
-          "dst": "/bin/head.ts"
-        },
-        {
-          "src": "/bin/ls.ts",
-          "dst": "/bin/ls.ts"
-        },
-        {
-          "src": "/usr/bin/sys-diag.ts",
-          "dst": "/usr/bin/sys-diag.ts"
-        },
-        {
-          "src": "/bin/mkdir.ts",
-          "dst": "/bin/mkdir.ts"
-        },
-        {
-          "src": "/bin/mv.ts",
-          "dst": "/bin/mv.ts"
-        },
-        {
-          "src": "/bin/pwd.ts",
-          "dst": "/bin/pwd.ts"
-        },
-        {
-          "src": "/bin/rm.ts",
-          "dst": "/bin/rm.ts"
-        },
-        {
-          "src": "/bin/tail.ts",
-          "dst": "/bin/tail.ts"
-        },
-        {
-          "src": "/bin/wc.ts",
-          "dst": "/bin/wc.ts"
-        },
-        {
-          "src": "/bin/whoami.ts",
-          "dst": "/bin/whoami.ts"
-        },
-        {
-          "src": "/bin/id.ts",
-          "dst": "/bin/id.ts"
-        },
-        {
-          "src": "/bin/groups.ts",
-          "dst": "/bin/groups.ts"
-        },
-        {
-          "src": "/bin/uname.ts",
-          "dst": "/bin/uname.ts"
-        },
-        {
-          "src": "/bin/uptime.ts",
-          "dst": "/bin/uptime.ts"
-        },
-        {
-          "src": "/bin/sleep.ts",
-          "dst": "/bin/sleep.ts"
-        },
-        {
-          "src": "/bin/sort.ts",
-          "dst": "/bin/sort.ts"
-        },
-        {
-          "src": "/bin/clear.ts",
-          "dst": "/bin/clear.ts"
-        },
-        {
-          "src": "/bin/grep.ts",
-          "dst": "/bin/grep.ts"
-        },
-        {
-          "src": "/bin/find.ts",
-          "dst": "/bin/find.ts"
-        },
-        {
-          "src": "/bin/xxd.ts",
-          "dst": "/bin/xxd.ts"
-        },
-        {
-          "src": "/bin/mount.ts",
-          "dst": "/bin/mount.ts"
-        },
-        {
-          "src": "/bin/umount.ts",
-          "dst": "/bin/umount.ts"
-        },
-        {
-          "src": "/sbin/vfs-pull.ts",
-          "dst": "/sbin/vfs-pull.ts"
-        },
-        {
-          "src": "/lib/UserLib.ts",
-          "dst": "/lib/UserLib.ts"
-        },
-        {
-          "src": "/lib/IProgram.ts",
-          "dst": "/lib/IProgram.ts"
-        },
-        {
-          "src": "/lib/NetworkLib.ts",
-          "dst": "/lib/NetworkLib.ts"
-        },
-        {
-          "src": "/lib/RandomLib.ts",
-          "dst": "/lib/RandomLib.ts"
-        }
-      ]
-    },
-    {
-      "name": "nettools",
-      "version": "1.0.6",
-      "description": "Networking utilities and daemons for TSIX",
-      "author": "Antigravity",
-      "needReboot": false,
-      "items": [
-        {
-          "src": "/bin/ping.ts",
-          "dst": "/bin/ping.ts"
-        },
-        {
-          "src": "/usr/bin/ifconfig.ts",
-          "dst": "/usr/bin/ifconfig.ts"
-        },
-        {
-          "src": "/usr/bin/nettop.ts",
-          "dst": "/usr/bin/nettop.ts"
-        },
-        {
-          "src": "/usr/bin/scanif.ts",
-          "dst": "/usr/bin/scanif.ts"
-        },
-        {
-          "src": "/usr/bin/forward.ts",
-          "dst": "/usr/bin/forward.ts"
-        },
-        {
-          "src": "/usr/bin/portfwd.ts",
-          "dst": "/usr/bin/portfwd.ts"
-        },
-        {
-          "src": "/sbin/tpkg.ts",
-          "dst": "/sbin/tpkg.ts"
-        },
-        {
-          "src": "/sbin/tpkgd.ts",
-          "dst": "/sbin/tpkgd.ts"
-        },
-        {
-          "src": "/usr/bin/airterm.ts",
-          "dst": "/usr/bin/airterm.ts"
-        },
-        {
-          "src": "/sbin/airtermd.ts",
-          "dst": "/sbin/airtermd.ts"
-        },
-        {
-          "src": "/usr/bin/scp.ts",
-          "dst": "/usr/bin/scp.ts"
-        },
-        {
-          "src": "/sbin/scpd.ts",
-          "dst": "/sbin/scpd.ts"
-        },
-        {
-          "src": "/usr/bin/listen_net.ts",
-          "dst": "/usr/bin/listen_net.ts"
-        },
-        {
-          "src": "/usr/bin/ping_net.ts",
-          "dst": "/usr/bin/ping_net.ts"
-        },
-        {
-          "src": "/sbin/iot-listener.ts",
-          "dst": "/sbin/iot-listener.ts"
-        },
-        {
-          "src": "/lib/NetworkLib.ts",
-          "dst": "/lib/NetworkLib.ts"
-        },
-        {
-          "src": "/lib/PacketForwarder.ts",
-          "dst": "/lib/PacketForwarder.ts"
-        }
-      ]
-    },
-    {
-      "name": "ota-server",
-      "version": "1.0.1",
-      "description": "Secure OTA Update Server for ESP8266/ESP32 with Metadata and Smart Cache support",
-      "author": "Antigravity",
-      "needReboot": false,
-      "items": [
-        {
-          "src": "/sbin/otad.ts",
-          "dst": "/sbin/otad.ts"
-        },
-        {
-          "src": "/usr/bin/ota-gen-ak.ts",
-          "dst": "/usr/bin/ota-gen-ak.ts"
-        },
-        {
-          "src": "/opt/esp-ota/activation-keys.txt",
-          "dst": "/opt/esp-ota/activation-keys.txt"
-        },
-        {
-          "src": "/opt/esp-ota/firmwares/test/mytest.json",
-          "dst": "/opt/esp-ota/firmwares/test/mytest.json"
-        }
-      ]
-    }
-  ]
+    ]
 }

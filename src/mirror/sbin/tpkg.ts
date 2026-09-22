@@ -7,6 +7,7 @@ import {
     bundleDigest,
     compareVersions,
     formatBytes,
+    isSafeHostDst,
     parseHostPort,
     resolveMode,
     verifyBundleFiles,
@@ -21,6 +22,16 @@ interface BackupEntry {
     existed: boolean;
     /** Nama file di folder backup (relatif), mis. "0001.bin". */
     backup?: string;
+    /**
+     * Kalau diisi, entri ini juga mewakili file di HOST (relatif root proyek).
+     * Item ber-`hostDst` menulis ke DUA tempat (VFS `dst` + host), jadi keduanya
+     * harus dibackup — kalau hanya host yang dibackup, kegagalan di tengah jalan
+     * meninggalkan VFS sudah versi baru (bug yang ditemukan test P2.14).
+     */
+    hostPath?: string;
+    /** true = file host sudah ada sebelum install → `hostBackup` berisi isinya. */
+    hostExisted?: boolean;
+    hostBackup?: string;
 }
 
 interface BackupIndex {
@@ -41,9 +52,16 @@ interface BackupIndex {
  * Ikhtisar pengamanan berlapis:
  *   1. handshake RSA → session key ChaCha20 (transport terenkripsi);
  *   2. fingerprint repo disimpan di `/etc/tpkg/trusted_repos` (TOFU);
- *   3. signature server atas **metadata** bundle (path/size/sha256);
+ *   3. signature server atas **metadata** bundle (path/hostDst/size/sha256);
  *   4. SHA-256 tiap file diperiksa SEBELUM ditulis (tamper/korupsi ketahuan);
- *   5. backup ke disk sebelum menimpa, restore otomatis kalau gagal.
+ *   5. backup ke disk sebelum menimpa, restore otomatis kalau gagal;
+ *   6. paket yang menyentuh HOST FS (kernel & komponennya) WAJIB root dan
+ *      dikonfirmasi eksplisit sebelum satu byte pun ditulis ke luar VFS.
+ *
+ * Semua perintah yang mengubah sistem (update/install/download/rollback) menolak
+ * dijalankan sebagai non-root. Itu bukan sekadar sopan santun: `SYNC_TO_HOST` di
+ * kernel juga menolak non-root, jadi paket ber-`hostDst` akan gagal di tengah
+ * jalan kalau gerbang ini dilewati.
  *
  * Perbaikan dari versi lama: `host[:port]` di-parse (dulu port 80 hardcoded),
  * framing MQTNL di-pin ke JSON, paket yang tiba disaring berdasarkan tipe, dan
@@ -57,6 +75,12 @@ export class Main {
     private configFile: string = "/etc/tpkg/config.json";
     private statusFile: string = "/var/lib/tpkg/status.json";
     private backupDir: string = "/var/lib/tpkg/backup";
+    /**
+     * Staging VFS untuk file host. `SYNC_TO_HOST` membaca isi dari VFS, jadi
+     * file kernel harus mendarat di suatu path VFS dulu — pakai /tmp (ramfs)
+     * supaya tidak meninggalkan jejak di root filesystem.
+     */
+    private hostStageDir: string = "/tmp/tpkg-stage";
     private maxBackupsPerPkg: number = 3;
     private metrics = { installs: 0, failed: 0, rolledBack: 0, verified: 0, downloads: 0 };
 
@@ -94,11 +118,19 @@ export class Main {
 
         await this.ensureCache();
 
-        // Security Check: Enforce root for mutations
+        // GERBANG ROOT.
+        //
+        // `install`/`rollback`/`update`/`download` semuanya mengubah node: menulis
+        // ke rootfs (BKFS), ke `/var/lib/tpkg`, dan untuk paket engine ke HOST FS
+        // (`syncToHost`). Kernel pun menolak `SYNC_TO_HOST` dari non-root, jadi
+        // membiarkan perintah ini jalan sebagai user biasa hanya menghasilkan
+        // kegagalan separuh jalan — lebih baik ditolak di depan dengan pesan jelas.
         const who = await this.lib.shell.whoami();
-        const rootRequired = ["install", "update", "rollback"];
+        const rootRequired = ["install", "update", "rollback", "download"];
         if (rootRequired.includes(cmd) && who.uid !== 0) {
-            await this.lib.std.print(`❌ Error: 'tpkg ${cmd}' requires root privileges. Use sudo.\n`);
+            await this.lib.std.print(
+                `❌ Error: 'tpkg ${cmd}' requires root privileges (mengubah sistem & bisa menulis host FS). Use sudo.\n`,
+            );
             return;
         }
 
@@ -139,12 +171,18 @@ export class Main {
         await this.lib.std.print("  tpkg update [host]                 - Update package catalog from host\n");
         await this.lib.std.print("  tpkg list                          - List available packages\n");
         await this.lib.std.print("  tpkg info <pkg> [--from <host>]    - Show detailed package information\n");
-        await this.lib.std.print("  tpkg install <pkg> [--from <host>] - Install a package (verify + backup + rollback)\n");
+        await this.lib.std.print(
+            "  tpkg install <pkg> [--from <host>] - Install a package (verify + backup + rollback)\n",
+        );
         await this.lib.std.print("  tpkg download <pkg> [--from <host>] - Fetch & verify without installing\n");
         await this.lib.std.print("  tpkg verify <pkg> [--from <host>]  - Verify signature of a package\n");
         await this.lib.std.print("  tpkg rollback <pkg>                - Restore the last backup of a package\n");
         await this.lib.std.print("  tpkg metrics                       - Show statistics\n");
         await this.lib.std.print("  tpkg --set-repo <host[:port]>      - Set default repository\n");
+        await this.lib.std.print(
+            "\n⚠️  update/install/download/rollback wajib root (sudo): mengubah sistem,\n" +
+                "    dan paket engine (mis. system-update) menulis ke HOST FS — kernel & lib.\n",
+        );
     }
 
     private async showMetrics() {
@@ -182,10 +220,10 @@ export class Main {
     }
 
     private async ensureCache() {
-        if (!await this.exists("/var")) await this.lib.fs.mkdir("/var");
-        if (!await this.exists("/var/cache")) await this.lib.fs.mkdir("/var/cache");
-        if (!await this.exists(this.cacheDir)) await this.lib.fs.mkdir(this.cacheDir);
-        if (!await this.exists("/etc/tpkg")) await this.lib.fs.mkdir("/etc/tpkg");
+        if (!(await this.exists("/var"))) await this.lib.fs.mkdir("/var");
+        if (!(await this.exists("/var/cache"))) await this.lib.fs.mkdir("/var/cache");
+        if (!(await this.exists(this.cacheDir))) await this.lib.fs.mkdir(this.cacheDir);
+        if (!(await this.exists("/etc/tpkg"))) await this.lib.fs.mkdir("/etc/tpkg");
     }
 
     private async doUpdate(host: string) {
@@ -234,16 +272,14 @@ export class Main {
             }
 
             await this.lib.fs.writeFile(this.repoCache, JSON.stringify(data.packages, null, 2));
-            await this.lib.std.print(
-                `Successfully updated. ${data.packages.length} packages available. (Verified)\n`,
-            );
+            await this.lib.std.print(`Successfully updated. ${data.packages.length} packages available. (Verified)\n`);
         } finally {
             await this.lib.net.close(fd).catch(() => {});
         }
     }
 
     private async doList() {
-        if (!await this.exists(this.repoCache)) {
+        if (!(await this.exists(this.repoCache))) {
             await this.lib.std.print("No catalog found. Run 'tpkg update <host>' first.\n");
             return;
         }
@@ -273,7 +309,10 @@ export class Main {
         const remotePkg = catalog.find((p: any) => p.name === pkgName);
         if (!remotePkg) {
             await this.lib.std.print(`❌ Error: Package '${pkgName}' not found in catalog. Run 'tpkg update' first.\n`);
-            const suggestions = this.findSuggestions(pkgName, catalog.map((p: any) => p.name));
+            const suggestions = this.findSuggestions(
+                pkgName,
+                catalog.map((p: any) => p.name),
+            );
             if (suggestions.length > 0) {
                 await this.lib.std.print(`💡 Did you mean: \x1b[1;36m${suggestions.join(", ")}\x1b[0m ?\n`);
             }
@@ -287,7 +326,9 @@ export class Main {
             const cmp = compareVersions(localVer, remotePkg.version);
             if (cmp >= 0) {
                 const msg = cmp === 0 ? "already same version" : "already newer";
-                await this.lib.std.print(`⚠️  Version local for \x1b[1m${pkgName}\x1b[0m is ${msg} (\x1b[1;36m${localVer}\x1b[0m).\n`);
+                await this.lib.std.print(
+                    `⚠️  Version local for \x1b[1m${pkgName}\x1b[0m is ${msg} (\x1b[1;36m${localVer}\x1b[0m).\n`,
+                );
                 const confirm = await this.lib.std.read("Proceed with installation anyway? [y/N]: ");
                 if (confirm.toLowerCase().trim() !== "y") {
                     await this.lib.std.print("Installation aborted.\n");
@@ -296,7 +337,9 @@ export class Main {
             }
         }
 
-        await this.lib.std.print(`Preparing to install \x1b[1m${pkgName}\x1b[0m (v${remotePkg.version}) from \x1b[1m${host}\x1b[0m...\n`);
+        await this.lib.std.print(
+            `Preparing to install \x1b[1m${pkgName}\x1b[0m (v${remotePkg.version}) from \x1b[1m${host}\x1b[0m...\n`,
+        );
         const session = await this.establishSecureSession(host);
         if (!session) return;
 
@@ -315,7 +358,9 @@ export class Main {
             if (!done) return;
 
             if (reply.needReboot) {
-                await this.lib.std.print("\x1b[1;33m⚠️  REBOOT REQUIRED: Run 'reboot' to apply system changes.\x1b[0m\n");
+                await this.lib.std.print(
+                    "\x1b[1;33m⚠️  REBOOT REQUIRED: Run 'reboot' to apply system changes.\x1b[0m\n",
+                );
             }
         } finally {
             await this.lib.net.close(session.fd).catch(() => {});
@@ -354,7 +399,9 @@ export class Main {
 
             const dir = `${this.cacheDir}/bundles/${reply.name}/${reply.version}`;
             for (const file of files) {
-                const dest = `${dir}/files${file.path}`;
+                // File engine (kernel) disimpan di bawah `host/` supaya jelas bahwa
+                // isinya bukan path VFS — dan supaya tidak ketimpa file VFS lain.
+                const dest = `${dir}/${file.hostDst ? `host/${file.hostDst}` : `files${file.path}`}`;
                 const parent = dest.substring(0, dest.lastIndexOf("/"));
                 if (parent) await this.mkdirRecursive(parent);
                 await this.lib.fs.writeFile(dest, file.content);
@@ -503,6 +550,15 @@ export class Main {
             return null;
         }
 
+        // Tujuan host diperiksa walau sudah ikut ditandatangani: server yang salah
+        // konfigurasi tidak boleh membuat klien menulis di luar root proyek.
+        for (const f of files) {
+            if (f.hostDst !== undefined && !isSafeHostDst(f.hostDst)) {
+                await this.lib.std.print(`❌ ERROR: hostDst tidak aman di paket: '${f.hostDst}'\n`);
+                return null;
+            }
+        }
+
         this.metrics.verified++;
         const total = files.reduce((sum, f) => sum + f.size, 0);
         await this.lib.std.print(
@@ -523,6 +579,17 @@ export class Main {
         files: TpkgBundleFile[],
         localStatus: Record<string, string>,
     ): Promise<boolean> {
+        const hostFiles = files.filter((f) => !!f.hostDst);
+
+        // Paket yang menyentuh HOST FS sangat berbahaya (bisa mengganti kernel),
+        // jadi minta konfirmasi eksplisit walau sudah root. Default = TIDAK.
+        if (hostFiles.length > 0) {
+            if (!(await this.confirmHostWrite(pkgName, hostFiles))) {
+                await this.lib.std.print("❌ Instalasi dibatalkan — tidak ada yang ditulis.\n");
+                return false;
+            }
+        }
+
         const backup = await this.backupFiles(pkgName, data.version, files, data.undoScript);
         if (!backup) return false; // gagal backup → jangan menyentuh apa pun
 
@@ -533,15 +600,23 @@ export class Main {
 
                 await this.lib.fs.writeFile(file.path, file.content);
 
-                // Mode: `permissions`/`isExecutable` dari manifest menang; path
-                // `/bin/*` tetap dianggap executable demi repo lama. Inilah yang
-                // memperbaiki paket dengan skrip baru di luar /bin (dulu +x hilang
-                // sehingga post-install gagal 126).
+                // Mode: `permissions` dari manifest menang, lalu aturan SetUID/EXEC
+                // yang sama dengan `vfs-bootstrap` (lihat `resolveMode`). Ini yang
+                // membuat skrip baru di luar /bin tetap bisa dieksekusi (dulu +x
+                // hilang sehingga post-install gagal 126).
                 const mode = resolveMode(file);
                 if (mode !== undefined) await this.lib.fs.chmod(file.path, mode);
 
                 const tag = mode !== undefined ? `, mode ${mode.toString(8)}` : "";
                 await this.lib.std.print(`  -> ${file.path} (${formatBytes(file.size)}${tag})\n`);
+
+                // File yang hidup di host (kernel dkk): VFS di atas hanya jalur
+                // perantara — salin keluar sekarang, SEBELUM laporan sukses.
+                if (file.hostDst) {
+                    const ok = await this.lib.fs.syncToHost(file.path, file.hostDst);
+                    if (!ok) throw new Error(`gagal sync ke host: ${file.hostDst}`);
+                    await this.lib.std.print(`     host: ${file.hostDst}\n`);
+                }
             }
         } catch (e: any) {
             await this.lib.std.print(`❌ Gagal menulis: ${e.message}\n`);
@@ -557,6 +632,28 @@ export class Main {
         await this.runPostInstall(pkgName, data, backup);
         await this.pruneBackups(pkgName);
         return true;
+    }
+
+    /**
+     * confirmHostWrite(): Ringkas file host yang akan ditimpa, lalu minta izin.
+     *
+     * Menampilkan daftar (maks 10 + sisanya) penting: operator harus tahu bahwa
+     * ini bukan sekadar memasang app, tapi menulis ke luar VFS.
+     */
+    private async confirmHostWrite(pkgName: string, hostFiles: TpkgBundleFile[]): Promise<boolean> {
+        await this.lib.std.print(
+            `\n\x1b[1;33m⚠️  Paket '${pkgName}' menulis ke HOST FS (${hostFiles.length} file).\x1b[0m\n`,
+        );
+        await this.lib.std.print("   Ini mengubah file di luar VFS — termasuk kernel & komponen engine.\n");
+        for (const f of hostFiles.slice(0, 10)) {
+            await this.lib.std.print(`   • ${f.hostDst}\n`);
+        }
+        if (hostFiles.length > 10) {
+            await this.lib.std.print(`   … dan ${hostFiles.length - 10} file lain\n`);
+        }
+
+        const answer = await this.lib.std.read("\nLanjutkan tulis ke host? [y/N]: ");
+        return answer.toLowerCase().trim() === "y";
     }
 
     /** runPostInstall(): jalankan `onAfter`, tawarkan rollback bila gagal. */
@@ -615,6 +712,11 @@ export class Main {
      * `tpkg rollback` bisa memulihkan kapan pun.
      *
      * Return null kalau backup gagal — pemanggil WAJIB membatalkan instalasi.
+     *
+     * File host (ber-`hostDst`) dibackup dengan cara dibaca dulu ke VFS lewat
+     * `syncFromHost`, lalu disimpan seperti file biasa. Isinya jadi bisa dipulihkan
+     * lewat `syncToHost` saat rollback — tanpa ini, rollback paket engine hanya
+     * mengembalikan sisi VFS dan meninggalkan kernel yang sudah tertimpa.
      */
     private async backupFiles(
         pkgName: string,
@@ -637,15 +739,34 @@ export class Main {
             let seq = 0;
 
             for (const file of files) {
+                const entry: BackupEntry = { path: file.path, existed: false };
+
+                // (a) Sisi VFS — file `dst` dicetak tiap install, host atau bukan.
                 const existing = await this.lib.fs.readFile(file.path);
-                if (existing === null || existing === undefined) {
-                    index.entries.push({ path: file.path, existed: false });
-                    continue;
+                if (existing !== null && existing !== undefined) {
+                    seq++;
+                    const name = `${String(seq).padStart(4, "0")}.bin`;
+                    await this.lib.fs.writeFile(`${dir}/${name}`, existing);
+                    entry.existed = true;
+                    entry.backup = name;
                 }
-                seq++;
-                const name = `${String(seq).padStart(4, "0")}.bin`;
-                await this.lib.fs.writeFile(`${dir}/${name}`, existing);
-                index.entries.push({ path: file.path, existed: true, backup: name });
+
+                // (b) Sisi HOST — dibaca masuk ke folder backup lewat `syncFromHost`.
+                // File yang belum ada di host mengelempar → catat "belum ada".
+                if (file.hostDst) {
+                    entry.hostPath = file.hostDst;
+                    try {
+                        seq++;
+                        const name = `${String(seq).padStart(4, "0")}.bin`;
+                        await this.lib.fs.syncFromHost(file.hostDst, `${dir}/${name}`);
+                        entry.hostExisted = true;
+                        entry.hostBackup = name;
+                    } catch (e: any) {
+                        entry.hostExisted = false;
+                    }
+                }
+
+                index.entries.push(entry);
             }
 
             await this.lib.fs.writeFile(`${dir}/index.json`, JSON.stringify(index, null, 2));
@@ -662,8 +783,33 @@ export class Main {
         const dir = `${this.backupDir}/${backup.package}/${backup.createdAt}`;
         let restored = 0;
         let removed = 0;
+        let skippedHost = 0;
 
         for (const entry of backup.entries) {
+            // --- sisi HOST (kalau ada) ---
+            // try/catch TERPISAH dari sisi VFS: kalau pemulihan host gagal (mis. izin
+            // atau target terkunci), VFS tetap harus dikembalikan. Satu kegagalan tidak
+            // boleh membuat sisi lain ikut terlewat — itu yang bikin node berakhir
+            // "separuh ter-update".
+            if (entry.hostPath) {
+                try {
+                    if (entry.hostExisted && entry.hostBackup) {
+                        const ok = await this.lib.fs.syncToHost(`${dir}/${entry.hostBackup}`, entry.hostPath);
+                        if (!ok) throw new Error("syncToHost mengembalikan false");
+                        restored++;
+                    } else {
+                        // File host yang BARU dibuat paket ini. VFS tidak punya syscall
+                        // untuk menghapus file host, jadi dilaporkan ke operator — lebih
+                        // jujur daripada gagal diam-diam.
+                        skippedHost++;
+                        await this.lib.std.print(`⚠️  File host baru tidak bisa dihapus otomatis: ${entry.hostPath}\n`);
+                    }
+                } catch (e: any) {
+                    await this.lib.std.print(`⚠️  Gagal memulihkan host ${entry.hostPath}: ${e.message}\n`);
+                }
+            }
+
+            // --- sisi VFS ---
             try {
                 if (entry.existed && entry.backup) {
                     const content = await this.lib.fs.readFile(`${dir}/${entry.backup}`);
@@ -680,7 +826,10 @@ export class Main {
             }
         }
 
-        await this.lib.std.print(`✅ Rollback selesai (${restored} dipulihkan, ${removed} dihapus).\n`);
+        await this.lib.std.print(
+            `✅ Rollback selesai (${restored} dipulihkan, ${removed} dihapus` +
+                `${skippedHost > 0 ? `, ${skippedHost} file host perlu dihapus manual` : ""}).\n`,
+        );
         return true;
     }
 
@@ -957,9 +1106,8 @@ export class Main {
         throw lastErr;
     }
 
-
     private async loadCatalog(): Promise<any[]> {
-        if (!await this.exists(this.repoCache)) return [];
+        if (!(await this.exists(this.repoCache))) return [];
         const content = await this.lib.fs.readFile(this.repoCache);
         try {
             return JSON.parse(content || "[]");
@@ -969,7 +1117,7 @@ export class Main {
     }
 
     private async loadStatus(): Promise<Record<string, string>> {
-        if (!await this.exists(this.statusFile)) return {};
+        if (!(await this.exists(this.statusFile))) return {};
         const content = await this.lib.fs.readFile(this.statusFile);
         try {
             return JSON.parse(content || "{}");
@@ -994,7 +1142,7 @@ export class Main {
     }
 
     private async isTrusted(fp: string): Promise<boolean> {
-        if (!await this.exists(this.trustedRepos)) return false;
+        if (!(await this.exists(this.trustedRepos))) return false;
         const list = await this.lib.fs.readFile(this.trustedRepos);
         return (list || "").includes(fp);
     }
@@ -1002,13 +1150,13 @@ export class Main {
     private async addTrusted(fp: string) {
         let list = "";
         if (await this.exists(this.trustedRepos)) {
-            list = await this.lib.fs.readFile(this.trustedRepos) || "";
+            list = (await this.lib.fs.readFile(this.trustedRepos)) || "";
         }
         await this.lib.fs.writeFile(this.trustedRepos, list + fp + "\n");
     }
 
     private async loadConfig(): Promise<any> {
-        if (!await this.exists(this.configFile)) return {};
+        if (!(await this.exists(this.configFile))) return {};
         const content = await this.lib.fs.readFile(this.configFile);
         try {
             return JSON.parse(content || "{}");
@@ -1022,7 +1170,7 @@ export class Main {
     }
 
     private async mkdirRecursive(path: string) {
-        if (path === "/" || path === "" || await this.exists(path)) return;
+        if (path === "/" || path === "" || (await this.exists(path))) return;
         const parent = path.substring(0, path.lastIndexOf("/"));
         if (parent) {
             await this.mkdirRecursive(parent);
@@ -1046,9 +1194,9 @@ export class Main {
             for (let j = 1; j <= len2; j++) {
                 const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
                 matrix[i][j] = Math.min(
-                    matrix[i - 1][j] + 1,      // deletion
-                    matrix[i][j - 1] + 1,      // insertion
-                    matrix[i - 1][j - 1] + cost // substitution
+                    matrix[i - 1][j] + 1, // deletion
+                    matrix[i][j - 1] + 1, // insertion
+                    matrix[i - 1][j - 1] + cost, // substitution
                 );
             }
         }
@@ -1056,16 +1204,16 @@ export class Main {
     }
 
     private findSuggestions(input: string, choices: string[]): string[] {
-        const results = choices.map(choice => ({
+        const results = choices.map((choice) => ({
             name: choice,
-            dist: this.levenshteinDistance(input, choice)
+            dist: this.levenshteinDistance(input, choice),
         }));
 
         return results
-            .filter(r => r.dist < 4) // Max 3 edits
+            .filter((r) => r.dist < 4) // Max 3 edits
             .sort((a, b) => a.dist - b.dist)
-            .map(r => r.name)
-            .filter(name => name !== input)
+            .map((r) => r.name)
+            .filter((name) => name !== input)
             .slice(0, 3);
     }
 }
