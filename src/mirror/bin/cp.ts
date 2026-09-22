@@ -55,6 +55,23 @@ export class main implements IProgram {
                     const content = await fs.read(srcFd);
                     await fs.close(srcFd);
 
+                    // Jangan percaya buta pada hasil read.
+                    //
+                    // Kejadian nyata: `read` file 70 MB dari mount NetFS mengembalikan
+                    // KOSONG tanpa error (jalur fallback readChunk), lalu `cp`
+                    // melaporkan sukses dengan file 0 byte — korupsi senyap, lebih
+                    // buruk daripada gagal. Metadata sudah menyebut ukurannya, jadi
+                    // bandingkan dulu sebelum menulis apa pun.
+                    const expected = Number(srcStat.size ?? -1);
+                    const got = content === null || content === undefined ? -1 : content.length;
+                    if (expected > 0 && got !== expected) {
+                        await std.print(
+                            `cp: '${src}' terbaca ${got < 0 ? "kosong" : `${got} byte`}, ` +
+                                `metadata ${expected} byte — dibatalkan\n`,
+                        );
+                        continue;
+                    }
+
                     // Determine final destination path
                     let finalDest = destPath;
                     if (isDestDir) {

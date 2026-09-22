@@ -277,23 +277,68 @@ export class NetFS implements IVFS {
      * biaya tambahan. Isi dirakit sebagai string; pemanggil yang butuh hemat RAM
      * (mis. copy 70 MB) sebaiknya memakai `readChunk` sendiri (lihat
      * `fs.copyWithProgress()` di userland).
+     *
+     * SEMUA penyimpangan adalah ERROR, bukan hasil pendek/kosong. Versi pertama
+     * fungsi ini mengembalikan `null`/`""` diam-diam saat potongan pertama kosong,
+     * dan akibatnya `cp` melaporkan SUKSES dengan file 0 byte — lebih buruk daripada
+     * gagal, karena korupsi data tidak terlihat.
      */
     private async readChunked(path: string): Promise<string | null> {
-        const size = await this.getSize(path);
-        if (size < 0) return null; // tidak ada / bukan file biasa
-        if (size === 0) return "";
-
-        let out = "";
-        for (let offset = 0; offset < size; offset += NETFS_MAX_CHUNK_BYTES) {
-            const length = Math.min(NETFS_MAX_CHUNK_BYTES, size - offset);
-            const piece = blobData(await this.rpc<any>("readChunk", path, [offset, length]));
-            if (piece === null) return null;
-            out += piece;
-            // Pengaman: potongan pendek/kosong berarti file berubah di tengah
-            // pembacaan — berhenti daripada menggantung tanpa akhir.
-            if (piece.length < length) break;
+        let size: number;
+        try {
+            size = await this.getSize(path);
+        } catch (e: any) {
+            throw new NetFSError(
+                "EIO",
+                `NetFS[${this.describe()}]: ${path} ditolak ETOOBIG tapi getSize gagal (${netfsErrorMessage(e)}) — periksa backend/ekspor di sisi SL`,
+                "read",
+            );
         }
-        return out;
+
+        // SL menolak karena > NETFS_MAX_RESPONSE_BYTES, jadi ukuran yang masuk akal
+        // di sini HARUS positif dan besar. Nilai lain = backend/ekspor SL tidak
+        // konsisten — jangan diamkan.
+        if (!Number.isFinite(size) || size <= 0) {
+            throw new NetFSError(
+                "EIO",
+                `NetFS[${this.describe()}]: ${path} ditolak ETOOBIG (isi > ${NETFS_MAX_RESPONSE_BYTES} byte) tapi getSize=${size} — backend/ekspor di sisi SL tidak melaporkan ukuran dengan benar`,
+                "read",
+            );
+        }
+
+        const parts: string[] = [];
+        let total = 0;
+        for (let offset = 0; offset < size; offset += NETFS_MAX_CHUNK_BYTES) {
+            const want = Math.min(NETFS_MAX_CHUNK_BYTES, size - offset);
+            const piece = blobData(await this.rpc<any>("readChunk", path, [offset, want]));
+
+            if (piece === null || piece.length === 0) {
+                throw new NetFSError(
+                    "EIO",
+                    `NetFS[${this.describe()}]: readChunk ${path} offset ${offset} mengembalikan KOSONG (minta ${want} byte, ukuran file ${size}) — SL di sisi peer kemungkinan belum mendukung/menolak readChunk`,
+                    "read",
+                );
+            }
+            if (piece.length !== want) {
+                throw new NetFSError(
+                    "EIO",
+                    `NetFS[${this.describe()}]: readChunk ${path} offset ${offset} hanya ${piece.length} byte dari ${want} yang diminta (ukuran file ${size})`,
+                    "read",
+                );
+            }
+
+            parts.push(piece);
+            total += piece.length;
+        }
+
+        if (total !== size) {
+            throw new NetFSError(
+                "EIO",
+                `NetFS[${this.describe()}]: ${path} terkumpul ${total} byte, stat melaporkan ${size}`,
+                "read",
+            );
+        }
+        return parts.join("");
     }
 
     public async touch(

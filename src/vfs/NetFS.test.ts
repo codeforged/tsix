@@ -341,4 +341,23 @@ describe("NetFS client driver (N2)", () => {
         // 1 frame request saja — fallback chunk hanya untuk konten besar.
         expect(channel.sent - before).toBe(1);
     });
+
+    it("N2.19 readChunk kosong = ERROR, bukan file 0 byte yang senyap", async () => {
+        // Regresi nyata: versi pertama fallback ini `return null`/`""` diam-diam
+        // saat potongan kosong, sehingga `cp` melaporkan SUKSES dengan file 0 byte.
+        // Sekarang harus MELEMPAR dengan pesan yang menyebut lapisan penyebabnya.
+        const stub = {
+            getSize: () => 70499395, // > NETFS_MAX_RESPONSE_BYTES → `read` ditolak
+            readChunk: () => null, // mis. backend/ekspor peer tidak melayani
+            read: () => "tidak dipakai",
+        } as any;
+        const srv = new NetFSServer(stub, { prefix: "/" });
+        const ch = new LoopbackChannel(srv);
+        const fs = mountFS({}, srv, ch);
+
+        const err = await expectError(fs.read("/video.mov"));
+        expect(err.message).toContain("readChunk");
+        expect(err.message).toContain("KOSONG");
+        expect(err.message).toContain("70499395"); // ukuran dicantumkan untuk diagnosa
+    });
 });
