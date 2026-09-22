@@ -6,6 +6,63 @@
 
 ## 2026-09-22
 
+### Fix loader lanjutan: `..` tidak boleh menembus root VFS (regresi `/common/...`)
+
+- **File:** `src/userland/VfsModuleResolver.ts` (+ sidecar `.js` di-rebuild),
+  `src/userland/VfsModuleResolver.test.ts`, `scripts/test/worker-dme-smoke.mjs`
+- **Gejala saat dicoba di sistem hidup:**
+    ```
+    root@tsix# tpkgd
+    [Worker 46] Local module scan failed: File not found: /common/SyscallCode.ts
+    ```
+    (muncul juga di `tpkg`; app tetap jalan, tapi seluruh pemindaian import relatif batal diam-diam)
+- **Akar masalah:** `resolveVfsRelative()` memakai `"/lib/UserLib".split("/")` apa
+  adanya, sehingga segmen KOSONG dari `/` di depan ikut dihitung sebagai direktori.
+  Akibatnya `..` masih bisa "pop" walau pemanggil sudah di root, dan hasilnya
+  menempel ke root:
+    ```
+    ("/lib/UserLib", "../../common/SyscallCode")  →  "/common/SyscallCode"   ❌
+    ```
+    `common` di VFS hidup di `/lib/common`, jadi `/common/SyscallCode.ts` **tidak
+    ada** — dan `fs.readFile` untuk file hilang **MELEMPAR** `File not found`
+    (syscall `OPEN` menolak flag `r`), bukan mengembalikan `null`. Karena lemparan
+    itu terjadi di tengah loop, `collectRelativeModules()` gagal total
+    (`programModules = {}`) — bukan cuma satu modul yang hilang.
+- **Kenapa kena tepat di `tpkg`/`tpkgd`:** keduanya `import "../lib/UserLib"`, jadi
+  pemindaian masuk ke `/lib/UserLib` → isinya `import "../../common/SyscallCode"`
+  (layout host: `src/mirror/lib` → `src/common`) → kena bug di atas.
+- **Perubahan:**
+    - `resolveVfsRelative()`: segmen kosong dibuang (`filter(s => s !== "")`), dan
+      `..` yang menembus root → `null` (bukan dipangkas ke root). Modul framework
+      tetap aman karena hook `Module._load` memetakan request apa pun yang memuat
+      `/common/` → `@common/*` dan `/lib/` → `@tsix/*`, keduanya dilayani `vfsCache`.
+    - `collectRelativeModules()`: pembaca VFS yang **melempar** kini ditoleransi
+      (`readMaybe()`), karena kandidat selalu diuji berurutan (`.ts` → `.js` →
+      `index.*`) dan satu kandidat yang tidak ada dulu membatalkan seluruh scan.
+      Error transpile SENGAJA tetap tidak ditelan — kalau `.ts`-nya rusak, pesannya
+      harus tetap muncul.
+- **Verifikasi:** 11 unit test hijau, termasuk regresi baru **R1.10** (root tidak
+  bisa ditembus) dan **R1.11** (pembaca yang melempar tidak membatalkan scan).
+  Diuji langsung dengan pembaca ala kernel terhadap tree `src/mirror`:
+  `/sbin/tpkgd` → `{DbLib, IProgram, NetworkLib, UserLib}`; `/usr/local/bin/tsd`
+  → `+ TsdTypes`; `File not found` tidak lagi muncul.
+- **Harness smoke diperbaiki (kenapa bug ini lolos):** `worker-dme-smoke.mjs` dulu
+  membalas `-1` untuk `OPEN` file hilang (padahal kernel MELEMPAR) dan VFS palsunya
+  kosong, jadi jalur pemindaian ini tidak pernah benar-benar teruji. Sekarang: VFS
+  palsu diisi seluruh `src/mirror`, `OPEN` file hilang melempar seperti kernel,
+  error syscall dikirim sebagai `success:false` (bukan diam-diam "sukses"), dan
+  `Local module scan failed` dihitung GAGAL. Dengan harness itu error di atas
+  tereproduksi persis sebelum fix, dan hilang sesudahnya.
+- **Deploy:** cukup rebuild sidecar host `src/userland/VfsModuleResolver.js`
+  (sudah dikerjakan). **Tidak perlu** `vfs:bootstrap` (tidak ada file `src/mirror/*`
+  yang berubah) dan **tidak perlu restart kernel** — worker baru membaca sidecar
+  baru saat spawn.
+- **Oleh:** Copilot
+
+---
+
+## 2026-09-22
+
 ### Fix loader: import RELATIF (`./x`, `../y`) di userland sekarang jalan
 
 - **File:** `src/userland/WorkerEntry.ts`, `src/userland/VfsModuleResolver.ts` (baru),

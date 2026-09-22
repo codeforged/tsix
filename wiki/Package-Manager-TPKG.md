@@ -366,6 +366,7 @@ Perilaku:
 | Update engine tidak berefek setelah reboot | Sidecar `.js` belum dibangun ulang → pastikan `/sbin/apply-update.ts` jalan (dijalankan otomatis sebagai post-install) |
 | `hostDst tidak aman`                       | Manifest salah: `hostDst` harus relatif, tanpa `..`/absolut                                                            |
 | Backup host gagal                          | `syncFromHost` butuh root & file host harus bisa dibaca                                                                |
+| `Local module scan failed: File not found: /common/...` | Bug loader lama (sudah dibetulkan 2026-09-22): resolver modul relatif menembus root VFS. Pastikan sidecar `src/userland/VfsModuleResolver.js` sudah di-rebuild |
 
 ---
 
