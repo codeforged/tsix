@@ -154,4 +154,41 @@ describe("VfsModuleResolver — resolusi relatif (R1)", () => {
         expect(Object.keys(mods).length).toBeLessThanOrEqual(6);
         expect(MAX_RELATIVE_MODULES).toBeGreaterThan(5);
     });
+
+    it("R1.10 resolveVfsRelative: `..` tidak menembus root (regresi `/common/SyscallCode.ts`)", () => {
+        // Regresi nyata: `/lib/UserLib` meng-import `../../common/SyscallCode`
+        // (layout host: src/mirror/lib → src/common). Dulu hasilnya
+        // "/common/SyscallCode" — path yang TIDAK ada di VFS, sehingga pembaca
+        // VFS melempar di tengah pemindaian:
+        //   [Worker 46] Local module scan failed: File not found: /common/SyscallCode.ts
+        expect(resolveVfsRelative("/lib/UserLib.ts", "../../common/SyscallCode")).toBeNull();
+        expect(resolveVfsRelative("/lib/UserLib.ts", "../../common/IPCTypes")).toBeNull();
+        expect(resolveVfsRelative("/usr/local/bin/tsd.ts", "../../../../common/SecurityAgent")).toBeNull();
+        // Naik sampai akar masih legal; satu langkah lagi = keluar.
+        expect(resolveVfsRelative("/lib/sub/x.ts", "../NetworkLib")).toBe("/lib/NetworkLib");
+        expect(resolveVfsRelative("/a/b/c.ts", "../../c")).toBe("/c");
+        expect(resolveVfsRelative("/a/b/c.ts", "../../../c")).toBeNull();
+    });
+
+    it("R1.11 collectRelativeModules: pembaca yang MELEMPAR untuk file hilang tidak membatalkan scan", async () => {
+        // `lib.fs.readFile` di dalam worker MELEMPAR `File not found: <path>`
+        // (bukan return null). Satu kandidat yang hilang dulu membatalkan SELURUH
+        // pemindaian → program kehilangan semua modul sesama direktori.
+        const throwingVfs = async (vfsPath: string): Promise<string | null> => {
+            if (vfsPath === "/sbin/Ada.ts") return `import { b } from "./Hilang"; export const a = 1;`;
+            if (vfsPath === "/sbin/Anak.ts") return `export const b = 2;`;
+            throw new Error(`File not found: ${vfsPath}`);
+        };
+
+        const mods = await collectRelativeModules({
+            entryId: "/sbin/app",
+            source: `import { a } from "./Ada"; import { c } from "./Anak"; import { d } from "./Hilang";`,
+            readFile: throwingVfs,
+            transpile: markerTranspile,
+        });
+
+        expect(Object.keys(mods).sort()).toEqual(["/sbin/Ada", "/sbin/Anak"]);
+        // Import opsional (hilang) dilewati tanpa menghentikan penelusuran anak.
+        expect(mods["/sbin/Anak"]).toContain("compiled:/sbin/Anak");
+    });
 });

@@ -56,12 +56,32 @@ export function vfsCandidates(base: string): string[] {
  *
  * Return `null` kalau hasilnya keluar dari root (`..` melewati `/`) — pemanggil
  * memperlakukannya sebagai "bukan modul VFS" dan membiarkan Node menyelesaikannya.
+ *
+ * Perhatikan: `../` yang MENEMBUS root memang `null`, bukan dipangkas ke root.
+ * Modul framework tetap bisa diimpor karena WorkerEntry memetakan request apa
+ * pun yang memuat `/common/` → `@common/*` dan `/lib/` → `@tsix/*`, keduanya
+ * dilayani `vfsCache` (kernel mem-precompile seluruh `/lib`). Jadi
+ * `("/lib/UserLib", "../../common/SyscallCode")` di sini = null, dan request-nya
+ * ditangani jalur alias — bukan dibaca sebagai `/common/SyscallCode`.
  */
 export function resolveVfsRelative(baseVfsFile: string, request: string): string | null {
     if (typeof baseVfsFile !== "string" || typeof request !== "string") return null;
     if (!request.startsWith(".")) return null;
 
-    const segments = baseVfsFile.replace(/\\/g, "/").split("/");
+    // Segmen kosong akibat '/' di depan SUDAH dibuang di sini. Dulu segmen itu
+    // ikut dihitung sebagai direktori, sehingga `..` masih bisa "pop" ketika
+    // pemanggil sudah berada di root dan hasilnya menempel ke root:
+    //
+    //   ("/lib/UserLib", "../../common/SyscallCode") → "/common/SyscallCode"  ❌
+    //
+    // `/common/**` tidak ada di VFS (`common` hidup di `/lib/common`), jadi
+    // pembaca VFS melempar `File not found: /common/SyscallCode.ts` — dan karena
+    // itu terjadi di tengah pemindaian, SELURUH modul relatif program ikut batal
+    // (`Local module scan failed`).
+    const segments = baseVfsFile
+        .replace(/\\/g, "/")
+        .split("/")
+        .filter((s) => s !== "");
     segments.pop(); // buang nama file → tinggal direktori
 
     for (const seg of request.split("/")) {
@@ -75,8 +95,7 @@ export function resolveVfsRelative(baseVfsFile: string, request: string): string
         segments.push(seg);
     }
 
-    const out = "/" + segments.filter((s) => s !== "").join("/");
-    return out === "/" ? null : out;
+    return segments.length === 0 ? null : "/" + segments.join("/");
 }
 
 /**
@@ -109,7 +128,11 @@ export interface CollectOptions {
     entryId: string;
     /** Isi sumber entry (TS/JS apa adanya). */
     source: string;
-    /** Pembaca VFS; return null kalau file tidak ada. */
+    /**
+     * Pembaca VFS. Kontraknya: return null kalau file tidak ada. Pembaca yang
+     * MELEMPAR untuk file tidak ada (seperti `lib.fs.readFile` asli) tetap
+     * ditoleransi — lihat `readMaybe()` di `collectRelativeModules`.
+     */
     readFile: (vfsPath: string) => Promise<string | null>;
     /** Transpile sumber → JS (CJS). Dipanggil untuk file `.ts` saja. */
     transpile: (source: string, moduleId: string) => string;
@@ -132,6 +155,25 @@ export async function collectRelativeModules(opts: CollectOptions): Promise<Reco
     const seen = new Set<string>([opts.entryId]);
     const queue: Array<{ id: string; source: string }> = [{ id: opts.entryId, source: opts.source }];
 
+    /**
+     * Baca calon path dengan TOLERAN GAGAL.
+     *
+     * Kontrak `opts.readFile` bilang "return null kalau file tidak ada", tapi
+     * pembaca VFS yang asli (`lib.fs.readFile` di dalam worker) justru MELEMPAR
+     * `File not found: <path>` — syscall OPEN menolak file yang tidak ada untuk
+     * flag `r` (lihat `wiki/file-operation.md`). Karena kandidat selalu diuji
+     * berurutan (`.ts` → `.js` → `index.*`), satu kandidat yang tidak ada DULU
+     * dulu membatalkan seluruh pemindaian: program lalu kehilangan SEMUA modul
+     * sesama direktori hanya karena satu import opsional/typo.
+     */
+    const readMaybe = async (vfsPath: string): Promise<string | null> => {
+        try {
+            return await opts.readFile(vfsPath);
+        } catch {
+            return null;
+        }
+    };
+
     while (queue.length > 0) {
         const current = queue.shift()!;
 
@@ -146,7 +188,7 @@ export async function collectRelativeModules(opts: CollectOptions): Promise<Reco
             let found: string | null = null;
             let raw = "";
             for (const candidate of vfsCandidates(base)) {
-                const content = await opts.readFile(candidate);
+                const content = await readMaybe(candidate);
                 if (typeof content === "string") {
                     found = candidate;
                     raw = content;

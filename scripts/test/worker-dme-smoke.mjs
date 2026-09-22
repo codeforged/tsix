@@ -50,6 +50,22 @@ const APP_VFS = (appRel.startsWith("src/mirror/")
 
 /** File yang “ada” di VFS palsu: `SMOKE_FILES="/tmp/a.sh=/host/a.sh;..."`. */
 const fixtures = new Map();
+
+// Seluruh src/mirror dimuat sebagai isi VFS: path VFS = path mirror tanpa
+// `src/mirror`. Ini penting karena `lib.fs.readFile` (OPEN+READ) dipakai
+// WorkerEntry untuk MEMINDAI import relatif program (`collectRelativeModules`)
+// — tanpa file asli di sini, jalur itu tidak pernah teruji dan bug seperti
+// `Local module scan failed: File not found: /common/...` lolos.
+(function seedVfsFromMirror(hostDir, vfsDir) {
+  for (const item of fs.readdirSync(hostDir, { withFileTypes: true })) {
+    if (item.name.endsWith(".test.ts") || item.name.endsWith(".spec.ts")) continue;
+    const host = path.join(hostDir, item.name);
+    const vfs = `${vfsDir}/${item.name}`;
+    if (item.isDirectory()) seedVfsFromMirror(host, vfs);
+    else fixtures.set(vfs, fs.readFileSync(host, "utf8"));
+  }
+})(path.join(ROOT, "src/mirror"), "");
+
 for (const pair of (process.env.SMOKE_FILES || "").split(";").filter(Boolean)) {
   const eq = pair.indexOf("=");
   if (eq <= 0) continue;
@@ -100,7 +116,18 @@ function answerSyscall(code, args, printed) {
     case 5: {
       // OPEN: path string atau { path, flags }
       const p = typeof args === "string" ? args : args?.path;
-      if (!fixtures.has(p)) return -1;
+      if (!fixtures.has(p)) {
+        // KERNEL ASLI MELEMPAR untuk flag baca — lihat `case SyscallCode.OPEN`
+        // di src/kernel/Syscalls.ts. Dulu harness ini selalu membalas -1,
+        // sehingga `fs.readFile` untuk file hilang tampak "return null" padahal
+        // di VFS nyata ia melempar; bug kelas
+        // "Local module scan failed: File not found: /common/..." jadi lolos.
+        const flags = typeof args === "string" ? "r" : args?.flags || "r";
+        if (flags === "r" && !String(p).startsWith("/dev/")) {
+          throw new Error(`File not found: ${p}`);
+        }
+        return -1;
+      }
       const fd = nextFd++;
       fdTable.set(fd, fixtures.get(p));
       return fd;
@@ -202,8 +229,13 @@ const done = (code) => {
   const stderr = stderrChunks.join("");
   // Error loader bisa muncul lewat stderr ATAU lewat syscall PRINT/`std.error`.
   // Jangan cuma percaya stderr — kalau tidak, kegagalan lolos sebagai "sukses".
+  // `Local module scan failed` ikut dihitung gagal: pemindai sekarang toleran
+  // terhadap file yang tidak ada, jadi pesan itu berarti ada yang benar-benar
+  // salah (mis. import relatif program tidak ketemu).
   const combined = [stderr, errors.join("\n"), printed.join("\n")].join("\n");
-  const loadError = /Direct Execution Error|Cannot find module|Failed to load/.test(combined);
+  const loadError = /Direct Execution Error|Cannot find module|Failed to load|Local module scan failed/.test(
+    combined,
+  );
   const ok = !loadError;
 
   console.log(`[smoke] syscall PRINT diterima: ${printed.length}`);
@@ -231,13 +263,20 @@ worker.on("error", (err) => {
 worker.on("exit", () => done(0));
 worker.on("message", (msg) => {
   if (msg && typeof msg.requestId === "string") {
-    let data = null;
     try {
-      data = answerSyscall(msg.code, msg.args, printed);
+      const data = answerSyscall(msg.code, msg.args, printed);
+      worker.postMessage({ requestId: msg.requestId, success: true, data });
     } catch (e) {
-      errors.push(String(e));
+      // Seperti kernel: kegagalan syscall = `success:false` + pesan error.
+      // App-lah yang memutuskan mau menangkapnya atau tidak — jangan diam-diam
+      // dianggap sukses.
+      worker.postMessage({
+        requestId: msg.requestId,
+        success: false,
+        data: null,
+        error: String(e?.message || e),
+      });
     }
-    worker.postMessage({ requestId: msg.requestId, success: true, data });
     return;
   }
   // Event push (GUI/signal) — tidak relevan untuk smoke test.
