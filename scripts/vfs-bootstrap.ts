@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as esbuild from "esbuild";
 import { getDefaultDbPath } from "./lib/db-path";
+import { peekBom, readBinaryFile, readTextFile } from "./lib/text-file";
 
 /**
  * Direktori executable standar (FHS) — semua file .ts/.js di sini diberi bit
@@ -92,7 +93,9 @@ function syncHostSidecar(name: string): void {
         }
     }
 
-    const content = fs.readFileSync(tsPath, "utf8");
+    // `readTextFile()` membuang BOM UTF-8 supaya sidecar .js yang dihasilkan tidak
+    // mewarisi BOM (kalau tidak, berkas di VFS diawali byte 0xFF).
+    const content = readTextFile(tsPath);
     try {
         const result = esbuild.transformSync(content, {
             loader: "ts",
@@ -215,9 +218,25 @@ async function main() {
                         item.endsWith(".ttf") ||
                         item.endsWith(".otf") ||
                         item.endsWith(".eot");
-                    const content = isBinary
-                        ? fs.readFileSync(fullHostPath).toString("latin1")
-                        : fs.readFileSync(fullHostPath, "utf8");
+                    const content = isBinary ? readBinaryFile(fullHostPath) : readTextFile(fullHostPath);
+
+                    // BOM UTF-8 → `U+FEFF` → `0xFF` di VFS (latin1): berkas JS yang
+                    // diawali 0xFF ditolak browser ("Uncaught ReferenceError: ÿ is not
+                    // defined") sehingga SELURUH skrip gagal. Diebut oleh `readTextFile()`
+                    // dan dicatat di sini supaya terlihat, bukan disembunyikan.
+                    const bom = isBinary ? null : peekBom(fullHostPath);
+                    if (bom === "utf8") {
+                        console.log(
+                            `[VFS-Bootstrap]   -> BOM UTF-8 dibuang: ${fullVfsPath} ` +
+                                `(kalau tidak, jadi byte 0xFF dan skrip mati di browser)`,
+                        );
+                    } else if (bom) {
+                        console.warn(
+                            `[VFS-Bootstrap]   -> PERINGATAN: ${fullVfsPath} ber-BOM ${bom} — bukan teks ` +
+                                `UTF-8 yang bisa dipakai apa adanya; perbaiki berkas sumbernya.`,
+                        );
+                    }
+
                     bkfs.touch(fullVfsPath, content);
                     console.log(`[VFS-Bootstrap] Synced: ${fullVfsPath}`);
 

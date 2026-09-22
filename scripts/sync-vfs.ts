@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as esbuild from "esbuild";
 import { getDefaultDbPath } from "./lib/db-path";
+import { readTextFile } from "./lib/text-file";
 
 /**
  * Direktori executable standar (FHS) — semua file .ts/.js di sini diberi bit
@@ -89,7 +90,9 @@ async function main() {
       bkfs.mkdir(vfsPath);
       console.log(`[VFS-Sync] Directory created/verified: ${vfsPath}`);
     } else {
-      const content = fs.readFileSync(fullHostPath, "utf8");
+      // `readTextFile()` membuang BOM UTF-8: `U+FEFF` menjadi byte `0xFF` di VFS
+      // (latin1) dan berkas skrip yang diawali 0xFF ditolak browser.
+      const content = readTextFile(fullHostPath);
 
       // Pastikan parent directory ada
       const parts = vfsPath.split("/").filter((p) => p.length > 0);

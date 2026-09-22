@@ -1,4 +1,4 @@
-﻿import { Program, std, fs, shell } from "@tsix/Application";
+import { Program, std, fs, shell } from "@tsix/Application";
 import {
   Screen,
   div,

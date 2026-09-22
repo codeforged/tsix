@@ -1,6 +1,7 @@
 import { BKFS } from "../src/vfs/BKFS";
 import { createUserAccount } from "./lib/user-account";
 import { FRESH_FSTAB_INI } from "./lib/fresh-fstab";
+import { peekBom, readBinaryFile, readTextFile } from "./lib/text-file";
 import * as fs from "fs";
 import * as path from "path";
 import * as esbuild from "esbuild";
@@ -164,8 +165,19 @@ function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string): void {
       item.endsWith(".otf") ||
       item.endsWith(".eot");
     const content = isBinary
-      ? fs.readFileSync(fullHostPath).toString("latin1")
-      : fs.readFileSync(fullHostPath, "utf8");
+      ? readBinaryFile(fullHostPath)
+      : readTextFile(fullHostPath);
+
+    // BOM UTF-8 → `U+FEFF` → byte `0xFF` di VFS (latin1). Berkas JS yang diawali
+    // 0xFF ditolak browser, jadi BOM dibuang oleh `readTextFile()` dan dicatat.
+    const bom = isBinary ? null : peekBom(fullHostPath);
+    if (bom === "utf8") {
+      console.log(`[INSTALL]   -> BOM UTF-8 dibuang: ${fullVfsPath}`);
+    } else if (bom) {
+      console.warn(
+        `[INSTALL]   -> PERINGATAN: ${fullVfsPath} ber-BOM ${bom} — perbaiki berkas sumbernya.`,
+      );
+    }
 
     bkfs.touch(fullVfsPath, content);
 
@@ -617,7 +629,9 @@ async function main() {
         continue;
       }
 
-      const content = fs.readFileSync(hostFile, "utf8");
+      // `readTextFile()` membuang BOM UTF-8 — BOM akan menjadi byte 0xFF di VFS
+      // (latin1) dan berkas skrip yang diawali 0xFF ditolak browser.
+      const content = readTextFile(hostFile);
       bkfs.touch(`/etc/${entry.name}`, content, 0, 0, entry.mode ?? 0o644);
       console.log(`[INSTALL] sync /etc/${entry.name}`);
     }

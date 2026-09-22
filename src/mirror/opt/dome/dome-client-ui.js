@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
  * DOME Client — UI Helpers (theme, tooltip, context menu, dll)
  * ============================================================
  * - Restore theme dari localStorage + WINDOW_THEME (CSS variables)

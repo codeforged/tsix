@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import * as fs from "fs";
 import * as path from "path";
 import { getDefaultDbPath } from "./lib/db-path";
+import { readTextFile } from "./lib/text-file";
 import { encodeContent } from "../src/vfs/BKFS";
 
 const DB_PATH = path.resolve(__dirname, "..", getDefaultDbPath());
@@ -47,13 +48,13 @@ function main() {
 
     for (const f of binFiles) {
         const fullPath = path.resolve(__dirname, f.path);
-        const content = fs.readFileSync(fullPath, "utf8");
-        upsert(f.name, bin.id, 'FILE', content);
+        const content = readTextFile(fullPath);
+        upsert(f.name, bin.id, "FILE", content);
     }
 
     for (const f of etcFiles) {
         const fullPath = path.resolve(__dirname, f.path);
-        const content = fs.readFileSync(fullPath, "utf8");
+        const content = readTextFile(fullPath);
         upsert(f.name, etc.id, 'FILE', content);
     }
 

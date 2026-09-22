@@ -6,6 +6,27 @@
 
 ## 2026-09-23
 
+### BOM UTF-8 → byte `0xFF` di VFS: seluruh skrip DOME mati di browser
+
+- **File:** `scripts/lib/text-file.ts` (baru), `scripts/lib/text-file.test.ts` (baru),
+  `scripts/vfs-bootstrap.ts`, `scripts/install.ts`, `scripts/sync-vfs.ts`,
+  `scripts/sync-tde.ts`, 9 berkas sumber di `src/mirror/opt/{dome,file-cruiser}`
+- **Masalah:** 9 berkas sumber punya BOM UTF-8. Dibaca `utf8` → `U+FEFF`, lalu
+  di-encode latin1 → `U+FEFF & 0xFF` = **byte `0xFF`** di VFS. Berkas JS yang diawali
+  byte sampah ditolak browser, jadi **seluruh** engine mati:
+  `Uncaught ReferenceError: ÿ is not defined` di `dome-client-*.js` (dan modul lain
+  gagal berantai karena `window.TSIX` tidak pernah terbentuk).
+- **Perubahan:** `readTextFile()` (buang BOM UTF-8) + `readBinaryFile()` (latin1
+  byte-untuk-byte, `0xFF` aset biner TIDAK disentuh) + `peekBom()`; semua jalur
+  host→VFS memakainya; sinkronisasi mencetak `BOM UTF-8 dibuang: <path>` dan
+  memperingatkan BOM UTF-16; BOM di 9 berkas sumber dibuang; tes `T1.01`–`T1.05`.
+- **Dampak:** Berkas di VFS yang diawali `0xFF` turun 13 → 4, dan 4 sisanya sah
+  (JPEG `FF D8`, MP3 `FF FB`, BOM UTF-16LE `ocean.b64`). Terverifikasi:
+  `/opt/dome/dome-client-core.js` sekarang mulai `/*`, `dome-client.html` mulai
+  `<!doctype html>`. Sisa temuan: `ocean.b64` sendiri ber-UTF-16LE (aset lama yang
+  perlu dikonversi ke UTF-8).
+- **Oleh:** Copilot
+
 ### Invarian “content ATAU blok” ditegakkan + pembersihan otomatis (bug nyata di syslog)
 
 - **File:** `src/vfs/BKFS.ts`, `src/vfs/BKFS.test.ts` (`B4.01`–`B4.06`),

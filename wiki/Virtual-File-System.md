@@ -494,6 +494,36 @@ Syscall `SYNC_TO_HOST` memungkinkan sinkronisasi balik (root-only):
 vfs-pull    # Tarik perubahan VFS ke host filesystem
 ```
 
+### BOM UTF-8: satu berkas sumber bisa mematikan seluruh skrip
+
+Isi teks dimasukkan sebagai string lalu di-encode **latin1** (1 char = 1 byte). BOM
+UTF-8 (`EF BB BF`) yang dibaca sebagai teks menjadi SATU karakter `U+FEFF`, dan
+`U+FEFF & 0xFF` = **byte `0xFF`** — sehingga berkas JS di VFS diawali byte sampah:
+
+```
+Uncaught ReferenceError: ÿ is not defined     (dome-client-core.js:1:1)
+```
+
+Browser menolak seluruh skrip, jadi satu BOM di berkas sumber = satu fitur mati
+(pernah terjadi pada 9 berkas `src/mirror/opt/dome/*` dari editor Windows).
+
+Karena itu setiap pembacaan host→VFS memakai `scripts/lib/text-file.ts`:
+
+| Fungsi | Perilaku |
+|---|---|
+| `readTextFile(path)` | baca `utf8`, **buang BOM UTF-8** — dipakai semua sinkronisasi `.ts/.js/.html/.json/.css` |
+| `readBinaryFile(path)` | baca `latin1` byte-untuk-byte — **tidak menyentuh apa pun**: `0xFF` di aset biner (JPEG `FF D8`, MP3 `FF FB`) adalah data asli |
+| `peekBom(path)` | laporkan jenis BOM (`utf8`/`utf16le`/`utf16be`/`null`) tanpa membaca seluruh berkas |
+
+Sinkronisasi (`vfs:bootstrap`, `install`) mencetak `-> BOM UTF-8 dibuang: <path>` supaya
+kejadian seperti ini **terlihat**, dan memberi peringatan keras kalau menemukan BOM
+UTF-16 (berkas seperti itu bukan teks UTF-8 yang bisa dipakai apa adanya — perbaiki
+sumbernya, jangan ditebak oleh loader).
+
+Server (DOME) menyajikan aset statis dari VFS dan browser men-cache skripnya, jadi
+setelah memperbaiki berkas dome: **restart TSIX** lalu **hard-reload** halaman TDE
+(Cmd+Shift+R) — tanpa itu browser tetap memakai salinan lama.
+
 ---
 
 ## File Descriptor System
