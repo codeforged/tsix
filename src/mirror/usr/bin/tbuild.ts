@@ -1,4 +1,5 @@
 import { IProgram, OSContext } from "../../lib/IProgram";
+import { utf8ToVfsBytes, vfsBytesToUtf8 } from "@common/VfsText";
 
 /**
  * TBUILD Utility
@@ -6,7 +7,7 @@ import { IProgram, OSContext } from "../../lib/IProgram";
  * TSIX Build Tool. Transpile TypeScript (.ts) files to JavaScript (.js).
  */
 export class main implements IProgram {
-    private version: string = "2.1.0"; // Added minification support
+    private version: string = "2.2.0"; // Added minification support
 
     async execute({ std, fs, shell }: OSContext, args: string[]): Promise<string | void> {
         if (args.includes("--help") || args.includes("-h")) {
@@ -119,7 +120,7 @@ export class main implements IProgram {
                 await std.print(`  -> Compiling ${fileName}... `);
 
                 // 1. Read source from VFS (FRESH!)
-                const sourceCode = await fs.readFile(vfsPath);
+                const sourceCode = vfsBytesToUtf8(await fs.readFile(vfsPath));
                 if (!sourceCode || typeof sourceCode !== "string") {
                     throw new Error("Failed to read source from VFS");
                 }
@@ -127,7 +128,8 @@ export class main implements IProgram {
                 // 2. Write to temp file for esbuild
                 const tempInputFile = path.join(tempDir, fileName);
                 const tempOutputFile = path.join(tempDir, fileName.replace(/\.ts$/, ".js"));
-                hostFs.writeFileSync(tempInputFile, sourceCode, "utf-8");
+                // await this.os.fs.write(fd, utf8ToVfsBytes(content));
+                hostFs.writeFileSync(tempInputFile, sourceCode);
 
                 // 3. Compile with esbuild
                 esbuild.buildSync({
@@ -145,7 +147,7 @@ export class main implements IProgram {
                 const compiledCode = hostFs.readFileSync(tempOutputFile, "utf-8");
 
                 // 5. Write to VFS (FRESH!)
-                await fs.writeFile(vfsOutPath, compiledCode);
+                await fs.writeFile(vfsOutPath, utf8ToVfsBytes(compiledCode));
 
                 // Cleanup temp files
                 hostFs.unlinkSync(tempInputFile);
