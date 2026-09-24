@@ -11,7 +11,7 @@ import { NetworkLib } from "../../lib/NetworkLib";
  *   ifconfig <iface>         → make <iface> the default at RUNTIME
  *                              (deviceName "smqtnl1" or address "mactsix_2")
  *
- * The default change lives in kernel memory only: `sysconfig.json` is NOT
+ * The default change lives in kernel memory only: `sysconfig.conf` is NOT
  * modified and the original default returns after a reboot.
  */
 export class main implements IProgram {
@@ -32,7 +32,7 @@ export class main implements IProgram {
       );
       await std.print("  ifconfig mactsix_2       Address works too\n\n");
       await std.print(
-        "Note: the change is in-memory (runtime) only — sysconfig.json is\n",
+        "Note: the change is in-memory (runtime) only — sysconfig.conf is\n",
       );
       await std.print("not modified, and the default is restored after a reboot.\n");
       return;

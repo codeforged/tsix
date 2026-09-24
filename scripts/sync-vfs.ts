@@ -3,50 +3,42 @@ import * as fs from "fs";
 import * as path from "path";
 import * as esbuild from "esbuild";
 import { getDefaultDbPath } from "./lib/db-path";
+import { applyBinaryMode, needsBinaryMode } from "./lib/binary-mode";
 import { readTextFile, utf8ToVfsBytes, vfsBytesToUtf8 } from "./lib/text-file";
+import { skipIfHostRoot } from "./lib/root-mode";
 
 /**
- * Direktori executable standar (FHS) — semua file .ts/.js di sini diberi bit
- * execute saat sync agar bisa dijalankan dari PATH.
+ * Mode executable (bit `x`, `/sbin` 0o744, SetUID login/passwd/sudo) diatur oleh
+ * helper BERSAMA `scripts/lib/binary-mode.ts` — lihat berkas itu untuk alasannya.
  */
-const EXEC_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin", "/opt"];
 
-/**
- * Binary istimewa yang wajib berjalan sebagai pemilik file (SetUID root):
- * login, passwd, dan sudo — semuanya butuh akses baca/tulis /etc/shadow (0640 root).
- * Dikenali baik versi .ts maupun sidecar .js yang benar-benar dieksekusi runtime.
- */
-function isSetuidBinary(vfsPath: string): boolean {
-  return /\/bin\/(login|passwd|sudo)\.(ts|js)$/.test(vfsPath);
-}
-
-function isExecutableBinary(vfsPath: string): boolean {
-  return EXEC_DIRS.some((d) => vfsPath.startsWith(d + "/"));
-}
-
-/** Terapkan mode eksekusi (dan SetUID untuk login/passwd/sudo). */
-function applyBinaryMode(bkfs: BKFS, vfsPath: string, label = "SYNC"): void {
-  if (isSetuidBinary(vfsPath)) {
-    bkfs.chmod(vfsPath, 0o4755);
-    bkfs.chown(vfsPath, 0, 0);
-    console.log(`[${label}] SetUID+chown root -> ${vfsPath}`);
-  } else if (isExecutableBinary(vfsPath)) {
-    // /sbin = root-only (0o744), lainnya 0o755 (semua user)
-    bkfs.chmod(vfsPath, vfsPath.startsWith("/sbin/") ? 0o744 : 0o755);
-  }
-}
 
 /**
  * VFS SYNC AGENT (External)
  *
- * Digunakan untuk menyuntikkan file dari host (src/mirror) langsung ke database
- * VFS (path dari src/sysconfig.json).
- * Cocok dipasang di VS Code 'run on save' extension.
+ * Menyuntikkan SATU berkas dari host (`src/mirror/…`, `src/common/…`) langsung ke
+ * database VFS (path dari sysconfig.conf) + sidecar `.js` hasil transpile
+ * dan bit eksekusinya. Cocok dipasang di VS Code 'run on save' extension.
+ * Untuk borongan pakai `npm run vfs:bootstrap`.
  *
  * Cara pakai: npx ts-node scripts/sync-vfs.ts src/mirror/bin/hello.ts
+ *
+ * ⚠️ NO-OP saat `kernel.rootType = "host"` — lihat `activeHostRoot()` di bawah.
+ */
+
+/**
+ * activeHostRoot() + pesan no-op kini dipusatkan di `scripts/lib/root-mode.ts`
+ * (dipakai bersama `vfs-bootstrap` dan `vfs-pull`) supaya ketiganya tidak bisa
+ * berbeda pendapat soal mode root yang sedang aktif.
  */
 
 async function main() {
+  // Mode root-host: tidak ada yang perlu disinkronkan (lihat scripts/lib/root-mode.ts).
+  skipIfHostRoot(
+    "VFS-Sync",
+    "Files in that folder ARE the root, so edits are visible to the kernel immediately.",
+  );
+
   const rawPath = process.argv[2];
   if (!rawPath) {
     console.error(
@@ -69,14 +61,19 @@ async function main() {
   if (fullHostPath.startsWith(rootPath)) {
     vfsPath = ("/" + path.relative(rootPath, fullHostPath)).replace(/\\/g, "/");
   } else if (fullHostPath.startsWith(commonPath)) {
-    vfsPath = ("/common/" + path.relative(commonPath, fullHostPath)).replace(
+    // `src/common/**` hidup di VFS sebagai **`/lib/common/**`** — itu yang dicari
+    // WorkerEntry (`@common/X` → `/lib/common/X.ts`) dan yang di-seed
+    // `vfs-bootstrap.ts`. Dulu di sini memetakan ke `/common/...`, path yang tidak
+    // pernah dibaca siapa pun (`VfsModuleResolver`: "/common/** tidak ada di VFS"),
+    // jadi suntingan `src/common` lewat sync-vfs hilang tanpa jejak.
+    vfsPath = ("/lib/common/" + path.relative(commonPath, fullHostPath)).replace(
       /\\/g,
       "/",
     );
   }
 
   if (!vfsPath) {
-    console.error("Error: File must be inside src/root/ or src/common/");
+    console.error("Error: File must be inside src/mirror/ or src/common/");
     process.exit(1);
   }
 
@@ -128,7 +125,7 @@ async function main() {
             bkfs.touch(jsPath, utf8ToVfsBytes(result.code));
 
             // Auto-executable untuk file di direktori eksekusi
-            if (isSetuidBinary(jsPath) || isExecutableBinary(jsPath)) {
+            if (needsBinaryMode(jsPath)) {
               applyBinaryMode(bkfs, jsPath, "VFS-Sync");
             }
             console.log(`[VFS-Sync] Compiled sidecar created: ${jsPath}`);
@@ -142,7 +139,7 @@ async function main() {
 
       // Auto-executable untuk file di direktori eksekusi
       if (
-        (isSetuidBinary(vfsPath) || isExecutableBinary(vfsPath)) &&
+        needsBinaryMode(vfsPath) &&
         (vfsPath.endsWith(".ts") || vfsPath.endsWith(".js"))
       ) {
         applyBinaryMode(bkfs, vfsPath, "VFS-Sync");

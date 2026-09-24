@@ -91,7 +91,7 @@ uid      = 1000
 
         const notNumber = parseFstabContent("[/a]\ntype = ramfs\nmode = rwxr-xr-x\n");
         expect(notNumber.entries[0].mode).toBeUndefined();
-        expect(notNumber.warnings.join(" ")).toContain("bukan angka");
+        expect(notNumber.warnings.join(" ")).toContain("not a number");
     });
 
     it("A4.04 hanya key numerik yang jadi Number (kunci NetFS tetap string)", () => {
@@ -168,9 +168,9 @@ bukan-baris-valid
 
         expect(entries.map((e) => e.vfsPath)).toEqual(["/a", "/c"]);
         const joined = warnings.join(" | ");
-        expect(joined).toContain("sebelum [section]");
+        expect(joined).toContain("before any [section]");
         expect(joined).toContain("typo-sekali");
-        expect(joined).toContain("tanpa '='");
+        expect(joined).toContain("no '='");
     });
 
     it("A4.08 komentar sebaris & berkas kosong", () => {

@@ -23,7 +23,7 @@ audience: all
 - [ ] Menjelaskan mengapa `/dev` virtual — bukan vnode filesystem
 - [ ] Menjelaskan urutan registrasi device saat boot
 - [ ] Menjelaskan plugin `aux-devices`: konvensi `export default` + `static autoRegister`
-- [ ] Menjelaskan `applyDeviceConfigs()` (udev-style dari `sysconfig.json`)
+- [ ] Menjelaskan `applyDeviceConfigs()` (udev-style dari `sysconfig.conf`)
 - [ ] Menjelaskan `present()` untuk hotplug (udev-like)
 - [ ] Menjelaskan dual transport `DbLib`: `/dev/mysql` vs daemon `mysqld`
 - [ ] Menulis driver sendiri (checklist 10 langkah)
@@ -149,7 +149,7 @@ this.devices = {
 // 3. Interface jaringan (cfg.network.interfaces) → SimpleMQTNLDriver
 // 4. loadAuxDevices()     → plugin dari folder aux-devices
 // 5. SerialDeviceManager  → auto-detect ttyUSB*
-// 6. applyDeviceConfigs() → udev-style dari sysconfig.json
+// 6. applyDeviceConfigs() → udev-style dari sysconfig.conf
 // 7. init() semua driver  → suntikan KContext (syslog)
 // 8. pastikan /dev ada di VFS (mkdir 493)
 ```
@@ -165,7 +165,7 @@ Folder `src/kernel/devices/aux-devices/` di-scan `loadAuxDevices()` saat boot. D
 
 ### applyDeviceConfigs (udev-style)
 
-Blok `devices` di `sysconfig.json` → aturan "udev": set `mode`/`uid`/`gid` per nama device — persis aturan udev Linux.
+Seksi `[device.<nama>]` di `sysconfig.conf` → aturan "udev": set `mode`/`uid`/`gid` per nama device — persis aturan udev Linux.
 
 ```json
 {
@@ -207,7 +207,7 @@ App (Ring 4)                     Kernel (Ring 1-2)                 Driver
 3. Interface jaringan dari `cfg.network.interfaces` → `SimpleMQTNLDriver`.
 4. `loadAuxDevices()`: scan `aux-devices/` → `export default` → register → `autoRegister`.
 5. `SerialDeviceManager` mendeteksi `ttyUSB*`.
-6. `applyDeviceConfigs()`: terapkan `mode`/`uid`/`gid` dari `sysconfig.json`.
+6. `applyDeviceConfigs()`: terapkan `mode`/`uid`/`gid` dari `sysconfig.conf`.
 7. Loop `init()` semua driver → suntik `KContext.syslog`.
 8. Direktori `/dev` dijamin ada di VFS.
 
@@ -556,7 +556,7 @@ if (absoluteOpenPath.startsWith("/dev/")) {
 |---|---|---|
 | Core device (stdin, fb0, tty, null) | `src/kernel/devices/*.ts` | Langsung di `Kernel.boot()` (map `this.devices`) |
 | Hardware / eksperimental | `src/kernel/devices/aux-devices/<Nama>Device.ts` | Auto via `loadAuxDevices()` + `export default` |
-| Interface jaringan | — | Via `cfg.network.interfaces` di `sysconfig.json` |
+| Interface jaringan | — | Via `cfg.network.interfaces` di `sysconfig.conf` |
 
 ### Checklist 10 langkah
 
@@ -568,7 +568,7 @@ if (absoluteOpenPath.startsWith("/dev/")) {
 6. **Opsional metadata**: `uid/gid/mode` (default permission `0o600`), `disabled` untuk mematikan saat boot.
 7. **`export default EchoDevice;`** — WAJIB. Tanpa ini `loadAuxDevices()` tidak mengenali plugin (`module.default || module`).
 8. **Opsional `static autoRegister(kernel)`** — untuk konfigurasi hardware platform-specific (bus, address, name).
-9. **Atur izin udev-style**: `sysconfig.json` → `"devices": { "echo": { "mode": 438 } }`.
+9. **Atur izin udev-style**: `sysconfig.conf` → `[device.echo]` + `mode = 0o666`.
 10. **Test**: boot → `ls /dev/echo` → tulis/baca dari shell → cek syslog `[Dynamic HAL] Kernel Plugin Loaded: /dev/echo`. Tambah unit test di `src/kernel/devices/aux-devices/C10-AuxDevices.test.ts` (pola C10.08–C10.12).
 
 > [!IMPORTANT] Konvensi default export: loader memakai `const DeviceClass = module.default || module;` lalu `if (typeof DeviceClass === "function")`. Class driver **harus** di-`export default` agar ter-instantiate. `MCP23017Device` memenuhi keduanya: `export default` + `static autoRegister`.
@@ -582,7 +582,7 @@ if (absoluteOpenPath.startsWith("/dev/")) {
 3. Baca `src/kernel/devices/aux-devices/MCP23017Device.ts` — pelajari `autoRegister` + `disabled`.
 4. Baca `src/kernel/devices/aux-devices/joystick.ts` — pelajari `present()` (hotplug udev-like).
 5. Jalankan `ls /dev` setelah boot — perhatikan `/dev/randomdevice` dan metadata-nya.
-6. Ubah `mode` di `sysconfig.json` (blok `devices.randomdevice`) → boot ulang → amati hasil `ls /dev`.
+6. Ubah `mode` di `sysconfig.conf` (seksi `[device.randomdevice]`) → boot ulang → amati hasil `ls /dev`.
 7. (Tantangan) Tulis driver `/dev/echo`: `read()` mengembalikan teks yang ditulis terakhir, `write()` menyimpannya. Ikuti checklist 10 langkah di atas, lalu uji dari shell.
 
 ---
@@ -601,7 +601,7 @@ if (absoluteOpenPath.startsWith("/dev/")) {
 - `src/mirror/lib/DbLib.ts` — API `db.connect/query/disconnect`
 - `src/mirror/etc/mysqld/mysqld.ts` — service daemon (transport alternatif)
 - `src/kernel/devices/aux-devices/C10-AuxDevices.test.ts` — test driver (C10.08–C10.12)
-- `src/sysconfig.json` — blok `devices` (udev-style)
+- `src/sysconfig.conf` — seksi `[device.*]` (udev-style)
 
 ---
 

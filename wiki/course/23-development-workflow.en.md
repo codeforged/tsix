@@ -13,7 +13,7 @@ audience: all
 
 **RFC-TSIX-EDU-002** | Twenty-third module of the TSIX curriculum. Understand the host↔VFS cycle: install, vfs-bootstrap, sync-vfs, vfs-pull, SYNC_TO_HOST, userlib-update, and SDK mirroring.
 
-> TSIX has two worlds: the **host** (`src/mirror` + `src/common` folders in the repo) and the **VFS** (file database, its path is read from `kernel.database` in `src/sysconfig.json`, default `system.db`). Developers write on the host, then sync to the VFS. There is also the reverse path — applications inside the VFS write back to the host (root-only).
+> TSIX has two worlds: the **host** (`src/mirror` + `src/common` folders in the repo) and the **VFS** (file database, its path is read from `kernel.database` in `src/sysconfig.conf`, default `system.db`). Developers write on the host, then sync to the VFS. There is also the reverse path — applications inside the VFS write back to the host (root-only).
 
 ---
 
@@ -44,7 +44,7 @@ All host scripts get the DB path via `scripts/lib/db-path.ts`, so its value is a
 
 | Command | File | Direction | Purpose |
 |---|---|---|---|
-| `npm run install` | `scripts/install.ts` | host → DB | Interactive fresh install: create new DB + write `sysconfig.json` + full rootfs sync |
+| `npm run install` | `scripts/install.ts` | host → DB | Interactive fresh install: create new DB + write `sysconfig.conf` + full rootfs sync |
 | `npm run vfs:bootstrap` | `scripts/vfs-bootstrap.ts` | host → DB | Bulk sync `src/mirror` → `/` and `src/common` → `/lib/common` |
 | `npx ts-node scripts/sync-vfs.ts <path>` | `scripts/sync-vfs.ts` | host → DB | Sync one file (wired to VS Code "run on save") |
 | `npm run vfs:pull` | `scripts/vfs-pull.ts` | DB → host | Pull the whole VFS → `src/root` (except runtime folders) |
@@ -54,7 +54,7 @@ All host scripts get the DB path via `scripts/lib/db-path.ts`, so its value is a
 
 ### Shared configuration
 
-- `src/sysconfig.json` — `kernel.database` (DB path), `kernel.rootHostPath`, `scheduler.workerEntryPath`, `scheduler.bootEntry`, `network.interfaces`.
+- `src/sysconfig.conf` — `kernel.database` (DB path), `kernel.rootHostPath`, `scheduler.workerEntryPath`, `scheduler.bootEntry`, `network.interfaces`.
 - `tsconfig.json` — `@tsix/*` → `src/.tsix_sdk/lib/*`, `src/root/lib/*`, `src/mirror/lib/*`; `@common/*` → `src/common/*`; `@bin/*` → `src/root/bin/*`, `src/.tsix_sdk/bin/*`.
 
 > [!NOTE]
@@ -71,7 +71,7 @@ All host scripts get the DB path via `scripts/lib/db-path.ts`, so its value is a
 ┌─────────────────────────────────────────────────────┐
 │ src/mirror     (rootfs: bin, lib, etc, sbin, ...)   │
 │ src/common     (framework: SyscallCode, IPCTypes)   │
-│ src/sysconfig.json  -> kernel.database              │
+│ src/sysconfig.conf  -> kernel.database              │
 └───────┬──────────────────────────────▲──────────────┘
         │ host → DB                    │ DB → host
         │                              │
@@ -92,7 +92,7 @@ All host scripts get the DB path via `scripts/lib/db-path.ts`, so its value is a
 ### sysconfig → db-path → scripts
 
 ```
-src/sysconfig.json  (kernel.database)
+src/sysconfig.conf  (kernel.database)
         │  getDefaultDbPath()
         ▼
 scripts/lib/db-path.ts
@@ -107,7 +107,7 @@ scripts/lib/db-path.ts
 ### 1. Fresh install (`npm run install`)
 
 1. Ask interactive configuration: hostname, user account (optional: username, password, confirm), MQTT broker, per-interface address, default MQTT port, kernel verbose, new DB path, (optional) root password.
-2. Write the result to `src/sysconfig.json` (stores the new `kernel.database`).
+2. Write the result to `src/sysconfig.conf` (stores the new `kernel.database`).
 3. Create a new `.db` file. If the file already exists and without `--force` → stop; with `--force` → the old file is backed up to `*.bak-<timestamp>`.
 4. Sync rootfs: `src/mirror` → `/`, then `src/common` → `/lib/common`. Each `.ts` is transpiled to a sidecar `.js`; executable directories get execute mode (`/sbin` = `0744`, others `0755`); `login`, `passwd`, `sudo` get SetUID (`4755` root).
 5. Sync explicit `/etc` files without extension: `passwd`, `shadow` (mode `0640`), `group`, `crontab`, `profile`, `motd`, `fstab.md`, `pkg-demo.conf`.
@@ -122,7 +122,7 @@ npm run install                              # interaktif, path dari sysconfig
 npm run install -- --path data/tsix.db       # path database tertentu
 npm run install -- --path data/tsix.db --force   # timpa (auto-backup)
 npm run install -- --defaults                # non-interaktif, semua default
-npm run install -- --no-config               # skip tulis sysconfig.json
+npm run install -- --no-config               # skip tulis sysconfig.conf
 ```
 
 ### 2. Bulk sync (`npm run vfs:bootstrap`)
@@ -182,17 +182,10 @@ vfs-pull              # tarik seluruh VFS → host root
 
 ```ts
 export function getDefaultDbPath(): string {
-  const configPath = path.resolve(__dirname, "../../src/sysconfig.json");
-  try {
-    const raw = fs.readFileSync(configPath, "utf8");
-    const cfg = JSON.parse(raw);
-    if (cfg && typeof cfg.kernel === "object" && cfg.kernel.database) {
-      return String(cfg.kernel.database);
-    }
-  } catch (_) {
-    /* abaikan — pakai fallback */
-  }
-  return "system.db";
+  // Satu parser dengan kernel: Config membaca src/sysconfig.conf (key-value,
+  // gaya /etc/fstab.conf) + migrasi otomatis dari sysconfig.json lama.
+  const database = Config.tryGet()?.kernel?.database;
+  return typeof database === "string" && database.length > 0 ? database : "system.db";
 }
 ```
 
@@ -282,7 +275,7 @@ async function main() {
   let rootPassword = "";
 
   // 1. Konfigurasi interaktif → cfg (hostname, user, broker, port, verbose, db path, root password)
-  // 2. Tulis src/sysconfig.json
+  // 2. Tulis src/sysconfig.conf
   if (opts.writeConfig) {
     cfg.kernel.database = path.relative(PROJECT_ROOT, dbPath).replace(/\\/g, "/");
     saveConfig(cfg);
@@ -336,7 +329,7 @@ public async syncToHost(vfsPath: string, hostPath: string): Promise<boolean> {
 
 ## Exercises / Practice
 
-1. Run `npm run install -- --defaults` — check `src/sysconfig.json` is written and a new DB is created, then `npm start`.
+1. Run `npm run install -- --defaults` — check `src/sysconfig.conf` is written and a new DB is created, then `npm start`.
 2. Run `npm run install` (interactive) — fill in hostname & user login, set the root password, observe the per-file sync.
 3. Write a new app in `src/mirror/bin/`, then `npm run vfs:bootstrap` — run the app in the TSIX shell.
 4. Change one file then `npx ts-node scripts/sync-vfs.ts src/mirror/bin/<file>.ts` — compare its speed vs the full bootstrap.

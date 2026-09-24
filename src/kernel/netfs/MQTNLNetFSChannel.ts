@@ -101,17 +101,17 @@ export class MQTNLNetFSChannel implements INetFSChannel {
 
         const driver = MQTNLNetFSChannel.resolveDriver(kernel, opts.iface);
         if (!driver) {
-            throw new NetFSError("EIO", `netfs: interface MQTNL '${opts.iface ?? "(default)"}' tidak ditemukan`);
+            throw new NetFSError("EIO", `netfs: MQTNL interface '${opts.iface ?? "(default)"}' not found`);
         }
 
         const portManager = kernel.getPortManager?.();
         if (!portManager) {
-            throw new NetFSError("EIO", "netfs: PortManager kernel tidak tersedia");
+            throw new NetFSError("EIO", "netfs: kernel PortManager not available");
         }
 
         const localPort = portManager.allocateRandomPort();
         if (!localPort) {
-            throw new NetFSError("EIO", "netfs: tidak ada port MQTNL bebas untuk mount");
+            throw new NetFSError("EIO", "netfs: no free MQTNL port for the mount");
         }
 
         const channel = new MQTNLNetFSChannel(driver, portManager, localPort, opts, logger);
@@ -143,7 +143,7 @@ export class MQTNLNetFSChannel implements INetFSChannel {
         }
 
         logger.info(
-            `channel siap: ${driver.name} port ${localPort} → ${opts.address}:${opts.port}${opts.key ? " [secure]" : ""}`,
+            `channel ready: ${driver.name} port ${localPort} → ${opts.address}:${opts.port}${opts.key ? " [secure]" : ""}`,
         );
         return channel;
     }
@@ -181,7 +181,7 @@ export class MQTNLNetFSChannel implements INetFSChannel {
                 this.localPort,
             );
         } catch (e: any) {
-            this.logger.error(`gagal mengirim ke ${this.peer}: ${e?.message ?? e}`);
+            this.logger.error(`failed to send to ${this.peer}: ${e?.message ?? e}`);
             return false;
         }
     }
@@ -214,6 +214,6 @@ export class MQTNLNetFSChannel implements INetFSChannel {
             /* pin tidak ada — aman diabaikan */
         }
         this.portManager.releasePort?.(this.localPort);
-        this.logger.info(`channel ditutup (port ${this.localPort} dilepas)`);
+        this.logger.info(`channel closed (port ${this.localPort} released)`);
     }
 }

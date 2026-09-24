@@ -1,6 +1,7 @@
 import { BKFS } from "../src/vfs/BKFS";
 import { createUserAccount } from "./lib/user-account";
 import { FRESH_FSTAB_INI } from "./lib/fresh-fstab";
+import { applyBinaryMode, needsBinaryMode } from "./lib/binary-mode";
 import { peekBom, readBinaryFile, readTextFile, utf8ToVfsBytes, vfsBytesToUtf8 } from "./lib/text-file";
 import * as fs from "fs";
 import * as path from "path";
@@ -8,23 +9,25 @@ import * as esbuild from "esbuild";
 import * as readline from "readline/promises";
 import * as bcrypt from "bcryptjs";
 import type { SysConfig } from "../src/common/Config";
+import { createDefaultSysConfig, formatSysConfigIni, parseSysConfigIni } from "../src/common/SysConfigIni";
 
 /**
  * INSTALL AGENT (Fresh Install TSIX)
  *
  * Membuat image sistem baru dari nol:
  *   1. Tanya konfigurasi ke user secara interaktif (hostname, distro, broker MQTT, dll).
- *   2. Tulis hasil konfigurasi ke src/sysconfig.json.
+ *   2. Tulis hasil konfigurasi ke src/sysconfig.conf (format key-value, gaya
+ *      /etc/fstab.conf — lihat src/common/SysConfigIni.ts).
  *   3. Buat file database .db yang BENAR-BENAR BARU (file lama otomatis di-backup).
  *   4. Sinkronkan seluruh src/mirror (rootfs) ke database baru (transpile TS -> JS + SetUID).
  *   5. (Opsional) Buat akun user biasa (username + password + konfirmasi) + home directory.
  *   6. (Opsional) set password root ke /etc/shadow.
  *
  * Cara pakai (dari root project):
- *   npm run install                     -> interaktif, db default dari sysconfig.json
+ *   npm run install                     -> interaktif, db default dari sysconfig.conf
  *   npm run install -- --path data/tsix.db --force
  *   npm run install -- --defaults       -> non-interaktif (pakai semua nilai default)
- *   npm run install -- --no-config      -> lewati penulisan src/sysconfig.json
+ *   npm run install -- --no-config      -> lewati penulisan src/sysconfig.conf
  */
 
 interface InstallOptions {
@@ -35,39 +38,16 @@ interface InstallOptions {
 }
 
 const MIRROR_ROOT = path.resolve(__dirname, "../src/mirror");
-const CONFIG_PATH = path.resolve(__dirname, "../src/sysconfig.json");
+const CONFIG_PATH = path.resolve(__dirname, "../src/sysconfig.conf");
+
+/** Konfigurasi lama (JSON) — dimigrasi otomatis sekali, lalu tidak dipakai lagi. */
+const LEGACY_CONFIG_PATH = path.resolve(__dirname, "../src/sysconfig.json");
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 
 /**
- * Direktori executable standar (FHS) — semua file .ts/.js di sini diberi bit
- * execute saat sync agar bisa dijalankan dari PATH.
+ * Mode executable (bit `x`, `/sbin` 0o744, SetUID login/passwd/sudo) diatur oleh
+ * helper BERSAMA `scripts/lib/binary-mode.ts` — lihat berkas itu untuk alasannya.
  */
-const EXEC_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin", "/opt"];
-
-/**
- * Binary istimewa yang wajib berjalan sebagai pemilik file (SetUID root):
- * login, passwd, dan sudo — semuanya butuh akses baca/tulis /etc/shadow.
- * Dikenali baik versi .ts maupun sidecar .js yang benar-benar dieksekusi runtime.
- */
-function isSetuidBinary(vfsPath: string): boolean {
-  return /\/bin\/(login|passwd|sudo)\.(ts|js)$/.test(vfsPath);
-}
-
-function isExecutableBinary(vfsPath: string): boolean {
-  return EXEC_DIRS.some((d) => vfsPath.startsWith(d + "/"));
-}
-
-/** Terapkan mode eksekusi (dan SetUID untuk login/passwd/sudo). */
-function applyBinaryMode(bkfs: BKFS, vfsPath: string, label = "INSTALL"): void {
-  if (isSetuidBinary(vfsPath)) {
-    bkfs.chmod(vfsPath, 0o4755);
-    bkfs.chown(vfsPath, 0, 0);
-    console.log(`[${label}] SetUID+chown root -> ${vfsPath}`);
-  } else if (isExecutableBinary(vfsPath)) {
-    // /sbin = root-only (0o744), lainnya 0o755 (semua user)
-    bkfs.chmod(vfsPath, vfsPath.startsWith("/sbin/") ? 0o744 : 0o755);
-  }
-}
 
 function parseArgs(argv: string[]): InstallOptions {
   const opts: InstallOptions = {
@@ -85,10 +65,10 @@ function parseArgs(argv: string[]): InstallOptions {
     else if (a === "--help" || a === "-h") {
       console.log(`Usage: npm run install -- [options]
 
-  --path <db>    Path database baru (default: dari sysconfig.json)
+  --path <db>    Path database baru (default: dari sysconfig.conf)
   --force        Timpa database lama (otomatis di-backup)
   --defaults     Non-interaktif: pakai semua nilai default
-  --no-config    Lewati penulisan src/sysconfig.json`);
+  --no-config    Lewati penulisan src/sysconfig.conf`);
       process.exit(0);
     }
   }
@@ -197,8 +177,8 @@ function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string): void {
           // Hasil esbuild adalah TEKS → ubah ke byte sebelum masuk VFS.
           bkfs.touch(jsPath, utf8ToVfsBytes(result.code));
 
-          if (isSetuidBinary(jsPath) || isExecutableBinary(jsPath)) {
-            applyBinaryMode(bkfs, jsPath);
+          if (needsBinaryMode(jsPath)) {
+            applyBinaryMode(bkfs, jsPath, "INSTALL");
           }
         }
       } catch (e: any) {
@@ -210,10 +190,10 @@ function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string): void {
 
     // Auto-executable untuk file di direktori eksekusi (/bin, /sbin, dll)
     if (
-      (isSetuidBinary(fullVfsPath) || isExecutableBinary(fullVfsPath)) &&
+      needsBinaryMode(fullVfsPath) &&
       (fullVfsPath.endsWith(".ts") || fullVfsPath.endsWith(".js"))
     ) {
-      applyBinaryMode(bkfs, fullVfsPath);
+      applyBinaryMode(bkfs, fullVfsPath, "INSTALL");
     }
   }
 }
@@ -236,95 +216,68 @@ function getKernelVersion(): string {
 }
 
 /**
- * Konfigurasi default — dipakai kalau src/sysconfig.json belum ada
- * (mis. sebelum instalasi pertama). install.ts TIDAK boleh bergantung pada
- * file itu; ia yang membuatnya.
+ * Konfigurasi default — dipakai kalau sysconfig.conf belum ada (mis. sebelum
+ * instalasi pertama). install.ts TIDAK boleh bergantung pada berkas itu; ia
+ * yang membuatnya.
+ *
+ * Nilainya diambil dari `createDefaultSysConfig()` (src/common/SysConfigIni.ts)
+ * supaya default installer dan default kernel tidak pernah berbeda; installer
+ * hanya menimpa VERSI kernel (dibaca langsung dari `Kernel.ts`) dan broker dari
+ * pertanyaan interaktif.
  */
 function createDefaultConfig(): SysConfig {
-  return {
-    kernel: {
-      version: getKernelVersion(),
-      database: "system.db",
-      rootHostPath: "../mirror",
-      bootLogPath: "/logs/boot.log",
-      verbose: true,
-      distroName: "Antigonon leptopus",
-      engineName: "TSIX-Dinawari",
-    },
-    logger: {
-      defaultLevel: "INFO",
-      logFile: "jsix.log",
-      enableConsole: false,
-    },
-    scheduler: {
-      workerEntryPath: "../userland/WorkerEntry.js",
-      defaultPath: "/bin",
-      defaultCwd: "/",
-      bootEntry: "init.js",
-      defaultShell: "tsh.ts",
-      // Batas memori V8 per worker thread (MB). Pagar agar satu aplikasi
-      // nakal tidak membengkakkan RSS proses host; heap idle TSIX hanya
-      // ~15 MB, jadi 192 MB (≈13×) longgar untuk app GUI berat sekalipun.
-      // Set 0 untuk menonaktifkan pagar (kembali ke default Node).
-      workerMaxOldGenMb: 192,
-      workerMaxYoungGenMb: 32,
-    },
-    shell: {
-      defaultUser: "root",
-      defaultHostname: "tsix",
-      promptFormat: "&username@&hostname:&cwd&usertype ",
-      defaultRows: 24,
-      defaultColumns: 80,
-      historyPath: "/.sh_history",
-      // Alokasi TTY default: 3 konsol virtual (TTY1 console utama + TTY2-3
-      // login lokal). Daemon remote (tsshd/airtermd/pixelterm) pakai PTY
-      // on-demand, jadi tidak perlu banyak konsol. Hemat RAM.
-      ttyCount: 3,
-      // Satu sesi login lokal cukup — loginCount=2 menambah 1 rantai
-      // login+shell (~32 MB) tanpa manfaat, karena konsol tambahan bisa
-      // dimasuki lewat openvt dan daemon remote memakai PTY terpisah.
-      loginCount: 1,
-    },
-    network: {
-      interfaces: [
-        {
-          broker: "mqtt://localhost",
-          deviceName: "smqtnl0",
-          address: "tsix",
-          defaultPort: 1883,
-        },
-        {
-          broker: "mqtt://localhost",
-          deviceName: "smqtnl1",
-          address: "tsix-node-2",
-          defaultPort: 1883,
-        },
-      ],
-      defaultDevice: "smqtnl0",
-    },
-    devices: {},
-  };
+  const cfg = createDefaultSysConfig();
+  cfg.kernel.version = getKernelVersion();
+  return cfg;
 }
 
 function loadConfig(): SysConfig {
-  if (!fs.existsSync(CONFIG_PATH)) {
-    console.log("[INSTALL] src/sysconfig.json belum ada — memakai konfigurasi default.");
-    return createDefaultConfig();
+  // Konfigurasi AKTIF: format key-value (`sysconfig.conf`).
+  if (fs.existsSync(CONFIG_PATH)) {
+    try {
+      const { config, warnings } = parseSysConfigIni(fs.readFileSync(CONFIG_PATH, "utf8"));
+      for (const message of warnings) console.log(`[INSTALL] src/sysconfig.conf: ${message}`);
+      return config;
+    } catch (e: any) {
+      console.log(
+        `[INSTALL] src/sysconfig.conf tidak valid (${e.message}) — memakai konfigurasi default.`,
+      );
+      return createDefaultConfig();
+    }
   }
-  try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
-  } catch (e: any) {
-    console.log(
-      `[INSTALL] src/sysconfig.json tidak valid (${e.message}) — memakai konfigurasi default.`,
-    );
-    return createDefaultConfig();
+
+  // MIGRASI sekali-jalan dari format lama (JSON) — sama seperti kernel
+  // (`Config.load()`), supaya node lama tidak kehilangan konfigurasinya.
+  if (fs.existsSync(LEGACY_CONFIG_PATH)) {
+    try {
+      const legacy = JSON.parse(fs.readFileSync(LEGACY_CONFIG_PATH, "utf8")) as SysConfig;
+      console.log("[INSTALL] src/sysconfig.json lama ditemukan — dimigrasi ke sysconfig.conf.");
+      return legacy;
+    } catch (e: any) {
+      console.log(
+        `[INSTALL] src/sysconfig.json tidak valid (${e.message}) — memakai konfigurasi default.`,
+      );
+      return createDefaultConfig();
+    }
   }
+
+  console.log("[INSTALL] src/sysconfig.conf belum ada — memakai konfigurasi default.");
+  return createDefaultConfig();
 }
 
+/**
+ * saveConfig(): Tulis konfigurasi sebagai key-value (gaya `/etc/fstab.conf`).
+ * Berkas `.json` lama (kalau ada) SENGAJA dibiarkan: ia berhenti dipakai, tapi
+ * tetap milik admin sampai dihapus sendiri.
+ */
 function saveConfig(cfg: SysConfig): void {
   // Pastikan folder src/ ada (bisa saja belum ada sebelum instalasi pertama)
   fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2) + "\n", "utf8");
+  const header =
+    "src/sysconfig.conf — konfigurasi node TSIX (key-value, gaya /etc/fstab.conf).\n" +
+    "Aturan nilai: \"teks\" = string, a, b = array, true/false = boolean, 0o755 = oktal.\n" +
+    "Pemilih backend root: kernel.rootType = bkfs | host (lihat wiki/Virtual-File-System.md).";
+  fs.writeFileSync(CONFIG_PATH, formatSysConfigIni(cfg, header), "utf8");
   console.log(`[INSTALL] Konfigurasi ditulis ke: ${CONFIG_PATH}`);
 }
 
@@ -720,7 +673,7 @@ async function main() {
     console.log("\n[INSTALL] Selesai! Image sistem siap.");
     console.log(`           DB       : ${dbPath}`);
     console.log(
-      `           Hostname : ${cfg.shell.defaultHostname}  (lihat src/sysconfig.json)`,
+      `           Hostname : ${cfg.shell.defaultHostname}  (lihat src/sysconfig.conf)`,
     );
     console.log("           Jalankan dengan: npm start");
   } finally {

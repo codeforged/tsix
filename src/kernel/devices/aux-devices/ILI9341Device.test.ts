@@ -164,7 +164,7 @@ describe("ILI9341Device — metadata & lifecycle (C10.110-C10.119)", () => {
     expect(dev.present()).toBe(false);
     expect(dev.write("x")).toBe(false);
     expect(dev.read()).toContain('"available":false');
-    expect(dev.getInfo().lastError).toContain("begin() gagal");
+    expect(dev.getInfo().lastError).toContain("begin() failed");
   });
 
   it("C10.114 disabled=true → tidak dibuka sama sekali", () => {
@@ -196,7 +196,7 @@ describe("ILI9341Device — metadata & lifecycle (C10.110-C10.119)", () => {
     const dev = new ILI9341Device({ native: hdmi.panel });
     dev.init({ syslog: () => {} });
     expect(dev.present()).toBe(false);
-    expect(dev.getInfo().lastError).toContain("tidak cocok");
+    expect(dev.getInfo().lastError).toContain("mismatch");
     expect(hdmi.closes()).toBe(1); // node ditutup kembali, tidak dipakai
     expect(hdmi.frames.length).toBe(0);
   });
@@ -215,7 +215,7 @@ describe("ILI9341Device — metadata & lifecycle (C10.110-C10.119)", () => {
     const dev = new ILI9341Device({ native: portrait.panel });
     dev.init({ syslog: () => {} });
     expect(dev.present()).toBe(false);
-    expect(dev.getInfo().lastError).toContain("buffer tidak cocok");
+    expect(dev.getInfo().lastError).toContain("mismatch");
   });
 
   it("C10.117 konfigurasi awal diterapkan saat open()", () => {
@@ -532,7 +532,7 @@ describe("ILI9341Device — bitmap & write() (C10.130-C10.136)", () => {
   it("C10.134 write blok yang melewati ujung frame ditolak + dicatat", () => {
     const { dev } = makeReadyDevice();
     expect(dev.write(Buffer.alloc(10), TFT_FRAMEBUFFER_SIZE - 5)).toBe(false);
-    expect(dev.getInfo().lastError).toContain("melewati frame");
+    expect(dev.getInfo().lastError).toContain("runs past the frame");
   });
 
   it("C10.135 write(string) mencetak teks; autoFlush mengatur present", () => {

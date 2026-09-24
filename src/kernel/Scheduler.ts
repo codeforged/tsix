@@ -396,9 +396,9 @@ export class Scheduler {
         const execArgv: string[] = [];
         if (!isJs) {
             this.logger.warn(
-                `PID ${pcb.pid} (${pcb.name}) berjalan dari sumber .ts mentah — ` +
-                `worker ini memakai preload transpiler (+~15 MB RSS). ` +
-                `Jalankan 'npm run vfs:bootstrap' agar tersedia sidecar .js.`,
+                `PID ${pcb.pid} (${pcb.name}) runs from raw .ts source — ` +
+                `this worker loads the transpiler preload (+~15 MB RSS). ` +
+                `Run 'npm run vfs:bootstrap' so the .js sidecar exists.`,
             );
             const esbuildRegister = require.resolve("esbuild-register");
             execArgv.push("--enable-source-maps", "-r", esbuildRegister);
@@ -469,7 +469,7 @@ export class Scheduler {
             // petunjuk apa pun — persis yang terjadi saat `WorkerEntry` gagal
             // `require()` (worker mati sebelum mengirim 'ready').
             console.error(
-                `\n[Kernel] Worker [${pcb.pid}] ${pcb.name} gagal start: ${err.message}\n`,
+                `\n[Kernel] Worker [${pcb.pid}] ${pcb.name} failed to start: ${err.message}\n`,
             );
 
             pcb.state = ProcessState.EXITED;

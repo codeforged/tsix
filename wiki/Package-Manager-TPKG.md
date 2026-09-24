@@ -273,7 +273,7 @@ Di sisi server, file host dibaca lewat mount read-only `/hostsrc` → `src`
 
 Yang dieksekusi bukan `.ts`, tapi sidecar `.js`:
 `tsh` mencari command lewat PATH dengan urutan `.js` **sebelum** `.ts`, dan
-`sysconfig.json` menyebut `bootEntry: "init.js"`. Tanpa langkah ini,
+`sysconfig.conf` menyebut `bootEntry = init.js`. Tanpa langkah ini,
 `/bin/init.js` & `/bin/ls.js` tetap versi lama dan update seolah tidak terjadi.
 
 Karena itu paket ini memakai `onAfterDownload: /sbin/apply-update.ts`, yang:

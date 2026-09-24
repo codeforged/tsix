@@ -151,21 +151,21 @@ export class JoystickDevice implements IDevice {
     this.kctx = ctx;
     this.loadNativeModules();
     this.setupHotplug();
-    this.log("Driver siap. Mencari gamepad USB HID...");
+    this.log("Driver ready. Looking for a USB HID gamepad...");
     this.tryConnect();
   }
 
   /** Buka device — pastikan koneksi HID aktif. */
   public open(): boolean {
     this.tryConnect();
-    this.log("Device dibuka.");
+    this.log("Device opened.");
     return true;
   }
 
   /** Tutup device — lepas koneksi HID. */
   public close(): boolean {
     this.disconnectHid();
-    this.log("Device ditutup.");
+    this.log("Device closed.");
     return true;
   }
 
@@ -312,7 +312,7 @@ export class JoystickDevice implements IDevice {
     try {
       this.hid = require("node-hid");
     } catch (e: any) {
-      this.log(`node-hid tidak tersedia: ${e?.message}`);
+      this.log(`node-hid not available: ${e?.message}`);
       this.hid = null;
     }
     try {
@@ -337,9 +337,9 @@ export class JoystickDevice implements IDevice {
       };
       this.usb.on("attach", this.hotplugAttached);
       this.usb.on("detach", this.hotplugDetached);
-      this.log("Hotplug USB aktif.");
+      this.log("USB hotplug active.");
     } catch (e: any) {
-      this.log(`Gagal pasang hotplug: ${e?.message}`);
+      this.log(`Failed to attach hotplug: ${e?.message}`);
     }
   }
 
@@ -347,7 +347,7 @@ export class JoystickDevice implements IDevice {
   public tryConnect(): void {
     if (this.device) return; // sudah terhubung
     if (!this.hid) {
-      this.log("node-hid tidak tersedia — mode injection (virtual).");
+      this.log("node-hid not available — injection (virtual) mode.");
       return;
     }
     try {
@@ -359,7 +359,7 @@ export class JoystickDevice implements IDevice {
           (d.manufacturer && /controller|joystick|gamepad/i.test(d.manufacturer)),
       );
       if (!found) {
-        this.log("Belum ada gamepad HID terdeteksi — mode injection (virtual).");
+        this.log("No HID gamepad detected yet — injection (virtual) mode.");
         return;
       }
       const dev = new this.hid.HID(found.path || found);
@@ -380,7 +380,7 @@ export class JoystickDevice implements IDevice {
         `Connected HID: ${this.deviceId} (${this.axes.length} axes, ${this.buttons.length} buttons)`,
       );
     } catch (e: any) {
-      this.log(`Gagal buka HID: ${e?.message}`);
+      this.log(`Failed to open HID: ${e?.message}`);
       this.device = null;
     }
   }
@@ -429,7 +429,7 @@ export class JoystickDevice implements IDevice {
   public setLayout(layout: Partial<HidReportLayout>): void {
     this.layout = { ...this.layout, ...layout };
     this.log(
-      `Layout HID: buttonBytes=[${this.layout.buttonBytes}] axisOffsets=[${this.layout.axisOffsets}]`,
+      `HID layout: buttonBytes=[${this.layout.buttonBytes}] axisOffsets=[${this.layout.axisOffsets}]`,
     );
   }
 
@@ -443,7 +443,7 @@ export class JoystickDevice implements IDevice {
     this.device = null;
     this.connected = false;
     this.deviceId = "";
-    this.log("HID dicabut.");
+    this.log("HID detached.");
   }
 
   // ================================================================
@@ -539,7 +539,7 @@ export class JoystickDevice implements IDevice {
   private calibrateCenters(): boolean {
     if (!this.connected) return false;
     this.centerOffset = this.axes.slice();
-    this.log("Kalibrasi titik tengah selesai.");
+    this.log("Center-point calibration done.");
     return true;
   }
 

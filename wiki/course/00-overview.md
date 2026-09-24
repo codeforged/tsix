@@ -100,7 +100,7 @@ Ring adalah **konsep** (dokumentasi), bukan mekanisme hardware/isolasi V8:
 
 ```
 main.ts
-  Config.load()                    → baca sysconfig.json
+  Config.load()                    → baca sysconfig.conf
   new Kernel()                     → Logger, PermissionManager, MountManager, GUIRegistry
   kernel.boot()
     initializeSubsystems()
@@ -228,7 +228,7 @@ Aplikasi → syscall OPEN/READ/WRITE
 
 **Kunci "everything is a file"**: FD table berisi `FDEntry {device, context, flags}` → semua objek `IDevice`. File biasa dibungkus `FileSystemDevice`. Pipe refcount via ioctl (`INC_REF`/`DEC_REF`), EOF saat `writeRefs==0`.
 
-**Plugin driver**: folder `aux-devices/` di-scan saat boot; `new DeviceClass()` + konvensi `static autoRegister(kernel)` untuk hardware (MCP23017). `applyDeviceConfigs()` = "udev" dari `sysconfig.json`.
+**Plugin driver**: folder `aux-devices/` di-scan saat boot; `new DeviceClass()` + konvensi `static autoRegister(kernel)` untuk hardware (MCP23017). `applyDeviceConfigs()` = "udev" dari `sysconfig.conf`.
 
 > [!NOTE] **Soal `MySQLDevice` (`/dev/mysql`) — transport pertama, bukan satu-satunya**
 > `MySQLDevice` adalah integrasi database eksternal lewat model device — ia **bukan** driver hardware sungguhan, melainkan **transport pertama** untuk akses DB (contoh perluasan HAL).
@@ -371,7 +371,7 @@ SYNC_TO_HOST (syscall)     DB → host (app dalam VFS menulis /lib → src/.tsix
 userlib-update.ts          sinkronkan /lib → src/.tsix_sdk/lib (agar Node.js host bisa require)
 ```
 
-**Konfigurasi**: `src/sysconfig.json` (database path, workerEntryPath, bootEntry, network interfaces). `tsconfig.json` memetakan `@tsix/*` → `src/.tsix_sdk/lib/*`, `src/root/lib/*`, `src/mirror/lib/*`.
+**Konfigurasi**: `src/sysconfig.conf` (database path, workerEntryPath, bootEntry, network interfaces). `tsconfig.json` memetakan `@tsix/*` → `src/.tsix_sdk/lib/*`, `src/root/lib/*`, `src/mirror/lib/*`.
 
 ---
 

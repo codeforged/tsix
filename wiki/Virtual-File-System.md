@@ -357,6 +357,83 @@ sudo chown root /etc/passwd
 
 ---
 
+## Root Filesystem: BKFS atau Folder Host (HostVFS)
+
+Root `/` bisa dilayani dua backend, dipilih lewat `kernel.rootType` di
+`src/sysconfig.conf` (lihat `src/kernel/RootFilesystem.ts`):
+
+| `rootType` | Root `/` ada di | Sinkronisasi |
+| --- | --- | --- |
+| `"bkfs"` (default) | dalam SQLite `system.db` | `vfs:bootstrap` (host → DB), `vfs:pull` (DB → host) |
+| `"host"` | folder host `kernel.rootHostPath` (mis. `../rootfs`), via `HostVFS` | tidak perlu — berkas dibaca apa adanya |
+
+Mode `host` berguna saat ngoprek userland: simpan berkas di VS Code, langsung
+terbaca shell TSIX tanpa bootstrap/pull. Alternatif tanpa mengedit konfigurasi:
+
+```bash
+TSIX_ROOTFS=host TSIX_ROOTFS_PATH=/path/ke/rootfs npm start
+```
+
+`rootHostPath` di-resolve **relatif `src/kernel`** — aturan yang sama dengan
+syscall `GET_SYSPATH` — supaya kernel dan userland tidak pernah menunjuk folder
+berbeda. Kalau foldernya tidak ada, boot **gagal dengan pesan jelas** (bukan
+membuat root kosong).
+
+> **Penting:** folder root host wajib berisi sidecar `.js` (hasil
+> bootstrap/pull), bukan hanya `.ts`. Root yang hanya `.ts` membuat worker `init`
+> mati dengan `Cannot find module '../../common/SyscallCode'`.
+
+### Kenapa BKFS tetap default
+
+Mode host memang membuktikan kernel fleksibel: root `/` hanyalah satu mount dari
+`MountManager`, jadi backend-nya bisa apa pun yang memenuhi `IVFS` — secara teori
+termasuk NetFS di `/`. Tapi TSIX dirancang dengan **BKFS sebagai root**, dan itu
+bukan kebetulan:
+
+| Jaminan | BKFS | Root folder host |
+| --- | --- | --- |
+| Atomisitas | `batch()` (satu transaksi untuk operasi majemuk) | tidak ada |
+| Durabilitas | WAL + `wal_checkpoint(TRUNCATE)` saat shutdown | tergantung fs host |
+| Isolasi | berkas hidup di dalam DB, tidak bisa disentuh proses host | siapa pun di host bisa mengubah root |
+| Backup | **satu berkas** `system.db` (self-contained) | harus menyalin seluruh tree + izinnya |
+| Portabilitas | kirim 1 berkas → node lain langsung utuh | ikut detail fs/izin host |
+
+Karena itu `kernel.rootType` default **`"bkfs"`**, dan mode `host` ditandai
+eksperimen di boot log. Pakai `host` untuk ngoprek, bukan untuk data yang harus
+aman.
+
+> Catatan implementasi: `Kernel` membaca root lewat helper sinkron
+> (`readRoot()`/`lsRoot()`) karena root selalu BKFS/HostVFS. Kalau suatu saat NetFS
+> benar-benar di-mount di `/`, jalur boot itu harus di-`await` (kontrak `IVFS`
+> sudah menyediakan `MaybePromise` — yang perlu diubah pemanggilnya).
+
+Konsekuensi mode host yang perlu diketahui:
+
+- **Bit eksekusi di disk-lah yang menentukan.** Shell menegakkan bit `x` seperti
+  Linux (`tsh`: `mode & 0o111` → `-tsh: /bin/ls.js: Permission denied`, `$?` =
+  126), jadi folder root host **wajib** punya `x` di `/bin`, `/sbin`,
+  `/usr/bin`, `/usr/local/bin`, `/opt`. `vfs:pull` memasangnya otomatis; untuk
+  folder yang sudah ada (hasil `git clone`/`cp` tanpa `--preserve=mode`):
+
+  ```bash
+  npm run rootfs:modes              # perbaiki folder root host
+  npm run rootfs:modes -- --dry-run # lihat dulu apa yang akan diubah
+  ```
+
+  Aturan mode = satu sumber dengan bootstrap/install (`scripts/lib/binary-mode.ts`):
+  0o755, `/sbin` 0o744, SetUID 0o4755 untuk `login`/`passwd`/`sudo`.
+- `chown` ke uid/gid lain biasanya ditolak OS (`EPERM`) → dilaporkan gagal tapi
+  **tidak** membatalkan mount; kepemilikan efektif mengikuti berkas host.
+- **Alat sinkronisasi tidak relevan di mode ini** — tidak ada database yang perlu
+  di-seed/ditarik. `sync-vfs`, `vfs-pull`, dan `vfs-bootstrap` mendeteksinya
+  sendiri dan berhenti sebagai no-op (exit 0), jadi hook run-on-save tidak
+  menghasilkan error maupun "sukses palsu".
+- Permission yang dibaca kernel = permission berkas host (mode di-mask ke `0o777`,
+  bit tipe `S_IF*` dibuang agar sama dengan bentuk data di BKFS).
+- Isi berkas tetap diperlakukan sebagai BYTE (latin1), sama seperti BKFS.
+
+---
+
 ## Mount System
 
 TSIX mendukung mounting multiple filesystem backend melalui `MountManager`. Konfigurasi mount didefinisikan di `/etc/fstab.conf` (format INI, `[mount-point]` + `key = value`):

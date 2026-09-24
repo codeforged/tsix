@@ -59,7 +59,7 @@ export class HttpServerDevice implements IDevice {
 
   public init(ctx: KContext): void {
     ctx.syslog(
-      "[httpd] HttpServerDevice siap — HTTP server kernel land (/dev/httpd)",
+      "[httpd] HttpServerDevice ready — kernel-land HTTP server (/dev/httpd)",
     );
   }
 

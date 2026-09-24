@@ -58,7 +58,7 @@
   </div>
   <div class="meta">
     System design &amp; architecture: Andriansah<br>
-    Generated: 2026-09-05<br>
+    Generated: 2026-09-24<br>
     Platform: TSIX (educational OS-like runtime on Node.js/TypeScript)
   </div>
 </div>
@@ -205,7 +205,7 @@
 <hr>
 <h2>3. Boot Sequence</h2>
 <pre><code>main.ts
-  Config.load()                    → baca sysconfig.json
+  Config.load()                    → baca sysconfig.conf
   new Kernel()                     → Logger, PermissionManager, MountManager, GUIRegistry
   kernel.boot()
     initializeSubsystems()
@@ -382,7 +382,7 @@
 </tr>
 </tbody></table>
 <p><strong>The &quot;everything is a file&quot; key</strong>: the FD table holds <code>FDEntry {device, context, flags}</code> → all <code>IDevice</code> objects. Regular files are wrapped in <code>FileSystemDevice</code>. Pipe refcount via ioctl (<code>INC_REF</code>/<code>DEC_REF</code>), EOF when <code>writeRefs==0</code>.</p>
-<p><strong>Plugin drivers</strong>: the <code>aux-devices/</code> folder is scanned at boot; <code>new DeviceClass()</code> + the <code>static autoRegister(kernel)</code> convention for hardware (MCP23017). <code>applyDeviceConfigs()</code> = &quot;udev&quot; from <code>sysconfig.json</code>.</p>
+<p><strong>Plugin drivers</strong>: the <code>aux-devices/</code> folder is scanned at boot; <code>new DeviceClass()</code> + the <code>static autoRegister(kernel)</code> convention for hardware (MCP23017). <code>applyDeviceConfigs()</code> = &quot;udev&quot; from <code>sysconfig.conf</code>.</p>
 <blockquote>
 <p>[!NOTE] <strong>About <code>MySQLDevice</code> (<code>/dev/mysql</code>) — the first transport, not the only one</strong>
 <code>MySQLDevice</code> is an external database integration through the device model — it is <strong>not</strong> a real hardware driver, but the <strong>first transport</strong> for DB access (an example of HAL extension).
@@ -515,7 +515,7 @@ scripts/vfs-pull.ts        system.db → src/root (pull balik)
 SYNC_TO_HOST (syscall)     DB → host (app dalam VFS menulis /lib → src/.tsix_sdk)
 userlib-update.ts          sinkronkan /lib → src/.tsix_sdk/lib (agar Node.js host bisa require)
 </code></pre>
-<p><strong>Configuration</strong>: <code>src/sysconfig.json</code> (database path, workerEntryPath, bootEntry, network interfaces). <code>tsconfig.json</code> maps <code>@tsix/*</code> → <code>src/.tsix_sdk/lib/*</code>, <code>src/root/lib/*</code>, <code>src/mirror/lib/*</code>.</p>
+<p><strong>Configuration</strong>: <code>src/sysconfig.conf</code> (database path, workerEntryPath, bootEntry, network interfaces). <code>tsconfig.json</code> maps <code>@tsix/*</code> → <code>src/.tsix_sdk/lib/*</code>, <code>src/root/lib/*</code>, <code>src/mirror/lib/*</code>.</p>
 <hr>
 <h2>12. Design Insights &amp; Gotchas</h2>
 <p><strong>Insights (why it was designed this way):</strong></p>
@@ -1090,7 +1090,7 @@ check(pid: number, path: string, mode: number): boolean {
     participant L as login (TTY1-6)
 
     H-&gt;&gt;M: node src/main.ts
-    M-&gt;&gt;M: Config.load() → sysconfig.json
+    M-&gt;&gt;M: Config.load() → sysconfig.conf
     M-&gt;&gt;K: new Kernel() (Logger, PermissionManager, MountManager, GUIRegistry)
     M-&gt;&gt;K: await kernel.boot()
 
@@ -1141,7 +1141,7 @@ check(pid: number, path: string, mode: number): boolean {
 </blockquote>
 <h3>Concise flow (ASCII)</h3>
 <pre><code>main.ts
-  Config.load()                    → baca sysconfig.json
+  Config.load()                    → baca sysconfig.conf
   new Kernel()                     → Logger, PermissionManager, MountManager, GUIRegistry
   kernel.boot()
     initializeSubsystems()
@@ -1240,7 +1240,7 @@ this.scheduler.setVFSCacheProvider(() =&gt; this.vfsCache);
 </tr>
 <tr>
 <td><code>src/common/Config.ts</code></td>
-<td>Reads <code>sysconfig.json</code></td>
+<td>Reads <code>sysconfig.conf</code></td>
 </tr>
 </tbody></table>
 <hr>
@@ -1397,7 +1397,7 @@ missing.push(&quot;sudo:x:27:&quot;);     // GID 27 (gaya Ubuntu)
 <li><code>src/kernel/Kernel.ts</code> — boot, initializeSubsystems, runInit, ensureDefaultAuth</li>
 <li><code>src/mirror/bin/init.ts</code> — PID 1 (setuid, identity, rc.local, spawn login)</li>
 <li><code>src/mirror/etc/rc.local.ts</code> — startup daemons</li>
-<li><code>src/common/Config.ts</code> — reads <code>sysconfig.json</code></li>
+<li><code>src/common/Config.ts</code> — reads <code>sysconfig.conf</code></li>
 </ul>
 <hr>
 <p><em>Module 03 — done. Continue to <a href="04-processes-scheduler.en.md">Module 04 — Processes &amp; Scheduler</a>.</em></p>
@@ -2930,7 +2930,7 @@ In <code>WorkerEntry.ts</code>, <code>restrictHostAPI(appName)</code> marks an a
 <ul>
 <li><input disabled="" type="checkbox"> Explain the <code>MountPoint</code> structure</li>
 <li><input disabled="" type="checkbox"> Explain the &quot;longest prefix wins&quot; principle</li>
-<li><input disabled="" type="checkbox"> Explain the contents of <code>fstab.json</code> (default mounts)</li>
+<li><input disabled="" type="checkbox"> Explain the contents of <code>fstab.conf</code> (default mounts)</li>
 <li><input disabled="" type="checkbox"> Distinguish resolution via MountManager vs device <code>/dev/*</code></li>
 <li><input disabled="" type="checkbox"> Explain the role of <code>PathResolver</code></li>
 <li><input disabled="" type="checkbox"> Walk through <code>PathResolver.resolve()</code> for relative, absolute, <code>.</code> and <code>..</code> paths</li>
@@ -2960,7 +2960,7 @@ In <code>WorkerEntry.ts</code>, <code>restrictHostAPI(appName)</code> marks an a
 }
 </code></pre>
 <blockquote>
-<p><code>type</code> uses the real values from <code>fstab.json</code>: <code>&quot;bkfs&quot;</code>, <code>&quot;ramfs&quot;</code>, and <code>&quot;host&quot;</code> (HostVFS).</p>
+<p><code>type</code> uses the real values from <code>fstab.conf</code>: <code>&quot;bkfs&quot;</code>, <code>&quot;ramfs&quot;</code>, and <code>&quot;host&quot;</code> (HostVFS).</p>
 </blockquote>
 <h3>PathResolver.resolve() — walkthrough</h3>
 <p><code>PathResolver.resolve(cwd, targetPath)</code> takes two arguments: the working directory (<code>cwd</code>) and the target path. The result is always a normalized absolute path (without <code>//</code>, <code>.</code>, or <code>..</code>).</p>
@@ -3022,10 +3022,10 @@ In <code>WorkerEntry.ts</code>, <code>restrictHostAPI(appName)</code> marks an a
 Examples 4 and 5 show that normalization happens <strong>before</strong> mount lookup. So <code>resolve(&quot;/tmp/./foo&quot;)</code> and <code>resolve(&quot;/tmp/foo&quot;)</code> are considered the same by <code>MountManager</code>.</p>
 </blockquote>
 <h3>Default mounts</h3>
-<p>Root <code>/</code> is <strong>not</strong> in <code>fstab.json</code>. It is mounted directly in <code>initializeSubsystems()</code>:</p>
+<p>Root <code>/</code> is <strong>not</strong> in <code>fstab.conf</code>. It is mounted directly in <code>initializeSubsystems()</code>:</p>
 <pre><code class="language-ts">this.mountManager.mount(&quot;/&quot;, this.bkfs, &quot;bkfs&quot;, cfg.kernel.database, false);
 </code></pre>
-<p><code>cfg.kernel.database</code> is <code>&quot;system.db&quot;</code> (see <code>src/sysconfig.json</code>). The rest are loaded from <code>src/mirror/etc/fstab.json</code> by <code>processFstab()</code>:</p>
+<p><code>cfg.kernel.database</code> is <code>&quot;system.db&quot;</code> (see <code>src/sysconfig.conf</code>). The rest are loaded from <code>src/mirror/etc/fstab.conf</code> by <code>processFstab()</code>:</p>
 <table>
 <thead>
 <tr>
@@ -3082,7 +3082,11 @@ Examples 4 and 5 show that normalization happens <strong>before</strong> mount l
 </tbody></table>
 <blockquote>
 <p>[!NOTE]
-<code>fstab.json</code> only contains <code>/tmp</code>, <code>/mnt/shared</code>, and <code>/mnt/sbak</code>. The <code>/tmp</code> entry uses <code>active: true</code>; the rest are active by default. Mode <code>1023</code> = <code>0o1777</code> (sticky, everyone can write — typical for <code>/tmp</code>), <code>509</code> = <code>0o775</code>.</p>
+<code>fstab.conf</code> only contains <code>/tmp</code>, <code>/mnt/shared</code>, and <code>/mnt/sbak</code>. The <code>/tmp</code>
+ entry uses <code>active = true</code>; the rest are active by default. The INI format spells
+ permissions in explicit octal: <code>mode = 0o1777</code> (sticky, everyone can write —
+ typical for <code>/tmp</code>), <code>mode = 0o775</code> for the others. (Decimal is still valid:
+ <code>1023</code> = <code>0o1777</code>.)</p>
 </blockquote>
 <h3>Resolution: longest prefix wins</h3>
 <p>After all mounts are in place, the list is sorted <strong>descending by path length</strong>. The resulting sort order for the default mounts:</p>
@@ -3158,7 +3162,7 @@ The last row is an important gotcha. <code>/mnt/sharedx/foo</code> does <strong>
 <pre><code>initializeSubsystems()
   └─ new BKFS(&quot;system.db&quot;)                        → root filesystem
   └─ mount(&quot;/&quot;, bkfs, &quot;bkfs&quot;, &quot;system.db&quot;, false)
-  └─ processFstab()                               → baca /etc/fstab.json
+  └─ processFstab()                               → baca /etc/fstab.conf
        └─ untuk tiap entry:
             active === false → skip
             pastikan dir mount point ada (mode ?? 0o755)
@@ -3199,7 +3203,7 @@ Path /dev/* → kernel.devices[xxx]     // HAL, bukan MountManager
 <td><code>initializeSubsystems()</code> + <code>processFstab()</code> at boot</td>
 </tr>
 <tr>
-<td><code>src/mirror/etc/fstab.json</code></td>
+<td><code>src/mirror/etc/fstab.conf</code></td>
 <td>Default mount list</td>
 </tr>
 <tr>
@@ -3315,7 +3319,7 @@ this.mountManager.mount(&quot;/&quot;, this.bkfs, &quot;bkfs&quot;, cfg.kernel.d
 <pre><code class="language-ts">private async processFstab() {
     if (!this.bkfs) return;
 
-    const fstabPath = &quot;/etc/fstab.json&quot;;
+    const fstabPath = &quot;/etc/fstab.conf&quot;;
     if (!this.bkfs.exists(fstabPath)) return;
 
     try {
@@ -3398,7 +3402,7 @@ this.mountManager.mount(&quot;/&quot;, this.bkfs, &quot;bkfs&quot;, cfg.kernel.d
 <li><code>wiki/course/00-overview.en.md</code> §4.4</li>
 <li><code>src/kernel/MountManager.ts</code>, <code>src/common/PathResolver.ts</code></li>
 <li><code>src/kernel/Kernel.ts</code> — <code>initializeSubsystems()</code> &amp; <code>processFstab()</code></li>
-<li><code>src/mirror/etc/fstab.json</code> — default mount list</li>
+<li><code>src/mirror/etc/fstab.conf</code> — default mount list</li>
 </ul>
 <hr>
 <p><em>Module 07 — done. Part II complete. Continue to <a href="08-vfs.en.md">Module 08 — VFS</a>.</em></p>
@@ -3485,7 +3489,7 @@ this.mountManager.mount(&quot;/&quot;, this.bkfs, &quot;bkfs&quot;, cfg.kernel.d
 <td><code>/mnt/shared</code> (bridge + anti-escape)</td>
 </tr>
 </tbody></table>
-<p>Which backend is used is decided by <code>MountManager</code> at boot time (see <code>src/mirror/etc/fstab.json</code>):</p>
+<p>Which backend is used is decided by <code>MountManager</code> at boot time (see <code>src/mirror/etc/fstab.conf</code>):</p>
 <table>
 <thead>
 <tr>
@@ -3522,7 +3526,7 @@ this.mountManager.mount(&quot;/&quot;, this.bkfs, &quot;bkfs&quot;, cfg.kernel.d
 </tbody></table>
 <blockquote>
 <p>[!NOTE] <strong>&quot;Swap backend&quot; without changing the kernel</strong>
-The kernel only holds an <code>IVFS</code> reference. Because every backend implements the same contract, swapping storage (e.g. <code>/tmp</code> from RamFS to BKFS) only requires changing an entry in <code>fstab.json</code> — the syscall does not change at all.</p>
+The kernel only holds an <code>IVFS</code> reference. Because every backend implements the same contract, swapping storage (e.g. <code>/tmp</code> from RamFS to BKFS) only requires changing an entry in <code>fstab.conf</code> — the syscall does not change at all.</p>
 </blockquote>
 <p><img src="/wiki/diagram/Virtual-File-System-1.png" alt="VFS routing: app → syscall → MountManager → BKFS/RamFS/HostVFS">
 <em>Source: <a href="/wiki/diagram/Virtual-File-System-1.mmd"><code>wiki/diagram/Virtual-File-System-1.mmd</code></a></em></p>
@@ -3546,7 +3550,7 @@ The kernel only holds an <code>IVFS</code> reference. Because every backend impl
 </code></pre>
 <p><strong>Important notes:</strong></p>
 <ul>
-<li><strong><code>uid</code>/<code>gid</code>/<code>mode</code> are stored as decimal</strong>, not octal strings. Example: <code>mode 420</code> = <code>0o644</code>, <code>493</code> = <code>0o755</code>. Root <code>/</code> is inserted at init with mode <code>493</code>; <code>/tmp</code> in <code>fstab.json</code> uses <code>1023</code> = <code>0o1777</code> (sticky bit).</li>
+<li><strong><code>uid</code>/<code>gid</code>/<code>mode</code> are stored as decimal</strong> by the kernel, not octal strings. Example: <code>mode 420</code> = <code>0o644</code>, <code>493</code> = <code>0o755</code>. Root <code>/</code> is inserted at init with mode <code>493</code>; <code>/tmp</code> in <code>fstab.conf</code> is written as <code>mode = 0o1777</code> (decimal equivalent <code>1023</code>, sticky bit).</li>
 <li><strong>Path navigation</strong> is done row by row: each segment is looked up with <code>SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = &#39;DIRECTORY&#39;</code>, then <code>parent_id</code> shifts to the resulting id. This happens in <code>getNodeId()</code> / <code>getNodeIdAndSize()</code>.</li>
 <li><strong><code>UNIQUE(parent_id, name)</code></strong> prevents duplicate names in the same folder. This schema also migrates old DBs: the <code>uid/gid/mode/size/modified_at</code> columns are added via <code>ALTER TABLE</code> if they do not exist yet.</li>
 </ul>
@@ -3817,7 +3821,7 @@ The syscall receives a path relative to <code>pcb.cwd</code>; <code>PathResolver
 <li><code>src/kernel/MountManager.ts</code> — backend selection from path (longest prefix)</li>
 <li><code>src/kernel/Syscalls.ts</code> — syscall <code>OPEN</code>, <code>READ</code>, <code>READ_CHUNK</code>, <code>WRITE_CHUNK</code>, <code>GET_SIZE</code></li>
 <li><code>src/kernel/devices/FileSystemDevice.ts</code> — FD → IVFS bridge</li>
-<li><code>src/mirror/etc/fstab.json</code> — mount configuration at boot</li>
+<li><code>src/mirror/etc/fstab.conf</code> — mount configuration at boot</li>
 </ul>
 <hr>
 <p><em>Module 08 — complete. Continue to <a href="09-fd-table-file-syscalls.en.md">Module 09 — FD Table &amp; File Syscalls</a>.</em></p>
@@ -4259,7 +4263,7 @@ case SyscallCode.READ: {
 <li><input disabled="" type="checkbox"> Explain why <code>/dev</code> is virtual — not a filesystem vnode</li>
 <li><input disabled="" type="checkbox"> Explain the device registration order at boot</li>
 <li><input disabled="" type="checkbox"> Explain the <code>aux-devices</code> plugin: <code>export default</code> + <code>static autoRegister</code> conventions</li>
-<li><input disabled="" type="checkbox"> Explain <code>applyDeviceConfigs()</code> (udev-style from <code>sysconfig.json</code>)</li>
+<li><input disabled="" type="checkbox"> Explain <code>applyDeviceConfigs()</code> (udev-style from <code>sysconfig.conf</code>)</li>
 <li><input disabled="" type="checkbox"> Explain <code>present()</code> for hotplug (udev-like)</li>
 <li><input disabled="" type="checkbox"> Explain the <code>DbLib</code> dual transport: <code>/dev/mysql</code> vs the <code>mysqld</code> daemon</li>
 <li><input disabled="" type="checkbox"> Write your own driver (10-step checklist)</li>
@@ -4483,7 +4487,7 @@ this.devices = {
 // 3. Interface jaringan (cfg.network.interfaces) → SimpleMQTNLDriver
 // 4. loadAuxDevices()     → plugin dari folder aux-devices
 // 5. SerialDeviceManager  → auto-detect ttyUSB*
-// 6. applyDeviceConfigs() → udev-style dari sysconfig.json
+// 6. applyDeviceConfigs() → udev-style dari sysconfig.conf
 // 7. init() semua driver  → suntikan KContext (syslog)
 // 8. pastikan /dev ada di VFS (mkdir 493)
 </code></pre>
@@ -4495,7 +4499,7 @@ this.devices = {
 <li><strong><code>static autoRegister(kernel)</code> is optional</strong> — for platform-specific hardware configuration (e.g. MCP23017 + I2C bus). Called after the instance is registered.</li>
 </ol>
 <h3>applyDeviceConfigs (udev-style)</h3>
-<p>The <code>devices</code> block in <code>sysconfig.json</code> → &quot;udev&quot; rules: set <code>mode</code>/<code>uid</code>/<code>gid</code> per device name — exactly like Linux udev rules.</p>
+<p>The <code>[device.&lt;name&gt;]</code> sections in <code>sysconfig.conf</code> → &quot;udev&quot; rules: set <code>mode</code>/<code>uid</code>/<code>gid</code> per device name — exactly like Linux udev rules.</p>
 <pre><code class="language-json">{
   &quot;devices&quot;: {
     &quot;randomdevice&quot;: {
@@ -4528,7 +4532,7 @@ this.devices = {
 <li>Network interfaces from <code>cfg.network.interfaces</code> → <code>SimpleMQTNLDriver</code>.</li>
 <li><code>loadAuxDevices()</code>: scan <code>aux-devices/</code> → <code>export default</code> → register → <code>autoRegister</code>.</li>
 <li><code>SerialDeviceManager</code> detects <code>ttyUSB*</code>.</li>
-<li><code>applyDeviceConfigs()</code>: apply <code>mode</code>/<code>uid</code>/<code>gid</code> from <code>sysconfig.json</code>.</li>
+<li><code>applyDeviceConfigs()</code>: apply <code>mode</code>/<code>uid</code>/<code>gid</code> from <code>sysconfig.conf</code>.</li>
 <li>Loop <code>init()</code> over all drivers → inject <code>KContext.syslog</code>.</li>
 <li>The <code>/dev</code> directory is guaranteed to exist in VFS.</li>
 </ol>
@@ -4886,7 +4890,7 @@ The smallest examples already exist: <code>NullDevice</code> and <code>RandomDev
 <tr>
 <td>Network interface</td>
 <td>—</td>
-<td>Via <code>cfg.network.interfaces</code> in <code>sysconfig.json</code></td>
+<td>Via <code>cfg.network.interfaces</code> in <code>sysconfig.conf</code></td>
 </tr>
 </tbody></table>
 <h3>The 10-step checklist</h3>
@@ -4899,7 +4903,7 @@ The smallest examples already exist: <code>NullDevice</code> and <code>RandomDev
 <li><strong>Optional metadata</strong>: <code>uid/gid/mode</code> (default permission <code>0o600</code>), <code>disabled</code> to turn it off at boot.</li>
 <li><strong><code>export default EchoDevice;</code></strong> — REQUIRED. Without it <code>loadAuxDevices()</code> does not recognize the plugin (<code>module.default || module</code>).</li>
 <li><strong>Optional <code>static autoRegister(kernel)</code></strong> — for platform-specific hardware configuration (bus, address, name).</li>
-<li><strong>Set udev-style permissions</strong>: <code>sysconfig.json</code> → <code>&quot;devices&quot;: { &quot;echo&quot;: { &quot;mode&quot;: 438 } }</code>.</li>
+<li><strong>Set udev-style permissions</strong>: <code>sysconfig.conf</code> → <code>[device.echo]</code> + <code>mode = 0o666</code>.</li>
 <li><strong>Test</strong>: boot → <code>ls /dev/echo</code> → read/write from the shell → check the syslog for <code>[Dynamic HAL] Kernel Plugin Loaded: /dev/echo</code>. Add a unit test in <code>src/kernel/devices/aux-devices/C10-AuxDevices.test.ts</code> (the C10.08–C10.12 pattern).</li>
 </ol>
 <blockquote>
@@ -4913,7 +4917,7 @@ The smallest examples already exist: <code>NullDevice</code> and <code>RandomDev
 <li>Read <code>src/kernel/devices/aux-devices/MCP23017Device.ts</code> — study <code>autoRegister</code> + <code>disabled</code>.</li>
 <li>Read <code>src/kernel/devices/aux-devices/joystick.ts</code> — study <code>present()</code> (udev-like hotplug).</li>
 <li>Run <code>ls /dev</code> after boot — notice <code>/dev/randomdevice</code> and its metadata.</li>
-<li>Change <code>mode</code> in <code>sysconfig.json</code> (the <code>devices.randomdevice</code> block) → reboot → observe the <code>ls /dev</code> results.</li>
+<li>Change <code>mode</code> in <code>sysconfig.conf</code> (the <code>[device.randomdevice]</code> section) → reboot → observe the <code>ls /dev</code> results.</li>
 <li>(Challenge) Write the <code>/dev/echo</code> driver: <code>read()</code> returns the last text written, <code>write()</code> stores it. Follow the 10-step checklist above, then test it from the shell.</li>
 </ol>
 <hr>
@@ -4931,7 +4935,7 @@ The smallest examples already exist: <code>NullDevice</code> and <code>RandomDev
 <li><code>src/mirror/lib/DbLib.ts</code> — the <code>db.connect/query/disconnect</code> API</li>
 <li><code>src/mirror/etc/mysqld/mysqld.ts</code> — service daemon (alternative transport)</li>
 <li><code>src/kernel/devices/aux-devices/C10-AuxDevices.test.ts</code> — driver tests (C10.08–C10.12)</li>
-<li><code>src/sysconfig.json</code> — the <code>devices</code> block (udev-style)</li>
+<li><code>src/sysconfig.conf</code> — the <code>[device.*]</code> sections (udev-style)</li>
 </ul>
 <hr>
 <p><em>Module 10 — complete. Part III done. Continue to <a href="11-worker-thread-sandbox.en.md">Module 11 — Worker Thread &amp; Sandbox</a>.</em></p>
@@ -5968,7 +5972,7 @@ AppClass = appModule.exports.main || appModule.exports.Main || appModule.exports
 <p>The scheduler maintains the mapping <code>ttyForegroundPids: Map&lt;ttyId, pid&gt;</code> — one foreground process per TTY. When a process <strong>detaches</strong> (daemonizes) or <strong>exits</strong>, it is removed from the foreground mapping and its <code>ttyId</code> is cleared. Example usage in userland: <code>init</code> (PID 1) on <code>tty1</code>, then <code>login</code> is spawned for other TTYs with a target <code>ttyId</code>.</p>
 <h3>Keyboard</h3>
 <ul>
-<li><strong>Hotkey</strong> Alt+F1–F6 → <code>TTYManager.switch</code> (also Alt+1–6 for macOS).</li>
+<li><strong>Hotkey</strong> Alt+F1–F6 → <code>TTYManager.switch</code>. Console switching also works with <strong>Alt+1–6</strong> and <strong>Ctrl+Alt+1–6</strong> on every terminal (both arrive as ESC+digit; <code>¡ ™ £ ¢ ∞ §</code> on macOS Terminal) plus <strong>Ctrl+1–6</strong> where the terminal reports modifiers (CSI-u / modifyOtherKeys); <code>Ctrl+4–6</code> is additionally recognised via caret notation (FS/GS/RS). Bare <code>Ctrl+1–6</code> cannot work: GNOME Terminal uses it to switch tabs and VS Code to focus editor groups, and the bytes no longer carry modifier information.</li>
 <li><strong>Ctrl+C</strong> → <code>SIGINT</code> to the foreground process of the active TTY.</li>
 <li><strong>Console switch</strong> → <code>SIGWINCH</code> to the foreground process of the newly active TTY.</li>
 <li><strong>Host window resize</strong> → update <code>LINES</code>/<code>COLUMNS</code> in the env of all processes + <code>SIGWINCH</code> broadcast + <code>TTYManager.handleResize()</code>.</li>
@@ -6234,23 +6238,36 @@ const newPcb = this.scheduler.createProcess(binaryName, {
     ppid: pid,
 });
 </code></pre>
-<h3>Hotkey Alt+F1..6 (<code>src/kernel/Kernel.ts</code>)</h3>
+<h3>Console-switch hotkeys (Alt+F1..6, Alt+1..6, Ctrl+Alt+1..6) (<code>src/kernel/Kernel.ts</code>)</h3>
 <pre><code class="language-ts">private handleKeyboardHotkey(seq: string): boolean {
     const hotkeys: Record&lt;string, number&gt; = {
-        // Alt+F1..F6 (Xterm, iTerm2, Terminal.app)
+        // Alt+F1..F6 (xterm, iTerm2, Terminal.app)
         &quot;\x1b\x1bOP&quot;: 1,   &quot;\x1b[1;3P&quot;: 1,   &quot;\x1b[11;3~&quot;: 1,
         &quot;\x1b\x1bOQ&quot;: 2,   &quot;\x1b[1;3Q&quot;: 2,   &quot;\x1b[12;3~&quot;: 2,
         &quot;\x1b\x1bOR&quot;: 3,   &quot;\x1b[1;3R&quot;: 3,   &quot;\x1b[13;3~&quot;: 3,
         &quot;\x1b\x1bOS&quot;: 4,   &quot;\x1b[1;3S&quot;: 4,   &quot;\x1b[14;3~&quot;: 4,
         &quot;\x1b\x1b[15~&quot;: 5, &quot;\x1b[15;3~&quot;: 5,  &quot;\x1b[1;3;15~&quot;: 5,
         &quot;\x1b\x1b[17~&quot;: 6, &quot;\x1b[17;3~&quot;: 6,  &quot;\x1b[1;3;17~&quot;: 6,
-        // Alt+1..6 (macOS saat Option bertindak sebagai Meta)
-        &quot;\x1b1&quot;: 1, &quot;\x1b2&quot;: 2, &quot;\x1b3&quot;: 3,
-        &quot;\x1b4&quot;: 4, &quot;\x1b5&quot;: 5, &quot;\x1b6&quot;: 6,
+        // Option+1..6 (macOS Terminal with &quot;Option as Meta&quot; OFF)
+        &quot;¡&quot;: 1, &quot;™&quot;: 2, &quot;£&quot;: 3, &quot;¢&quot;: 4, &quot;∞&quot;: 5, &quot;§&quot;: 6,
+        // Ctrl+4..6 — caret notation (FS/GS/RS)
+        &quot;\x1c&quot;: 4, &quot;\x1d&quot;: 5, &quot;\x1e&quot;: 6,
     };
-    if (hotkeys[seq]) {
-        // FIRE AND FORGET: jangan await agar tidak memblokir input keyboard
-        this.ttyManager?.switch(hotkeys[seq]);
+    for (let d = 1; d &lt;= 6; d++) {
+        const cp = 48 + d;                    // &#39;1&#39; = 49 ... &#39;6&#39; = 54
+        hotkeys[&quot;\x1b&quot; + d] = d;              // Alt+digit &amp; Ctrl+Alt+digit
+        hotkeys[`\x1b[${cp};3u`] = d;         // Alt+digit (CSI-u)
+        hotkeys[`\x1b[${cp};5u`] = d;         // Ctrl+digit (CSI-u)
+        hotkeys[`\x1b[${cp};7u`] = d;         // Ctrl+Alt+digit (CSI-u)
+        hotkeys[`\x1b[27;3;${cp}~`] = d;      // Alt+digit (modifyOtherKeys)
+        hotkeys[`\x1b[27;5;${cp}~`] = d;      // Ctrl+digit (modifyOtherKeys)
+        hotkeys[`\x1b[27;7;${cp}~`] = d;      // Ctrl+Alt+digit (modifyOtherKeys)
+    }
+    const targetTtyId = hotkeys[seq];
+    // typeof check: words like &quot;constructor&quot;/&quot;toString&quot; must not be swallowed
+    if (typeof targetTtyId === &quot;number&quot;) {
+        // FIRE AND FORGET: don&#39;t await, otherwise keyboard input gets blocked
+        this.ttyManager?.switch(targetTtyId);
         return true; // handled
     }
     return false;
@@ -6915,14 +6932,14 @@ export default Program(async (args) =&gt; {
 <td>Tool to list registered agents</td>
 </tr>
 <tr>
-<td><code>src/sysconfig.json</code></td>
+<td><code>src/sysconfig.conf</code></td>
 <td>Default network interface configuration</td>
 </tr>
 </tbody></table>
 <blockquote>
 <p>[!NOTE] <strong>Single <code>NetworkLib</code>.</strong> The <code>NetworkLib</code> class is now the single source of truth in <code>NetworkLib.ts</code> and accepts either <code>dispatch</code> or <code>OSContext</code> (backward compatible). For new apps, prefer <code>NetSocket</code> — a high-level API wrapping lifecycle + events + security.</p>
 </blockquote>
-<h3>Default network interfaces (<code>sysconfig.json</code>)</h3>
+<h3>Default network interfaces (<code>sysconfig.conf</code>)</h3>
 <p>At boot, the kernel reads <code>cfg.network.interfaces</code> and creates one <code>SimpleMQTNLDriver</code> per entry (<code>Kernel.ts</code> → &quot;Initialize Network Interfaces&quot;). Each interface has a <strong>deviceName</strong> (<code>/dev</code> name), an <strong>address</strong> (node name), and a <strong>broker</strong>:</p>
 <table>
 <thead>
@@ -7207,7 +7224,7 @@ public async waitForData(timeoutMs: number): Promise&lt;boolean&gt; {
 <li>Read <code>src/kernel/PortManager.ts</code> — understand <code>allocateRandomPort</code> and <code>releasePortsByPid</code>.</li>
 <li>Run two nodes (e.g. <code>tsix</code> and <code>esp32S3</code> on an MQTT broker) — send a message between them.</li>
 <li>Read <code>src/kernel/devices/SocketDevice.ts</code> — explain how a socket becomes an <code>IDevice</code>.</li>
-<li>From an app, run <code>lib.net.netstat()</code> — compare the result with the interface table in <code>sysconfig.json</code>.</li>
+<li>From an app, run <code>lib.net.netstat()</code> — compare the result with the interface table in <code>sysconfig.conf</code>.</li>
 </ol>
 <hr>
 <h2>References</h2>
@@ -7218,7 +7235,7 @@ public async waitForData(timeoutMs: number): Promise&lt;boolean&gt; {
 <li><code>src/kernel/devices/SocketDevice.ts</code> — socket = device</li>
 <li><code>src/kernel/PortManager.ts</code> — virtual port allocation</li>
 <li><code>src/kernel/Syscalls.ts</code> — SOCKET–NETSTAT syscall implementation (30–34) + SECAGENT_LIST (39)</li>
-<li><code>src/sysconfig.json</code> — default network interfaces</li>
+<li><code>src/sysconfig.conf</code> — default network interfaces</li>
 </ul>
 <hr>
 <p><em>Module 15 — done. Continue to <a href="16-wire-protocol-mqtnl.en.md">Module 16 — Wire Protocol MQTNL</a>.</em></p>
@@ -8904,7 +8921,7 @@ if (saved &amp;&amp; (saved.width &lt;= 0 || saved.height &lt;= 0)) {
   <div class="module-body"><h1>Development Workflow</h1>
 <p><strong>RFC-TSIX-EDU-002</strong> | Twenty-third module of the TSIX curriculum. Understand the host↔VFS cycle: install, vfs-bootstrap, sync-vfs, vfs-pull, SYNC_TO_HOST, userlib-update, and SDK mirroring.</p>
 <blockquote>
-<p>TSIX has two worlds: the <strong>host</strong> (<code>src/mirror</code> + <code>src/common</code> folders in the repo) and the <strong>VFS</strong> (file database, its path is read from <code>kernel.database</code> in <code>src/sysconfig.json</code>, default <code>system.db</code>). Developers write on the host, then sync to the VFS. There is also the reverse path — applications inside the VFS write back to the host (root-only).</p>
+<p>TSIX has two worlds: the <strong>host</strong> (<code>src/mirror</code> + <code>src/common</code> folders in the repo) and the <strong>VFS</strong> (file database, its path is read from <code>kernel.database</code> in <code>src/sysconfig.conf</code>, default <code>system.db</code>). Developers write on the host, then sync to the VFS. There is also the reverse path — applications inside the VFS write back to the host (root-only).</p>
 </blockquote>
 <hr>
 <h2>Learning Objectives</h2>
@@ -8942,7 +8959,7 @@ Since <code>install.ts</code> exists, a fresh install <strong>does not need</str
 <td><code>npm run install</code></td>
 <td><code>scripts/install.ts</code></td>
 <td>host → DB</td>
-<td>Interactive fresh install: create new DB + write <code>sysconfig.json</code> + full rootfs sync</td>
+<td>Interactive fresh install: create new DB + write <code>sysconfig.conf</code> + full rootfs sync</td>
 </tr>
 <tr>
 <td><code>npm run vfs:bootstrap</code></td>
@@ -8983,7 +9000,7 @@ Since <code>install.ts</code> exists, a fresh install <strong>does not need</str
 </tbody></table>
 <h3>Shared configuration</h3>
 <ul>
-<li><code>src/sysconfig.json</code> — <code>kernel.database</code> (DB path), <code>kernel.rootHostPath</code>, <code>scheduler.workerEntryPath</code>, <code>scheduler.bootEntry</code>, <code>network.interfaces</code>.</li>
+<li><code>src/sysconfig.conf</code> — <code>kernel.database</code> (DB path), <code>kernel.rootHostPath</code>, <code>scheduler.workerEntryPath</code>, <code>scheduler.bootEntry</code>, <code>network.interfaces</code>.</li>
 <li><code>tsconfig.json</code> — <code>@tsix/*</code> → <code>src/.tsix_sdk/lib/*</code>, <code>src/root/lib/*</code>, <code>src/mirror/lib/*</code>; <code>@common/*</code> → <code>src/common/*</code>; <code>@bin/*</code> → <code>src/root/bin/*</code>, <code>src/.tsix_sdk/bin/*</code>.</li>
 </ul>
 <blockquote>
@@ -8997,7 +9014,7 @@ There is no automatic host → VFS sync at boot. The host is the &quot;writing s
 ┌─────────────────────────────────────────────────────┐
 │ src/mirror     (rootfs: bin, lib, etc, sbin, ...)   │
 │ src/common     (framework: SyscallCode, IPCTypes)   │
-│ src/sysconfig.json  -&gt; kernel.database              │
+│ src/sysconfig.conf  -&gt; kernel.database              │
 └───────┬──────────────────────────────▲──────────────┘
         │ host → DB                    │ DB → host
         │                              │
@@ -9010,12 +9027,12 @@ There is no automatic host → VFS sync at boot. The host is the &quot;writing s
 │   /bin /sbin /usr/bin  (exec+setuid) │
 │   /lib/common  &lt;- src/common         │
 │   /etc: passwd shadow group          │
-│         crontab fstab.json           │
+│         crontab fstab.conf           │
 │   /tmp  -&gt; ramfs (volatile)          │
 └──────────────────────────────────────┘
 </code></pre>
 <h3>sysconfig → db-path → scripts</h3>
-<pre><code>src/sysconfig.json  (kernel.database)
+<pre><code>src/sysconfig.conf  (kernel.database)
         │  getDefaultDbPath()
         ▼
 scripts/lib/db-path.ts
@@ -9029,11 +9046,11 @@ scripts/lib/db-path.ts
 <h3>1. Fresh install (<code>npm run install</code>)</h3>
 <ol>
 <li>Ask interactive configuration: hostname, user account (optional: username, password, confirm), MQTT broker, per-interface address, default MQTT port, kernel verbose, new DB path, (optional) root password.</li>
-<li>Write the result to <code>src/sysconfig.json</code> (stores the new <code>kernel.database</code>).</li>
+<li>Write the result to <code>src/sysconfig.conf</code> (stores the new <code>kernel.database</code>).</li>
 <li>Create a new <code>.db</code> file. If the file already exists and without <code>--force</code> → stop; with <code>--force</code> → the old file is backed up to <code>*.bak-&lt;timestamp&gt;</code>.</li>
 <li>Sync rootfs: <code>src/mirror</code> → <code>/</code>, then <code>src/common</code> → <code>/lib/common</code>. Each <code>.ts</code> is transpiled to a sidecar <code>.js</code>; executable directories get execute mode (<code>/sbin</code> = <code>0744</code>, others <code>0755</code>); <code>login</code>, <code>passwd</code>, <code>sudo</code> get SetUID (<code>4755</code> root).</li>
 <li>Sync explicit <code>/etc</code> files without extension: <code>passwd</code>, <code>shadow</code> (mode <code>0640</code>), <code>group</code>, <code>crontab</code>, <code>profile</code>, <code>motd</code>, <code>fstab.md</code>, <code>pkg-demo.conf</code>.</li>
-<li>Write a fresh <code>fstab.json</code> — only <code>/tmp</code> as ramfs (mode <code>1777</code> sticky); device-specific mounts are not carried over.</li>
+<li>Write a fresh <code>fstab.conf</code> — only <code>/tmp</code> as ramfs (mode <code>0o1777</code> sticky); device-specific mounts are not carried over.</li>
 <li>Clear <code>/etc/crontab</code>.</li>
 <li>If a user account was provided → add an entry to <code>/etc/passwd</code> + <code>/etc/shadow</code> (bcrypt) + <code>users</code> group, then create <code>/home/&lt;username&gt;</code> (mode <code>0700</code>, owned by the user).</li>
 <li>If a root password is provided → it is bcrypt-hashed and written to <code>/etc/shadow</code>.</li>
@@ -9043,7 +9060,7 @@ scripts/lib/db-path.ts
 npm run install -- --path data/tsix.db       # path database tertentu
 npm run install -- --path data/tsix.db --force   # timpa (auto-backup)
 npm run install -- --defaults                # non-interaktif, semua default
-npm run install -- --no-config               # skip tulis sysconfig.json
+npm run install -- --no-config               # skip tulis sysconfig.conf
 </code></pre>
 <h3>2. Bulk sync (<code>npm run vfs:bootstrap</code>)</h3>
 <p>Mass sync of <code>src/mirror</code> → <code>/</code> and <code>src/common</code> → <code>/lib/common</code>. Useful for the initial device installation or after many edits at once.</p>
@@ -9081,17 +9098,10 @@ vfs-pull              # tarik seluruh VFS → host root
 <h2>Snippet (code level)</h2>
 <h3>Shared DB path (<code>scripts/lib/db-path.ts</code>)</h3>
 <pre><code class="language-ts">export function getDefaultDbPath(): string {
-  const configPath = path.resolve(__dirname, &quot;../../src/sysconfig.json&quot;);
-  try {
-    const raw = fs.readFileSync(configPath, &quot;utf8&quot;);
-    const cfg = JSON.parse(raw);
-    if (cfg &amp;&amp; typeof cfg.kernel === &quot;object&quot; &amp;&amp; cfg.kernel.database) {
-      return String(cfg.kernel.database);
-    }
-  } catch (_) {
-    /* abaikan — pakai fallback */
-  }
-  return &quot;system.db&quot;;
+  // Satu parser dengan kernel: Config membaca src/sysconfig.conf (key-value,
+  // gaya /etc/fstab.conf) + migrasi otomatis dari sysconfig.json lama.
+  const database = Config.tryGet()?.kernel?.database;
+  return typeof database === &quot;string&quot; &amp;&amp; database.length &gt; 0 ? database : &quot;system.db&quot;;
 }
 </code></pre>
 <h3>Execute mode &amp; SetUID (<code>isSetuidBinary</code> / <code>applyBinaryMode</code>)</h3>
@@ -9172,7 +9182,7 @@ function applyBinaryMode(bkfs: BKFS, vfsPath: string, label = &quot;INSTALL&quot
   let rootPassword = &quot;&quot;;
 
   // 1. Konfigurasi interaktif → cfg (hostname, user, broker, port, verbose, db path, root password)
-  // 2. Tulis src/sysconfig.json
+  // 2. Tulis src/sysconfig.conf
   if (opts.writeConfig) {
     cfg.kernel.database = path.relative(PROJECT_ROOT, dbPath).replace(/\\/g, &quot;/&quot;);
     saveConfig(cfg);
@@ -9218,7 +9228,7 @@ function applyBinaryMode(bkfs: BKFS, vfsPath: string, label = &quot;INSTALL&quot
 <hr>
 <h2>Exercises / Practice</h2>
 <ol>
-<li>Run <code>npm run install -- --defaults</code> — check <code>src/sysconfig.json</code> is written and a new DB is created, then <code>npm start</code>.</li>
+<li>Run <code>npm run install -- --defaults</code> — check <code>src/sysconfig.conf</code> is written and a new DB is created, then <code>npm start</code>.</li>
 <li>Run <code>npm run install</code> (interactive) — fill in hostname &amp; user login, set the root password, observe the per-file sync.</li>
 <li>Write a new app in <code>src/mirror/bin/</code>, then <code>npm run vfs:bootstrap</code> — run the app in the TSIX shell.</li>
 <li>Change one file then <code>npx ts-node scripts/sync-vfs.ts src/mirror/bin/&lt;file&gt;.ts</code> — compare its speed vs the full bootstrap.</li>

@@ -81,7 +81,7 @@ Root `/` is **not** in `fstab.conf`. It is mounted directly in `initializeSubsys
 this.mountManager.mount("/", this.bkfs, "bkfs", cfg.kernel.database, false);
 ```
 
-`cfg.kernel.database` is `"system.db"` (see `src/sysconfig.json`). The rest are loaded from `src/mirror/etc/fstab.conf` by `processFstab()`:
+`cfg.kernel.database` is `"system.db"` (see `src/sysconfig.conf`). The rest are loaded from `src/mirror/etc/fstab.conf` by `processFstab()`:
 
 | Path | type | Backend | Source | readOnly | uid/gid | mode | Nature |
 |---|---|---|---|---|---|---|---|

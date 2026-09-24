@@ -8,7 +8,7 @@ import { Program, std, fs, shell } from "@tsix/Application";
  * benar-benar dieksekusi bukan `.ts`:
  *   - `tsh` mencari command lewat PATH dengan urutan `.js` **sebelum** `.ts`
  *     (lihat `resolveCommand()` di `src/mirror/bin/tsh.ts`);
- *   - `sysconfig.json` menyebut `bootEntry: "init.js"`;
+ *   - `sysconfig.conf` menyebut `bootEntry = init.js`;
  *   - `EXEC` juga mencoba `+.js` lebih dulu.
  * Jadi tanpa langkah ini, `/bin/init.js`, `/bin/ls.js`, dst. tetap versi LAMA dan
  * "engine update" seolah-olah tidak terjadi apa-apa. Skrip ini membangun ulang

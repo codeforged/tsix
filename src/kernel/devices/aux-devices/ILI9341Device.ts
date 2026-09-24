@@ -545,9 +545,9 @@ export class FbDevPanel implements TftPanelHandle {
     if (this.roNotified) return;
     this.roNotified = true;
     console.warn(
-      `[TFT] ${file} hanya bisa ditulis oleh root — kontrol on/off & kecerahan ` +
-        `TFT tidak menyentuh hardware (status tetap dilacak driver). Perbaiki ` +
-        `dengan udev rule chmod 0666, atau sesi ini saja: ${this.chmodHint()}`,
+      `[TFT] ${file} is writable by root only — on/off & brightness ` +
+        `control does not reach the hardware (the driver still tracks status). Fix ` +
+        `it with a udev rule chmod 0666, or for this session: ${this.chmodHint()}`,
     );
   }
 
@@ -556,7 +556,7 @@ export class FbDevPanel implements TftPanelHandle {
     const paths = this.sysfsPaths().filter((p) => !this.isWritable(p));
     return paths.length
       ? `sudo chmod 666 ${paths.join(" ")}`
-      : "jalankan TSIX sebagai root";
+      : "run TSIX as root";
   }
 
   /** Semua jalur sysfs yang dipakai panel ini (yang ada saja). */
@@ -605,11 +605,11 @@ export class FbDevPanel implements TftPanelHandle {
     const code = String(e?.code ?? "");
     const hint =
       code === "EACCES" || code === "EPERM"
-        ? `butuh root (jalankan TSIX sebagai root, atau: ${this.chmodHint()})`
+        ? `needs root (run TSIX as root, or: ${this.chmodHint()})`
         : code === "EINVAL"
-          ? "panel menolak nilai/atribut ini — fitur itu kemungkinan tidak didukung panel"
-          : `perangkat/atribut tidak mendukung operasi ini (${e?.message ?? e})`;
-    console.warn(`[TFT] Gagal menulis ${file}: ${code || e?.message} — ${hint}.`);
+          ? "panel rejected this value/attribute — the feature is probably unsupported by the panel"
+          : `device/attribute does not support this operation (${e?.message ?? e})`;
+    console.warn(`[TFT] Failed to write ${file}: ${code || e?.message} — ${hint}.`);
   }
 
   /**
@@ -1136,14 +1136,14 @@ export class ILI9341Device implements IDevice {
   public init(ctx: KContext): void {
     this.kctx = ctx;
     if (this.disabled) {
-      this.log("Driver dinonaktifkan (disabled=true), dilewati.");
+      this.log("Driver disabled (disabled=true), skipped.");
       return;
     }
 
     if (this.open()) {
       const v = this.panel?.getFbVar?.() ?? null;
       this.log(
-        `ILI9341 siap: ${TFT_WIDTH}x${TFT_HEIGHT} RGB565 di /dev/${this.name}` +
+        `ILI9341 ready: ${TFT_WIDTH}x${TFT_HEIGHT} RGB565 on /dev/${this.name}` +
           ` → ${this.panel?.getDevicePath?.() ?? "(?)"}` +
           (v?.name ? ` [${v.name}]` : "") +
           ` (${TFT_FRAMEBUFFER_SIZE} byte/frame, stride ${TFT_STRIDE})`,
@@ -1155,9 +1155,9 @@ export class ILI9341Device implements IDevice {
         blDir
           ? `Backlight sysfs: ${blDir}` +
               (blOk
-                ? " (bl_power: 0=nyala, 1=mati)"
-                : " — hanya root, kontrol on/off dilewati (status tetap dilacak)")
-          : `Backlight: sysfs tidak ditemukan — opsional, set ${TFT_BACKLIGHT_ENV}`,
+                ? " (bl_power: 0=on, 1=off)"
+                : " — root only, on/off control skipped (status still tracked)")
+          : `Backlight: sysfs not found — optional, set ${TFT_BACKLIGHT_ENV}`,
       );
 
       // Satu peringatan saja (bukan per atribut) + perintah chmod konkret:
@@ -1165,21 +1165,21 @@ export class ILI9341Device implements IDevice {
       if (diag && diag.readOnly.length) {
         const chmod = `sudo chmod 666 ${diag.readOnly.join(" ")}`;
         console.warn(
-          `[TFT] Kontrol backlight TFT belum aktif: ${diag.readOnly.join(", ")} ` +
-            `hanya bisa ditulis oleh root. Sesi ini saja: ${chmod} — permanen: ` +
-            `udev rule chmod 0666. Tanpa itu on/off & kecerahan hanya mengubah ` +
-            `status di driver.`,
+          `[TFT] TFT backlight control is not active yet: ${diag.readOnly.join(", ")} ` +
+            `is writable by root only. For this session: ${chmod} — permanent: ` +
+            `udev rule chmod 0666. Without it, on/off & brightness only change ` +
+            `the status in the driver.`,
         );
       }
       if (diag && diag.unsupported.length) {
-        this.log(`Backlight: ditolak panel → ${diag.unsupported.join(", ")}`);
+        this.log(`Backlight: rejected by panel → ${diag.unsupported.join(", ")}`);
       }
     } else {
       this.log(
-        "ILI9341 tidak terdeteksi: " +
+        "ILI9341 not detected: " +
           (this.lastError ??
-            `tidak ada /dev/fbN ${TFT_BPP} bpp yang cocok. Set ${TFT_FB_ENV}=/dev/fbX kalau node-nya bukan /dev/fb1.`) +
-          " Node /dev disembunyikan dari `ls /dev`.",
+            `no /dev/fbN node matching ${TFT_BPP} bpp. Set ${TFT_FB_ENV}=/dev/fbX if the node is not /dev/fb1.`) +
+          " Node hidden from the `/dev` listing.",
       );
     }
   }
@@ -1193,15 +1193,15 @@ export class ILI9341Device implements IDevice {
 
     const panel = this.getPanel();
     if (!panel) {
-      this.fail("open", new Error("Panel framebuffer tidak tersedia."));
+      this.fail("open", new Error("Panel framebuffer not available."));
       return false;
     }
 
     try {
       if (!panel.begin(this.panelOptions.device)) {
         this.lastError =
-          `begin() gagal membuka node framebuffer ` +
-          `(dicoba: ${this.panelOptions.device || process.env[TFT_FB_ENV] || "auto-detect /dev/fb1../dev/fb9"})`;
+          `begin() failed to open the framebuffer node ` +
+          `(tried: ${this.panelOptions.device || process.env[TFT_FB_ENV] || "auto-detect /dev/fb1../dev/fb9"})`;
         return false;
       }
 
@@ -1211,7 +1211,7 @@ export class ILI9341Device implements IDevice {
       const bad = this.validateFb(panel.getFbVar?.() ?? null);
       if (bad) {
         panel.close?.();
-        this.lastError = `node framebuffer tidak cocok: ${bad}`;
+        this.lastError = `framebuffer node mismatch: ${bad}`;
         return false;
       }
 
@@ -1250,7 +1250,7 @@ export class ILI9341Device implements IDevice {
    * perlu re-open node. Pindah node: pakai TFTIOCTL.SET_FB_DEVICE.
    */
   public close(): boolean {
-    this.log("Device ditutup (handle framebuffer dipertahankan).");
+    this.log("Device closed (framebuffer handle kept).");
     return true;
   }
 
@@ -1287,7 +1287,7 @@ export class ILI9341Device implements IDevice {
           this.fail(
             "write",
             new Error(
-              `Blok ${raw.length} byte @${at} melewati frame ` +
+              `Block of ${raw.length} byte @${at} runs past the frame ` +
                 `(${TFT_FRAMEBUFFER_SIZE} byte).`,
             ),
           );
@@ -1674,13 +1674,13 @@ export class ILI9341Device implements IDevice {
   private validateFb(v: FbVarInfo | null): string | null {
     if (!v) return null;
     if (v.bpp !== null && v.bpp !== TFT_BPP)
-      return `${v.device} ${v.bpp} bpp (butuh ${TFT_BPP} bpp RGB565)`;
+      return `${v.device} ${v.bpp} bpp (needs ${TFT_BPP} bpp RGB565)`;
     if (v.stride !== null && v.stride !== TFT_STRIDE)
-      return `${v.device} stride ${v.stride} B (butuh ${TFT_STRIDE} B = ${TFT_WIDTH} px @ ${TFT_BPP} bpp)`;
+      return `${v.device} stride ${v.stride} B (needs ${TFT_STRIDE} B = ${TFT_WIDTH} px @ ${TFT_BPP} bpp)`;
     if (v.virtualSize) {
       const { w, h } = v.virtualSize;
       if (w !== TFT_WIDTH || h !== TFT_HEIGHT)
-        return `${v.device} ${w}x${h} (butuh ${TFT_WIDTH}x${TFT_HEIGHT})`;
+        return `${v.device} ${w}x${h} (needs ${TFT_WIDTH}x${TFT_HEIGHT})`;
     }
     return null;
   }
