@@ -4,6 +4,27 @@
 
 ---
 
+## 2026-09-24
+
+### Panduan shell scripting: `wiki/shell-scripting.md`
+
+- **File:** `wiki/shell-scripting.md` (baru), `wiki/Home.md` (tautan navigasi)
+- **Masalah:** aturan shell (`tsh`) hanya hidup di dalam kode + satu fixture uji, jadi
+  pemakaian sehari-hari bergantung pada coba-coba — dan batasan seperti “`$(...)` hanya
+  menangkap output builtin” atau “tidak ada `break`/`function`/`set -e`” baru ketahuan
+  setelah skrip gagal di tengah boot.
+- **Perubahan:** panduan lengkap yang disusun dari implementasi (`bin/tsh.ts`,
+  `lib/ShellScript.ts`): cara menjalankan skrip, argumen & variabel, ekspansi, kondisi,
+  perulangan, `case`, pipeline/redirection, daftar builtin, tabel “tidak ada + pengganti”,
+  jebakan (`$(...)`, wait-hint 15s, batas sarang 16), contoh nyata dari repo, cara menguji
+  tanpa boot (`tsh-script-harness.ts`), serta aturan penulisan (ASCII, bukan emoji).
+- **Dampak:** setiap contoh sudah diverifikasi terhadap utilitas asli — termasuk koreksi
+  sintaks yang mudah salah: `ping <host> <count>` (posisional, bukan `-c`), `tail -n <n>`
+  (bukan `tail -20`), dan mount yang berasal dari `/etc/fstab.conf`.
+- **Oleh:** Copilot
+
+---
+
 ## 2026-09-18
 
 ### Builtin `read` dan Struktur Kontrol `case`

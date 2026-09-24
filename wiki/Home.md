@@ -28,6 +28,7 @@
 | ⚙️ **Kernel**           | [Kernel-dan-Scheduler.md](Kernel-dan-Scheduler.md)       |
 | 💾 **Filesystem**       | [Virtual-File-System.md](Virtual-File-System.md)         |
 | 📄 **File Ops (tutorial)** | [file-operation.md](file-operation.md)                |
+| 🐚 **Shell Scripting**  | [shell-scripting.md](shell-scripting.md)                 |
 | 🌐 **NetFS**            | [netfs.md](netfs.md)                                     |
 | 🌐 **Networking**       | [Networking-MQTNL.md](Networking-MQTNL.md)               |
 | 🔧 **Commands**         | [Perintah-Sistem.md](Perintah-Sistem.md)                 |
