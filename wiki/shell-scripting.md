@@ -440,7 +440,8 @@ non-ASCII di TTY apa adanya akan terlihat sebagai byte mentah.
 
 ## Lihat juga
 
-- [fhs.md](fhs.md) — tata letak direktori dan isi `/bin`, `/sbin`, `/usr/bin`
+- [boot_sequence.md](boot_sequence.md) — `/etc/rc.local`, `init`, dan urutan daemon saat boot
+- [fhs.md](changelogs/fhs.md) — catatan tata letak direktori & utilitas sistem
 - [Virtual-File-System.md](Virtual-File-System.md) — aturan "isi VFS = byte" dan cara membaca berkas teks
 - [Kernel-dan-Scheduler.md](Kernel-dan-Scheduler.md) — PID, signal, dan `waitpid`
 - [Panduan-Developer.md](Panduan-Developer.md) — alur kerja pengembangan & uji
