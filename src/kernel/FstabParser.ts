@@ -115,7 +115,7 @@ function readNumber(raw: string, key: string, warn: (m: string) => void): number
     if (s === "") return undefined;
     const n = Number(s);
     if (!Number.isFinite(n)) {
-        warn(`${key}='${s}' bukan angka → diabaikan`);
+        warn(`${key}='${s}' is not a number → ignored`);
         return undefined;
     }
     return n;
@@ -129,7 +129,7 @@ function readBool(raw: string, key: string, warn: (m: string) => void): boolean 
     const s = stripQuotes(raw).toLowerCase();
     if (TRUE_WORDS.has(s)) return true;
     if (FALSE_WORDS.has(s)) return false;
-    warn(`${key}='${s}' bukan boolean (true/false, yes/no, on/off, 1/0) → diabaikan`);
+    warn(`${key}='${s}' is not a boolean (true/false, yes/no, on/off, 1/0) → ignored`);
     return undefined;
 }
 
@@ -158,12 +158,12 @@ function readMode(raw: string, warn: (m: string) => void): number | undefined {
             );
         }
     } else {
-        warn(`mode='${s}' bukan angka → diabaikan`);
+        warn(`mode='${s}' is not a number → ignored`);
         return undefined;
     }
 
     if (!Number.isInteger(value) || value < 0 || value > 0o7777) {
-        warn(`mode='${s}' di luar rentang 0..0o7777 → diabaikan`);
+        warn(`mode='${s}' is out of range 0..0o7777 → ignored`);
         return undefined;
     }
     return value;
@@ -176,13 +176,13 @@ function normalizeEntries(raw: unknown[], warnings: string[]): FstabEntry[] {
 
     for (const item of raw) {
         if (!item || typeof item !== "object") {
-            warn("entri bukan object → dilewati");
+            warn("entry is not an object → skipped");
             continue;
         }
         const source = item as Record<string, unknown>;
         const vfsPath = typeof source.vfsPath === "string" ? source.vfsPath.trim() : "";
         if (!vfsPath) {
-            warn("entri tanpa 'vfsPath' → dilewati");
+            warn("entry has no 'vfsPath' → skipped");
             continue;
         }
 
@@ -201,7 +201,7 @@ function normalizeEntries(raw: unknown[], warnings: string[]): FstabEntry[] {
             if (key === "mode") {
                 entry[key] = typeof value === "number" ? value : readMode(String(value), warn);
                 if (typeof value === "number" && (!Number.isInteger(value) || value < 0 || value > 0o7777)) {
-                    warn(`mode=${value} di luar rentang 0..0o7777 → diabaikan`);
+                    warn(`mode=${value} is out of range 0..0o7777 → ignored`);
                     delete entry[key];
                 }
                 continue;
@@ -226,8 +226,8 @@ function normalizeEntries(raw: unknown[], warnings: string[]): FstabEntry[] {
         const type = entry.type;
         if (type !== undefined && !FSTAB_MOUNT_TYPES.includes(String(type) as any)) {
             warn(
-                `[${vfsPath}] type='${String(type)}' tidak dikenal ` +
-                    `(harus salah satu: ${FSTAB_MOUNT_TYPES.join(", ")}) → entri dilewati`,
+                `[${vfsPath}] unknown type='${String(type)}' ` +
+                    `(must be one of: ${FSTAB_MOUNT_TYPES.join(", ")}) → entry skipped`,
             );
             continue;
         }
@@ -256,13 +256,13 @@ function parseIni(content: string, warnings: string[]): FstabEntry[] {
 
         const eqIdx = line.indexOf("=");
         if (eqIdx === -1) {
-            warnings.push(`baris tidak dikenal (tanpa '='): '${line}'`);
+            warnings.push(`unrecognized line (no '='): '${line}'`);
             continue;
         }
 
         if (!current) {
             // Baris key-value sebelum section pertama: dulu hilang DIAM-DIAM.
-            warnings.push(`key '${line.slice(0, eqIdx).trim()}' muncul sebelum [section] → diabaikan`);
+            warnings.push(`key '${line.slice(0, eqIdx).trim()}' appears before any [section] → ignored`);
             continue;
         }
 
@@ -273,7 +273,7 @@ function parseIni(content: string, warnings: string[]): FstabEntry[] {
 
     const entries = normalizeEntries(raw, warnings);
     if (entries.length === 0 && raw.length > 0) {
-        warnings.push("tidak ada section yang valid — periksa format [vfsPath] & key=value");
+        warnings.push("no valid section — check the [vfsPath] & key=value format");
     }
     return entries;
 }

@@ -35,7 +35,10 @@ import { interpreterCandidates, isShellInterpreter, parseShebang } from "../comm
  */
 export class SyscallDispatcher {
     private logger: Logger;
-    private bkfs: BKFS;
+    // Root `/` sebagai IVFS, bukan BKFS: root bisa HostVFS (folder host) —
+    // lihat `RootFilesystem.ts`. Hanya `read()` di sini yang menembak root
+    // langsung; sisanya lewat `mountManager.resolve()`.
+    private rootFs: IVFS;
     private mountManager: MountManager;
     private scheduler: Scheduler;
     private satpam: PermissionManager;
@@ -63,9 +66,9 @@ export class SyscallDispatcher {
         SyscallCode.WHOAMI,
     ]);
 
-    constructor(bkfs: BKFS, mountManager: MountManager, scheduler: Scheduler, kernel: any, satpam: PermissionManager) {
+    constructor(rootFs: IVFS, mountManager: MountManager, scheduler: Scheduler, kernel: any, satpam: PermissionManager) {
         this.logger = new Logger("SyscallHandler");
-        this.bkfs = bkfs;
+        this.rootFs = rootFs;
         this.mountManager = mountManager;
         this.scheduler = scheduler;
         this.satpam = satpam;
@@ -173,7 +176,7 @@ export class SyscallDispatcher {
             if (!sent) {
                 this.pendingDbRequests.delete(requestId);
                 this.dbServicePid = null;
-                reject(new Error("DB_SERVICE: daemon tidak dapat dijangkau"));
+                reject(new Error("DB_SERVICE: daemon is unreachable"));
             }
         });
     }
@@ -381,7 +384,7 @@ export class SyscallDispatcher {
         interpreter: string,
     ): Promise<{ path: string; content: string; node: any } | null> {
         if (!isShellInterpreter(interpreter)) {
-            throw new Error(`EXEC: interpreter tidak didukung: '${interpreter}' (didukung: tsh, sh, bash)`);
+            throw new Error(`EXEC: unsupported interpreter: '${interpreter}' (supported: tsh, sh, bash)`);
         }
 
         for (const base of interpreterCandidates(interpreter)) {
@@ -1080,7 +1083,7 @@ export class SyscallDispatcher {
                         const interpreter = await this.resolveShebangInterpreter(shebang.interpreter);
                         if (!interpreter) {
                             throw new Error(
-                                `EXEC: interpreter tidak ditemukan untuk '${shebang.interpreter}' (${absoluteExecPath})`,
+                                `EXEC: no interpreter found for '${shebang.interpreter}' (${absoluteExecPath})`,
                             );
                         }
                         if (!this.satpam.check(pcb, interpreter.node, Permission.EXECUTE)) {
@@ -1258,7 +1261,10 @@ export class SyscallDispatcher {
                     pcb.owner = "root";
                 } else {
                     try {
-                        const content = this.bkfs.read("/etc/passwd");
+                        // `read()` bertipe MaybePromise di IVFS, tapi root selalu
+                        // sinkron (BKFS/HostVFS) — sama seperti helper readRoot()
+                        // di Kernel.ts.
+                        const content = this.rootFs.read("/etc/passwd") as string | null;
                         if (content) {
                             const lines = content
                                 .split("\n")
@@ -1575,7 +1581,7 @@ export class SyscallDispatcher {
 
             case SyscallCode.SET_NET_DEFAULT: {
                 // Ganti interface MQTNL default secara RUNTIME. Hanya mengubah nilai di
-                // memori kernel (Config singleton) — TIDAK menulis ulang sysconfig.json,
+                // memori kernel (Config singleton) — TIDAK menulis ulang sysconfig.conf,
                 // jadi perubahan hilang saat reboot. Butuh root karena memengaruhi
                 // SEMUA proses yang tidak meng-bind interface secara eksplisit.
                 if (!this.isRoot(pcb))
@@ -1585,7 +1591,7 @@ export class SyscallDispatcher {
 
                 const { deviceName } = args as { deviceName: string };
                 if (typeof deviceName !== "string" || deviceName.trim() === "")
-                    throw new Error("SET_NET_DEFAULT: butuh nama interface (deviceName atau address)");
+                    throw new Error("SET_NET_DEFAULT: interface name required (deviceName or address)");
 
                 const wanted = deviceName.trim();
                 let target: SimpleMQTNLDriver | null = null;
@@ -1599,7 +1605,7 @@ export class SyscallDispatcher {
                     }
                 }
 
-                if (!target) throw new Error(`Network Interface not found: ${wanted} (lihat daftar via ifconfig)`);
+                if (!target) throw new Error(`Network Interface not found: ${wanted} (list them with ifconfig)`);
 
                 const cfg = Config.get();
                 const previous = cfg.network.defaultDevice;
@@ -1885,7 +1891,7 @@ export class SyscallDispatcher {
                     } catch (e: any) {
                         await netfs.close().catch(() => {});
                         throw new Error(
-                            `mount: netfs ${formatNetFSSpec(spec.address, spec.port)} tidak merespons ` +
+                            `mount: netfs ${formatNetFSSpec(spec.address, spec.port)} did not respond ` +
                                 `(${e?.message ?? e}). Pastikan 'netfsd --export' jalan di node tujuan` +
                                 `${target.address === "localhost" ? " dan 'netfsd --client' jalan di node ini (atau pakai --direct)" : ""}.`,
                         );
@@ -1934,7 +1940,7 @@ export class SyscallDispatcher {
                     try {
                         await driver.close();
                     } catch (e: any) {
-                        this.logger.warn(`umount ${fullVfsPath}: gagal menutup driver (${e?.message ?? e})`);
+                        this.logger.warn(`umount ${fullVfsPath}: failed to close driver (${e?.message ?? e})`);
                     }
                 }
                 return unmounted;
@@ -2045,9 +2051,9 @@ export class SyscallDispatcher {
                 }
                 // Transport default: /dev/mysql device
                 const device = this.kernel.devices?.mysql as any;
-                if (!device) throw new Error("DB_CONNECT: /dev/mysql tidak tersedia");
+                if (!device) throw new Error("DB_CONNECT: /dev/mysql is not available");
                 if (!args || typeof args !== "object") {
-                    throw new Error("DB_CONNECT: cfg {host,user,password,database} wajib");
+                    throw new Error("DB_CONNECT: cfg {host,user,password,database} is required");
                 }
                 const ok = await device.connect(args, pid);
                 this.logger.info(`[DB] PID ${pid} connect → ${args.host}/${args.database}: ${ok}`);
@@ -2061,9 +2067,9 @@ export class SyscallDispatcher {
                 }
                 // Transport default: /dev/mysql device
                 const device = this.kernel.devices?.mysql as any;
-                if (!device) throw new Error("DB_QUERY: /dev/mysql tidak tersedia");
+                if (!device) throw new Error("DB_QUERY: /dev/mysql is not available");
                 if (!args || typeof args !== "string") {
-                    throw new Error("DB_QUERY: sql harus string");
+                    throw new Error("DB_QUERY: sql must be a string");
                 }
                 const result = await device.query(args, pid);
                 return result;
@@ -2076,7 +2082,7 @@ export class SyscallDispatcher {
                 }
                 // Transport default: /dev/mysql device
                 const device = this.kernel.devices?.mysql as any;
-                if (!device) throw new Error("DB_DISCONNECT: /dev/mysql tidak tersedia");
+                if (!device) throw new Error("DB_DISCONNECT: /dev/mysql is not available");
                 const ok = await device.disconnect(pid);
                 this.logger.info(`[DB] PID ${pid} disconnect: ${ok}`);
                 return ok;

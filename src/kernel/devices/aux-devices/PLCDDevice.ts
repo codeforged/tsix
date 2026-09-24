@@ -195,12 +195,12 @@ export class PLCDDevice implements IDevice {
   public init(ctx: KContext): void {
     this.kctx = ctx;
     if (this.disabled) {
-      this.log("Driver dinonaktifkan (disabled=true), dilewati.");
+      this.log("Driver disabled (disabled=true), skipped.");
       return;
     }
     this.log(
-      `PLCD siap (PSEUDO ${LCD_WIDTH}x${LCD_HEIGHT} mono, tanpa SPI) di /dev/${this.name}` +
-        ` — arahkan app ke sini dengan TSIX_LCD_DEV=/dev/${this.name}`,
+      `PLCD ready (PSEUDO ${LCD_WIDTH}x${LCD_HEIGHT} mono, no SPI) on /dev/${this.name}` +
+        ` — point apps here with TSIX_LCD_DEV=/dev/${this.name}`,
     );
   }
 

@@ -4,6 +4,77 @@
 
 ---
 
+## 2026-09-24
+
+### Console/log kernel & script sinkronisasi → bahasa Inggris (komentar tetap Indonesia)
+
+- **File:** `src/kernel/**` (Kernel, Syscalls, Scheduler, MountManager,
+  FstabParser, RootFilesystem, `devices/*`: ILI9341, LM6029, PLCD, joystick,
+  httpd, wsd, MCP23017, SerialDevice, SimpleMQTNLDriver,
+  `netfs/MQTNLNetFSChannel`), `scripts/**` (vfs-pull, vfs-bootstrap, sync-vfs,
+  install, rootfs-chmod, `lib/root-mode`), plus test yang meng-assert teks
+  (`FstabParser.test`, `RootFilesystem.test`, `Syscalls.test`,
+  `ILI9341Device.test`).
+- **Konteks:** pesan tercampur ID/EN menyulitkan grep, pelaporan, dan pesan
+  dukungan. Log/console diseragamkan ke **Inggris**; **komentar & wiki tetap
+  Bahasa Indonesia** (konvensi repo) — jadi tidak ada komentar yang diterjemahkan.
+- **Cakupan:** `console.*`, `process.stdout/stderr.write`, `logger.*`, `bootLog*`,
+  `throw new Error(...)`, dan pesan yang dikembalikan ke userland. Sesuai
+  permintaan, fokus **lingkungan kernel** — script lain (`bkfs-info`,
+  `verify-framebuffer`, `gen-*`, `create-bkfs`) dan userland `src/mirror/**`
+  belum disentuh.
+- **Jebakan yang ketemu:** beberapa assertion test meng-assert pesan Indonesia
+  (`begin() gagal`, `melewati frame`, `tidak cocok`, `bukan angka`) → ikut
+  diperbarui. Pesan `[lm6029acw] … bus SPI … /dev/spidev0.0 gagal` berasal dari
+  **ADDON native** (repo `raspi-lcd-addon`), bukan dari tsix → sengaja dibiarkan,
+  termasuk assertion `LM6029Device.test` yang mengujinya.
+- **Diuji:** `tsc --noEmit` bersih (di luar error pre-existing) dan suite
+  `src/kernel` + `src/vfs` kembali ke **6 gagal pre-existing** (C10.08b +
+  A1.40/A1.54/A1.86/A1.99/SCREEN_INFO) — nol regresi.
+- **Oleh:** Copilot
+
+### Root `/` bisa folder host (HostVFS) — dipilih dari `sysconfig.json`
+
+- **File:** `src/kernel/RootFilesystem.ts` (baru), `src/kernel/Kernel.ts`
+  (`initializeSubsystems`, getter `getRootFs`/`getBKFS`), `src/kernel/Syscalls.ts`
+  (root bertipe `IVFS`), `src/vfs/HostVFS.ts` (mask mode + `chown` toleran),
+  `src/common/Config.ts` (`kernel.rootType`), `scripts/install.ts` (template),
+  `src/kernel/RootFilesystem.test.ts`, `src/vfs/HostVFS.test.ts` (B3.26–B3.27),
+  `wiki/Virtual-File-System.md`.
+- **Konteks:** root `/` selalu BKFS, jadi setiap iterasi userland harus lewat
+  dua langkah sinkron: `vfs:bootstrap` (host → DB) dan `vfs:pull` (DB → host).
+  Untuk ngoprek cepat itu berat — dan rawan salah arah (berkas berubah di host
+  tapi kernel masih membaca DB, atau sebaliknya).
+- **Perubahan:**
+    - `kernel.rootType` di `src/sysconfig.json`: `"bkfs"` (default, perilaku lama)
+      atau `"host"` — root di-mount sebagai **HostVFS** ke folder `rootHostPath`
+      (di-resolve relatif `src/kernel`, sama dengan syscall `GET_SYSPATH`).
+    - Override tanpa mengedit konfigurasi: `TSIX_ROOTFS=host` +
+      `TSIX_ROOTFS_PATH=<dir>` (env menang atas berkas).
+    - `Kernel.rootFs` bertipe `IVFS` (bukan `BKFS`); `SyscallDispatcher` mengikuti.
+      Helper `readRoot()`/`lsRoot()` memusatkan cast sinkron, karena driver root
+      selalu sinkron walau `IVFS` mendeklarasikan `MaybePromise`.
+    - Mode `host` **gagal keras** kalau foldernya tidak ada. Tanpa itu, `HostVFS`
+      membuat folder kosong (constructor-nya begitu) dan boot "sukses" dengan root
+      kosong — gejala yang jauh lebih membingungkan daripada pesan error.
+    - `HostVFS.stat()`/`ls()` kini mem-**mask** mode ke `0o777`. `fs.Stats.mode`
+      Node memuat bit tipe (`S_IFREG 0o100000`), sedangkan BKFS menyimpan bit izin
+      saja — tanpa mask, `ls -l` mencetak `100644` dan pembanding mode meleset.
+    - `HostVFS.chown()` tidak lagi melempar untuk `EPERM`/`EACCES`: host folder
+      dimiliki user biasa, sementara fstab meminta uid/gid 0 → dulu seluruh entri
+      mount (`/tmp`, `/hostsrc`) GAGAL hanya karena chown-nya ditolak. Kini mount
+      tetap jalan, kepemilikan efektif mengikuti berkas host (dictat di debug log).
+- **Jebakan (terbukti saat uji):** folder yang dipakai sebagai root harus **lengkap
+  dengan sidecar `.js`** — kalau hanya `.ts` (mis. hasil `git restore src/mirror`
+  mentah), worker `init` mati dengan `Cannot find module '../../common/SyscallCode'`.
+  Pakai folder hasil bootstrap/pull (dengan `.js`) seperti `src/rootfs`.
+- **Diuji:** boot `--safe-mode` dengan root `src/rootfs` → HostVFS ter-mount, fstab
+  OK, init + login prompt muncul. Unit: `A3.40–A3.46` (pemilihan backend, env
+  override, penolakan konfigurasi salah) + `B3.26–B3.27` (mask mode).
+- **Oleh:** Copilot
+
+---
+
 ## 2026-09-22
 
 ### fstab: `.json` DIBUANG total — `/etc/fstab.conf` satu-satunya sumber (dengan migrasi otomatis)

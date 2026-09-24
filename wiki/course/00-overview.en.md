@@ -100,7 +100,7 @@ The **real privilege boundaries** live in two layers:
 
 ```
 main.ts
-  Config.load()                    → baca sysconfig.json
+  Config.load()                    → baca sysconfig.conf
   new Kernel()                     → Logger, PermissionManager, MountManager, GUIRegistry
   kernel.boot()
     initializeSubsystems()
@@ -228,7 +228,7 @@ Aplikasi → syscall OPEN/READ/WRITE
 
 **The "everything is a file" key**: the FD table holds `FDEntry {device, context, flags}` → all `IDevice` objects. Regular files are wrapped in `FileSystemDevice`. Pipe refcount via ioctl (`INC_REF`/`DEC_REF`), EOF when `writeRefs==0`.
 
-**Plugin drivers**: the `aux-devices/` folder is scanned at boot; `new DeviceClass()` + the `static autoRegister(kernel)` convention for hardware (MCP23017). `applyDeviceConfigs()` = "udev" from `sysconfig.json`.
+**Plugin drivers**: the `aux-devices/` folder is scanned at boot; `new DeviceClass()` + the `static autoRegister(kernel)` convention for hardware (MCP23017). `applyDeviceConfigs()` = "udev" from `sysconfig.conf`.
 
 > [!NOTE] **About `MySQLDevice` (`/dev/mysql`) — the first transport, not the only one**
 > `MySQLDevice` is an external database integration through the device model — it is **not** a real hardware driver, but the **first transport** for DB access (an example of HAL extension).
@@ -372,7 +372,7 @@ SYNC_TO_HOST (syscall)     DB → host (app dalam VFS menulis /lib → src/.tsix
 userlib-update.ts          sinkronkan /lib → src/.tsix_sdk/lib (agar Node.js host bisa require)
 ```
 
-**Configuration**: `src/sysconfig.json` (database path, workerEntryPath, bootEntry, network interfaces). `tsconfig.json` maps `@tsix/*` → `src/.tsix_sdk/lib/*`, `src/root/lib/*`, `src/mirror/lib/*`.
+**Configuration**: `src/sysconfig.conf` (database path, workerEntryPath, bootEntry, network interfaces). `tsconfig.json` maps `@tsix/*` → `src/.tsix_sdk/lib/*`, `src/root/lib/*`, `src/mirror/lib/*`.
 
 ---
 

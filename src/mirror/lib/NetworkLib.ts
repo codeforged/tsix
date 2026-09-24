@@ -198,7 +198,7 @@ export class NetworkLib {
    * setDefaultDevice(): Ganti interface MQTNL default secara RUNTIME.
    *
    * Hanya mengubah nilai di memori kernel — TIDAK menulis ulang
-   * `sysconfig.json`, jadi perubahan hilang saat reboot. `name` boleh berupa
+   * `sysconfig.conf`, jadi perubahan hilang saat reboot. `name` boleh berupa
    * deviceName ("smqtnl1") atau address ("mactsix_2").
    * Return `{ defaultDevice, previous }` (deviceName kanonik + nilai sebelumnya).
    */

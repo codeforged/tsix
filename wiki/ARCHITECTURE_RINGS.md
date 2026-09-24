@@ -32,7 +32,7 @@ Jembatan antara aplikasi dan kernel. Memberikan abstraksi agar aplikasi lebih mu
 Area terluar di mana aplikasi user dan konfigurasi berada. Ini adalah area paling aman untuk berekspresi.
 - **Komponen**:
     - Semua aplikasi di `/bin/` (Shell, ls, chown, airtermd, dll)
-- **Konfigurasi**: `sysconfig.json`
+- **Konfigurasi**: `sysconfig.conf`
 - **Entry Point**: `main.ts`
 - **Aturan**: Jika aplikasi di sini crash, sistem utama (Ring 1) harus tetap berjalan normal.
 

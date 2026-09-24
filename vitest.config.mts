@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -25,6 +25,13 @@ export default defineConfig({
         // seluruh suite berjalan paralel CPU rebutan → test yang benar jadi
         // timeout alias flaky. 20s masih ketat untuk mendeteksi hang nyata.
         testTimeout: 20_000,
+
+        // `src/rootfs/**` = DUMP rootfs di host (hasil `vfs:pull`, ruang kerja
+        // mode `rootType = "host"`). Isinya salinan userland + SIDECAR `.test.js`
+        // hasil transpile, dan vitest menjalankan semuanya kalau tidak dikecualikan
+        // → puluhan file "gagal" yang bukan test repo ini. Vitest tidak membaca
+        // `.gitignore`, jadi daftar ini yang menjaganya.
+        exclude: [...configDefaults.exclude, "src/rootfs/**", "**/src/rootfs/**"],
     },
     resolve: {
         // URUTAN PENTING: `.ts` didahulukan dari `.js` supaya sidecar hasil

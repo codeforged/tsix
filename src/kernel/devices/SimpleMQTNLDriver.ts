@@ -146,7 +146,7 @@ export class SimpleMQTNLDriver implements IDevice {
    */
   public init(ctx: KContext): void {
     ctx.syslog(
-      `Mengaktifkan Interface '${this.name}' pada ${this.localAddress} via Broker: ${this.brokerUrl}`,
+      `Enabling interface '${this.name}' on ${this.localAddress} via broker: ${this.brokerUrl}`,
     );
 
     try {

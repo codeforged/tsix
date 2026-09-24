@@ -197,7 +197,7 @@ tssh <hostname> -c "cat /etc/hostname"   # run a one-off remote command
 
 ### Fresh Install
 
-A fresh TSIX image is built with the `install` script. It creates a brand new database (`.db`) from the bundled root filesystem (`src/mirror` + `src/common`), asks for a few configuration values interactively, and writes them into `src/sysconfig.json`.
+A fresh TSIX image is built with the `install` script. It creates a brand new database (`.db`) from the bundled root filesystem (`src/mirror` + `src/common`), asks for a few configuration values interactively, and writes them into `src/sysconfig.conf` (key-value, gaya `/etc/fstab.conf`).
 
 ```bash
 git clone https://github.com/yourusername/tsix.git
@@ -222,7 +222,7 @@ The installer will ask you for:
 > - Change the password by answering the **root-password prompt** during `npm run install`, or run `passwd` inside TSIX.
 > - This is a **documented development default**, not a secret. For production or public exposure, always set your own password (don't use the default).
 
-After installation, `src/sysconfig.json` points to the new database and the system is ready to boot:
+After installation, `src/sysconfig.conf` points to the new database and the system is ready to boot:
 
 ```bash
 npm start
@@ -235,7 +235,7 @@ npm run install                              # interactive, db path from sysconf
 npm run install -- --path data/tsix.db       # install to a specific database file
 npm run install -- --path data/tsix.db --force   # overwrite an existing db (auto-backup)
 npm run install -- --defaults                # non-interactive, use all defaults
-npm run install -- --no-config               # skip writing src/sysconfig.json
+npm run install -- --no-config               # skip writing src/sysconfig.conf
 ```
 
 ### Safe Mode
@@ -258,7 +258,7 @@ npm run bkfs:create          # create an empty database (path from sysconfig)
 node scripts/clean_bloat.js  # truncate syslog + vacuum the database
 ```
 
-All scripts resolve the default database path from `kernel.database` in `src/sysconfig.json` (shared via `scripts/lib/db-path.ts`), so they stay in sync with the path chosen at install time.
+All scripts resolve the default database path from `kernel.database` in `src/sysconfig.conf` (shared via `scripts/lib/db-path.ts`), so they stay in sync with the path chosen at install time.
 
 ### GUI Mode
 

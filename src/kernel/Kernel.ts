@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import { Logger } from "../common/Logger";
-import { BKFS } from "../vfs/BKFS"; // Pakai BKFS (SQLite)
+import { BKFS } from "../vfs/BKFS"; // dipakai di fstab (mount bertipe "bkfs")
 import { vfsBytesToUtf8 } from "../common/VfsText";
 import { Scheduler } from "./Scheduler";
 import { SyscallDispatcher } from "./Syscalls";
@@ -19,6 +19,7 @@ import { TTYDevice } from "./devices/TTYDevice";
 import { PTYManager } from "./PTYManager";
 import { SerialDeviceManager } from "./devices/SerialDeviceManager";
 import { MountManager } from "./MountManager";
+import { createRootFilesystem } from "./RootFilesystem";
 import { IVFS } from "../vfs/IVFS";
 import { HostVFS } from "../vfs/HostVFS";
 import { RamFS } from "../vfs/RamFS";
@@ -59,7 +60,11 @@ export class Kernel {
   private logger: Logger;
 
   // Sub-sistem Utama
-  private bkfs: BKFS | null = null; // Ganti VFS ke BKFS
+  //
+  // Tipenya IVFS — BUKAN BKFS — karena root `/` bisa dilayani backend apa pun:
+  // BKFS (SQLite, default) atau HostVFS (folder host, buat ngoprek langsung).
+  // Pemilihan driver + resolusinya ada di `RootFilesystem.ts`.
+  private rootFs: IVFS | null = null;
   private scheduler: Scheduler | null = null;
   private syscall: SyscallDispatcher | null = null;
   private mountManager: MountManager;
@@ -154,7 +159,7 @@ export class Kernel {
     this.bootLogEnd(isOk);
 
     // Also push to syslog if BKFS is ready
-    if (this.bkfs) {
+    if (this.rootFs) {
       this.syslog("Kernel", message);
     }
   }
@@ -164,7 +169,7 @@ export class Kernel {
    * Bisa dipanggil oleh Kernel maupun Device Driver.
    */
   public async syslog(tag: string, message: string) {
-    if (!this.bkfs) return;
+    if (!this.rootFs) return;
     const timestamp = new Date()
       .toISOString()
       .replace("T", " ")
@@ -173,13 +178,13 @@ export class Kernel {
     const logFile = "/var/log/syslog";
 
     try {
-      this.bkfs.append(logFile, logLine);
+      this.rootFs.append(logFile, logLine);
     } catch (e) {
       // Jika folder /var/log belum ada, buat dulu
       try {
-        this.bkfs.mkdir("/var", 0, 0, 0o755);
-        this.bkfs.mkdir("/var/log", 0, 0, 0o755);
-        this.bkfs.touch(logFile, logLine);
+        this.rootFs.mkdir("/var", 0, 0, 0o755);
+        this.rootFs.mkdir("/var/log", 0, 0, 0o755);
+        this.rootFs.touch(logFile, logLine);
       } catch (err) { }
     }
   }
@@ -262,7 +267,7 @@ export class Kernel {
     this.serialManager.startAutoDetection();
     this.bootLogEnd(true, "active.");
 
-    // 4. Apply Device Configurations (udev-style from sysconfig.json)
+    // 4. Apply Device Configurations (udev-style from sysconfig.conf)
     this.bootLogStart("Applying device configurations...");
     this.applyDeviceConfigs();
     this.bootLogEnd(true);
@@ -286,8 +291,8 @@ export class Kernel {
     this.bootLogStart("MODE: Running in VFS-Only Architecture...");
 
     // Pastikan /dev ada di VFS
-    if (!this.bkfs?.exists("/dev")) {
-      this.bkfs?.mkdir("/dev", 0, 0, 493);
+    if (!this.rootFs?.exists("/dev")) {
+      this.rootFs?.mkdir("/dev", 0, 0, 493);
     }
 
     this.bootLogEnd(true);
@@ -301,9 +306,9 @@ export class Kernel {
     // --- VISUAL IDENTITY INITIALIZATION ---
     try {
       const pubKeyPath = "/etc/keys/rsa/id_rsa.pub";
-      if (this.bkfs?.exists(pubKeyPath)) {
+      if (this.rootFs?.exists(pubKeyPath)) {
         this.bootLogStart("Security: System Visual Identity");
-        const pubKey = this.bkfs.read(pubKeyPath);
+        const pubKey = this.readRoot(pubKeyPath);
         if (pubKey) {
           const { SecurityAgent } = require("../common/SecurityAgent");
           const fingerprint = SecurityAgent.getFingerprint(pubKey);
@@ -644,7 +649,7 @@ export class Kernel {
   }
 
   /**
-   * applyDeviceConfigs(): Menerapkan izin (mode, uid, gid) dari sysconfig.json ke perangkat yang terdaftar.
+   * applyDeviceConfigs(): Menerapkan izin (mode, uid, gid) dari sysconfig.conf ke perangkat yang terdaftar.
    */
   private applyDeviceConfigs() {
     const cfg = Config.get();
@@ -670,11 +675,37 @@ export class Kernel {
   private async initializeSubsystems() {
     const cfg = Config.get();
 
-    // 2. Inisialisasi BKFS (SQLite VFS)
-    this.bootLogStart("VFS: Mounting root filesystem (BKFS/SQLite)");
-    this.bkfs = new BKFS(cfg.kernel.database);
-    this.mountManager.mount("/", this.bkfs, "bkfs", cfg.kernel.database, false);
+    // 2. Inisialisasi root filesystem "/".
+    //
+    // Backend dipilih lewat `RootFilesystem.createRootFilesystem()`:
+    //   - BKFS  (default) → root ada DI DALAM `system.db`; sinkron host↔VFS
+    //     lewat `npm run vfs:bootstrap` / `vfs:pull`.
+    //   - HostVFS         → root menunjuk FOLDER HOST nyata (`kernel.rootHostPath`,
+    //     mis. `../rootfs`). Berkas dibaca apa adanya, jadi edit di VS Code
+    //     langsung terlihat dari shell TSIX — tanpa bootstrap maupun pull.
+    //
+    // Aktifkan mode host: `kernel.rootType = "host"` di `src/sysconfig.conf`,
+    // atau tanpa menyentuh konfigurasi: `TSIX_ROOTFS=host npm start`
+    // (+ opsional `TSIX_ROOTFS_PATH=/path/ke/rootfs`).
+    const root = createRootFilesystem(cfg);
+    this.rootFs = root.driver;
+    this.bootLogStart(`VFS: Mounting root filesystem (${root.label})`);
+    this.mountManager.mount("/", root.driver, root.type, root.source, false);
     this.bootLogEnd(true);
+
+    // Mode host = mode EKSPERIMEN, dan itu ditulis di boot log secara sengaja.
+    // BKFS adalah root yang dimaksud desainnya (transaksi/WAL, isolasi, backup = 1
+    // berkas image — lihat wiki/Virtual-File-System.md). Begitu root-nya folder
+    // host, jaminan itu tidak berlaku: tidak ada transaksi, tidak ada image untuk
+    // di-backup, dan berkas root bisa disentuh proses lain di host. Notis ini
+    // mencegah perilaku eksperimen tertukar dengan perilaku produksi.
+    if (root.type === "host") {
+        const rel = path.relative(process.cwd(), root.source) || root.source;
+        const notice = `MODE: Experimental — root "/" is a host folder (${rel})`;
+        this.bootLogStart(notice);
+        this.bootLogEnd(true, "no BKFS transaction/isolation/backup guarantees");
+        this.logger.warn(`${notice} — BKFS remains the default for data that must be safe.`);
+    }
 
     // 2a. Process Auto-mounts (fstab) — termasuk /tmp sebagai ramfs
     await this.processFstab();
@@ -703,10 +734,10 @@ export class Kernel {
     this.bootLogEnd(true, "on-demand.");
 
     // 7. Inisialisasi Syscall Dispatcher
-    if (this.bkfs && this.scheduler && this.satpam) {
+    if (this.rootFs && this.scheduler && this.satpam) {
       this.bootLogStart("Bridge: Establishing Syscall interface");
       this.syscall = new SyscallDispatcher(
-        this.bkfs,
+        this.rootFs,
         this.mountManager,
         this.scheduler,
         this,
@@ -730,6 +761,22 @@ export class Kernel {
     }
   }
 
+  /**
+   * readRoot()/lsRoot(): Baca root `/` dengan hasil SINKRON.
+   *
+   * IVFS mendeklarasikan `MaybePromise` (driver jaringan seperti NetFS bisa
+   * async), tapi driver root SELALU sinkron — BKFS dan HostVFS dua-duanya
+   * sinkron, dan NetFS tidak pernah dipasang di `/`. Cast-nya dikumpulkan di dua
+   * helper ini supaya kode boot (yang memang berurutan) tidak penuh `as`.
+   */
+  private readRoot(vfsPath: string): string | null {
+    return this.rootFs!.read(vfsPath) as string | null;
+  }
+
+  private lsRoot(vfsPath: string): any[] {
+    return this.rootFs!.ls(vfsPath) as any[];
+  }
+
   private rebuildVFSCache() {
     this.bootLogStart(
       "VFS: Pre-compiling framework libraries (Memory Cache)... ",
@@ -740,8 +787,8 @@ export class Kernel {
       esbuildHandle = esbuild;
       const cache: Record<string, string> = {};
       const fetchDir = (dir: string) => {
-        if (!this.bkfs!.exists(dir)) return;
-        const items = this.bkfs!.ls(dir);
+        if (!this.rootFs!.exists(dir)) return;
+        const items = this.lsRoot(dir);
         for (const item of items) {
           const p = `${dir}/${item.name}`;
           if (item.type === "DIRECTORY") {
@@ -757,7 +804,7 @@ export class Kernel {
             // Terukur: 16.9 -> 12.5 MB/worker (~-4.4 MB/worker).
             // Tidak ada framework yang meng-import `.js` secara eksplisit
             // (diverifikasi), jadi pembuangan ini tidak memutus apa pun.
-            const content = this.bkfs!.read(p);
+            const content = this.readRoot(p);
             if (!content) continue;
 
             // Isi VFS = BYTE. esbuild butuh TEKS, jadi konversi eksplisit: tanpa ini
@@ -833,8 +880,17 @@ export class Kernel {
   }
 
   // Getters
-  public getBKFS() {
-    return this.bkfs;
+  /** Driver root `/` (BKFS atau HostVFS — lihat `RootFilesystem.ts`). */
+  public getRootFs(): IVFS | null {
+    return this.rootFs;
+  }
+
+  /**
+   * getBKFS(): alias historis dari `getRootFs()`.
+   * @deprecated Root sudah tidak selalu BKFS — pakai `getRootFs()`.
+   */
+  public getBKFS(): IVFS | null {
+    return this.rootFs;
   }
   public getMountManager() {
     return this.mountManager;
@@ -867,14 +923,14 @@ export class Kernel {
     // dulu SEBELUM menutup supaya urutannya jelas di log.
     try {
       const mounts = this.mountManager?.listMounts()?.length ?? 0;
-      console.log(`\n[Kernel] Storage: menutup ${mounts} filesystem (checkpoint WAL)...`);
+      console.log(`\n[Kernel] Storage: closing ${mounts} filesystem(s) (WAL checkpoint)...`);
 
       const closed = this.mountManager?.closeAll() ?? 0;
 
-      console.log(`[Kernel] Storage: ${closed} filesystem ditutup rapi — image siap disalin.`);
+      console.log(`[Kernel] Storage: ${closed} filesystem(s) closed cleanly — image is ready to copy.`);
     } catch (e: any) {
       // Jangan pernah menghalangi proses keluar.
-      console.error(`[Kernel] Gagal menutup filesystem: ${e.message}`);
+      console.error(`[Kernel] Failed to close filesystem: ${e.message}`);
     }
   }
 
@@ -892,8 +948,8 @@ export class Kernel {
   }
 
   private async ensureDefaultGroups() {
-    if (!this.bkfs) return;
-    const groupContent = this.bkfs.read("/etc/group") || "";
+    if (!this.rootFs) return;
+    const groupContent = this.readRoot("/etc/group") || "";
     // Group wajib yang harus selalu ada: users (GID 100) dan sudo (GID 27, gaya Ubuntu)
     const missing: string[] = [];
     if (!groupContent.includes("users:")) missing.push("users:x:100:");
@@ -901,24 +957,24 @@ export class Kernel {
     if (missing.length > 0) {
       this.bootLogStart("Security: Adding missing groups...");
       const newContent = groupContent.trim() + "\n" + missing.join("\n") + "\n";
-      this.bkfs.touch("/etc/group", newContent, 0, 0, 0o644);
+      this.rootFs.touch("/etc/group", newContent, 0, 0, 0o644);
       this.bootLogEnd(true, missing.join(", "));
     }
   }
 
   private async ensureDefaultAuth() {
-    if (!this.bkfs) return;
+    if (!this.rootFs) return;
 
     // 1. Ensure /etc directory exists
-    if (!this.bkfs.exists("/etc")) {
+    if (!this.rootFs.exists("/etc")) {
       this.bootLogStart("VFS: Creating system directory /etc...");
-      this.bkfs.mkdir("/etc", 0, 0, 0o755);
+      this.rootFs.mkdir("/etc", 0, 0, 0o755);
       this.bootLogEnd(true);
     }
 
     // 2. Ensure /etc/passwd exists with root entry
     const passwdPath = "/etc/passwd";
-    if (!this.bkfs.exists(passwdPath)) {
+    if (!this.rootFs.exists(passwdPath)) {
       this.bootLogStart("Security: Seeding /etc/passwd...");
       // Shell default menunjuk ke sidecar .js, BUKAN .ts.
       // Alasan (terukur 2026-09-12): path .ts eksplisit melewati preferensi
@@ -926,31 +982,31 @@ export class Kernel {
       // sehingga worker shell dipaksa memakai preload transpiler
       // (+14.4 MB RSS/worker). Sidecar .js dibuat scripts/vfs-bootstrap.ts.
       const rootPasswd = "root:x:0:0:root:/root:/bin/tsh.js\n";
-      this.bkfs.touch(passwdPath, rootPasswd, 0, 0, 0o644);
+      this.rootFs.touch(passwdPath, rootPasswd, 0, 0, 0o644);
       this.bootLogEnd(true, "root user added.");
     }
 
     // 3. Ensure /etc/shadow exists with root entry (password: root)
     const shadowPath = "/etc/shadow";
-    if (!this.bkfs.exists(shadowPath)) {
+    if (!this.rootFs.exists(shadowPath)) {
       this.bootLogStart("Security: Seeding /etc/shadow...");
       const rootShadow =
         "root:$2b$10$BmsO7An4uheXRcU/vD.FwuB.QiDrwpjJRPPDU1CYMgf2NIYqjKupG:19750:0:99999:7:::\n";
-      this.bkfs.touch(shadowPath, rootShadow, 0, 0, 0o640);
+      this.rootFs.touch(shadowPath, rootShadow, 0, 0, 0o640);
       this.bootLogEnd(true, "credentials added.");
     }
 
     // 4. Ensure /mnt directory exists
-    if (!this.bkfs.exists("/mnt")) {
+    if (!this.rootFs.exists("/mnt")) {
       this.bootLogStart("VFS: Preparing mount point /mnt...");
-      this.bkfs.mkdir("/mnt", 0, 0, 0o755);
+      this.rootFs.mkdir("/mnt", 0, 0, 0o755);
       this.bootLogEnd(true);
     }
 
     // 5. Ensure /tmp directory exists
-    if (!this.bkfs.exists("/tmp")) {
+    if (!this.rootFs.exists("/tmp")) {
       this.bootLogStart("VFS: Initializing /tmp...");
-      this.bkfs.mkdir("/tmp", 0, 0, 0o755);
+      this.rootFs.mkdir("/tmp", 0, 0, 0o755);
       this.bootLogEnd(true);
     }
   }
@@ -970,21 +1026,21 @@ export class Kernel {
    */
   private ensureVolatileRunDir(): void {
     const RUN_DIR = "/var/run";
-    if (!this.bkfs) return;
+    if (!this.rootFs) return;
 
     const alreadyMounted = this.mountManager
       .listMounts()
       .some((m) => m.vfsPath === RUN_DIR);
     if (alreadyMounted) {
-      this.bootLogStart(`VFS: ${RUN_DIR} → mengikuti fstab`);
+      this.bootLogStart(`VFS: ${RUN_DIR} → following fstab`);
       this.bootLogEnd(true);
       return;
     }
 
     this.bootLogStart(`VFS: ${RUN_DIR} → ramfs (state runtime volatile)`);
     try {
-      if (!this.bkfs.exists(RUN_DIR)) {
-        this.bkfs.mkdir(RUN_DIR, 0, 0, 0o755);
+      if (!this.rootFs.exists(RUN_DIR)) {
+        this.rootFs.mkdir(RUN_DIR, 0, 0, 0o755);
       }
       this.mountManager.mount(
         RUN_DIR,
@@ -1003,7 +1059,7 @@ export class Kernel {
   }
 
   private async processFstab() {
-    if (!this.bkfs) return;
+    if (!this.rootFs) return;
 
     // FSTAB: SATU sumber kebenaran — `/etc/fstab.conf` (INI).
     //
@@ -1017,13 +1073,13 @@ export class Kernel {
     // (format lama) dipindahkan ke `.conf` SAAT BOOT, supaya tidak ada langkah
     // manual yang bisa terlupa dan mount-nya tidak hilang. Berkas `.json`-nya
     // sengaja TIDAK dihapus (itu milik admin) — ia hanya berhenti dipakai.
-    if (!this.bkfs.exists(FSTAB_PATH) && this.bkfs.exists(LEGACY_FSTAB_PATH)) {
-      const legacy = this.bkfs.read(LEGACY_FSTAB_PATH);
+    if (!this.rootFs.exists(FSTAB_PATH) && this.rootFs.exists(LEGACY_FSTAB_PATH)) {
+      const legacy = this.readRoot(LEGACY_FSTAB_PATH);
       const parsed = legacy ? parseFstabContent(legacy) : null;
 
       if (parsed && parsed.entries.length > 0) {
         this.bootLogStart("FSTAB: migrasi /etc/fstab.json → /etc/fstab.conf");
-        this.bkfs.touch(
+        this.rootFs.touch(
           FSTAB_PATH,
           formatFstabIni(
             parsed.entries,
@@ -1034,31 +1090,31 @@ export class Kernel {
           0,
           0o644,
         );
-        this.bootLogEnd(true, `${parsed.entries.length} entri`);
+        this.bootLogEnd(true, `${parsed.entries.length} entries`);
         for (const message of parsed.warnings) {
-          this.logger.warn(`FSTAB(migrasi): ${message}`);
+          this.logger.warn(`FSTAB(migration): ${message}`);
           await this.syslog("fstab", `migrasi: ${message}`);
         }
         this.logger.info(
-          "FSTAB: /etc/fstab.json tidak dipakai lagi — isinya sudah dipindah ke /etc/fstab.conf",
+          "FSTAB: /etc/fstab.json is no longer used — its entries moved to /etc/fstab.conf",
         );
       } else {
         this.bootLogStart("FSTAB: migrasi /etc/fstab.json");
-        this.bootLogEnd(false, "tidak ada entri yang bisa dipindahkan (format tidak dikenal)");
+        this.bootLogEnd(false, "no entry could be migrated (unknown format)");
       }
     }
 
-    if (!this.bkfs.exists(FSTAB_PATH)) {
+    if (!this.rootFs.exists(FSTAB_PATH)) {
       // Bukan error (image minimal memang begitu), tapi layak terlihat: semua
       // mount non-esensial (mis. netfs) hanya didefinisikan di berkas ini.
-      this.logger.info("FSTAB: /etc/fstab.conf tidak ada — hanya mount esensial");
+      this.logger.info("FSTAB: /etc/fstab.conf is missing — essential mounts only");
       return;
     }
 
     try {
-      const content = this.bkfs.read(FSTAB_PATH);
+      const content = this.readRoot(FSTAB_PATH);
       if (!content) {
-        this.bootLog(`FSTAB: ${FSTAB_PATH} kosong`, false);
+        this.bootLog(`FSTAB: ${FSTAB_PATH} is empty`, false);
         return;
       }
 
@@ -1074,13 +1130,13 @@ export class Kernel {
         // Isi `.conf` berupa JSON (mungkin hasil salin-tempel): tetap jalan, tapi
         // konversi ke INI dianjurkan supaya jelas mana sumber kebenarannya.
         this.logger.warn(
-          `FSTAB: isi ${FSTAB_PATH} berformat JSON (lama) — sebaiknya ditulis dalam format INI`,
+          `FSTAB: ${FSTAB_PATH} contains JSON (legacy) — prefer the INI format`,
         );
       }
 
       if (entries.length === 0) {
         this.bootLogStart(`FSTAB: ${FSTAB_PATH} (${format})`);
-        this.bootLogEnd(false, "tidak ada entri mount yang valid");
+        this.bootLogEnd(false, "no valid mount entry");
         return;
       }
 
@@ -1122,28 +1178,28 @@ export class Kernel {
           // `type` wajib: tanpa ini entri tidak bisa dipetakan ke driver mana pun
           // (dulu langsung jatuh ke HostVFS dan menebak-nebak).
           if (!type) {
-            this.bootLog(`FSTAB: ${vfsPath} tanpa 'type' → dilewati`, false);
+            this.bootLog(`FSTAB: ${vfsPath} has no 'type' → skipped`, false);
             continue;
           }
 
           // `hostPath` wajib untuk bkfs/host/netfs — ramfs murni di RAM.
           const hostSpec = hostPath ?? "";
           if (!hostSpec && type !== "ramfs") {
-            this.bootLog(`FSTAB: ${vfsPath} (${type}) tanpa 'hostPath' → dilewati`, false);
+            this.bootLog(`FSTAB: ${vfsPath} (${type}) has no 'hostPath' → skipped`, false);
             continue;
           }
 
           // Ensure mount point exists with correct ownership & permissions
           const dirMode = mode ?? 0o755;
-          if (!this.bkfs.exists(vfsPath)) {
-            this.bkfs.mkdir(vfsPath, uid ?? 0, gid ?? 0, dirMode);
+          if (!this.rootFs.exists(vfsPath)) {
+            this.rootFs.mkdir(vfsPath, uid ?? 0, gid ?? 0, dirMode);
           } else {
             if (uid !== undefined || gid !== undefined) {
               // Re-apply ownership if dir already existed (e.g. created by ensureDefaultAuth)
-              this.bkfs.chown(vfsPath, uid ?? 0, gid ?? 0);
+              this.rootFs.chown(vfsPath, uid ?? 0, gid ?? 0);
             }
             if (mode !== undefined) {
-              this.bkfs.chmod(vfsPath, dirMode);
+              this.rootFs.chmod(vfsPath, dirMode);
             }
           }
 
@@ -1211,7 +1267,7 @@ export class Kernel {
               // NetFS tidak boleh menggagalkan boot: node peer mungkin sedang
               // mati. Mount bisa dilakukan manual nanti setelah peer hidup.
               this.bootLogStart(`FSTAB: Mounting ${vfsPath} (netfs)`);
-              this.bootLogEnd(false, `NetFS gagal: ${e.message}`);
+              this.bootLogEnd(false, `NetFS failed: ${e.message}`);
             }
             continue;
           } else {
@@ -1230,7 +1286,7 @@ export class Kernel {
           );
           this.bootLogEnd(true);
         } catch (e: any) {
-          this.bootLog(`FSTAB: ${String(entry?.vfsPath ?? "?")} gagal: ${e.message}`, false);
+          this.bootLog(`FSTAB: ${String(entry?.vfsPath ?? "?")} failed: ${e.message}`, false);
         }
       }
     } catch (e: any) {

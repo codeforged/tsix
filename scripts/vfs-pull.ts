@@ -2,6 +2,10 @@ import Database from "better-sqlite3";
 import * as fs from "fs";
 import * as path from "path";
 import { getDefaultDbPath } from "./lib/db-path";
+import { applyHostBinaryMode } from "./lib/binary-mode";
+import { skipIfHostRoot } from "./lib/root-mode";
+import { Config } from "../src/common/Config";
+import { resolveHostRootDir } from "../src/kernel/RootFilesystem";
 import { readVnodeContent } from "../src/vfs/BKFS";
 
 /**
@@ -9,44 +13,47 @@ import { readVnodeContent } from "../src/vfs/BKFS";
  *
  * Script ini digunakan untuk menarik data dari BKFS (SQLite) balik ke host (src/mirror).
  * Berguna untuk menyimpan perubahan permanen yang dilakukan di dalam simulator.
+ *
+ * Mode `kernel.rootType = "host"` → TIDAK RELEVAN (no-op, lihat
+ * `scripts/lib/root-mode.ts`): folder host sudah jadi root-nya sendiri.
  */
 
 const DB_PATH = path.resolve(__dirname, "..", getDefaultDbPath());
 
 /**
- * hostRoot(): Root host yang dipakai kernel, dibaca dari `sysconfig.json`.
+ * HOST_ROOT: Root host yang dipakai kernel.
  *
- * Dulu nilainya di-hardcode ke `../src/root` — direktori yang sudah tidak ada
- * sejak rootfs pindah ke `src/mirror`, jadi hasil tarikan mendarat di tempat yang
- * tidak dibaca siapa pun. Kernel me-resolve `rootHostPath` relatif ke direktori
- * `src/kernel` (lihat `Syscalls.GET_SYSPATH`), jadi patokannya disamakan di sini.
+ * Resolusinya DIPINJAM dari kernel (`resolveHostRootDir`, lihat
+ * `src/kernel/RootFilesystem.ts`) supaya patokannya sama dengan `GET_SYSPATH`:
+ * env `TSIX_ROOTFS_PATH` menang, lalu `kernel.rootHostPath` relatif `src/kernel`.
+ *
+ * Dulu berkas ini punya resolver sendiri (dan hardcode `../src/root` sebelum itu)
+ * — nilai yang berbeda dari kernel berarti tarikan mendarat di folder yang tidak
+ * dibaca siapa pun.
  */
-function hostRoot(): string {
-    try {
-        const cfgPath = path.resolve(__dirname, "../src/sysconfig.json");
-        const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-        const rel = cfg?.kernel?.rootHostPath;
-        if (typeof rel === "string" && rel.length > 0) {
-            return path.resolve(__dirname, "../src/kernel", rel);
-        }
-    } catch (e) {
-        // jatuh ke default di bawah
-    }
-    return path.resolve(__dirname, "../src/mirror");
-}
+const HOST_ROOT = resolveHostRootDir(readConfigOrNull());
 
-const HOST_ROOT = hostRoot();
+/** Config `src/sysconfig.conf`, atau `null` kalau belum ada (mode bkfs default). */
+function readConfigOrNull(): any | null {
+    return Config.tryGet();
+}
 
 // Daftar folder yang tidak perlu ditarik (Runtime/Temporary)
 const EXCLUDE_DIRS = ["dev", "tmp", "proc", "logs", "var"];
 
 async function main() {
+    // Mode root-host: folder host sudah jadi root, tidak ada yang perlu ditarik.
+    skipIfHostRoot(
+        "VFS-Pull",
+        "Nothing to pull: that host folder IS the root already (changes made inside TSIX are written there directly).",
+    );
+
     console.log("🚀 Starting VFS to Host Synchronization...");
     console.log(`📂 Database: ${DB_PATH}`);
     console.log(`🏠 Host Root: ${HOST_ROOT}`);
 
     if (!fs.existsSync(DB_PATH)) {
-        console.error(`❌ Database tidak ditemukan: ${DB_PATH}`);
+        console.error(`❌ Database not found: ${DB_PATH}`);
         process.exit(1);
     }
 
@@ -113,6 +120,17 @@ async function main() {
         // host. `install.ts`/`vfs-bootstrap.ts` membacanya dengan latin1, jadi ini
         // juga yang membuat tarikan dan bootstrap konsisten (round-trip byte-per-byte).
         fs.writeFileSync(hostPath, Buffer.from(content ?? "", "latin1"));
+
+        // BIT EKSEKUSI WAJIB DIPASANG ULANG.
+        //
+        // `writeFileSync` selalu menghasilkan 0644 (tanpa bit `x`), sedangkan
+        // bootstrap/install memasang 0o755/0o744/0o4755 di VFS. Shell menegakkan
+        // bit `x` seperti Linux (`tsh.ts`: `(mode & 0o111) === 0` → `Permission
+        // denied`, `$?` = 126), jadi folder host hasil pull TIDAK BISA menjalankan
+        // perintah apa pun — termasuk sebagai root. Dulu ini membuat mode
+        // `rootType = "host"` mati total (`-tsh: /bin/ls.js: Permission denied`).
+        applyHostBinaryMode(hostPath, vfsPath);
+
         console.log(`✅ Synced: ${vfsPath} -> ${path.relative(process.cwd(), hostPath)}`);
     };
 

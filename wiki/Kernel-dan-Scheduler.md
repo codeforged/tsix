@@ -199,7 +199,7 @@ Syscall Dispatcher adalah **satu-satunya gateway** antara User-Land dan Kernel-L
 | `NET_CONNECT`     | Koneksi ke node remote                                                               |
 | `NET_ACCEPT`      | Accept incoming connection                                                           |
 | `NET_IFCONFIG`    | Info interface network                                                               |
-| `NET_SET_DEFAULT` | Ubah interface network default saat runtime (in-memory, tanpa ubah `sysconfig.json`) |
+| `NET_SET_DEFAULT` | Ubah interface network default saat runtime (in-memory, tanpa ubah `sysconfig.conf`) |
 | `NET_PING`        | Ping node lain                                                                       |
 
 ---

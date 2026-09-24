@@ -43,7 +43,7 @@ export enum SyscallCode {
   RECVFROM = 33,
   NETSTAT = 34,
   SECAGENT_LIST = 39, // Menampilkan daftar Security Agent yang terdaftar di kernel (secagent)
-  SET_NET_DEFAULT = 76, // Mengubah interface MQTNL default secara RUNTIME (args: { deviceName }) — tanpa menulis sysconfig.json
+  SET_NET_DEFAULT = 76, // Mengubah interface MQTNL default secara RUNTIME (args: { deviceName }) — tanpa menulis sysconfig.conf
 
   // --- SYSTEM CONTROL ---
   SHUTDOWN = 50,

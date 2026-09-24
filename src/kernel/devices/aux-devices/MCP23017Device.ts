@@ -60,7 +60,7 @@ export class MCP23017Device implements IDevice {
     // Technical info goes to syslog
     if (this.i2cBusNumber !== undefined) {
       ctx.syslog(
-        `Inisialisasi Hardware MCP23017 pada 0x${this.address.toString(16)} (Bus ${this.i2cBusNumber})`,
+        `MCP23017 hardware init on 0x${this.address.toString(16)} (bus ${this.i2cBusNumber})`,
       );
     }
 

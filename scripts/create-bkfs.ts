@@ -9,7 +9,7 @@ import { getDefaultDbPath } from "./lib/db-path";
  * Membuat file database VFS baru yang KOSONG — hanya berisi root "/".
  * Berguna untuk: fresh install, testing bootstrap dari nol, atau reset VFS.
  *
- * Path default diambil dari src/sysconfig.json (kernel.database).
+ * Path default diambil dari konfigurasi node (kernel.database) via sysconfig.conf.
  *
  * Cara pakai (dari root project):
  *   npm run bkfs:create                        -> buat DB kosong (path dari sysconfig)

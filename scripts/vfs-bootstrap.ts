@@ -3,6 +3,8 @@ import * as fs from "fs";
 import * as path from "path";
 import * as esbuild from "esbuild";
 import { getDefaultDbPath } from "./lib/db-path";
+import { applyBinaryMode, needsBinaryMode } from "./lib/binary-mode";
+import { skipIfHostRoot } from "./lib/root-mode";
 import { peekBom, readBinaryFile, readTextFile, utf8ToVfsBytes, vfsBytesToUtf8 } from "./lib/text-file";
 
 /**
@@ -11,6 +13,7 @@ import { peekBom, readBinaryFile, readTextFile, utf8ToVfsBytes, vfsBytesToUtf8 }
  */
 const EXEC_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin", "/opt"];
 
+/**
 /**
  * BERKAS YANG DIBIARKAN — konfigurasi milik NODE, bukan milik image.
  *
@@ -25,30 +28,10 @@ const EXEC_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin", "/opt"];
  */
 const PRESERVE_IF_EXISTS = [/^\/etc\/fstab\.(conf|json)$/];
 
-/**
- * Binary istimewa yang wajib berjalan sebagai pemilik file (SetUID root):
- * login, passwd, dan sudo — semuanya butuh akses baca/tulis /etc/shadow (0640 root).
- * Dikenali baik versi .ts maupun sidecar .js yang benar-benar dieksekusi runtime.
+/*
+ * Mode executable (bit `x`, `/sbin` 0o744, SetUID login/passwd/sudo) diatur oleh
+ * helper BERSAMA `scripts/lib/binary-mode.ts`.
  */
-function isSetuidBinary(vfsPath: string): boolean {
-    return /\/bin\/(login|passwd|sudo)\.(ts|js)$/.test(vfsPath);
-}
-
-function isExecutableBinary(vfsPath: string): boolean {
-    return EXEC_DIRS.some((d) => vfsPath.startsWith(d + "/"));
-}
-
-/** Terapkan mode eksekusi (dan SetUID untuk login/passwd/sudo). */
-function applyBinaryMode(bkfs: BKFS, vfsPath: string, label = "BOOTSTRAP"): void {
-    if (isSetuidBinary(vfsPath)) {
-        bkfs.chmod(vfsPath, 0o4755);
-        bkfs.chown(vfsPath, 0, 0);
-        console.log(`[${label}] SetUID+chown root -> ${vfsPath}`);
-    } else if (isExecutableBinary(vfsPath)) {
-        // /sbin = root-only (0o744), lainnya 0o755 (semua user)
-        bkfs.chmod(vfsPath, vfsPath.startsWith("/sbin/") ? 0o744 : 0o755);
-    }
-}
 
 /**
  * HOST-SIDE WORKER ENTRY — sinkronkan sidecar WorkerEntry.js dengan .ts-nya.
@@ -117,16 +100,23 @@ function syncHostSidecar(name: string): void {
  * Digunakan untuk melakukan sinkronisasi massal (Bulk Sync) dari host (src/mirror)
  * ke database VFS. Sangat berguna untuk instalasi awal pada perangkat baru.
  *
- * Path default diambil dari src/sysconfig.json (kernel.database).
+ * Path default diambil dari konfigurasi node (kernel.database) via sysconfig.conf.
  * Cara pakai:
  *   npm run vfs:bootstrap                  -> sync ke DB default (dari sysconfig)
  *   npm run vfs:bootstrap -- data/test.db  -> sync ke path lain (argumen dbPath)
  */
 
 async function main() {
+    // Mode root-host: tidak ada database yang perlu di-seed — kernel membaca
+    // folder host langsung (lihat `scripts/lib/root-mode.ts`).
+    skipIfHostRoot(
+        "VFS-Bootstrap",
+        "No database to seed: the kernel reads the host folder directly, so edits are already live without this step.",
+    );
+
     console.log("\x1b[1;34m[VFS-Bootstrap] Starting bulk synchronization...\x1b[0m");
     // dbPath bisa dilewati via argumen CLI (positional). Kosong → ambil dari
-    // sysconfig.json (kernel.database), sinkron dengan path hasil instalasi.
+    // sysconfig.conf (kernel.database), sinkron dengan path hasil instalasi.
     const dbPath = process.argv[2]?.trim() || getDefaultDbPath();
     const srcRoot = path.resolve(process.cwd(), "src/mirror");
 
@@ -260,7 +250,7 @@ async function main() {
                                 bkfs.touch(jsPath, utf8ToVfsBytes(result.code));
 
                                 // Auto-executable untuk file di direktori eksekusi
-                                if (isSetuidBinary(jsPath) || isExecutableBinary(jsPath)) {
+                                if (needsBinaryMode(jsPath)) {
                                     applyBinaryMode(bkfs, jsPath, "VFS-Bootstrap");
                                 }
                                 console.log(`[VFS-Bootstrap]   -> Compiled: ${jsPath}`);
@@ -274,7 +264,7 @@ async function main() {
 
                     // Auto-executable untuk file di direktori eksekusi
                     if (
-                        (isSetuidBinary(fullVfsPath) || isExecutableBinary(fullVfsPath)) &&
+                        needsBinaryMode(fullVfsPath) &&
                         (fullVfsPath.endsWith(".ts") || fullVfsPath.endsWith(".js"))
                     ) {
                         applyBinaryMode(bkfs, fullVfsPath, "VFS-Bootstrap");

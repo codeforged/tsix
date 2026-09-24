@@ -148,11 +148,11 @@ Detailed steps:
 | `src/common/AesGcmAgent.ts`               | Example custom AES-256-GCM agent                                   |
 | `src/kernel/Syscalls.ts`                  | SOCKET–NETSTAT syscall implementation (30–34) + SECAGENT_LIST (39) |
 | `src/mirror/sbin/secagent.ts`             | Tool to list registered agents                                     |
-| `src/sysconfig.json`                      | Default network interface configuration                            |
+| `src/sysconfig.conf`                      | Default network interface configuration                            |
 
 > [!NOTE] **Single `NetworkLib`.** The `NetworkLib` class is now the single source of truth in `NetworkLib.ts` and accepts either `dispatch` or `OSContext` (backward compatible). For new apps, prefer `NetSocket` — a high-level API wrapping lifecycle + events + security.
 
-### Default network interfaces (`sysconfig.json`)
+### Default network interfaces (`sysconfig.conf`)
 
 At boot, the kernel reads `cfg.network.interfaces` and creates one `SimpleMQTNLDriver` per entry (`Kernel.ts` → "Initialize Network Interfaces"). Each interface has a **deviceName** (`/dev` name), an **address** (node name), and a **broker**:
 
@@ -451,7 +451,7 @@ case SyscallCode.BIND: {
 2. Read `src/kernel/PortManager.ts` — understand `allocateRandomPort` and `releasePortsByPid`.
 3. Run two nodes (e.g. `tsix` and `esp32S3` on an MQTT broker) — send a message between them.
 4. Read `src/kernel/devices/SocketDevice.ts` — explain how a socket becomes an `IDevice`.
-5. From an app, run `lib.net.netstat()` — compare the result with the interface table in `sysconfig.json`.
+5. From an app, run `lib.net.netstat()` — compare the result with the interface table in `sysconfig.conf`.
 
 ---
 
@@ -463,7 +463,7 @@ case SyscallCode.BIND: {
 - `src/kernel/devices/SocketDevice.ts` — socket = device
 - `src/kernel/PortManager.ts` — virtual port allocation
 - `src/kernel/Syscalls.ts` — SOCKET–NETSTAT syscall implementation (30–34) + SECAGENT_LIST (39)
-- `src/sysconfig.json` — default network interfaces
+- `src/sysconfig.conf` — default network interfaces
 
 ---
 

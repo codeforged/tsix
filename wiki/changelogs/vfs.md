@@ -4,6 +4,67 @@
 
 ---
 
+## 2026-09-24
+
+### `vfs:pull` lupa bit eksekusi → semua perintah mati di mode root-host (`/bin/ls.js: Permission denied`)
+
+- **File:** `scripts/lib/binary-mode.ts` (baru), `scripts/vfs-pull.ts`,
+  `scripts/rootfs-chmod.ts` (baru), `scripts/install.ts`, `scripts/sync-vfs.ts`,
+  `scripts/vfs-bootstrap.ts`, `package.json` (`rootfs:modes`),
+  `wiki/Virtual-File-System.md`.
+- **Gejala:** dengan `kernel.rootType = "host"` (root `/` = folder host), SEMUA
+  perintah eksternal gagal walau sebagai root:
+  `root@tsix# ls` → `-tsh: /bin/ls.js: Permission denied` (`$?` = 126).
+  `ls.ts`, `cd`, apa pun ikut mati karena shell-nya sendiri tak bisa spawn binary.
+- **Akar masalah:** `vfs-pull` menulis berkas apa adanya lewat `fs.writeFileSync`
+  → **0644 tanpa bit `x`**. `vfs-bootstrap`/`install`/`sync-vfs` semuanya
+  memasang bit eksekusi di VFS (`EXEC_DIRS`, `/sbin` 0o744, SetUID
+  login/passwd/sudo), tapi arah BALIK (VFS → host) tidak — jadi begitu host
+  dipakai sebagai root, izin di disk-lah yang dibaca kernel dan semuanya 0644.
+  Penegakannya di **shell** (`tsh.ts`: `(mode & 0o111) === 0` → tolak, paritas
+  Linux), bukan di `PermissionManager` — karena itu UID 0 pun tidak menembusnya.
+- **Perubahan:**
+    - `scripts/lib/binary-mode.ts` — SATU sumber aturan mode
+      (`binaryModeFor`, `applyBinaryMode`, `applyHostBinaryMode`,
+      `needsBinaryMode`). Sebelumnya logika itu disalin-tempel di tiga skrip
+      (install, sync-vfs, vfs-bootstrap); ketiganya kini mengimpor helper ini.
+    - `vfs-pull` memasang mode setelah menulis berkas → tarikan baru langsung
+      benar, tidak perlu langkah manual.
+    - `scripts/rootfs-chmod.ts` + `npm run rootfs:modes` — memperbaiki folder
+      yang sudah telanjur ada (termasuk hasil `git clone`/`cp` tanpa
+      `--preserve=mode`); dukung `--dry-run` dan `--root <dir>`.
+- **Diuji:** `npm run rootfs:modes` pada `src/rootfs` → **505 dari 507** berkas
+  executable diperbaiki (`bin/ls.js` 755, `bin/login.js` 4755, `sbin/*` 744);
+  boot `rootType = "host"` tetap bersih sampai prompt login.
+- **Temuan sampingan (ikut diperbaiki):** `sync-vfs` memetakan `src/common/**`
+  ke **`/common/**`**, padahal canonical-nya `/lib/common/**` (yang dibaca
+  `WorkerEntry` untuk `@common/X` dan yang di-seed `vfs-bootstrap`). Jadi
+  suntingan `src/common` lewat sync-vfs mendarat di path mati. Kini
+  `/lib/common/**`; jalur `src/mirror` tidak berubah.
+- **Mode host = alat sinkronisasi NO-OP:** saat `kernel.rootType = "host"` (atau
+  env `TSIX_ROOTFS=host`), **`sync-vfs`, `vfs-pull`, dan `vfs-bootstrap`** berhenti
+  di awal — pesan singkat + **exit 0** (agar hook otomatis seperti run-on-save
+  tidak dianggap gagal). Root memang folder host itu sendiri, jadi tidak ada yang
+  perlu disinkronkan; menulis ke `system.db` cuma menghasilkan "sukses palsu".
+  Logika ini dipusatkan di `scripts/lib/root-mode.ts` (`activeRootType`,
+  `activeHostRoot`, `skipIfHostRoot`) yang memakai helper KERNEL yang sama
+  (`resolveRootType`, `resolveHostRootDir`), sehingga env
+  `TSIX_ROOTFS`/`TSIX_ROOTFS_PATH` juga dihormati `rootfs:modes` dan tidak ada
+  alat yang bisa berbeda pendapat dengan kernel. `vfs-pull` sekaligus membuang
+  resolver path-nya sendiri (dulu hardcode `../src/root`, lalu duplikat logika)
+  dan memakai `resolveHostRootDir` — plus memasang bit eksekusi hasil tarikan.
+  Diuji: mode host → ketiganya exit 0 tanpa menyentuh DB; `TSIX_ROOTFS=bkfs`
+  dengan `TSIX_ROOTFS_PATH=/tmp/pull-test` → 703 berkas tertarik, `bin/ls.js`
+  0o755 & `bin/login.js` 0o4755; `vfs-bootstrap` jalan seperti biasa.- **Positioning ditulis eksplisit:** mode `host` bukan pengganti BKFS. BKFS tetap
+  root yang dimaksud desainnya (transaksi `batch()`, WAL + checkpoint, isolasi
+  ruang nama berkas, backup = 1 berkas image). Mode `host` ada untuk menunjukkan
+  kernel bisa diganti backend apa pun (secara teori termasuk NetFS di `/`) dan
+  untuk iterasi kilat. Saat mode host aktif, boot log menandainya sebagai
+  **eksperimen** (+ `logger.warn`), dan `Config.ts` / `RootFilesystem.ts` /
+  `wiki/Virtual-File-System.md` memuat perbandingan jaminannya.- **Oleh:** Copilot
+
+---
+
 ## 2026-09-23
 
 ### Ikon launcher kacau (`ðº` bukan `📺`): konsumen teks di dalam TSIX harus decode

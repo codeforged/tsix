@@ -109,7 +109,7 @@ export class MountManager {
           driver.close();
           closed++;
         } catch (e: any) {
-          this.logger.warn(`Gagal menutup ${point.vfsPath} (${point.source}): ${e.message}`);
+          this.logger.warn(`Failed to close ${point.vfsPath} (${point.source}): ${e.message}`);
         }
       }
     }

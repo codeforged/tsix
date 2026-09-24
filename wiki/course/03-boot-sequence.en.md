@@ -43,7 +43,7 @@ sequenceDiagram
     participant L as login (TTY1-6)
 
     H->>M: node src/main.ts
-    M->>M: Config.load() → sysconfig.json
+    M->>M: Config.load() → sysconfig.conf
     M->>K: new Kernel() (Logger, PermissionManager, MountManager, GUIRegistry)
     M->>K: await kernel.boot()
 
@@ -96,7 +96,7 @@ sequenceDiagram
 
 ```
 main.ts
-  Config.load()                    → baca sysconfig.json
+  Config.load()                    → baca sysconfig.conf
   new Kernel()                     → Logger, PermissionManager, MountManager, GUIRegistry
   kernel.boot()
     initializeSubsystems()
@@ -181,7 +181,7 @@ this.scheduler.setVFSCacheProvider(() => this.vfsCache);
 | `src/kernel/Kernel.ts` | `boot()` + `initializeSubsystems()` + `runInit()` |
 | `src/mirror/bin/init.ts` | PID 1: setuid, identity, rc.local, spawn login |
 | `src/mirror/etc/rc.local.ts` | Startup daemon list |
-| `src/common/Config.ts` | Reads `sysconfig.json` |
+| `src/common/Config.ts` | Reads `sysconfig.conf` |
 
 ---
 
@@ -375,7 +375,7 @@ missing.push("sudo:x:27:");     // GID 27 (gaya Ubuntu)
 - `src/kernel/Kernel.ts` — boot, initializeSubsystems, runInit, ensureDefaultAuth
 - `src/mirror/bin/init.ts` — PID 1 (setuid, identity, rc.local, spawn login)
 - `src/mirror/etc/rc.local.ts` — startup daemons
-- `src/common/Config.ts` — reads `sysconfig.json`
+- `src/common/Config.ts` — reads `sysconfig.conf`
 
 ---
 

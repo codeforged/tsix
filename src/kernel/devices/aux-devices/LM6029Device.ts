@@ -407,7 +407,7 @@ export class LM6029Device implements IDevice {
     public init(ctx: KContext): void {
         this.kctx = ctx;
         if (this.disabled) {
-            this.log("Driver dinonaktifkan (disabled=true), dilewati.");
+            this.log("Driver disabled (disabled=true), skipped.");
             return;
         }
 
@@ -415,14 +415,14 @@ export class LM6029Device implements IDevice {
             const hz = this.safe(() => this.lcd!.getSpiSpeed());
             const bus = this.safe(() => this.lcd!.getSpiDevicePath?.() ?? null);
             this.log(
-                `LM6029 siap: ${this.width}x${this.height} di /dev/${this.name}` +
+                `LM6029 ready: ${this.width}x${this.height} on /dev/${this.name}` +
                     (bus ? ` via ${bus}` : "") +
                     (hz ? ` (SPI ~${Math.round(num(hz) / 1000)} kHz)` : ""),
             );
         } else {
             this.log(
-                "LM6029 tidak terdeteksi (addon lm6029acw atau bus SPI belum siap). " +
-                    "Node /dev disembunyikan dari `ls /dev`.",
+                "LM6029 not detected (lm6029acw addon missing or SPI bus not ready). " +
+                    "Node hidden from the `ls /dev` listing.",
             );
         }
     }
@@ -439,8 +439,8 @@ export class LM6029Device implements IDevice {
             this.fail(
                 "open",
                 new Error(
-                    `Native addon '${ADDON_MODULE_NAMES[0]}' tidak ditemukan. ` +
-                        `Jalankan \`npm i ${ADDON_MODULE_NAMES[0]}\` atau set TSIX_LCD_ADDON_PATH.`,
+                    `Native addon '${ADDON_MODULE_NAMES[0]}' not found. ` +
+                        `Run \`npm i ${ADDON_MODULE_NAMES[0]}\` or set TSIX_LCD_ADDON_PATH.`,
                 ),
             );
             return false;
@@ -456,11 +456,11 @@ export class LM6029Device implements IDevice {
             if (!ok) {
                 const probe = this.safe(() => lcd.getSpiProbeLog?.() ?? "");
                 this.lastError =
-                    "begin() gagal membuka bus SPI" +
+                    "begin() failed to open the SPI bus" +
                     (probe ? ` (${probe})` : "") +
                     (typeof lcd.setSpiDevice === "function"
                         ? ""
-                        : " — addon lama: bus di-hardcode /dev/spidev0.0, update lm6029acw");
+                        : " — legacy addon: bus hardcoded to /dev/spidev0.0, update lm6029acw");
                 return false;
             }
 
@@ -489,7 +489,7 @@ export class LM6029Device implements IDevice {
      * isi buffer layar dan tidak perlu re-init SPI.
      */
     public close(): boolean {
-        this.log("Device ditutup (handle native dipertahankan).");
+        this.log("Device closed (native handle kept).");
         return true;
     }
 

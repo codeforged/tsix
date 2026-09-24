@@ -81,7 +81,7 @@ Root `/` **tidak** ada di `fstab.conf`. Ia di-mount langsung di `initializeSubsy
 this.mountManager.mount("/", this.bkfs, "bkfs", cfg.kernel.database, false);
 ```
 
-`cfg.kernel.database` bernilai `"system.db"` (lihat `src/sysconfig.json`). Sisanya dimuat dari `src/mirror/etc/fstab.conf` oleh `processFstab()`:
+`cfg.kernel.database` bernilai `"system.db"` (lihat `src/sysconfig.conf`). Sisanya dimuat dari `src/mirror/etc/fstab.conf` oleh `processFstab()`:
 
 | Path | type | Backend | Sumber | readOnly | uid/gid | mode | Sifat |
 |---|---|---|---|---|---|---|---|

@@ -148,11 +148,11 @@ Langkah detail:
 | `src/common/AesGcmAgent.ts` | Contoh agent kustom AES-256-GCM |
 | `src/kernel/Syscalls.ts` | Implementasi syscall SOCKET–NETSTAT (30–34) + SECAGENT_LIST (39) |
 | `src/mirror/sbin/secagent.ts` | Tool daftar agent yang terdaftar |
-| `src/sysconfig.json` | Konfigurasi interface network default |
+| `src/sysconfig.conf` | Konfigurasi interface network default |
 
 > [!NOTE] **Satu `NetworkLib`.** Class `NetworkLib` kini tunggal di `NetworkLib.ts` dan menerima `dispatch` ATAU `OSContext` (kompatibel pemakai lama). Untuk aplikasi baru, disarankan `NetSocket` — API high-level yang membungkus lifecycle + events + security.
 
-### Interface network default (`sysconfig.json`)
+### Interface network default (`sysconfig.conf`)
 
 Saat boot, kernel membaca `cfg.network.interfaces` dan membuat satu `SimpleMQTNLDriver` per entri (`Kernel.ts` → "Initialize Network Interfaces"). Tiap interface punya **deviceName** (nama `/dev`), **address** (nama node), dan **broker**:
 
@@ -449,7 +449,7 @@ case SyscallCode.BIND: {
 2. Baca `src/kernel/PortManager.ts` — pahami `allocateRandomPort` dan `releasePortsByPid`.
 3. Jalankan dua node (mis. `tsix` dan `esp32S3` di MQTT broker) — kirim pesan antar keduanya.
 4. Baca `src/kernel/devices/SocketDevice.ts` — jelaskan bagaimana socket menjadi `IDevice`.
-5. Dari aplikasi, jalankan `lib.net.netstat()` — bandingkan hasilnya dengan tabel interface di `sysconfig.json`.
+5. Dari aplikasi, jalankan `lib.net.netstat()` — bandingkan hasilnya dengan tabel interface di `sysconfig.conf`.
 
 ---
 
@@ -461,7 +461,7 @@ case SyscallCode.BIND: {
 - `src/kernel/devices/SocketDevice.ts` — socket = device
 - `src/kernel/PortManager.ts` — alokasi port virtual
 - `src/kernel/Syscalls.ts` — implementasi syscall SOCKET–NETSTAT (30–34)
-- `src/sysconfig.json` — interface network default
+- `src/sysconfig.conf` — interface network default
 
 ---
 

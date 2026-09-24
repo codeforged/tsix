@@ -152,4 +152,35 @@ describe("HostVFS", () => {
         expect(u.files).toBeGreaterThanOrEqual(2);
         expect(u.size).toBeGreaterThanOrEqual(10);
     });
+
+    // ============================================================
+    // B3.26–B3.27: Mode bit-izin saja (paritas dengan BKFS)
+    //
+    // `fs.Stats.mode` Node memuat bit tipe (S_IFREG 0o100000/S_IFDIR 0o040000).
+    // Kalau bocor ke userland, `ls -l` mencetak "100644" dan pembanding mode
+    // meleset — makanya HostVFS mem-mask 0o777. Khusus penting saat HostVFS
+    // dipakai sebagai ROOT (`rootType = "host"`).
+    // ============================================================
+    it("B3.26 stat – mode hanya bit izin (tanpa bit tipe S_IF*)", () => {
+        vfs.touch("/mode.txt", "x");
+        fs.chmodSync(path.join(tmpDir, "mode.txt"), 0o644);
+
+        const st = vfs.stat("/mode.txt");
+        expect(st.mode).toBe(0o644);
+
+        vfs.mkdir("/modedir");
+        fs.chmodSync(path.join(tmpDir, "modedir"), 0o755);
+        expect(vfs.stat("/modedir").mode).toBe(0o755);
+    });
+
+    it("B3.27 ls – mode juga ter-mask, dan mkdir menghormati `mode` saat membuat", () => {
+        vfs.mkdir("/fresh", 0, 0, 0o750);
+        const dir = vfs.ls("/").find((i: any) => i.name === "fresh");
+        expect(dir.mode).toBe(0o750);
+
+        vfs.touch("/listed.txt", "x");
+        const file = vfs.ls("/").find((i: any) => i.name === "listed.txt");
+        expect(file.mode & 0o100000).toBe(0); // tidak ada bit tipe
+        expect(file.mode & 0o0777).toBeGreaterThan(0); // izin tetap terbaca
+    });
 });

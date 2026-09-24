@@ -65,7 +65,7 @@ export class WebSocketDevice implements IDevice {
 
   public init(ctx: KContext): void {
     ctx.syslog(
-      "[wsd] WebSocketDevice siap — WS server kernel land (/dev/wsd)",
+      "[wsd] WebSocketDevice ready — kernel-land WS server (/dev/wsd)",
     );
   }
 
@@ -183,7 +183,7 @@ export class WebSocketDevice implements IDevice {
           if (!httpServer) {
             this.emit(ctx, {
               type: "LISTEN_ERROR",
-              message: "httpd belum listen utk pid ini (buka /dev/httpd dulu)",
+              message: "httpd is not listening for this pid yet (open /dev/httpd first)",
             });
             return { error: "no http server to attach" };
           }

@@ -15,6 +15,9 @@ systembak.db
 
 # --- Konfigurasi lokal / hasil install (machine-specific) ---
 # dibuat oleh `npm run install` (path DB, email creator, dll)
+# `.conf` = format key-value (aktif); `.json` = format lama, hanya dibaca untuk
+# migrasi sekali-jalan (lihat src/common/Config.ts).
+src/sysconfig.conf
 src/sysconfig.json
 
 # --- Node.js ---
@@ -79,6 +82,13 @@ src/mirror/home/*
 src/mirror/home/kakang/*
 !src/mirror/home/kakang/.gitkeep
 **/.sh_history
+
+# --- src/rootfs/ — hasil `vfs:pull` (dump VFS → host), ruang kerja lokal ---
+# Bukan source of truth: isinya salinan VFS yang tarik dari BKFS, termasuk
+# berkas runtime (var/log, .sh_history, sidecar .js) dan app yang lahir di dalam
+# simulator. Tarik ulang dengan `npm run vfs:pull`, jadi tidak perlu di-commit.
+# Source yang di-track tetap `src/mirror/` (lihat vfs-bootstrap.ts).
+src/rootfs/
 
 # --- shared/ — isi personal/dev
 shared/*

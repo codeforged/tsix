@@ -63,7 +63,11 @@ export class HostVFS implements IVFS {
         name: name,
         type: s.isDirectory() ? VNodeType.DIRECTORY : VNodeType.FILE,
         size: s.size,
-        mode: s.mode,
+        // MASK 0o777: `fs.Stats.mode` Node memuat bit TIPE (S_IFREG 0o100000,
+        // S_IFDIR 0o040000) di atas bit izin. BKFS menyimpan bit izin saja
+        // (0o644 = 420), jadi tanpa mask ini `ls -l` di userland menampilkan
+        // "100644" dan pembanding mode (mis. `mode === 0o644`) meleset.
+        mode: s.mode & 0o777,
         uid: s.uid,
         gid: s.gid,
         modified_at: s.mtimeMs,
@@ -79,7 +83,9 @@ export class HostVFS implements IVFS {
   ): boolean {
     if (this.readOnly) throw new Error("Read-only filesystem");
     const hostPath = this.toHostPath(vfsPath);
-    fs.mkdirSync(hostPath, { recursive: true });
+    // `mode` dihormati untuk pembuatan BARU (umask tetap berlaku, seperti mkdir
+    // biasa); direktori yang sudah ada tidak diubah izinnya — sama seperti BKFS.
+    fs.mkdirSync(hostPath, { recursive: true, ...(mode ? { mode } : {}) });
     return true;
   }
 
@@ -121,7 +127,9 @@ export class HostVFS implements IVFS {
       content: s.isDirectory() ? null : "PRESENT", // content read-only via read()
       uid: this.ownerUid ?? s.uid,
       gid: this.ownerGid ?? s.gid,
-      mode: this.ownerMode ?? s.mode,
+      // MASK 0o777 (lihat `ls()`): buang bit tipe S_IF* supaya bentuknya sama
+      // dengan mode di BKFS (bit izin saja).
+      mode: this.ownerMode ?? (s.mode & 0o777),
       modified_at: s.mtimeMs,
       created_at: s.birthtimeMs,
     };
@@ -137,8 +145,28 @@ export class HostVFS implements IVFS {
   public chown(vfsPath: string, uid: number, gid: number): boolean {
     if (this.readOnly) throw new Error("Read-only filesystem");
     const hostPath = this.toHostPath(vfsPath);
-    fs.chownSync(hostPath, uid, gid);
-    return true;
+    try {
+      fs.chownSync(hostPath, uid, gid);
+      return true;
+    } catch (e: any) {
+      // EPERM/EACCES = host tidak mengizinkan ganti kepemilikan (butuh root /
+      // CAP_CHOWN). Ini NORMAL begitu HostVFS dipakai sebagai root `/` (mode
+      // `rootType = "host"`): folder proyek dimiliki user biasa, sedangkan
+      // fstab biasanya meminta uid/gid 0.
+      //
+      // Dulu ini DILEMPAR, dan akibatnya nyata: entri fstab seperti `/tmp` dan
+      // `/hostsrc` gagal ter-mount seluruhnya hanya karena chown-nya ditolak —
+      // padahal isi berkasnya baik-baik saja. Kini dilaporkan sebagai "tidak
+      // bisa" (return false) tanpa membatalkan mount; kepemilikan efektif
+      // mengikuti berkas host.
+      if (e?.code === "EPERM" || e?.code === "EACCES") {
+        this.logger.debug(
+          `chown ${vfsPath} → ${uid}:${gid} diabaikan (${e.code}) — kepemilikan mengikuti berkas host`,
+        );
+        return false;
+      }
+      throw e;
+    }
   }
 
   public unlink(vfsPath: string): boolean {

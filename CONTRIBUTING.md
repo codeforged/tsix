@@ -39,7 +39,7 @@ npm install
 ### 2. Build a fresh image & boot
 
 ```bash
-npm run install        # interactive: creates a new .db + src/sysconfig.json
+npm run install        # interactive: creates a new .db + src/sysconfig.conf
 npm start
 ```
 
@@ -61,7 +61,7 @@ The flow between host and the TSIX filesystem (VFS) is:
 - `npm run install` — fresh image: creates the database, syncs `src/mirror` +
   `src/common`, applies executable/setuid modes, seeds auth & groups.
 - `npm run vfs:bootstrap` — bulk sync `src/mirror` into the configured
-  database (path from `kernel.database` in `src/sysconfig.json`).
+  database (path from `kernel.database` in `src/sysconfig.conf`).
 - `scripts/sync-vfs.ts` — sync a single file on save.
 - `scripts/vfs-pull.ts` — pull changes from the database back to the host.
 

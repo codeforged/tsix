@@ -137,28 +137,22 @@ Setiap node menghasilkan **Visual Identity** — pola warna ANSI unik yang bisa 
 
 ## Konfigurasi Network
 
-Konfigurasi interface di `src/sysconfig.json`:
+Konfigurasi interface di `src/sysconfig.conf` (key-value, gaya `/etc/fstab.conf`):
 
-```json
-{
-  "network": {
-    "interfaces": [
-      {
-        "broker": "mqtt://192.168.0.109",
-        "deviceName": "smqtnl0",
-        "address": "antigonon",
-        "defaultPort": 1883
-      },
-      {
-        "broker": "mqtt://192.168.0.109",
-        "deviceName": "smqtnl1",
-        "address": "tsix-node-2",
-        "defaultPort": 1883
-      }
-    ],
-    "defaultDevice": "smqtnl0"
-  }
-}
+```ini
+[network]
+defaultDevice = smqtnl0
+interfaces    = smqtnl0, smqtnl1
+
+[iface.smqtnl0]
+broker      = mqtt://192.168.0.109
+address     = antigonon
+defaultPort = 1883
+
+[iface.smqtnl1]
+broker      = mqtt://192.168.0.109
+address     = tsix-node-2
+defaultPort = 1883
 ```
 
 ---
@@ -168,7 +162,7 @@ Konfigurasi interface di `src/sysconfig.json`:
 | Perintah                 | Deskripsi                                                                                       |
 | ------------------------ | ----------------------------------------------------------------------------------------------- |
 | `ifconfig`               | Menampilkan status interface (IP, MAC, Rx/Tx stats)                                             |
-| `ifconfig <dev\|addr>`   | Ubah interface default saat runtime (mis. `ifconfig smqtnl1`) — tanpa mengubah `sysconfig.json` |
+| `ifconfig <dev\|addr>`   | Ubah interface default saat runtime (mis. `ifconfig smqtnl1`) — tanpa mengubah `sysconfig.conf` |
 | `ping <node>`            | Cek konektivitas ke node lain                                                                   |
 | `scanif`                 | Broadcast ping (default, cari interface online) & scan port terbuka (`-p <ports> <node>`)       |
 | `nettop`                 | Monitor traffic real-time (like `htop` for network)                                             |

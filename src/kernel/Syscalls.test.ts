@@ -1329,7 +1329,7 @@ describe("SyscallDispatcher (A1)", () => {
           path: "/etc/rc.local",
           args: [],
         }),
-      ).rejects.toThrow(/interpreter tidak didukung/);
+      ).rejects.toThrow(/unsupported interpreter/);
     });
 
     it("A1.114e EXEC – interpreter shell tidak ada di VFS → gagal jelas", async () => {
@@ -1342,7 +1342,7 @@ describe("SyscallDispatcher (A1)", () => {
           path: "/etc/rc.local",
           args: [],
         }),
-      ).rejects.toThrow(/interpreter tidak ditemukan/);
+      ).rejects.toThrow(/no interpreter found/);
     });
   });
 

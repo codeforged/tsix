@@ -206,7 +206,7 @@ sequenceDiagram
 git clone https://github.com/codeforged/tsix.git
 cd tsix
 npm install
-npm run install    # interaktif: buat image baru (.db + src/sysconfig.json)
+npm run install    # interaktif: buat image baru (.db + src/sysconfig.conf)
 npm start          # boot TSIX shell — langsung dari src/main.ts (TypeScript)
 ```
 
@@ -218,7 +218,7 @@ npm start          # boot TSIX shell — langsung dari src/main.ts (TypeScript)
 
 ```bash
 npm run vfs:bootstrap   # bulk-sync src/mirror ke database yang terkonfigurasi
-npm run bkfs:create     # buat database kosong (path dari src/sysconfig.json)
+npm run bkfs:create     # buat database kosong (path dari src/sysconfig.conf)
 ```
 
 ### GUI Mode

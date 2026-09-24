@@ -43,7 +43,7 @@ export class SerialDevice implements IDevice {
 
     init(ctx: KContext): void {
         // Technical registration info
-        ctx.syslog(`Registrasi Serial Driver pada ${this.port.path} (Baud: ${this.port.baudRate})`);
+        ctx.syslog(`Serial driver registered on ${this.port.path} (baud: ${this.port.baudRate})`);
     }
 
     /**

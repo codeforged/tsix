@@ -58,7 +58,7 @@
   </div>
   <div class="meta">
     System design &amp; architecture: Andriansah<br>
-    Dibuat: 2026-09-05<br>
+    Dibuat: 2026-09-24<br>
     Platform: TSIX (educational OS-like runtime on Node.js/TypeScript)
   </div>
 </div>
@@ -205,7 +205,7 @@
 <hr>
 <h2>3. Boot Sequence</h2>
 <pre><code>main.ts
-  Config.load()                    → baca sysconfig.json
+  Config.load()                    → baca sysconfig.conf
   new Kernel()                     → Logger, PermissionManager, MountManager, GUIRegistry
   kernel.boot()
     initializeSubsystems()
@@ -382,7 +382,7 @@
 </tr>
 </tbody></table>
 <p><strong>Kunci &quot;everything is a file&quot;</strong>: FD table berisi <code>FDEntry {device, context, flags}</code> → semua objek <code>IDevice</code>. File biasa dibungkus <code>FileSystemDevice</code>. Pipe refcount via ioctl (<code>INC_REF</code>/<code>DEC_REF</code>), EOF saat <code>writeRefs==0</code>.</p>
-<p><strong>Plugin driver</strong>: folder <code>aux-devices/</code> di-scan saat boot; <code>new DeviceClass()</code> + konvensi <code>static autoRegister(kernel)</code> untuk hardware (MCP23017). <code>applyDeviceConfigs()</code> = &quot;udev&quot; dari <code>sysconfig.json</code>.</p>
+<p><strong>Plugin driver</strong>: folder <code>aux-devices/</code> di-scan saat boot; <code>new DeviceClass()</code> + konvensi <code>static autoRegister(kernel)</code> untuk hardware (MCP23017). <code>applyDeviceConfigs()</code> = &quot;udev&quot; dari <code>sysconfig.conf</code>.</p>
 <blockquote>
 <p>[!NOTE] <strong>Soal <code>MySQLDevice</code> (<code>/dev/mysql</code>) — transport pertama, bukan satu-satunya</strong>
 <code>MySQLDevice</code> adalah integrasi database eksternal lewat model device — ia <strong>bukan</strong> driver hardware sungguhan, melainkan <strong>transport pertama</strong> untuk akses DB (contoh perluasan HAL).
@@ -515,7 +515,7 @@ scripts/vfs-pull.ts        system.db → src/root (pull balik)
 SYNC_TO_HOST (syscall)     DB → host (app dalam VFS menulis /lib → src/.tsix_sdk)
 userlib-update.ts          sinkronkan /lib → src/.tsix_sdk/lib (agar Node.js host bisa require)
 </code></pre>
-<p><strong>Konfigurasi</strong>: <code>src/sysconfig.json</code> (database path, workerEntryPath, bootEntry, network interfaces). <code>tsconfig.json</code> memetakan <code>@tsix/*</code> → <code>src/.tsix_sdk/lib/*</code>, <code>src/root/lib/*</code>, <code>src/mirror/lib/*</code>.</p>
+<p><strong>Konfigurasi</strong>: <code>src/sysconfig.conf</code> (database path, workerEntryPath, bootEntry, network interfaces). <code>tsconfig.json</code> memetakan <code>@tsix/*</code> → <code>src/.tsix_sdk/lib/*</code>, <code>src/root/lib/*</code>, <code>src/mirror/lib/*</code>.</p>
 <hr>
 <h2>12. Insight Desain &amp; Gotchas</h2>
 <p><strong>Insight (kenapa didesain begini):</strong></p>
@@ -1090,7 +1090,7 @@ check(pid: number, path: string, mode: number): boolean {
     participant L as login (TTY1-6)
 
     H-&gt;&gt;M: node src/main.ts
-    M-&gt;&gt;M: Config.load() → sysconfig.json
+    M-&gt;&gt;M: Config.load() → sysconfig.conf
     M-&gt;&gt;K: new Kernel() (Logger, PermissionManager, MountManager, GUIRegistry)
     M-&gt;&gt;K: await kernel.boot()
 
@@ -1141,7 +1141,7 @@ check(pid: number, path: string, mode: number): boolean {
 </blockquote>
 <h3>Alur ringkas (ASCII)</h3>
 <pre><code>main.ts
-  Config.load()                    → baca sysconfig.json
+  Config.load()                    → baca sysconfig.conf
   new Kernel()                     → Logger, PermissionManager, MountManager, GUIRegistry
   kernel.boot()
     initializeSubsystems()
@@ -1240,7 +1240,7 @@ this.scheduler.setVFSCacheProvider(() =&gt; this.vfsCache);
 </tr>
 <tr>
 <td><code>src/common/Config.ts</code></td>
-<td>Baca <code>sysconfig.json</code></td>
+<td>Baca <code>sysconfig.conf</code></td>
 </tr>
 </tbody></table>
 <hr>
@@ -1397,7 +1397,7 @@ missing.push(&quot;sudo:x:27:&quot;);     // GID 27 (gaya Ubuntu)
 <li><code>src/kernel/Kernel.ts</code> — boot, initializeSubsystems, runInit, ensureDefaultAuth</li>
 <li><code>src/mirror/bin/init.ts</code> — PID 1 (setuid, identity, rc.local, spawn login)</li>
 <li><code>src/mirror/etc/rc.local.ts</code> — daemon startup</li>
-<li><code>src/common/Config.ts</code> — baca <code>sysconfig.json</code></li>
+<li><code>src/common/Config.ts</code> — baca <code>sysconfig.conf</code></li>
 </ul>
 <hr>
 <p><em>Modul 03 — selesai. Lanjut ke <a href="04-processes-scheduler.md">Modul 04 — Proses &amp; Scheduler</a>.</em></p>
@@ -2930,7 +2930,7 @@ Di <code>WorkerEntry.ts</code>, <code>restrictHostAPI(appName)</code> menandai a
 <ul>
 <li><input disabled="" type="checkbox"> Menjelaskan struktur <code>MountPoint</code></li>
 <li><input disabled="" type="checkbox"> Menjelaskan prinsip &quot;prefix terpanjang menang&quot;</li>
-<li><input disabled="" type="checkbox"> Menjelaskan isi <code>fstab.json</code> (mount default)</li>
+<li><input disabled="" type="checkbox"> Menjelaskan isi <code>fstab.conf</code> (mount default)</li>
 <li><input disabled="" type="checkbox"> Membedakan resolve via MountManager vs device <code>/dev/*</code></li>
 <li><input disabled="" type="checkbox"> Menjelaskan peran <code>PathResolver</code></li>
 <li><input disabled="" type="checkbox"> Melakukan walkthrough <code>PathResolver.resolve()</code> untuk path relatif, absolut, <code>.</code> dan <code>..</code></li>
@@ -2960,7 +2960,7 @@ Di <code>WorkerEntry.ts</code>, <code>restrictHostAPI(appName)</code> menandai a
 }
 </code></pre>
 <blockquote>
-<p><code>type</code> memakai nilai nyata dari <code>fstab.json</code>: <code>&quot;bkfs&quot;</code>, <code>&quot;ramfs&quot;</code>, dan <code>&quot;host&quot;</code> (HostVFS).</p>
+<p><code>type</code> memakai nilai nyata dari <code>fstab.conf</code>: <code>&quot;bkfs&quot;</code>, <code>&quot;ramfs&quot;</code>, dan <code>&quot;host&quot;</code> (HostVFS).</p>
 </blockquote>
 <h3>PathResolver.resolve() — walkthrough</h3>
 <p><code>PathResolver.resolve(cwd, targetPath)</code> menerima dua argumen: direktori kerja (<code>cwd</code>) dan path target. Hasilnya selalu path absolut ternormalisasi (tanpa <code>//</code>, <code>.</code>, atau <code>..</code>).</p>
@@ -3022,10 +3022,10 @@ Di <code>WorkerEntry.ts</code>, <code>restrictHostAPI(appName)</code> menandai a
 Contoh 4 dan 5 menunjukkan bahwa normalisasi terjadi <strong>sebelum</strong> pencarian mount. Jadi <code>resolve(&quot;/tmp/./foo&quot;)</code> dan <code>resolve(&quot;/tmp/foo&quot;)</code> dianggap sama oleh <code>MountManager</code>.</p>
 </blockquote>
 <h3>Mount default</h3>
-<p>Root <code>/</code> <strong>tidak</strong> ada di <code>fstab.json</code>. Ia di-mount langsung di <code>initializeSubsystems()</code>:</p>
+<p>Root <code>/</code> <strong>tidak</strong> ada di <code>fstab.conf</code>. Ia di-mount langsung di <code>initializeSubsystems()</code>:</p>
 <pre><code class="language-ts">this.mountManager.mount(&quot;/&quot;, this.bkfs, &quot;bkfs&quot;, cfg.kernel.database, false);
 </code></pre>
-<p><code>cfg.kernel.database</code> bernilai <code>&quot;system.db&quot;</code> (lihat <code>src/sysconfig.json</code>). Sisanya dimuat dari <code>src/mirror/etc/fstab.json</code> oleh <code>processFstab()</code>:</p>
+<p><code>cfg.kernel.database</code> bernilai <code>&quot;system.db&quot;</code> (lihat <code>src/sysconfig.conf</code>). Sisanya dimuat dari <code>src/mirror/etc/fstab.conf</code> oleh <code>processFstab()</code>:</p>
 <table>
 <thead>
 <tr>
@@ -3082,7 +3082,10 @@ Contoh 4 dan 5 menunjukkan bahwa normalisasi terjadi <strong>sebelum</strong> pe
 </tbody></table>
 <blockquote>
 <p>[!NOTE]
-<code>fstab.json</code> hanya memuat <code>/tmp</code>, <code>/mnt/shared</code>, dan <code>/mnt/sbak</code>. Entry <code>/tmp</code> memakai <code>active: true</code>; sisanya default aktif. Mode <code>1023</code> = <code>0o1777</code> (sticky, semua bisa tulis — khas <code>/tmp</code>), <code>509</code> = <code>0o775</code>.</p>
+<code>fstab.conf</code> hanya memuat <code>/tmp</code>, <code>/mnt/shared</code>, dan <code>/mnt/sbak</code>. Entry <code>/tmp</code>
+ memakai <code>active = true</code>; sisanya default aktif. Format INI menulis izin sebagai
+ oktal eksplisit: <code>mode = 0o1777</code> (sticky, semua bisa tulis — khas <code>/tmp</code>),
+ <code>mode = 0o775</code> untuk sisanya. (Kalau ditulis desimal pun sah: <code>1023</code> = <code>0o1777</code>.)</p>
 </blockquote>
 <h3>Resolve: prefix terpanjang menang</h3>
 <p>Setelah semua mount terpasang, daftar di-sort <strong>descending by panjang path</strong>. Urutan hasil sortir untuk mount default:</p>
@@ -3157,7 +3160,7 @@ Baris terakhir adalah gotcha penting. <code>/mnt/sharedx/foo</code> <strong>tida
 <pre><code>initializeSubsystems()
   └─ new BKFS(&quot;system.db&quot;)                        → root filesystem
   └─ mount(&quot;/&quot;, bkfs, &quot;bkfs&quot;, &quot;system.db&quot;, false)
-  └─ processFstab()                               → baca /etc/fstab.json
+  └─ processFstab()                               → baca /etc/fstab.conf
        └─ untuk tiap entry:
             active === false → skip
             pastikan dir mount point ada (mode ?? 0o755)
@@ -3198,7 +3201,7 @@ Path /dev/* → kernel.devices[xxx]     // HAL, bukan MountManager
 <td><code>initializeSubsystems()</code> + <code>processFstab()</code> saat boot</td>
 </tr>
 <tr>
-<td><code>src/mirror/etc/fstab.json</code></td>
+<td><code>src/mirror/etc/fstab.conf</code></td>
 <td>Daftar mount default</td>
 </tr>
 <tr>
@@ -3314,7 +3317,7 @@ this.mountManager.mount(&quot;/&quot;, this.bkfs, &quot;bkfs&quot;, cfg.kernel.d
 <pre><code class="language-ts">private async processFstab() {
     if (!this.bkfs) return;
 
-    const fstabPath = &quot;/etc/fstab.json&quot;;
+    const fstabPath = &quot;/etc/fstab.conf&quot;;
     if (!this.bkfs.exists(fstabPath)) return;
 
     try {
@@ -3397,7 +3400,7 @@ this.mountManager.mount(&quot;/&quot;, this.bkfs, &quot;bkfs&quot;, cfg.kernel.d
 <li><code>wiki/course/00-overview.md</code> §4.4</li>
 <li><code>src/kernel/MountManager.ts</code>, <code>src/common/PathResolver.ts</code></li>
 <li><code>src/kernel/Kernel.ts</code> — <code>initializeSubsystems()</code> &amp; <code>processFstab()</code></li>
-<li><code>src/mirror/etc/fstab.json</code> — daftar mount default</li>
+<li><code>src/mirror/etc/fstab.conf</code> — daftar mount default</li>
 </ul>
 <hr>
 <p><em>Modul 07 — selesai. Bagian II tuntas. Lanjut ke <a href="08-vfs.md">Modul 08 — VFS</a>.</em></p>
@@ -3484,7 +3487,7 @@ this.mountManager.mount(&quot;/&quot;, this.bkfs, &quot;bkfs&quot;, cfg.kernel.d
 <td><code>/mnt/shared</code> (bridge + anti-escape)</td>
 </tr>
 </tbody></table>
-<p>Kapan backend dipakai ditentukan oleh <code>MountManager</code> saat boot (lihat <code>src/mirror/etc/fstab.json</code>):</p>
+<p>Kapan backend dipakai ditentukan oleh <code>MountManager</code> saat boot (lihat <code>src/mirror/etc/fstab.conf</code>):</p>
 <table>
 <thead>
 <tr>
@@ -3521,7 +3524,7 @@ this.mountManager.mount(&quot;/&quot;, this.bkfs, &quot;bkfs&quot;, cfg.kernel.d
 </tbody></table>
 <blockquote>
 <p>[!NOTE] <strong>&quot;Swap backend&quot; tanpa ubah kernel</strong>
-Kernel hanya memegang referensi <code>IVFS</code>. Karena semua backend mengimplementasi kontrak yang sama, mengganti penyimpanan (mis. <code>/tmp</code> dari RamFS ke BKFS) cukup dengan mengubah entri <code>fstab.json</code> — syscall tidak berubah sama sekali.</p>
+Kernel hanya memegang referensi <code>IVFS</code>. Karena semua backend mengimplementasi kontrak yang sama, mengganti penyimpanan (mis. <code>/tmp</code> dari RamFS ke BKFS) cukup dengan mengubah entri <code>fstab.conf</code> — syscall tidak berubah sama sekali.</p>
 </blockquote>
 <p><img src="/wiki/diagram/Virtual-File-System-1.png" alt="Routing VFS: app → syscall → MountManager → BKFS/RamFS/HostVFS">
 <em>Sumber: <a href="/wiki/diagram/Virtual-File-System-1.mmd"><code>wiki/diagram/Virtual-File-System-1.mmd</code></a></em></p>
@@ -3545,7 +3548,7 @@ Kernel hanya memegang referensi <code>IVFS</code>. Karena semua backend mengimpl
 </code></pre>
 <p><strong>Catatan penting:</strong></p>
 <ul>
-<li><strong><code>uid</code>/<code>gid</code>/<code>mode</code> disimpan sebagai desimal</strong>, bukan string octal. Contoh: <code>mode 420</code> = <code>0o644</code>, <code>493</code> = <code>0o755</code>. Root <code>/</code> disisipkan saat init dengan mode <code>493</code>; <code>/tmp</code> di <code>fstab.json</code> memakai <code>1023</code> = <code>0o1777</code> (sticky bit).</li>
+<li><strong><code>uid</code>/<code>gid</code>/<code>mode</code> disimpan sebagai desimal</strong> oleh kernel, bukan string octal. Contoh: <code>mode 420</code> = <code>0o644</code>, <code>493</code> = <code>0o755</code>. Root <code>/</code> disisipkan saat init dengan mode <code>493</code>; <code>/tmp</code> di <code>fstab.conf</code> ditulis <code>mode = 0o1777</code> (setara desimal <code>1023</code>, sticky bit).</li>
 <li><strong>Navigasi path</strong> dilakukan baris-per-baris: setiap segmen dicari dengan <code>SELECT id FROM vnodes WHERE name = ? AND parent_id = ? AND type = &#39;DIRECTORY&#39;</code>, lalu <code>parent_id</code> bergeser ke id hasil. Ini terjadi di <code>getNodeId()</code> / <code>getNodeIdAndSize()</code>.</li>
 <li><strong><code>UNIQUE(parent_id, name)</code></strong> mencegah duplikasi nama di folder yang sama. Schema ini juga migrasi DB lama: kolom <code>uid/gid/mode/size/modified_at</code> ditambahkan via <code>ALTER TABLE</code> jika belum ada.</li>
 </ul>
@@ -3816,7 +3819,7 @@ Syscall menerima path relatif terhadap <code>pcb.cwd</code>; <code>PathResolver.
 <li><code>src/kernel/MountManager.ts</code> — pemilihan backend dari path (prefix terpanjang)</li>
 <li><code>src/kernel/Syscalls.ts</code> — syscall <code>OPEN</code>, <code>READ</code>, <code>READ_CHUNK</code>, <code>WRITE_CHUNK</code>, <code>GET_SIZE</code></li>
 <li><code>src/kernel/devices/FileSystemDevice.ts</code> — jembatan FD → IVFS</li>
-<li><code>src/mirror/etc/fstab.json</code> — konfigurasi mount saat boot</li>
+<li><code>src/mirror/etc/fstab.conf</code> — konfigurasi mount saat boot</li>
 </ul>
 <hr>
 <p><em>Modul 08 — selesai. Lanjut ke <a href="09-fd-table-file-syscalls.md">Modul 09 — FD Table &amp; File Syscalls</a>.</em></p>
@@ -4258,7 +4261,7 @@ case SyscallCode.READ: {
 <li><input disabled="" type="checkbox"> Menjelaskan mengapa <code>/dev</code> virtual — bukan vnode filesystem</li>
 <li><input disabled="" type="checkbox"> Menjelaskan urutan registrasi device saat boot</li>
 <li><input disabled="" type="checkbox"> Menjelaskan plugin <code>aux-devices</code>: konvensi <code>export default</code> + <code>static autoRegister</code></li>
-<li><input disabled="" type="checkbox"> Menjelaskan <code>applyDeviceConfigs()</code> (udev-style dari <code>sysconfig.json</code>)</li>
+<li><input disabled="" type="checkbox"> Menjelaskan <code>applyDeviceConfigs()</code> (udev-style dari <code>sysconfig.conf</code>)</li>
 <li><input disabled="" type="checkbox"> Menjelaskan <code>present()</code> untuk hotplug (udev-like)</li>
 <li><input disabled="" type="checkbox"> Menjelaskan dual transport <code>DbLib</code>: <code>/dev/mysql</code> vs daemon <code>mysqld</code></li>
 <li><input disabled="" type="checkbox"> Menulis driver sendiri (checklist 10 langkah)</li>
@@ -4482,7 +4485,7 @@ this.devices = {
 // 3. Interface jaringan (cfg.network.interfaces) → SimpleMQTNLDriver
 // 4. loadAuxDevices()     → plugin dari folder aux-devices
 // 5. SerialDeviceManager  → auto-detect ttyUSB*
-// 6. applyDeviceConfigs() → udev-style dari sysconfig.json
+// 6. applyDeviceConfigs() → udev-style dari sysconfig.conf
 // 7. init() semua driver  → suntikan KContext (syslog)
 // 8. pastikan /dev ada di VFS (mkdir 493)
 </code></pre>
@@ -4494,7 +4497,7 @@ this.devices = {
 <li><strong><code>static autoRegister(kernel)</code> opsional</strong> — untuk konfigurasi hardware platform-specific (mis. MCP23017 + bus I2C). Dipanggil setelah instance terdaftar.</li>
 </ol>
 <h3>applyDeviceConfigs (udev-style)</h3>
-<p>Blok <code>devices</code> di <code>sysconfig.json</code> → aturan &quot;udev&quot;: set <code>mode</code>/<code>uid</code>/<code>gid</code> per nama device — persis aturan udev Linux.</p>
+<p>Seksi <code>[device.&lt;nama&gt;]</code> di <code>sysconfig.conf</code> → aturan &quot;udev&quot;: set <code>mode</code>/<code>uid</code>/<code>gid</code> per nama device — persis aturan udev Linux.</p>
 <pre><code class="language-json">{
   &quot;devices&quot;: {
     &quot;randomdevice&quot;: {
@@ -4527,7 +4530,7 @@ this.devices = {
 <li>Interface jaringan dari <code>cfg.network.interfaces</code> → <code>SimpleMQTNLDriver</code>.</li>
 <li><code>loadAuxDevices()</code>: scan <code>aux-devices/</code> → <code>export default</code> → register → <code>autoRegister</code>.</li>
 <li><code>SerialDeviceManager</code> mendeteksi <code>ttyUSB*</code>.</li>
-<li><code>applyDeviceConfigs()</code>: terapkan <code>mode</code>/<code>uid</code>/<code>gid</code> dari <code>sysconfig.json</code>.</li>
+<li><code>applyDeviceConfigs()</code>: terapkan <code>mode</code>/<code>uid</code>/<code>gid</code> dari <code>sysconfig.conf</code>.</li>
 <li>Loop <code>init()</code> semua driver → suntik <code>KContext.syslog</code>.</li>
 <li>Direktori <code>/dev</code> dijamin ada di VFS.</li>
 </ol>
@@ -4885,7 +4888,7 @@ Contoh terkecil sudah ada: <code>NullDevice</code> dan <code>RandomDevice</code>
 <tr>
 <td>Interface jaringan</td>
 <td>—</td>
-<td>Via <code>cfg.network.interfaces</code> di <code>sysconfig.json</code></td>
+<td>Via <code>cfg.network.interfaces</code> di <code>sysconfig.conf</code></td>
 </tr>
 </tbody></table>
 <h3>Checklist 10 langkah</h3>
@@ -4898,7 +4901,7 @@ Contoh terkecil sudah ada: <code>NullDevice</code> dan <code>RandomDevice</code>
 <li><strong>Opsional metadata</strong>: <code>uid/gid/mode</code> (default permission <code>0o600</code>), <code>disabled</code> untuk mematikan saat boot.</li>
 <li><strong><code>export default EchoDevice;</code></strong> — WAJIB. Tanpa ini <code>loadAuxDevices()</code> tidak mengenali plugin (<code>module.default || module</code>).</li>
 <li><strong>Opsional <code>static autoRegister(kernel)</code></strong> — untuk konfigurasi hardware platform-specific (bus, address, name).</li>
-<li><strong>Atur izin udev-style</strong>: <code>sysconfig.json</code> → <code>&quot;devices&quot;: { &quot;echo&quot;: { &quot;mode&quot;: 438 } }</code>.</li>
+<li><strong>Atur izin udev-style</strong>: <code>sysconfig.conf</code> → <code>[device.echo]</code> + <code>mode = 0o666</code>.</li>
 <li><strong>Test</strong>: boot → <code>ls /dev/echo</code> → tulis/baca dari shell → cek syslog <code>[Dynamic HAL] Kernel Plugin Loaded: /dev/echo</code>. Tambah unit test di <code>src/kernel/devices/aux-devices/C10-AuxDevices.test.ts</code> (pola C10.08–C10.12).</li>
 </ol>
 <blockquote>
@@ -4912,7 +4915,7 @@ Contoh terkecil sudah ada: <code>NullDevice</code> dan <code>RandomDevice</code>
 <li>Baca <code>src/kernel/devices/aux-devices/MCP23017Device.ts</code> — pelajari <code>autoRegister</code> + <code>disabled</code>.</li>
 <li>Baca <code>src/kernel/devices/aux-devices/joystick.ts</code> — pelajari <code>present()</code> (hotplug udev-like).</li>
 <li>Jalankan <code>ls /dev</code> setelah boot — perhatikan <code>/dev/randomdevice</code> dan metadata-nya.</li>
-<li>Ubah <code>mode</code> di <code>sysconfig.json</code> (blok <code>devices.randomdevice</code>) → boot ulang → amati hasil <code>ls /dev</code>.</li>
+<li>Ubah <code>mode</code> di <code>sysconfig.conf</code> (seksi <code>[device.randomdevice]</code>) → boot ulang → amati hasil <code>ls /dev</code>.</li>
 <li>(Tantangan) Tulis driver <code>/dev/echo</code>: <code>read()</code> mengembalikan teks yang ditulis terakhir, <code>write()</code> menyimpannya. Ikuti checklist 10 langkah di atas, lalu uji dari shell.</li>
 </ol>
 <hr>
@@ -4930,7 +4933,7 @@ Contoh terkecil sudah ada: <code>NullDevice</code> dan <code>RandomDevice</code>
 <li><code>src/mirror/lib/DbLib.ts</code> — API <code>db.connect/query/disconnect</code></li>
 <li><code>src/mirror/etc/mysqld/mysqld.ts</code> — service daemon (transport alternatif)</li>
 <li><code>src/kernel/devices/aux-devices/C10-AuxDevices.test.ts</code> — test driver (C10.08–C10.12)</li>
-<li><code>src/sysconfig.json</code> — blok <code>devices</code> (udev-style)</li>
+<li><code>src/sysconfig.conf</code> — seksi <code>[device.*]</code> (udev-style)</li>
 </ul>
 <hr>
 <p><em>Modul 10 — selesai. Bagian III tuntas. Lanjut ke <a href="11-worker-thread-sandbox.md">Modul 11 — Worker Thread &amp; Sandbox</a>.</em></p>
@@ -5967,7 +5970,7 @@ AppClass = appModule.exports.main || appModule.exports.Main || appModule.exports
 <p>Scheduler memelihara pemetaan <code>ttyForegroundPids: Map&lt;ttyId, pid&gt;</code> — satu foreground process per TTY. Saat proses <strong>detach</strong> (daemonize) atau <strong>EXIT</strong>, ia dilepas dari pemetaan foreground dan <code>ttyId</code>-nya dibersihkan. Contoh pemakaian di userland: <code>init</code> (PID 1) di <code>tty1</code>, lalu <code>login</code> di-spawn untuk TTY lain dengan <code>ttyId</code> tujuan.</p>
 <h3>Keyboard</h3>
 <ul>
-<li><strong>Hotkey</strong> Alt+F1–F6 → <code>TTYManager.switch</code> (juga Alt+1–6 untuk macOS).</li>
+<li><strong>Hotkey</strong> Alt+F1–F6 → <code>TTYManager.switch</code>. Pindah TTY juga bisa dengan <strong>Alt+1–6</strong> dan <strong>Ctrl+Alt+1–6</strong> di semua terminal (keduanya terkirim sebagai ESC+digit; di macOS Terminal: <code>¡ ™ £ ¢ ∞ §</code>) serta <strong>Ctrl+1–6</strong> di terminal yang melaporkan modifier (CSI-u / modifyOtherKeys); <code>Ctrl+4–6</code> juga terbaca lewat caret notation (FS/GS/RS). Tidak ada <code>Ctrl+1–6</code> telanjang: GNOME Terminal memakainya untuk pindah tab dan VS Code untuk focus editor group, dan byte-nya tak lagi membawa info modifier.</li>
 <li><strong>Ctrl+C</strong> → <code>SIGINT</code> ke foreground process TTY aktif.</li>
 <li><strong>Switch konsol</strong> → <code>SIGWINCH</code> ke foreground process TTY yang baru aktif.</li>
 <li><strong>Resize jendela host</strong> → update <code>LINES</code>/<code>COLUMNS</code> di env semua proses + <code>SIGWINCH</code> broadcast + <code>TTYManager.handleResize()</code>.</li>
@@ -6233,23 +6236,36 @@ const newPcb = this.scheduler.createProcess(binaryName, {
     ppid: pid,
 });
 </code></pre>
-<h3>Hotkey Alt+F1..6 (<code>src/kernel/Kernel.ts</code>)</h3>
+<h3>Hotkey pindah TTY (Alt+F1..6, Alt+1..6, Ctrl+Alt+1..6) (<code>src/kernel/Kernel.ts</code>)</h3>
 <pre><code class="language-ts">private handleKeyboardHotkey(seq: string): boolean {
     const hotkeys: Record&lt;string, number&gt; = {
-        // Alt+F1..F6 (Xterm, iTerm2, Terminal.app)
+        // Alt+F1..F6 (xterm, iTerm2, Terminal.app)
         &quot;\x1b\x1bOP&quot;: 1,   &quot;\x1b[1;3P&quot;: 1,   &quot;\x1b[11;3~&quot;: 1,
         &quot;\x1b\x1bOQ&quot;: 2,   &quot;\x1b[1;3Q&quot;: 2,   &quot;\x1b[12;3~&quot;: 2,
         &quot;\x1b\x1bOR&quot;: 3,   &quot;\x1b[1;3R&quot;: 3,   &quot;\x1b[13;3~&quot;: 3,
         &quot;\x1b\x1bOS&quot;: 4,   &quot;\x1b[1;3S&quot;: 4,   &quot;\x1b[14;3~&quot;: 4,
         &quot;\x1b\x1b[15~&quot;: 5, &quot;\x1b[15;3~&quot;: 5,  &quot;\x1b[1;3;15~&quot;: 5,
         &quot;\x1b\x1b[17~&quot;: 6, &quot;\x1b[17;3~&quot;: 6,  &quot;\x1b[1;3;17~&quot;: 6,
-        // Alt+1..6 (macOS saat Option bertindak sebagai Meta)
-        &quot;\x1b1&quot;: 1, &quot;\x1b2&quot;: 2, &quot;\x1b3&quot;: 3,
-        &quot;\x1b4&quot;: 4, &quot;\x1b5&quot;: 5, &quot;\x1b6&quot;: 6,
+        // Option+1..6 (macOS Terminal, Option as Meta MATI)
+        &quot;¡&quot;: 1, &quot;™&quot;: 2, &quot;£&quot;: 3, &quot;¢&quot;: 4, &quot;∞&quot;: 5, &quot;§&quot;: 6,
+        // Ctrl+4..6 — caret notation (FS/GS/RS)
+        &quot;\x1c&quot;: 4, &quot;\x1d&quot;: 5, &quot;\x1e&quot;: 6,
     };
-    if (hotkeys[seq]) {
+    for (let d = 1; d &lt;= 6; d++) {
+        const cp = 48 + d;                    // &#39;1&#39; = 49 ... &#39;6&#39; = 54
+        hotkeys[&quot;\x1b&quot; + d] = d;              // Alt+digit &amp; Ctrl+Alt+digit
+        hotkeys[`\x1b[${cp};3u`] = d;         // Alt+digit (CSI-u)
+        hotkeys[`\x1b[${cp};5u`] = d;         // Ctrl+digit (CSI-u)
+        hotkeys[`\x1b[${cp};7u`] = d;         // Ctrl+Alt+digit (CSI-u)
+        hotkeys[`\x1b[27;3;${cp}~`] = d;      // Alt+digit (modifyOtherKeys)
+        hotkeys[`\x1b[27;5;${cp}~`] = d;      // Ctrl+digit (modifyOtherKeys)
+        hotkeys[`\x1b[27;7;${cp}~`] = d;      // Ctrl+Alt+digit (modifyOtherKeys)
+    }
+    const targetTtyId = hotkeys[seq];
+    // typeof check: kata seperti &quot;constructor&quot;/&quot;toString&quot; jangan ikut ditelan
+    if (typeof targetTtyId === &quot;number&quot;) {
         // FIRE AND FORGET: jangan await agar tidak memblokir input keyboard
-        this.ttyManager?.switch(hotkeys[seq]);
+        this.ttyManager?.switch(targetTtyId);
         return true; // handled
     }
     return false;
@@ -6914,14 +6930,14 @@ export default Program(async (args) =&gt; {
 <td>Tool daftar agent yang terdaftar</td>
 </tr>
 <tr>
-<td><code>src/sysconfig.json</code></td>
+<td><code>src/sysconfig.conf</code></td>
 <td>Konfigurasi interface network default</td>
 </tr>
 </tbody></table>
 <blockquote>
 <p>[!NOTE] <strong>Satu <code>NetworkLib</code>.</strong> Class <code>NetworkLib</code> kini tunggal di <code>NetworkLib.ts</code> dan menerima <code>dispatch</code> ATAU <code>OSContext</code> (kompatibel pemakai lama). Untuk aplikasi baru, disarankan <code>NetSocket</code> — API high-level yang membungkus lifecycle + events + security.</p>
 </blockquote>
-<h3>Interface network default (<code>sysconfig.json</code>)</h3>
+<h3>Interface network default (<code>sysconfig.conf</code>)</h3>
 <p>Saat boot, kernel membaca <code>cfg.network.interfaces</code> dan membuat satu <code>SimpleMQTNLDriver</code> per entri (<code>Kernel.ts</code> → &quot;Initialize Network Interfaces&quot;). Tiap interface punya <strong>deviceName</strong> (nama <code>/dev</code>), <strong>address</strong> (nama node), dan <strong>broker</strong>:</p>
 <table>
 <thead>
@@ -7204,7 +7220,7 @@ public async waitForData(timeoutMs: number): Promise&lt;boolean&gt; {
 <li>Baca <code>src/kernel/PortManager.ts</code> — pahami <code>allocateRandomPort</code> dan <code>releasePortsByPid</code>.</li>
 <li>Jalankan dua node (mis. <code>tsix</code> dan <code>esp32S3</code> di MQTT broker) — kirim pesan antar keduanya.</li>
 <li>Baca <code>src/kernel/devices/SocketDevice.ts</code> — jelaskan bagaimana socket menjadi <code>IDevice</code>.</li>
-<li>Dari aplikasi, jalankan <code>lib.net.netstat()</code> — bandingkan hasilnya dengan tabel interface di <code>sysconfig.json</code>.</li>
+<li>Dari aplikasi, jalankan <code>lib.net.netstat()</code> — bandingkan hasilnya dengan tabel interface di <code>sysconfig.conf</code>.</li>
 </ol>
 <hr>
 <h2>Referensi</h2>
@@ -7215,7 +7231,7 @@ public async waitForData(timeoutMs: number): Promise&lt;boolean&gt; {
 <li><code>src/kernel/devices/SocketDevice.ts</code> — socket = device</li>
 <li><code>src/kernel/PortManager.ts</code> — alokasi port virtual</li>
 <li><code>src/kernel/Syscalls.ts</code> — implementasi syscall SOCKET–NETSTAT (30–34)</li>
-<li><code>src/sysconfig.json</code> — interface network default</li>
+<li><code>src/sysconfig.conf</code> — interface network default</li>
 </ul>
 <hr>
 <p><em>Modul 15 — selesai. Lanjut ke <a href="16-wire-protocol-mqtnl.md">Modul 16 — Wire Protocol MQTNL</a>.</em></p>
@@ -8901,7 +8917,7 @@ if (saved &amp;&amp; (saved.width &lt;= 0 || saved.height &lt;= 0)) {
   <div class="module-body"><h1>Development Workflow</h1>
 <p><strong>RFC-TSIX-EDU-002</strong> | Modul kedua puluh tiga kurikulum TSIX. Memahami siklus host↔VFS: install, vfs-bootstrap, sync-vfs, vfs-pull, SYNC_TO_HOST, userlib-update, dan SDK mirroring.</p>
 <blockquote>
-<p>TSIX punya dua dunia: <strong>host</strong> (folder <code>src/mirror</code> + <code>src/common</code> di repo) dan <strong>VFS</strong> (file database, path-nya dibaca dari <code>kernel.database</code> di <code>src/sysconfig.json</code>, default <code>system.db</code>). Developer menulis di host, lalu menyinkronkan ke VFS. Ada juga jalur sebaliknya — aplikasi di dalam VFS menulis kembali ke host (root-only).</p>
+<p>TSIX punya dua dunia: <strong>host</strong> (folder <code>src/mirror</code> + <code>src/common</code> di repo) dan <strong>VFS</strong> (file database, path-nya dibaca dari <code>kernel.database</code> di <code>src/sysconfig.conf</code>, default <code>system.db</code>). Developer menulis di host, lalu menyinkronkan ke VFS. Ada juga jalur sebaliknya — aplikasi di dalam VFS menulis kembali ke host (root-only).</p>
 </blockquote>
 <hr>
 <h2>Tujuan Pembelajaran</h2>
@@ -8939,7 +8955,7 @@ Sejak <code>install.ts</code> ada, fresh install <strong>tidak perlu</strong> me
 <td><code>npm run install</code></td>
 <td><code>scripts/install.ts</code></td>
 <td>host → DB</td>
-<td>Fresh install interaktif: buat DB baru + tulis <code>sysconfig.json</code> + sync rootfs penuh</td>
+<td>Fresh install interaktif: buat DB baru + tulis <code>sysconfig.conf</code> + sync rootfs penuh</td>
 </tr>
 <tr>
 <td><code>npm run vfs:bootstrap</code></td>
@@ -8980,7 +8996,7 @@ Sejak <code>install.ts</code> ada, fresh install <strong>tidak perlu</strong> me
 </tbody></table>
 <h3>Konfigurasi bersama</h3>
 <ul>
-<li><code>src/sysconfig.json</code> — <code>kernel.database</code> (path DB), <code>kernel.rootHostPath</code>, <code>scheduler.workerEntryPath</code>, <code>scheduler.bootEntry</code>, <code>network.interfaces</code>.</li>
+<li><code>src/sysconfig.conf</code> — <code>kernel.database</code> (path DB), <code>kernel.rootHostPath</code>, <code>scheduler.workerEntryPath</code>, <code>scheduler.bootEntry</code>, <code>network.interfaces</code>.</li>
 <li><code>tsconfig.json</code> — <code>@tsix/*</code> → <code>src/.tsix_sdk/lib/*</code>, <code>src/root/lib/*</code>, <code>src/mirror/lib/*</code>; <code>@common/*</code> → <code>src/common/*</code>; <code>@bin/*</code> → <code>src/root/bin/*</code>, <code>src/.tsix_sdk/bin/*</code>.</li>
 </ul>
 <blockquote>
@@ -8994,7 +9010,7 @@ Tidak ada sinkronisasi otomatis host → VFS saat boot. Host adalah &quot;permuk
 ┌─────────────────────────────────────────────────────┐
 │ src/mirror     (rootfs: bin, lib, etc, sbin, ...)   │
 │ src/common     (framework: SyscallCode, IPCTypes)   │
-│ src/sysconfig.json  -&gt; kernel.database              │
+│ src/sysconfig.conf  -&gt; kernel.database              │
 └───────┬──────────────────────────────▲──────────────┘
         │ host → DB                    │ DB → host
         │                              │
@@ -9007,12 +9023,12 @@ Tidak ada sinkronisasi otomatis host → VFS saat boot. Host adalah &quot;permuk
 │   /bin /sbin /usr/bin  (exec+setuid) │
 │   /lib/common  &lt;- src/common         │
 │   /etc: passwd shadow group          │
-│         crontab fstab.json           │
+│         crontab fstab.conf           │
 │   /tmp  -&gt; ramfs (volatile)          │
 └──────────────────────────────────────┘
 </code></pre>
 <h3>sysconfig → db-path → scripts</h3>
-<pre><code>src/sysconfig.json  (kernel.database)
+<pre><code>src/sysconfig.conf  (kernel.database)
         │  getDefaultDbPath()
         ▼
 scripts/lib/db-path.ts
@@ -9026,11 +9042,11 @@ scripts/lib/db-path.ts
 <h3>1. Fresh install (<code>npm run install</code>)</h3>
 <ol>
 <li>Tanya konfigurasi interaktif: hostname, akun user biasa (opsional: username, password, konfirmasi), broker MQTT, address per-interface, port MQTT default, verbose kernel, path DB baru, (opsional) password root.</li>
-<li>Tulis hasil ke <code>src/sysconfig.json</code> (menyimpan <code>kernel.database</code> baru).</li>
+<li>Tulis hasil ke <code>src/sysconfig.conf</code> (menyimpan <code>kernel.database</code> baru).</li>
 <li>Buat file <code>.db</code> baru. Jika file sudah ada dan tanpa <code>--force</code> → berhenti; dengan <code>--force</code> → file lama di-backup ke <code>*.bak-&lt;timestamp&gt;</code>.</li>
 <li>Sync rootfs: <code>src/mirror</code> → <code>/</code>, lalu <code>src/common</code> → <code>/lib/common</code>. Setiap <code>.ts</code> di-transpile jadi sidecar <code>.js</code>; direktori eksekusi diberi mode eksekusi (<code>/sbin</code> = <code>0744</code>, lainnya <code>0755</code>); <code>login</code>, <code>passwd</code>, <code>sudo</code> diberi SetUID (<code>4755</code> root).</li>
 <li>Sync eksplisit file <code>/etc</code> tanpa ekstensi: <code>passwd</code>, <code>shadow</code> (mode <code>0640</code>), <code>group</code>, <code>crontab</code>, <code>profile</code>, <code>motd</code>, <code>fstab.md</code>, <code>pkg-demo.conf</code>.</li>
-<li>Tulis <code>fstab.json</code> fresh — hanya <code>/tmp</code> sebagai ramfs (mode <code>1777</code> sticky); mount dev-spesifik tidak dibawa.</li>
+<li>Tulis <code>fstab.conf</code> fresh — hanya <code>/tmp</code> sebagai ramfs (mode <code>0o1777</code> sticky); mount dev-spesifik tidak dibawa.</li>
 <li>Kosongkan <code>/etc/crontab</code>.</li>
 <li>Jika akun user biasa diisi → tambah entri ke <code>/etc/passwd</code> + <code>/etc/shadow</code> (bcrypt) + grup <code>users</code>, lalu buat <code>/home/&lt;username&gt;</code> (mode <code>0700</code>, milik user).</li>
 <li>Jika password root diisi → di-hash bcrypt dan ditulis ke <code>/etc/shadow</code>.</li>
@@ -9040,7 +9056,7 @@ scripts/lib/db-path.ts
 npm run install -- --path data/tsix.db       # path database tertentu
 npm run install -- --path data/tsix.db --force   # timpa (auto-backup)
 npm run install -- --defaults                # non-interaktif, semua default
-npm run install -- --no-config               # skip tulis sysconfig.json
+npm run install -- --no-config               # skip tulis sysconfig.conf
 </code></pre>
 <h3>2. Bulk sync (<code>npm run vfs:bootstrap</code>)</h3>
 <p>Sinkronisasi massal <code>src/mirror</code> → <code>/</code> dan <code>src/common</code> → <code>/lib/common</code>. Berguna untuk instalasi awal perangkat atau setelah banyak edit sekaligus.</p>
@@ -9078,17 +9094,10 @@ vfs-pull              # tarik seluruh VFS → host root
 <h2>Snippet (level kode)</h2>
 <h3>Path DB bersama (<code>scripts/lib/db-path.ts</code>)</h3>
 <pre><code class="language-ts">export function getDefaultDbPath(): string {
-  const configPath = path.resolve(__dirname, &quot;../../src/sysconfig.json&quot;);
-  try {
-    const raw = fs.readFileSync(configPath, &quot;utf8&quot;);
-    const cfg = JSON.parse(raw);
-    if (cfg &amp;&amp; typeof cfg.kernel === &quot;object&quot; &amp;&amp; cfg.kernel.database) {
-      return String(cfg.kernel.database);
-    }
-  } catch (_) {
-    /* abaikan — pakai fallback */
-  }
-  return &quot;system.db&quot;;
+  // Satu parser dengan kernel: Config membaca src/sysconfig.conf (key-value,
+  // gaya /etc/fstab.conf) + migrasi otomatis dari sysconfig.json lama.
+  const database = Config.tryGet()?.kernel?.database;
+  return typeof database === &quot;string&quot; &amp;&amp; database.length &gt; 0 ? database : &quot;system.db&quot;;
 }
 </code></pre>
 <h3>Mode eksekusi &amp; SetUID (<code>isSetuidBinary</code> / <code>applyBinaryMode</code>)</h3>
@@ -9169,7 +9178,7 @@ function applyBinaryMode(bkfs: BKFS, vfsPath: string, label = &quot;INSTALL&quot
   let rootPassword = &quot;&quot;;
 
   // 1. Konfigurasi interaktif → cfg (hostname, user, broker, port, verbose, db path, root password)
-  // 2. Tulis src/sysconfig.json
+  // 2. Tulis src/sysconfig.conf
   if (opts.writeConfig) {
     cfg.kernel.database = path.relative(PROJECT_ROOT, dbPath).replace(/\\/g, &quot;/&quot;);
     saveConfig(cfg);
@@ -9215,7 +9224,7 @@ function applyBinaryMode(bkfs: BKFS, vfsPath: string, label = &quot;INSTALL&quot
 <hr>
 <h2>Latihan / Praktik</h2>
 <ol>
-<li>Jalankan <code>npm run install -- --defaults</code> — periksa <code>src/sysconfig.json</code> ter-tulis dan DB baru ter-buat, lalu <code>npm start</code>.</li>
+<li>Jalankan <code>npm run install -- --defaults</code> — periksa <code>src/sysconfig.conf</code> ter-tulis dan DB baru ter-buat, lalu <code>npm start</code>.</li>
 <li>Jalankan <code>npm run install</code> (interaktif) — isi hostname &amp; user login, set password root, amati sync per file.</li>
 <li>Tulis app baru di <code>src/mirror/bin/</code>, lalu <code>npm run vfs:bootstrap</code> — jalankan app di shell TSIX.</li>
 <li>Ubah satu file lalu <code>npx ts-node scripts/sync-vfs.ts src/mirror/bin/&lt;file&gt;.ts</code> — bandingkan kecepatannya vs bootstrap penuh.</li>
@@ -9451,6 +9460,8 @@ export class main implements IProgram {
 <blockquote>
 <p>[!TIP]
 Untuk baca file sekali jalan, <code>FsLib</code> sudah menyediakan <code>readFile(path)</code> yang membungkus <code>open</code> → <code>read</code> → <code>close</code>.</p>
+<p>Referensi lengkap operasi file (termasuk chunked I/O untuk file besar, append,
+dan jebakan <code>writeChunk</code>): <a href="../file-operation.md">Operasi File di TSIX</a>.</p>
 </blockquote>
 <h3>App CLI — gaya <code>Program()</code> (hello)</h3>
 <pre><code class="language-ts">import { Program, std } from &quot;@tsix/Application&quot;;

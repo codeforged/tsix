@@ -25,7 +25,7 @@ import { BKFS } from "../src/vfs/BKFS";
  * membersihkannya (isi file tidak disentuh).
  *
  * CARA PAKAI:
- *   npm run bkfs:info                    # DB default dari src/sysconfig.json
+ *   npm run bkfs:info                    # DB default dari sysconfig.conf
  *   npm run bkfs:info -- --db system.db
  *   npm run bkfs:info -- --top 15        # daftar file terbesar
  *   npm run bkfs:info -- --check         # integrity_check penuh (lebih lambat)
