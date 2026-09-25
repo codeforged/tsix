@@ -26,7 +26,13 @@ const EXEC_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin", "/opt"];
  * Sejalan dengan `NODE_LOCAL_PATTERNS` di `scripts/gen-tpkg-manifest.ts` — paket
  * engine juga tidak pernah menyentuh berkas ini.
  */
-const PRESERVE_IF_EXISTS = [/^\/etc\/fstab\.(conf|json)$/];
+const PRESERVE_IF_EXISTS = [
+    /^\/etc\/fstab\.(conf|json)$/,
+    // Port DOME (`/etc/dome/dome.conf`) juga khas node: DOME membacanya saat
+    // start dan membuatnya sendiri kalau belum ada, jadi bootstrap TIDAK boleh
+    // mengembalikan port yang sudah disesuaikan ke nilai mirror.
+    /^\/etc\/dome\/dome\.conf$/,
+];
 
 /*
  * Mode executable (bit `x`, `/sbin` 0o744, SetUID login/passwd/sudo) diatur oleh

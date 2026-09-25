@@ -4,6 +4,39 @@
 
 ---
 
+## 2026-09-25
+
+### Konfigurasi DOME pindah ke `/etc/dome/dome.conf` (dan dibuat otomatis kalau belum ada)
+
+- **File:** `src/mirror/etc/dome/dome.conf` (baru, menggantikan `dome.json`),
+  `src/mirror/lib/dome/domeConfig.ts` (baru), `src/mirror/lib/dome/domeConfig.test.ts` (C11.80–C11.89b),
+  `src/mirror/opt/dome/dome.ts`, `scripts/vfs-bootstrap.ts`, `scripts/install.ts`,
+  `src/mirror/etc/tpkg/packages.json` (regenerasi manifest)
+- **Perubahan:** port DOME kini dibaca dari berkas INI gaya `/etc/fstab.conf`
+  (`[dome]` + `port = 8080`) lewat `/lib/ConfigParser.ts` — aturan nilainya sama
+  dengan parser kernel, jadi satu berkas `.conf` tidak punya dua arti.
+- **Buat otomatis:** kalau `/etc/dome/dome.conf` **belum ada**, DOME membuatnya sendiri
+  dari template di `/lib/dome/domeConfig.ts` (komentar + `port = 8080`), lalu tetap
+  jalan dengan port itu. Berkasnya sengaja dibuat di disk supaya admin punya contoh
+  yang bisa langsung diedit — bukan nilai yang hanya ada di kepala daemon.
+- **Migrasi sekali-jalan:** node yang masih menyimpan `/etc/dome/dome.json`
+  (`{ "port": 9090 }`) tidak kehilangan port-nya: saat berkas baru dibuat, nilainya
+  diambil dari JSON lama. Berkas lama **dibiarkan** (milik admin), sama seperti
+  migrasi `fstab.json`/`sysconfig.json`.
+- **Nilai tidak sah = terlihat, bukan senyap:** port `0`, `70000`, atau `abc` →
+  peringatan di log + port default; berkas yang gagal dibaca/dibuat juga dilaporkan
+  (`cannot read` / `cannot create`) dan **tidak ditimpa** — bisa jadi itu setelan admin.
+- **Ikut rapi:** `.conf` ditambahkan ke whitelist ekstensi `install.ts` (sebelumnya
+  berkas `.conf` di mirror diam-diam tidak ikut ke image baru) dan `/etc/dome/dome.conf`
+  masuk `PRESERVE_IF_EXISTS` `vfs-bootstrap` (port khas node tidak dikembalikan ke
+  nilai mirror oleh bootstrap).
+- **Verifikasi:** 12 test unit (buat-kalau-hilang, nilai sah/tidak sah, migrasi,
+  gagal tulis/baca, template = salinan di repo) + smoke loader VFS nyata
+  (`worker-dme-smoke.mjs`): `PROBE port=8080 created=false warnings=[]`.
+- **Oleh:** Copilot · **Laporan:** kakang
+
+---
+
 ## 2026-09-16
 
 ### Widget `<xterm>`: teruskan Ctrl+/ (`0x1F`) ke TUI

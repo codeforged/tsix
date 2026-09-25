@@ -7,6 +7,7 @@ import {
 } from "@common/GUITypes";
 import { SyscallCode } from "@common/SyscallCode";
 import { utf8ToVfsBytes, vfsBytesToUtf8 } from "@common/VfsText";
+import { DOME_CONFIG_PATH, loadDomeConfig } from "@tsix/dome/domeConfig";
 
 // Capture REAL Node.js require at module top level (before sandbox locks it)
 // Module._compile wraps code with (exports, require, module, ...) â€”
@@ -122,21 +123,20 @@ export const main = Program(async (args: string[]) => {
       await std.log("[dome] Daemonized successfully", "dome");
     }
 
-    const DOME_CONFIG_PATH = "/etc/dome/dome.json";
-    let domeConfig: { port?: number } = { port: 8080 };
-    try {
-      const rawConfig = await fs.readFile(DOME_CONFIG_PATH);
-      if (rawConfig) domeConfig = { ...domeConfig, ...JSON.parse(String(rawConfig)) };
-    } catch (_) {
+    // Konfigurasi: `/etc/dome/dome.conf` (INI gaya `/etc/fstab.conf`, dibaca
+    // `/lib/ConfigParser.ts`). Berkas belum ada → DOME membuatnya sendiri dari
+    // template; node dengan `/etc/dome/dome.json` lama dimigrasi sekali.
+    const domeConfig = await loadDomeConfig();
+    for (const warning of domeConfig.warnings) {
+      await std.log(`[dome] ${warning}`, "dome");
+    }
+    const PORT = domeConfig.port;
+    if (domeConfig.created) {
       await std.log(
-        `[dome] Config tidak ditemukan/invalid (${DOME_CONFIG_PATH}), memakai port default 8080`,
+        `[dome] Created default config ${DOME_CONFIG_PATH} (port ${PORT})`,
         "dome",
       );
     }
-    const PORT =
-      Number.isInteger(domeConfig.port) && domeConfig.port! > 0 && domeConfig.port! <= 65535
-        ? domeConfig.port!
-        : 8080;
     const myPid = shell.getPid();
     await std.log(`[dome] PID=${myPid}, starting on port ${PORT}`, "dome");
 

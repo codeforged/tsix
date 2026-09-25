@@ -35,7 +35,7 @@
         },
         {
             "name": "system-update",
-            "version": "0.3.1.20260922.1",
+            "version": "0.3.3.20260924.1",
             "description": "TSIX engine update — kernel + semua file sistem (/bin, /sbin, /usr/bin, /lib, /lib/common, /etc)",
             "author": "TSIX",
             "needReboot": true,
@@ -664,6 +664,11 @@
                     "hostDst": "src/mirror/lib/ddc.ts"
                 },
                 {
+                    "src": "/lib/dome/domeConfig.ts",
+                    "dst": "/lib/dome/domeConfig.ts",
+                    "hostDst": "src/mirror/lib/dome/domeConfig.ts"
+                },
+                {
                     "src": "/lib/emerald.ts",
                     "dst": "/lib/emerald.ts",
                     "hostDst": "src/mirror/lib/emerald.ts"
@@ -779,6 +784,11 @@
                     "hostDst": "src/common/ISecurityAgent.ts"
                 },
                 {
+                    "src": "/lib/common/IniParser.ts",
+                    "dst": "/lib/common/IniParser.ts",
+                    "hostDst": "src/common/IniParser.ts"
+                },
+                {
                     "src": "/lib/common/Logger.ts",
                     "dst": "/lib/common/Logger.ts",
                     "hostDst": "src/common/Logger.ts"
@@ -809,9 +819,19 @@
                     "hostDst": "src/common/Shebang.ts"
                 },
                 {
+                    "src": "/lib/common/SysConfigIni.ts",
+                    "dst": "/lib/common/SysConfigIni.ts",
+                    "hostDst": "src/common/SysConfigIni.ts"
+                },
+                {
                     "src": "/lib/common/SyscallCode.ts",
                     "dst": "/lib/common/SyscallCode.ts",
                     "hostDst": "src/common/SyscallCode.ts"
+                },
+                {
+                    "src": "/lib/common/VfsText.ts",
+                    "dst": "/lib/common/VfsText.ts",
+                    "hostDst": "src/common/VfsText.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/ExecutableRegistry.ts",
@@ -852,6 +872,11 @@
                     "src": "/hostsrc/kernel/PortManager.ts",
                     "dst": "/tmp/tpkg-stage/kernel/PortManager.ts",
                     "hostDst": "src/kernel/PortManager.ts"
+                },
+                {
+                    "src": "/hostsrc/kernel/RootFilesystem.ts",
+                    "dst": "/tmp/tpkg-stage/kernel/RootFilesystem.ts",
+                    "hostDst": "src/kernel/RootFilesystem.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/Scheduler.ts",

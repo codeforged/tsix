@@ -6,6 +6,24 @@
 
 ## 2026-09-25
 
+### `.conf` masuk whitelist ekstensi sync rootfs (`dome.conf`, `test.conf`)
+
+- **File:** `scripts/install.ts`
+- **Masalah:** `syncDir()` hanya menyalin ekstensi di daftar `isTarget`, dan `.conf`
+  tidak ada di sana — jadi berkas `.conf` di `src/mirror` **diam-diam tidak ikut** ke
+  image hasil `npm run install` (jebakan yang sama pernah terjadi di `vfs-bootstrap`
+  untuk `/etc/fstab.conf`). `/etc/fstab.conf` sendiri tidak terlihat efeknya karena
+  installer menimpanya dengan `FRESH_FSTAB_INI`, tapi `/etc/dome/dome.conf` dan
+  `/etc/test.conf` benar-benar hilang dari image baru.
+- **Perubahan:** tambah `item.endsWith(".conf")` di `isTarget`, dengan komentar alasannya.
+- **Dampak:** image fresh membawa `/etc/dome/dome.conf` (template port DOME) dan
+  `/etc/test.conf` contoh parser config. Perilaku fstab tidak berubah.
+- **Oleh:** Copilot · **Laporan:** kakang
+
+---
+
+## 2026-09-25
+
 ### Mode `CRITICAL_ETC` ditegakkan eksplisit (`/etc/rc.local` 0755, `/etc/shadow` 0640)
 
 - **File:** `scripts/install.ts`, `src/vfs/BKFS.ts` (lihat changelog `vfs.md`)

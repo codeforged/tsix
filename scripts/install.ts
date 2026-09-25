@@ -104,6 +104,10 @@ function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string): void {
       item.endsWith(".ts") ||
       item.endsWith(".js") ||
       item.endsWith(".json") ||
+      // `/etc/fstab.conf`, `/etc/dome/dome.conf`, `/etc/test.conf` — tanpa ini
+      // berkas `.conf` di mirror DIAM-DIAM tidak ikut ter-sync ke image baru
+      // (jebakan yang sama pernah terjadi di `vfs-bootstrap`).
+      item.endsWith(".conf") ||
       item.endsWith(".html") ||
       item.endsWith(".css") ||
       item.endsWith(".menu") ||
