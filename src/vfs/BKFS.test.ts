@@ -254,6 +254,44 @@ describe("BKFS (SQLite-based)", () => {
             fs.rmSync(dbPath, { force: true });
         }
     });
+
+    // ============================================================
+    // B2.28–B2.29: touch menghormati uid/gid/mode (hanya berkas BARU)
+    // ============================================================
+    it("B2.28 touch – mode/uid/gid dipakai saat berkas BARU dibuat", () => {
+        // Bug nyata: `install.ts` memasang `/etc/rc.local` (0o755) dan `/etc/shadow`
+        // (0o640) lewat `touch()`, tapi `resolveForWrite()` dulu memanggil
+        // `createEmptyFile()` TANPA argumen → semua berkas baru selalu 0o644.
+        // Akibatnya init melewati rc.local ("belum executable") dan shadow terbaca
+        // siapa pun (0o644, bukan 0o640).
+        bkfs.mkdir("/etc");
+
+        bkfs.touch("/etc/rc.local", "#!/bin/tsh\n", 0, 0, 0o755);
+        const rc = bkfs.stat("/etc/rc.local")!;
+        expect(rc.mode).toBe(0o755);
+        expect((rc.mode & 0o111) !== 0).toBe(true); // syarat init
+
+        bkfs.touch("/etc/shadow", "root:$2b$10$x:0:0:99999:7:::\n", 0, 0, 0o640);
+        expect(bkfs.stat("/etc/shadow")!.mode).toBe(0o640);
+
+        bkfs.mkdir("/home/alice");
+        bkfs.touch("/home/alice/f.txt", "data", 1000, 1000, 0o600);
+        const f = bkfs.stat("/home/alice/f.txt")!;
+        expect(f.uid).toBe(1000);
+        expect(f.gid).toBe(1000);
+        expect(f.mode).toBe(0o600);
+    });
+
+    it("B2.29 touch – berkas yang sudah ada: isi diganti, mode tetap (semantik touch Unix)", () => {
+        // Sisi lain yang juga penting: editing berkas executable (sync-vfs,
+        // `open(..., "w")`) TIDAK boleh mencabut bit `x`-nya.
+        bkfs.mkdir("/bin");
+        bkfs.touch("/bin/tool.js", "v1", 0, 0, 0o755);
+
+        bkfs.touch("/bin/tool.js", "v2");
+        expect(bkfs.read("/bin/tool.js")).toBe("v2");
+        expect(bkfs.stat("/bin/tool.js")!.mode).toBe(0o755);
+    });
 });
 
 /**

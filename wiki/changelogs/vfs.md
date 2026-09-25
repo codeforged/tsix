@@ -4,6 +4,33 @@
 
 ---
 
+## 2026-09-25
+
+### `touch()` mengabaikan `uid`/`gid`/`mode` → berkas baru selalu 0o644
+
+- **File:** `src/vfs/BKFS.ts`, `src/vfs/HostVFS.ts`, `src/vfs/BKFS.test.ts` (B2.28–B2.29)
+- **Gejala:** setelah `npm run install`, boot mencetak
+  `[INIT] /etc/rc.local dilewati: belum executable` — instalasi "sukses", tapi
+  tidak ada satu pun daemon yang jalan. Bonus: `/etc/shadow` jadi 0o644, bukan 0o640.
+- **Akar masalah:** `BKFS.touch()` menerima `uid, gid, mode` tapi `resolveForWrite()`
+  memanggil `createEmptyFile(path)` **tanpa argumen** — jadi parameter itu hanya
+  dekorasi: semua berkas yang dibuat lewat `touch()` selalu 0o644. Pemanggil yang
+  sudah benar pun (`install.ts`: `/etc/rc.local` 0o755, `/etc/shadow` 0o640,
+  `Kernel.ts`: `shadowPath` 0o640, `bkfs-info.ts --restore`) tidak berpengaruh.
+- **Perubahan:** `resolveForWrite(path, uid, gid, mode)` meneruskan ketiganya ke
+  `createEmptyFile()` — dihormati hanya saat berkas **BARU**, persis semantik `touch`
+  Unix (berkas lama: isi diganti, izin milik pemilik → `chmod` terpisah). `HostVFS.touch()`
+  disamakan (mode dipasang setelah `writeFileSync` kalau berkasnya baru).
+- **Catatan:** `writeChunk()` tetap membuat berkas baru dengan mode default (0o644) —
+  tidak ada pemanggil yang memintanya lain; kalau nanti perlu, `resolveForWrite`
+  sudah menerima parameter mode.
+- **Dampak:** image hasil install langsung benar (terverifikasi: `/etc/rc.local` 0755,
+  `/etc/shadow` 0640, `/bin/sudo.js` 4755). Tidak ada perilaku lama yang berubah:
+  berkas yang sudah ada tetap mempertahankan mode-nya.
+- **Oleh:** Copilot · **Laporan:** kakang
+
+---
+
 ## 2026-09-24
 
 ### `vfs:pull` lupa bit eksekusi → semua perintah mati di mode root-host (`/bin/ls.js: Permission denied`)

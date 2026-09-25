@@ -105,7 +105,13 @@ export class HostVFS implements IVFS {
   ): boolean {
     if (this.readOnly) throw new Error("Read-only filesystem");
     const hostPath = this.toHostPath(vfsPath);
+    // `mode` dihormati untuk berkas BARU saja — sama seperti BKFS dan `touch` Unix:
+    // berkas yang sudah ada hanya isinya yang diganti, izinnya tidak diubah.
+    // Tanpa ini `rootType = "host"` kehilangan bit `x` yang diminta pemanggil
+    // (mis. `/etc/rc.local` 0o755), dan skrip boot dilewati init.
+    const isNew = !fs.existsSync(hostPath);
     fs.writeFileSync(hostPath, content, "binary");
+    if (isNew && mode !== undefined) fs.chmodSync(hostPath, mode);
     return true;
   }
 

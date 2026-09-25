@@ -485,6 +485,16 @@ export class BKFS implements IVFS {
      *     yang paling sering dibaca kernel saat pre-compile `/lib`);
      *   - isi lebih besar → dipecah ke tabel `blocks` (lihat `writeBlocks()`).
      *
+     * `uid`/`gid`/`mode` dihormati saat berkas BARU dibuat — sama seperti `touch`
+     * Unix: berkas yang sudah ada hanya isinya yang diganti, izinnya milik
+     * pemiliknya (`chmod` terpisah).
+     *
+     * KENAPA PENTING (bug nyata): `install.ts` memasang `/etc/rc.local` (0o755) dan
+     * `/etc/shadow` (0o640) lewat `touch()`. Dulu `resolveForWrite()` memanggil
+     * `createEmptyFile()` TANPA argumen, jadi SEMUA berkas baru selalu 0o644 —
+     * akibatnya init melewati rc.local ("belum executable", boot tanpa daemon tapi
+     * terlihat normal) dan `/etc/shadow` jadi 0o644 (bukan 0o640).
+     *
      * Perubahan besar→kecil WAJIB membuang blok lama, kalau tidak isi lama akan
      * “menyembul” kembali saat dibaca. Karena itu pembuangan + penulisan + update
      * baris dijalankan dalam SATU transaksi (atomik: tidak ada state setengah jadi
@@ -493,7 +503,7 @@ export class BKFS implements IVFS {
     public touch(path: string, content: string = "", uid: number = 0, gid: number = 0, mode: number = 420): boolean {
         if (this.readOnly) throw new Error("Read-only filesystem");
 
-        const nodeId = this.resolveForWrite(path);
+        const nodeId = this.resolveForWrite(path, uid, gid, mode);
         if (nodeId < 0) return false;
 
         this.forgetChunkCache();
@@ -561,13 +571,17 @@ export class BKFS implements IVFS {
     /**
      * resolveForWrite(): Ambil node id untuk operasi tulis, buat file bila belum ada.
      *
+     * `uid`/`gid`/`mode` diteruskan ke `createEmptyFile()` (berkas BARU saja);
+     * berkas yang sudah ada mengembalikan id-nya tanpa menyentuh izin — semantik
+     * `touch` Unix (lihat catatan di `touch()`).
+     *
      * Return -1 kalau direktori induk tidak ada (pemanggil mengembalikan `false`,
      * konsisten dengan perilaku lama: `touch()` tidak membuat folder induk).
      */
-    private resolveForWrite(path: string): number {
+    private resolveForWrite(path: string, uid: number = 0, gid: number = 0, mode: number = 420): number {
         const existing = this.getNodeId(path);
         if (existing >= 0) return existing;
-        return this.createEmptyFile(path) ? this.getNodeId(path) : -1;
+        return this.createEmptyFile(path, uid, gid, mode) ? this.getNodeId(path) : -1;
     }
 
     /** createEmptyFile(): INSERT baris file kosong (jalur `touch` pada path baru). */

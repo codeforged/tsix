@@ -281,6 +281,28 @@ function saveConfig(cfg: SysConfig): void {
   console.log(`[INSTALL] Konfigurasi ditulis ke: ${CONFIG_PATH}`);
 }
 
+/**
+ * applyEtcMode(): Paksa mode berkas `CRITICAL_ETC` tepat seperti di tabel.
+ *
+ * `BKFS.touch()` menghormati `mode` hanya saat berkas BARU dibuat (semantik `touch`
+ * Unix). Berkas yang SUDAH ADA di DB — kasus umum saat `--force` dipakai untuk
+ * membuat image baru dari database lama — tidak ikut berubah, jadi mode di sini
+ * ditegakkan terpisah supaya tidak bergantung pada riwayat DB.
+ *
+ * KENAPA PENTING: `/etc/rc.local` tanpa bit `x` dilewati init (boot berjalan tapi
+ * tanpa daemon sama sekali), dan `/etc/shadow` harus tetap 0o640.
+ */
+function applyEtcMode(bkfs: BKFS, name: string, mode?: number): void {
+  if (mode === undefined) return;
+  const vfsPath = `/etc/${name}`;
+  const st = bkfs.stat(vfsPath);
+  if (!st || st.mode === mode) return;
+  bkfs.chmod(vfsPath, mode);
+  console.log(
+    `[INSTALL] chmod ${mode.toString(8)} ${vfsPath} (mode lama ${(st.mode as number).toString(8)})`,
+  );
+}
+
 async function prompt(
   rl: readline.Interface,
   question: string,
@@ -581,6 +603,11 @@ async function main() {
         console.log(
           `[INSTALL] /etc/${entry.name} sudah ada — dibiarkan (milik admin)`,
         );
+        // Isinya tidak disentuh, tapi MODE tetap dirapikan: image lama bisa saja
+        // dibuat sebelum `touch()` menghormati mode (semua berkas baru dulu 0o644),
+        // dan `/etc/rc.local` tanpa bit `x` akan DILEWATI init — boot berjalan
+        // "normal" tapi tanpa daemon sama sekali.
+        applyEtcMode(bkfs, entry.name, entry.mode);
         continue;
       }
 
@@ -588,6 +615,7 @@ async function main() {
       // (latin1) dan berkas skrip yang diawali 0xFF ditolak browser.
       const content = readTextFile(hostFile);
       bkfs.touch(`/etc/${entry.name}`, content, 0, 0, entry.mode ?? 0o644);
+      applyEtcMode(bkfs, entry.name, entry.mode);
       console.log(`[INSTALL] sync /etc/${entry.name}`);
     }
 

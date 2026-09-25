@@ -4,6 +4,28 @@
 
 ---
 
+## 2026-09-25
+
+### Mode `CRITICAL_ETC` ditegakkan eksplisit (`/etc/rc.local` 0755, `/etc/shadow` 0640)
+
+- **File:** `scripts/install.ts`, `src/vfs/BKFS.ts` (lihat changelog `vfs.md`)
+- **Gejala:** instalasi selesai tanpa error, tapi boot berhenti pada
+  `[INIT] /etc/rc.local dilewati: belum executable` — daemon tidak jalan sama sekali.
+- **Akar masalah:** `BKFS.touch()` mengabaikan argumen `mode` (bug di `BKFS.ts`, sudah
+  diperbaiki di sana). Jadi `mode: 0o755` di `CRITICAL_ETC` tidak pernah terpasang dan
+  `/etc/rc.local` lahir 0o644.
+- **Perubahan:** helper baru `applyEtcMode()` menegakkan mode setelah `touch()` — sekali
+  untuk berkas yang baru ditulis, sekali lagi di cabang `preserveExisting` (isinya milik
+  admin, tapi mode-nya dirapikan). Jadi mode di tabel `CRITICAL_ETC` tidak lagi
+  bergantung pada riwayat DB maupun pada perilaku `touch()`.
+- **Untuk node yang sudah terlanjur salah:** `npm run install --force` membuat image
+  baru yang benar; pada node yang isi `/etc/rc.local`-nya sudah dikustomisasi, cukup
+  `chmod +x /etc/rc.local` dari tsh lalu reboot (isi tidak hilang).
+- **Dampak:** install fresh langsung dapat skrip boot executable + shadow 0o640.
+- **Oleh:** Copilot · **Laporan:** kakang
+
+---
+
 ## 2026-09-17
 
 ### `/etc/rc.local` bergaya skrip dipasang installer (0755) dan tidak ditimpa
