@@ -17,6 +17,7 @@ import {
 } from "../../common/GUITypes";
 import { v4 as uuidv4 } from "uuid";
 import { theme } from "./theme";
+import { ASTERACEA_WM_PID_FILE } from "@common/AsteraceaPaths";
 
 // ============================================================
 // FACTORY FUNCTIONS — Membangun IDOMNode tree
@@ -4171,7 +4172,7 @@ export class Window {
     // Juga kirim ke Asteracea WM (untuk aplikasi yang di-run via terminal/shell)
     // Baca PID Asteracea dari file yang ditulis saat WM startup.
     try {
-      const wmPidRaw = await this.lib.fs.readFile("/opt/asteracea/wm-pid");
+      const wmPidRaw = await this.lib.fs.readFile(ASTERACEA_WM_PID_FILE);
       if (wmPidRaw) {
         const wmPid = parseInt(wmPidRaw.trim());
         const myPid = this.lib.getPid();

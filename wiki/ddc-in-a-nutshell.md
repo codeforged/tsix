@@ -516,7 +516,7 @@ TGA lengkapnya lihat `src/mirror/opt/ddc-sample/ddc-sample2.ts` (termasuk TButto
 
 - Jalankan `ddc-sample` / `ddc-sample2` dari terminal/menu Asteracea
 - Pastikan **DOME running** dulu: `dome`
-- App bisa ditambah ke launcher via `opt/asteracea/menu/<app>.menu`
+- App bisa ditambah ke launcher via `etc/asteracea/menu/<app>.menu`
 
 ---
 

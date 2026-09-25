@@ -7,6 +7,7 @@
 import { Program, std, fs, shell } from "@tsix/Application";
 import { Screen, div } from "@tsix/emerald";
 import { theme } from "@tsix/theme";
+import { ASTERACEA_THEME_DIR } from "@common/AsteraceaPaths";
 
 export const appMode = "gui";
 
@@ -329,7 +330,7 @@ export const main = Program(async (args: string[]) => {
     // Handle system-wide events
     if (ev?.type === "THEME_CHANGED") {
       // Reload theme dulu sebelum apply (biar gak race condition dengan theme.watch())
-      await theme.load(ev.theme, ev.dir || "/opt/asteracea");
+      await theme.load(ev.theme, ev.dir || ASTERACEA_THEME_DIR);
       await applyTermTheme();
       return;
     }

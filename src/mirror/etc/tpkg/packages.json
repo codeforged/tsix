@@ -769,6 +769,11 @@
                     "hostDst": "src/common/AesGcmAgent.ts"
                 },
                 {
+                    "src": "/lib/common/AsteraceaPaths.ts",
+                    "dst": "/lib/common/AsteraceaPaths.ts",
+                    "hostDst": "src/common/AsteraceaPaths.ts"
+                },
+                {
                     "src": "/lib/common/Config.ts",
                     "dst": "/lib/common/Config.ts",
                     "hostDst": "src/common/Config.ts"

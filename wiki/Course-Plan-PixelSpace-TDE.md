@@ -159,7 +159,7 @@
 | Taskbar | Pinned vs Running vs Foreign apps, badge RI |
 | Launcher & menu | `/etc/asteracea/menu/*.menu`, fuzzy search |
 | IPC lifecycle | Listen `GUI_WINDOW_CREATED/MINIMIZED/CLOSED` |
-| PID file | `/etc/asteracea/wm-pid` — broadcast event ke WM |
+| PID file | `/var/run/asteracea/wm-pid` — broadcast event ke WM |
 | Peran masa depan | Kandidat compositor terpisah dari DOME |
 
 **Kode sumber**: `src/mirror/bin/asteracea.ts`, `src/mirror/etc/asteracea/`

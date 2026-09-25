@@ -23,7 +23,7 @@ audience: all
 - [ ] Explain the queue-based IPC philosophy (MessageBus)
 - [ ] Explain the taskbar (pinned/running/foreign)
 - [ ] Explain the launcher & fuzzy search
-- [ ] Explain lifecycle events via `/opt/asteracea/wm-pid`
+- [ ] Explain lifecycle events via `/var/run/asteracea/wm-pid`
 
 ---
 
@@ -63,7 +63,7 @@ Browser ──(click)─────► DOME  ──(shell.send)────► 
 
 ### IPC lifecycle events
 
-The WM listens for `GUI_WINDOW_*` lifecycle events: `GUI_WINDOW_CREATED`, `GUI_WINDOW_MINIMIZED`, `GUI_WINDOW_RESTORED`, `GUI_WINDOW_MAXIMIZED`, `GUI_WINDOW_UNMAXIMIZED`, `GUI_WINDOW_CLOSED`, and `GUI_WINDOW_ERROR`. Other GUI apps communicate with the WM through `/opt/asteracea/wm-pid` (PID file) — Emerald broadcasts events to Asteracea.
+The WM listens for `GUI_WINDOW_*` lifecycle events: `GUI_WINDOW_CREATED`, `GUI_WINDOW_MINIMIZED`, `GUI_WINDOW_RESTORED`, `GUI_WINDOW_MAXIMIZED`, `GUI_WINDOW_UNMAXIMIZED`, `GUI_WINDOW_CLOSED`, and `GUI_WINDOW_ERROR`. Other GUI apps communicate with the WM through `/var/run/asteracea/wm-pid` (PID file) — Emerald broadcasts events to Asteracea.
 
 ### Fixes & Latest Features
 
@@ -73,7 +73,7 @@ To stay in sync with the real code, the following behaviors were added:
 - **Taskbar icon & tooltip for foreign apps** — the `GUI_WINDOW_CREATED` handler forwards `payload.icon || "💻"` to `registerForeignApp()`. The icon is used for the taskbar button; `title` (the window title) becomes the tooltip via the `title` prop (translated to `data-tt` in DOME). Foreign apps can now show a custom icon.
 - **`GUI_WINDOW_MAXIMIZED` / `GUI_WINDOW_UNMAXIMIZED` handlers** — both call `transitionTo(appId, "RUNNING")` and set the active taskbar style (same as `GUI_WINDOW_RESTORED`). WM state stays in sync after maximizing via the taskbar context menu; the next taskbar click becomes a minimize toggle.
 - **Login without password prefill** — the password field is no longer filled with `value: "1"` (initialized as `loginPass = ""`). The old prefill would "stick" in front of the new password and make login always fail after `passwd` changes the password.
-- **Wallpaper persistence** — before writing `/opt/asteracea/wallpaper/current-wp.b64`, `showWallpaperDialog` creates the `/opt/asteracea/wallpaper` folder (inside a try-catch). Previously the folder did not exist → `fs.writeFile` failed silently → blank wallpaper after reboot.
+- **Wallpaper persistence** — before writing `/etc/asteracea/wallpaper/current-wp.b64`, `showWallpaperDialog` creates the `/etc/asteracea/wallpaper` folder (inside a try-catch). Previously the folder did not exist → `fs.writeFile` failed silently → blank wallpaper after reboot.
 
 ---
 
@@ -82,7 +82,7 @@ To stay in sync with the real code, the following behaviors were added:
 | File | Role |
 |---|---|
 | `src/mirror/opt/asteracea/asteracea.ts` | Window manager |
-| `src/mirror/opt/asteracea/menu/*.menu` | Launcher menu configuration |
+| `src/mirror/etc/asteracea/menu/*.menu` | Launcher menu configuration |
 | `src/mirror/etc/rc.local.ts` | Auto-start DOME + Asteracea (poll `/var/run/dome.ready`) |
 
 ---

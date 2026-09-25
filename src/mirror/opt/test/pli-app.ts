@@ -29,6 +29,7 @@ import {
 } from "@tsix/cashew";
 import { mountDDC, DDCApp } from "@tsix/ddc";
 import { theme } from "@tsix/theme";
+import { ASTERACEA_THEME_DIR } from "@common/AsteraceaPaths";
 
 export const appMode = "gui";
 
@@ -368,7 +369,7 @@ export const main = Program(async () => {
             const ev = msg?.data || msg;
             if (ev?.type !== "THEME_CHANGED") return;
             void theme
-                .load(ev.theme, ev.dir || "/opt/asteracea")
+                .load(ev.theme, ev.dir || ASTERACEA_THEME_DIR)
                 .then(() => {
                     if (ddcApp) syncToDDC();
                 });

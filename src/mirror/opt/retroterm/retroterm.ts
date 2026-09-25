@@ -31,6 +31,7 @@
 import { Program, std, fs, shell } from "@tsix/Application";
 import { Screen, div } from "@tsix/emerald";
 import { theme } from "@tsix/theme";
+import { ASTERACEA_THEME_DIR } from "@common/AsteraceaPaths";
 
 export const appMode = "gui";
 
@@ -617,7 +618,7 @@ export const main = Program(async (args: string[]) => {
         // xterm perlu di-recreate (canvas text). Kirim ulang crtTheme supaya
         // efek CRT tidak hilang.
         if (ev?.type === "THEME_CHANGED") {
-            await theme.load(ev.theme, ev.dir || "/opt/asteracea");
+            await theme.load(ev.theme, ev.dir || ASTERACEA_THEME_DIR);
             await applyTermTheme();
             return;
         }

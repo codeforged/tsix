@@ -996,7 +996,7 @@ await shell.send(childPid, {
 Setiap aplikasi Emerald otomatis mengirim event ke **dua tujuan**:
 
 1. **Parent process** (langsung) — untuk backward compatibility
-2. **Asteracea WM** — via `/etc/asteracea/wm-pid` (dengan deduplikasi)
+2. **Asteracea WM** — via `/var/run/asteracea/wm-pid` (dengan deduplikasi)
 
 | Event                    | Dikirim saat...            | Tujuan |
 | ------------------------ | -------------------------- | ------ |
@@ -1016,7 +1016,7 @@ Tidak ada coupling langsung antara Window Manager, Emerald, dan DOME. Semua komu
 ```
 Window Manager ──(shell.send)──► Kernel ──(ipc_message)──► Child App
 Window Manager ◄──(GUI_REQ)──── Kernel ◄──(MOUNT_NODE)──── Child App
-Emerald ──(baca /etc/asteracea/wm-pid)──► Asteracea WM (broadcast)
+Emerald ──(baca /var/run/asteracea/wm-pid)──► Asteracea WM (broadcast)
 ```
 
 ---
@@ -1760,7 +1760,7 @@ if (lib?.onEvent) {
   lib.onEvent("ipc_message", (msg: any) => {
     const ev = msg?.data || msg;
     if (ev?.type !== "THEME_CHANGED") return;
-    void theme.load(ev.theme, ev.dir || "/opt/asteracea").then(() => {
+    void theme.load(ev.theme, ev.dir || "/etc/asteracea").then(() => {
       // kirim ulang palet warna ke komponen yang butuh nilai konkret (mis. DDC)
       syncToDDC();
     });

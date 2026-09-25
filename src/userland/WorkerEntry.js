@@ -87,6 +87,7 @@ if (Module && path) {
   };
 }
 const hijackRequire = (id) => global.hijackRequire ? global.hijackRequire(id) : hostRequire ? hostRequire(id) : null;
+const WM_PID_FILE = "/var/run/asteracea/wm-pid";
 if (typeof require !== "undefined") {
   global.require = hijackRequire;
 }
@@ -209,7 +210,7 @@ async function notifyLoadError(lib, pid, appName, message) {
       await lib.shell.send(parentPid, payload);
     }
     try {
-      const wmPidRaw = await lib.fs.readFile("/opt/asteracea/wm-pid");
+      const wmPidRaw = await lib.fs.readFile(WM_PID_FILE);
       if (wmPidRaw) {
         const wmPid = parseInt(String(wmPidRaw).trim());
         const myPid = lib.getPid();

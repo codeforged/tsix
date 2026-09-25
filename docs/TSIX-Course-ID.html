@@ -58,7 +58,7 @@
   </div>
   <div class="meta">
     System design &amp; architecture: Andriansah<br>
-    Dibuat: 2026-09-24<br>
+    Dibuat: 2026-09-25<br>
     Platform: TSIX (educational OS-like runtime on Node.js/TypeScript)
   </div>
 </div>
@@ -504,7 +504,7 @@ Browser → event → DOME → Kernel (SEND_MSG) → Worker (callback)
 <li><strong>DOME</strong> = display server (Ring 4 daemon, port 8080): relay WS + primitive DOM producer + <strong>kompositor</strong> (titlebar, drag, resize, focus, replay). Monolitik karena pertimbangan latency drag/resize.</li>
 <li><strong>Emerald</strong> = widget toolkit (<code>@tsix/emerald</code>): <code>Screen</code>, <code>Window</code>, factory functions, connected widgets.</li>
 <li><strong>Cashew</strong> = component framework (<code>@tsix/cashew</code>): OOP/Delphi-style <code>TForm</code>/<code>TButton</code>/<code>TEdit</code>, auto-bind lifecycle, TDialogs &amp; TTimer — layer di atas Emerald.</li>
-<li><strong>Asteracea</strong> = window manager (fullscreen frameless app): taskbar, launcher, login, wallpaper; listen <code>GUI_WINDOW_*</code> lifecycle events via <code>/etc/asteracea/wm-pid</code>.</li>
+<li><strong>Asteracea</strong> = window manager (fullscreen frameless app): taskbar, launcher, login, wallpaper; listen <code>GUI_WINDOW_*</code> lifecycle events via <code>/var/run/asteracea/wm-pid</code>.</li>
 </ul>
 <hr>
 <h2>11. Alur Pengembangan</h2>
@@ -8578,7 +8578,7 @@ form.add(TSplitHorizontal(leftPanel, rightPanel, &quot;1fr&quot;));
 <li><input disabled="" type="checkbox"> Menjelaskan filosofi queue-based IPC (MessageBus)</li>
 <li><input disabled="" type="checkbox"> Menjelaskan taskbar (pinned/running/foreign)</li>
 <li><input disabled="" type="checkbox"> Menjelaskan launcher &amp; fuzzy search</li>
-<li><input disabled="" type="checkbox"> Menjelaskan lifecycle events via <code>/opt/asteracea/wm-pid</code></li>
+<li><input disabled="" type="checkbox"> Menjelaskan lifecycle events via <code>/var/run/asteracea/wm-pid</code></li>
 </ul>
 <hr>
 <h2>Konsep Inti</h2>
@@ -8632,7 +8632,7 @@ Browser ──(click)─────► DOME  ──(shell.send)────► 
 <li><strong>App State Manager</strong></li>
 </ul>
 <h3>IPC lifecycle events</h3>
-<p>WM mendengarkan <code>GUI_WINDOW_*</code> lifecycle events: <code>GUI_WINDOW_CREATED</code>, <code>GUI_WINDOW_MINIMIZED</code>, <code>GUI_WINDOW_RESTORED</code>, <code>GUI_WINDOW_MAXIMIZED</code>, <code>GUI_WINDOW_UNMAXIMIZED</code>, <code>GUI_WINDOW_CLOSED</code>, dan <code>GUI_WINDOW_ERROR</code>. Aplikasi GUI lain berkomunikasi dengan WM melalui <code>/opt/asteracea/wm-pid</code> (PID file) — Emerald broadcast event ke Asteracea.</p>
+<p>WM mendengarkan <code>GUI_WINDOW_*</code> lifecycle events: <code>GUI_WINDOW_CREATED</code>, <code>GUI_WINDOW_MINIMIZED</code>, <code>GUI_WINDOW_RESTORED</code>, <code>GUI_WINDOW_MAXIMIZED</code>, <code>GUI_WINDOW_UNMAXIMIZED</code>, <code>GUI_WINDOW_CLOSED</code>, dan <code>GUI_WINDOW_ERROR</code>. Aplikasi GUI lain berkomunikasi dengan WM melalui <code>/var/run/asteracea/wm-pid</code> (PID file) — Emerald broadcast event ke Asteracea.</p>
 <h3>Perbaikan &amp; Fitur Terbaru</h3>
 <p>Agar sinkron dengan kode nyata, beberapa perilaku berikut ditambahkan:</p>
 <ul>
@@ -8640,7 +8640,7 @@ Browser ──(click)─────► DOME  ──(shell.send)────► 
 <li><strong>Icon &amp; tooltip taskbar untuk foreign app</strong> — handler <code>GUI_WINDOW_CREATED</code> meneruskan <code>payload.icon || &quot;💻&quot;</code> ke <code>registerForeignApp()</code>. Icon dipakai untuk tombol taskbar; <code>title</code> (judul window) menjadi tooltip via prop <code>title</code> (diterjemahkan ke <code>data-tt</code> di DOME). Foreign app kini bisa menampilkan icon custom.</li>
 <li><strong>Handler <code>GUI_WINDOW_MAXIMIZED</code> / <code>GUI_WINDOW_UNMAXIMIZED</code></strong> — keduanya memanggil <code>transitionTo(appId, &quot;RUNNING&quot;)</code> dan menetapkan style taskbar aktif (sama seperti <code>GUI_WINDOW_RESTORED</code>). State WM tetap sinkron setelah maximize lewat context menu taskbar; klik taskbar berikutnya langsung menjadi minimize toggle.</li>
 <li><strong>Login tanpa prefill password</strong> — field password tidak lagi diisi <code>value: &quot;1&quot;</code> (inisialisasi <code>loginPass = &quot;&quot;</code>). Prefill lama akan &quot;menempel&quot; di depan password baru dan membuat login selalu gagal setelah <code>passwd</code> mengganti password.</li>
-<li><strong>Persistensi wallpaper</strong> — sebelum menulis <code>/opt/asteracea/wallpaper/current-wp.b64</code>, <code>showWallpaperDialog</code> membuat folder <code>/opt/asteracea/wallpaper</code> (di-try-catch). Sebelumnya folder tidak ada → <code>fs.writeFile</code> gagal diam-diam → wallpaper blank setelah reboot.</li>
+<li><strong>Persistensi wallpaper</strong> — sebelum menulis <code>/etc/asteracea/wallpaper/current-wp.b64</code>, <code>showWallpaperDialog</code> membuat folder <code>/etc/asteracea/wallpaper</code> (di-try-catch). Sebelumnya folder tidak ada → <code>fs.writeFile</code> gagal diam-diam → wallpaper blank setelah reboot.</li>
 </ul>
 <hr>
 <h2>Kode Sumber</h2>
@@ -8656,7 +8656,7 @@ Browser ──(click)─────► DOME  ──(shell.send)────► 
 <td>Window manager</td>
 </tr>
 <tr>
-<td><code>src/mirror/opt/asteracea/menu/*.menu</code></td>
+<td><code>src/mirror/etc/asteracea/menu/*.menu</code></td>
 <td>Konfigurasi menu launcher</td>
 </tr>
 <tr>
@@ -9498,7 +9498,7 @@ await theme.switchTo(&quot;theme-light.json&quot;);
 // Terapkan ke window ini (titlebar, border, shadow)
 await theme.applyToDome(domePid, app.wid);
 </code></pre>
-<p>File tema berada di <code>/opt/asteracea/theme-*.json</code> (<code>theme-dark.json</code>, <code>theme-light.json</code>). Contoh lengkap: <code>src/mirror/opt/set-theme/set-theme.ts</code>.</p>
+<p>File tema berada di <code>/etc/asteracea/theme-*.json</code> (<code>theme-dark.json</code>, <code>theme-light.json</code>). Contoh lengkap: <code>src/mirror/opt/set-theme/set-theme.ts</code>.</p>
 <hr>
 <h2>Latihan / Praktik</h2>
 <ol>

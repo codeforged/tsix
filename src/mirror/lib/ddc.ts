@@ -41,6 +41,11 @@
 import { Screen } from "@tsix/emerald";
 import { shell, fs } from "@tsix/Application";
 import { IDOMNode } from "../../common/GUITypes";
+import {
+  ASTERACEA_DDC_BLOCKED_FILE,
+  ASTERACEA_DDC_TRUSTED_FILE,
+  ASTERACEA_STATE_DIR,
+} from "@common/AsteraceaPaths";
 
 // ================================================================
 // DDC TRUST GATE — hanya untuk aplikasi yang menjalankan NJ (mountDDC)
@@ -53,11 +58,12 @@ import { IDOMNode } from "../../common/GUITypes";
 //   - Gate SEKALI per proses (cache approved/denied per app name).
 //   - Fail-open: jika Asteracea/DOME tidak running → izinkan (anti-hang).
 //   - Prompt via Asteracea: kirim DDC_TRUST → Asteracea confirm → balas.
-//   - Persist ke /opt/asteracea/trust/ddc-trusted.list & ddc-blocked.list.
+//   - Persist ke /var/lib/asteracea/ddc-trusted.list & ddc-blocked.list
+//     (state keputusan user — lihat `@common/AsteraceaPaths`).
 
-const DDC_TRUST_DIR = "/opt/asteracea/trust";
-const DDC_TRUSTED = DDC_TRUST_DIR + "/ddc-trusted.list";
-const DDC_BLOCKED = DDC_TRUST_DIR + "/ddc-blocked.list";
+const DDC_TRUST_DIR = ASTERACEA_STATE_DIR;
+const DDC_TRUSTED = ASTERACEA_DDC_TRUSTED_FILE;
+const DDC_BLOCKED = ASTERACEA_DDC_BLOCKED_FILE;
 /** Asteracea WM UUID (sama dengan di asteracea.ts). */
 const AST_UUID = "3ec3ffe9-e0a6-411f-b7e3-c9ff0b00556c";
 /** Cache per-proses: appName → status. Gate hanya sekali per proses. */

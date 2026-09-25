@@ -355,7 +355,7 @@ Browser → event → DOME → Kernel (SEND_MSG) → Worker (callback)
 - **DOME** = display server (Ring 4 daemon, port 8080): relay WS + primitive DOM producer + **kompositor** (titlebar, drag, resize, focus, replay). Monolitik karena pertimbangan latency drag/resize.
 - **Emerald** = widget toolkit (`@tsix/emerald`): `Screen`, `Window`, factory functions, connected widgets.
 - **Cashew** = component framework (`@tsix/cashew`): OOP/Delphi-style `TForm`/`TButton`/`TEdit`, auto-bind lifecycle, TDialogs & TTimer — layer di atas Emerald.
-- **Asteracea** = window manager (fullscreen frameless app): taskbar, launcher, login, wallpaper; listen `GUI_WINDOW_*` lifecycle events via `/etc/asteracea/wm-pid`.
+- **Asteracea** = window manager (fullscreen frameless app): taskbar, launcher, login, wallpaper; listen `GUI_WINDOW_*` lifecycle events via `/var/run/asteracea/wm-pid`.
 
 ---
 

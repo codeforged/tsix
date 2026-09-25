@@ -18,6 +18,24 @@ import {
 } from "../../lib/emerald";
 import { IDOMNode } from "@common/GUITypes";
 import { vfsBytesToUtf8 } from "@common/VfsText";
+import {
+  ASTERACEA_MENU_DIR,
+  ASTERACEA_PREFS_FILE,
+  ASTERACEA_RINGTONE_FILE,
+  ASTERACEA_STATE_DIR,
+  ASTERACEA_LOG_DIR,
+  ASTERACEA_NOTIF_LOG_FILE,
+  ASTERACEA_RUN_DIR,
+  ASTERACEA_WALLPAPER_CONFIG,
+  ASTERACEA_WALLPAPER_CURRENT,
+  ASTERACEA_WALLPAPER_DEFAULT,
+  ASTERACEA_WALLPAPER_DIR,
+  ASTERACEA_WM_PID_FILE,
+  ASTERACEA_TRUSTED_FILE,
+  ASTERACEA_BLOCKED_FILE,
+  ASTERACEA_DDC_TRUSTED_FILE,
+  ASTERACEA_DDC_BLOCKED_FILE,
+} from "@common/AsteraceaPaths";
 
 // ================================================================
 // TYPES
@@ -178,11 +196,11 @@ class AppStateManager {
 }
 
 // ================================================================
-// APP REGISTRY — baca dari /opt/asteracea/menu/*.menu
+// APP REGISTRY — baca dari /etc/asteracea/menu/*.menu
 // ================================================================
 
 async function loadMenuFromFiles(): Promise<AppEntry[]> {
-  const menuDir = "/opt/asteracea/menu";
+  const menuDir = ASTERACEA_MENU_DIR;
   const apps: AppEntry[] = [];
   try {
     const files = await fs.ls(menuDir);
@@ -227,17 +245,20 @@ async function loadMenuFromFiles(): Promise<AppEntry[]> {
 // TRUST GATE — whitelist/blacklist aplikasi + konfirmasi user
 // ================================================================
 // Sebelum mengeksekusi aplikasi, Asteracea cek Trust DB:
-//   - /opt/asteracea/trust/trusted.list  → diizinkan (eksekusi langsung)
-//   - /opt/asteracea/trust/blocked.list  → diblokir (batalkan)
-//   - tidak ada di keduanya              → konfirmasi user (trust / tidak)
+//   - /var/lib/asteracea/trusted.list  → diizinkan (eksekusi langsung)
+//   - /var/lib/asteracea/blocked.list  → diblokir (batalkan)
+//   - tidak ada di keduanya            → konfirmasi user (trust / tidak)
 // Key = command path aplikasi (bukan nama), supaya tidak mudah dimanipulasi.
+//
+// STATE, bukan config → di `/var/lib` (bertahan lintas reboot, tidak ikut
+// di-overwrite image) dan tidak bercampur dengan menu/tema di `/etc/asteracea`.
 
-const TRUST_DIR = "/opt/asteracea/trust";
-const TRUSTED_FILE = TRUST_DIR + "/trusted.list";
-const BLOCKED_FILE = TRUST_DIR + "/blocked.list";
+const TRUST_DIR = ASTERACEA_STATE_DIR;
+const TRUSTED_FILE = ASTERACEA_TRUSTED_FILE;
+const BLOCKED_FILE = ASTERACEA_BLOCKED_FILE;
 // DDC Trust — terpisah: menandai app yang diizinkan/diblokir menjalankan NJ.
-const DDC_TRUSTED_FILE = TRUST_DIR + "/ddc-trusted.list";
-const DDC_BLOCKED_FILE = TRUST_DIR + "/ddc-blocked.list";
+const DDC_TRUSTED_FILE = ASTERACEA_DDC_TRUSTED_FILE;
+const DDC_BLOCKED_FILE = ASTERACEA_DDC_BLOCKED_FILE;
 
 /** Baca satu baris list (trim + buang kosong). */
 async function readList(path: string): Promise<string[]> {
@@ -800,7 +821,7 @@ async function showModal(
 const WALLPAPERS = [
   {
     name: "Default",
-    file: "/opt/asteracea/wallpaper/default.b64",
+    file: ASTERACEA_WALLPAPER_DEFAULT,
     mime: "image/svg+xml",
     color: "#0a0f1f",
   },
@@ -1173,13 +1194,13 @@ async function showWallpaperDialog(win: Window) {
     if (!selectedFile || !selectedB64) return;
     const mime = mimeFromName(selectedFile);
     const b64Name = selectedFile.replace(/\.(jpg|jpeg|png|gif|bmp)$/i, ".b64");
-    const b64Path = `/opt/asteracea/wallpaper/current-wp.b64`;
+    const b64Path = ASTERACEA_WALLPAPER_CURRENT;
     try {
       // Pastikan direktori wallpaper ada — dibuat saat runtime, tidak ada di host source.
       // Tanpa ini, fs.writeFile(b64Path) gagal diam-diam (parent dir tidak ada),
       // sehingga wallpaper.json tersimpan tapi file b64 tidak → blank setelah reboot.
       try {
-        await fs.mkdir("/opt/asteracea/wallpaper");
+        await fs.mkdir(ASTERACEA_WALLPAPER_DIR);
       } catch (_) {
         /* sudah ada */
       }
@@ -1187,7 +1208,7 @@ async function showWallpaperDialog(win: Window) {
       await fs.writeFile(b64Path, selectedB64);
       // Update wallpaper.json
       await fs.writeFile(
-        "/opt/asteracea/wallpaper.json",
+        ASTERACEA_WALLPAPER_CONFIG,
         JSON.stringify(
           {
             type: "image",
@@ -1274,7 +1295,7 @@ export const main = Program(async (args: string[]) => {
   // Load menu dari filesystem
   const APPS = await loadMenuFromFiles();
   await std.log(
-    `[asteracea] Loaded ${APPS.length} apps from /opt/asteracea/menu/`,
+    `[asteracea] Loaded ${APPS.length} apps from ${ASTERACEA_MENU_DIR}/`,
     "asteracea",
   );
 
@@ -1352,7 +1373,7 @@ export const main = Program(async (args: string[]) => {
     notifications: { duration: 5, maxLog: 100, position: "ne" },
   };
   try {
-    const raw = await fs.readFile("/opt/asteracea/prefs.json");
+    const raw = await fs.readFile(ASTERACEA_PREFS_FILE);
     if (raw) prefs = JSON.parse(String(raw));
   } catch (_) {
     /* use defaults */
@@ -1392,7 +1413,7 @@ export const main = Program(async (args: string[]) => {
   async function getRingtoneB64(): Promise<string | null> {
     if (_cachedRingtoneB64) return _cachedRingtoneB64;
     try {
-      const raw = await fs.readFile("/opt/asteracea/notif-ringtone.mp3");
+      const raw = await fs.readFile(ASTERACEA_RINGTONE_FILE);
       if (raw) {
         _cachedRingtoneB64 = Buffer.from(raw, "latin1").toString("base64");
         return _cachedRingtoneB64;
@@ -1739,16 +1760,19 @@ export const main = Program(async (args: string[]) => {
       const logLine = `[${new Date().toISOString()}] ${title}: ${message}\n`;
       let logContent = "";
       try {
-        logContent =
-          (await fs.readFile("/opt/asteracea/desktop-notif.log")) || "";
+        logContent = (await fs.readFile(ASTERACEA_NOTIF_LOG_FILE)) || "";
       } catch (_) {}
       const lines = logContent.split("\n").filter((l) => l.trim());
       lines.push(logLine.trim());
       while (lines.length > notifMaxLog) lines.shift();
-      await fs.writeFile(
-        "/opt/asteracea/desktop-notif.log",
-        lines.join("\n") + "\n",
-      );
+      // `/var/log/asteracea` belum tentu ada (image baru) — `writeFile` tidak
+      // membuat folder induk, jadi dibuat di sini.
+      try {
+        await fs.mkdir(ASTERACEA_LOG_DIR);
+      } catch (_) {
+        /* sudah ada */
+      }
+      await fs.writeFile(ASTERACEA_NOTIF_LOG_FILE, lines.join("\n") + "\n");
     } catch (_) {}
 
     try {
@@ -1841,9 +1865,11 @@ export const main = Program(async (args: string[]) => {
   // ================================================================
   // WRITE PID FILE — agar emerald bisa broadcast event ke Asteracea
   // ================================================================
+  // Di `/var/run/asteracea/` (state runtime, hilang saat reboot) — bukan di
+  // `/etc` dan bukan di folder kode.
   try {
-    await fs.mkdir("/opt/asteracea");
-    await fs.writeFile("/opt/asteracea/wm-pid", String(shell.getPid()));
+    await fs.mkdir(ASTERACEA_RUN_DIR);
+    await fs.writeFile(ASTERACEA_WM_PID_FILE, String(shell.getPid()));
     await std.log(`[asteracea] WM PID=${shell.getPid()}`, "asteracea");
   } catch (_) {
     /* ignore */
@@ -2056,7 +2082,7 @@ export const main = Program(async (args: string[]) => {
   // LOAD SAVED WALLPAPER
   // ================================================================
   try {
-    const wpRaw = await fs.readFile("/opt/asteracea/wallpaper.json");
+    const wpRaw = await fs.readFile(ASTERACEA_WALLPAPER_CONFIG);
     if (wpRaw) {
       const wp = JSON.parse(String(wpRaw));
       if (wp.value) {
@@ -2094,7 +2120,7 @@ export const main = Program(async (args: string[]) => {
   // AUTORUN — jalankan aplikasi dari prefs.json setelah login
   // ================================================================
   try {
-    const prefsRaw = await fs.readFile("/opt/asteracea/prefs.json");
+    const prefsRaw = await fs.readFile(ASTERACEA_PREFS_FILE);
     if (prefsRaw) {
       const prefs = JSON.parse(String(prefsRaw));
       const autorunList: string[] = prefs.autorun || [];

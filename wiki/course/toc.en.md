@@ -218,7 +218,7 @@
 - **Practice**: Build an app using TForm + TPanel + TEdit + TListBox
 
 ### Module 21 — Asteracea & TDE (Window Manager)
-- **Insight**: The WM is an ordinary PixelSpace app (fullscreen frameless), not part of the kernel/DOME. Taskbar (pinned/running/foreign), launcher, login, wallpaper. Listen for lifecycle events via `/etc/asteracea/wm-pid`.
+- **Insight**: The WM is an ordinary PixelSpace app (fullscreen frameless), not part of the kernel/DOME. Taskbar (pinned/running/foreign), launcher, login, wallpaper. Listen for lifecycle events via `/var/run/asteracea/wm-pid`.
 - **Status**: ✅
 - **References**: `wiki/ASTERACEA_WM.md`, `wiki/PIXELSPACE_DEVELOPER_GUIDE.md` §3, 9
 - **Code**: `src/mirror/bin/asteracea.ts`, `src/mirror/etc/asteracea/*`

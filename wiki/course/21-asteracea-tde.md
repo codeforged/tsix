@@ -23,7 +23,7 @@ audience: all
 - [ ] Menjelaskan filosofi queue-based IPC (MessageBus)
 - [ ] Menjelaskan taskbar (pinned/running/foreign)
 - [ ] Menjelaskan launcher & fuzzy search
-- [ ] Menjelaskan lifecycle events via `/opt/asteracea/wm-pid`
+- [ ] Menjelaskan lifecycle events via `/var/run/asteracea/wm-pid`
 
 ---
 
@@ -63,7 +63,7 @@ Browser ──(click)─────► DOME  ──(shell.send)────► 
 
 ### IPC lifecycle events
 
-WM mendengarkan `GUI_WINDOW_*` lifecycle events: `GUI_WINDOW_CREATED`, `GUI_WINDOW_MINIMIZED`, `GUI_WINDOW_RESTORED`, `GUI_WINDOW_MAXIMIZED`, `GUI_WINDOW_UNMAXIMIZED`, `GUI_WINDOW_CLOSED`, dan `GUI_WINDOW_ERROR`. Aplikasi GUI lain berkomunikasi dengan WM melalui `/opt/asteracea/wm-pid` (PID file) — Emerald broadcast event ke Asteracea.
+WM mendengarkan `GUI_WINDOW_*` lifecycle events: `GUI_WINDOW_CREATED`, `GUI_WINDOW_MINIMIZED`, `GUI_WINDOW_RESTORED`, `GUI_WINDOW_MAXIMIZED`, `GUI_WINDOW_UNMAXIMIZED`, `GUI_WINDOW_CLOSED`, dan `GUI_WINDOW_ERROR`. Aplikasi GUI lain berkomunikasi dengan WM melalui `/var/run/asteracea/wm-pid` (PID file) — Emerald broadcast event ke Asteracea.
 
 ### Perbaikan & Fitur Terbaru
 
@@ -73,7 +73,7 @@ Agar sinkron dengan kode nyata, beberapa perilaku berikut ditambahkan:
 - **Icon & tooltip taskbar untuk foreign app** — handler `GUI_WINDOW_CREATED` meneruskan `payload.icon || "💻"` ke `registerForeignApp()`. Icon dipakai untuk tombol taskbar; `title` (judul window) menjadi tooltip via prop `title` (diterjemahkan ke `data-tt` di DOME). Foreign app kini bisa menampilkan icon custom.
 - **Handler `GUI_WINDOW_MAXIMIZED` / `GUI_WINDOW_UNMAXIMIZED`** — keduanya memanggil `transitionTo(appId, "RUNNING")` dan menetapkan style taskbar aktif (sama seperti `GUI_WINDOW_RESTORED`). State WM tetap sinkron setelah maximize lewat context menu taskbar; klik taskbar berikutnya langsung menjadi minimize toggle.
 - **Login tanpa prefill password** — field password tidak lagi diisi `value: "1"` (inisialisasi `loginPass = ""`). Prefill lama akan "menempel" di depan password baru dan membuat login selalu gagal setelah `passwd` mengganti password.
-- **Persistensi wallpaper** — sebelum menulis `/opt/asteracea/wallpaper/current-wp.b64`, `showWallpaperDialog` membuat folder `/opt/asteracea/wallpaper` (di-try-catch). Sebelumnya folder tidak ada → `fs.writeFile` gagal diam-diam → wallpaper blank setelah reboot.
+- **Persistensi wallpaper** — sebelum menulis `/etc/asteracea/wallpaper/current-wp.b64`, `showWallpaperDialog` membuat folder `/etc/asteracea/wallpaper` (di-try-catch). Sebelumnya folder tidak ada → `fs.writeFile` gagal diam-diam → wallpaper blank setelah reboot.
 
 ---
 
@@ -82,7 +82,7 @@ Agar sinkron dengan kode nyata, beberapa perilaku berikut ditambahkan:
 | File | Peran |
 |---|---|
 | `src/mirror/opt/asteracea/asteracea.ts` | Window manager |
-| `src/mirror/opt/asteracea/menu/*.menu` | Konfigurasi menu launcher |
+| `src/mirror/etc/asteracea/menu/*.menu` | Konfigurasi menu launcher |
 | `src/mirror/etc/rc.local.ts` | Auto-start DOME + Asteracea (poll `/var/run/dome.ready`) |
 
 ---

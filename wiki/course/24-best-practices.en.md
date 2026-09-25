@@ -230,7 +230,7 @@ await theme.switchTo("theme-light.json");
 await theme.applyToDome(domePid, app.wid);
 ```
 
-Theme files are located in `/opt/asteracea/theme-*.json` (`theme-dark.json`, `theme-light.json`). Full example: `src/mirror/opt/set-theme/set-theme.ts`.
+Theme files are located in `/etc/asteracea/theme-*.json` (`theme-dark.json`, `theme-light.json`). Full example: `src/mirror/opt/set-theme/set-theme.ts`.
 
 ---
 

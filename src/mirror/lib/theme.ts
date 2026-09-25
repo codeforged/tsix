@@ -1,8 +1,11 @@
 /**
  * theme.ts — TSIX Desktop Theme System
  *
- * Baca theme dari /opt/asteracea/theme-*.json dan sediakan API
+ * Baca theme dari /etc/asteracea/theme-*.json dan sediakan API
  * untuk aplikasi & WM mengakses warna secara terpusat.
+ *
+ * Path default diambil dari `@common/AsteraceaPaths` (satu sumber kebenaran
+ * untuk seluruh path desktop, termasuk `prefs.json` & `current-theme`).
  *
  * Usage:
  *   import { theme } from "../lib/theme";
@@ -11,6 +14,8 @@
  *
  * (c) 2026 TSIX Project
  */
+
+import { ASTERACEA_THEME_DIR } from "@common/AsteraceaPaths";
 
 // Pakai global._tsixLib langsung, bukan import @tsix/Application
 // karena file ini di-import dari berbagai konteks (bin, lib, dll)
@@ -118,7 +123,7 @@ class ThemeProvider {
   private _available: string[] = [];
 
   /** Cari semua file theme-*.json di direktori theme */
-  async discover(dir: string = "/opt/asteracea"): Promise<string[]> {
+  async discover(dir: string = ASTERACEA_THEME_DIR): Promise<string[]> {
     try {
       const files = await getFs().ls(dir);
       this._available = (files || [])
@@ -133,7 +138,7 @@ class ThemeProvider {
   get available(): string[] { return this._available; }
 
   /** Muat theme dari file JSON */
-  async load(name: string = "theme-dark.json", dir: string = "/opt/asteracea"): Promise<void> {
+  async load(name: string = "theme-dark.json", dir: string = ASTERACEA_THEME_DIR): Promise<void> {
     const path = `${dir}/${name}`;
     try {
       const raw = await getFs().readFile(path);
@@ -148,7 +153,7 @@ class ThemeProvider {
   }
 
   /** Ganti theme — muat file lain + simpan + broadcast ke semua app */
-  async switchTo(name: string, dir: string = "/opt/asteracea"): Promise<void> {
+  async switchTo(name: string, dir: string = ASTERACEA_THEME_DIR): Promise<void> {
     await this.load(name, dir);
     // Simpan ke prefs.json
     await this.saveToPrefs(name, dir);
@@ -164,7 +169,7 @@ class ThemeProvider {
   }
 
   /** Simpan theme ke prefs.json */
-  async saveToPrefs(name: string, dir: string = "/opt/asteracea"): Promise<void> {
+  async saveToPrefs(name: string, dir: string = ASTERACEA_THEME_DIR): Promise<void> {
     try {
       const fs = getFs();
       if (!fs?.readFile || !fs?.writeFile) return;
@@ -177,7 +182,7 @@ class ThemeProvider {
   }
 
   /** Broadcast THEME_CHANGED ke DOME */
-  async broadcast(name: string, dir: string = "/opt/asteracea"): Promise<void> {
+  async broadcast(name: string, dir: string = ASTERACEA_THEME_DIR): Promise<void> {
     try {
       const lib = (global as any)._tsixLib;
       if (!lib?.shell?.send) return;
@@ -197,14 +202,14 @@ class ThemeProvider {
       lib.onEvent("ipc_message", (msg: any) => {
         const ev = msg?.data || msg;
         if (ev?.type === "THEME_CHANGED" && ev.theme) {
-          this.load(ev.theme, ev.dir || "/opt/asteracea").catch(() => {});
+          this.load(ev.theme, ev.dir || ASTERACEA_THEME_DIR).catch(() => {});
         }
       });
     } catch (_) {}
   }
 
   /** Muat theme dari file current-theme (hasil save sebelumnya) atau prefs.json */
-  async loadCurrent(dir: string = "/opt/asteracea"): Promise<void> {
+  async loadCurrent(dir: string = ASTERACEA_THEME_DIR): Promise<void> {
     // Priority 1: prefs.json
     try {
       const raw = await getFs().readFile(dir + "/prefs.json");

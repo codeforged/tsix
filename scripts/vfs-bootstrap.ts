@@ -32,6 +32,13 @@ const PRESERVE_IF_EXISTS = [
     // start dan membuatnya sendiri kalau belum ada, jadi bootstrap TIDAK boleh
     // mengembalikan port yang sudah disesuaikan ke nilai mirror.
     /^\/etc\/dome\/dome\.conf$/,
+    // Config desktop Asteracea yang BERUBAH saat dipakai: pilihan tema/wallpaper,
+    // preferensi (autorun, notifikasi), dan wallpaper terpilih. Semua ini milik
+    // user node — bootstrap tidak boleh mengembalikannya ke nilai mirror.
+    // Menu & tema bawaan (`/etc/asteracea/menu|theme-*.json`) tetap disalin
+    // seperti berkas sistem lain.
+    /^\/etc\/asteracea\/(prefs\.json|wallpaper\.json|current-theme)$/,
+    /^\/etc\/asteracea\/wallpaper\/current-wp\.b64$/,
 ];
 
 /*
@@ -170,6 +177,11 @@ async function main() {
                         item.endsWith(".gif") ||
                         item.endsWith(".bmp") ||
                         item.endsWith(".svg") ||
+                        // Wallpaper `.b64` (mis. /etc/asteracea/wallpaper/*.b64).
+                        // `install.ts` sudah lama memuatnya — tanpa baris ini
+                        // bootstrap diam-diam melewatinya (jebakan yang sama
+                        // dengan `.conf` di atas).
+                        item.endsWith(".b64") ||
                         item.endsWith(".webp") ||
                         item.endsWith(".ico") ||
                         // Font bitmap (mis. /opt/retroterm/fonts/*.woff2) — tanpa ini file

@@ -2,7 +2,7 @@
  * test-theme.ts — Demo Theme Switching
  *
  * Menunjukkan cara pake theme system TSIX:
- * - load theme dari /opt/asteracea/theme-*.json
+ * - load theme dari /etc/asteracea/theme-*.json
  * - switch antar dark/light
  * - pake helper card(), button(), colors.*
  *

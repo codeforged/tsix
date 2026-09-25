@@ -233,7 +233,7 @@ await theme.switchTo("theme-light.json");
 await theme.applyToDome(domePid, app.wid);
 ```
 
-File tema berada di `/opt/asteracea/theme-*.json` (`theme-dark.json`, `theme-light.json`). Contoh lengkap: `src/mirror/opt/set-theme/set-theme.ts`.
+File tema berada di `/etc/asteracea/theme-*.json` (`theme-dark.json`, `theme-light.json`). Contoh lengkap: `src/mirror/opt/set-theme/set-theme.ts`.
 
 ---
 

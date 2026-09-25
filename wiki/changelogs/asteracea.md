@@ -4,6 +4,48 @@
 
 ---
 
+## 2026-09-25
+
+### Layout desktop dipindah ke `/etc/asteracea` + `/var` (kode tinggal di `/opt`)
+
+- **File:** `src/common/AsteraceaPaths.ts` **(baru)**, `src/common/AsteraceaPaths.test.ts` (D10.01–D10.05),
+  `src/mirror/opt/asteracea/asteracea.ts`, `src/mirror/lib/{theme,emerald,ddc}.ts`,
+  `src/mirror/opt/{pixelterm,retroterm,test/pli-app,set-theme}`,
+  `src/userland/WorkerEntry.{ts,js}`, `scripts/vfs-bootstrap.ts`, `src/mirror/etc/tpkg/packages.json`
+- **Masalah:** config & aset desktop menumpuk di folder KODE (`/opt/asteracea/menu`, `wallpaper/`,
+  `theme-*.json`, `prefs.json`, `wallpaper.json`, `notif-ringtone.mp3`), sementara state runtime
+  (PID, trust list, log) bercampur di folder yang sama. Dokumentasi (`wiki/ASTERACEA_WM.md`) sudah
+  lama menulis `/etc/asteracea/...` — artinya dokumen dan kode punya dua kebenaran berbeda.
+- **Perubahan (FHS):**
+  - `/etc/asteracea/**` → **config & aset milik node**: `menu/*.menu`, `theme-dark|light.json`,
+    `prefs.json`, `wallpaper.json`, `wallpaper/*.b64`, `notif-ringtone.mp3`;
+  - `/var/lib/asteracea/**` → **state persisten**: `trusted.list`, `blocked.list`,
+    `ddc-trusted.list`, `ddc-blocked.list` (dulu `/opt/asteracea/trust/`);
+  - `/var/run/asteracea/wm-pid` → PID WM (runtime; dulu `/opt/asteracea/wm-pid`);
+  - `/var/log/asteracea/desktop-notif.log` → log notifikasi (dulu `/opt/asteracea/desktop-notif.log`);
+  - `/opt/asteracea/` → **kode saja** (`asteracea.ts` + sidecar).
+- **Satu sumber path:** semua literal path diganti konstanta `@common/AsteraceaPaths`
+  (`ASTERACEA_MENU_DIR`, `ASTERACEA_WALLPAPER_CURRENT`, `ASTERACEA_WM_PID_FILE`, …).
+  `WorkerEntry.ts` SENGAJA menyalin konstanta PID lokal (worker entry host tidak boleh
+  `require` berkas `.ts`; alasan sama dengan `vfsBytesToUtf8` di berkas itu).
+- **Dir baru dibuat runtime:** `fs.mkdir` untuk `/var/lib/asteracea` (writeList), `/var/run/asteracea`
+  (PID) dan `/var/log/asteracea` (log) — `writeFile` tidak membuat folder induk.
+- **Tool sync:** `.b64` ditambahkan ke whitelist `vfs-bootstrap` (sebelumnya wallpaper b64
+  diam-diam tidak ikut ter-sync, padahal `install.ts` sudah memuatnya); `/etc/asteracea/prefs.json`,
+  `wallpaper.json`, `current-theme`, dan `wallpaper/current-wp.b64` masuk `PRESERVE_IF_EXISTS`
+  (milik user node — bootstrap tidak boleh mengembalikannya ke nilai mirror).
+- **Verifikasi:** test D10.01–D10.05 menjaga pembagian path (/etc vs /var, mirror cocok dengan
+  konstanta, `/opt/asteracea` hanya berisi kode) + smoke loader VFS untuk `asteracea.ts` &
+  `set-theme.ts` (alias `@common/AsteraceaPaths` resolve) + `npm run vfs:bootstrap`
+  (34 menu, tema, wallpaper, ringtone masuk VFS).
+- **Catatan migrasi node lama:** file di `/opt/asteracea/*` (menu, trust list, wallpaper terpilih)
+  TIDAK dipindah otomatis. Node baru mendapat semuanya dari mirror/`install`; node yang sudah jalan
+  memindahkan sendiri, mis.: `cp /opt/asteracea/trust/*.list /var/lib/asteracea/` (keputusan trust
+  user tidak dikarang ulang). Folder lama boleh dihapus setelah itu.
+- **Oleh:** Copilot · **Laporan:** kakang
+
+---
+
 ## 2026-09-03
 
 ### Alt+S menjadi MRU window switcher

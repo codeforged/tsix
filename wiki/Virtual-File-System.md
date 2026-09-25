@@ -604,7 +604,7 @@ esbuild), `Kernel.rebuildVFSCache()` (pre-compile `/lib/*.ts`), `Syscalls` EXEC
 
 **Konsumen di dalam TSIX juga wajib decode kalau memperlakukan isi berkas sebagai
 teks.** Ini sempat terlewat dan gejalanya muncul sebagai ikon launcher kacau:
-`/opt/asteracea/menu/*.menu` berisi `icon=📺` (byte `f0 9f 93 ba`), tapi loader menu
+`/etc/asteracea/menu/*.menu` berisi `icon=📺` (byte `f0 9f 93 ba`), tapi loader menu
 meneruskan byte mentah ke browser → tampil `ðº`. Yang sudah diperbaiki:
 
 | Konsumen | Perubahan |

@@ -646,7 +646,7 @@ interface IBrowserEvent {
 | `src/mirror/bin/asteracea.ts` | Asteracea Window Manager |
 | `src/mirror/lib/emerald.ts` | Emerald Widget Toolkit `@tsix/emerald` |
 | `src/mirror/etc/rc.local.ts` | Auto-start DOME + Asteracea |
-| `/etc/asteracea/wm-pid` | PID file — emerald broadcast event ke Asteracea |
+| `/var/run/asteracea/wm-pid` | PID file — emerald broadcast event ke Asteracea |
 
 ---
 
@@ -833,7 +833,7 @@ Mengapa fresh lookup? Karena taskbar bisa berubah (app lain buka/tutup) antara m
 | 7 | Wallpaper dialog residue after F5 | Child states tidak di-prune | Browser-side discard orphan MOUNT_NODEs |
 | 8 | Launcher content spilled after F5 | Fallback `win.content` untuk orphan | Ganti ke **discard** — jangan mount orphan |
 | 9 | Minimize position wrong for pinned | TB button ID tidak match | Konsisten pakai `pl-${appId}` |
-| 10 | App dari terminal gak dapat TB | Emerald cuma kirim ke parent PID | Broadcast ke Asteracea via `/etc/asteracea/wm-pid` |
+| 10 | App dari terminal gak dapat TB | Emerald cuma kirim ke parent PID | Broadcast ke Asteracea via `/var/run/asteracea/wm-pid` |
 | 11 | Foreign app gak muncul di taskbar | Asteracea gak tahu ada window baru | `registerForeignApp()` auto-create TB + waitpid cleanup |
 
 ---

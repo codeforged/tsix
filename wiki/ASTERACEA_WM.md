@@ -239,7 +239,7 @@ Bar di bagian bawah untuk pinned apps + running apps.
 Aplikasi yang dijalankan dari luar launcher (terminal, shell, file-cruiser) otomatis mendapat taskbar button.
 
 **Mekanisme:**
-1. Saat startup, Asteracea menulis PID-nya ke `/etc/asteracea/wm-pid`
+1. Saat startup, Asteracea menulis PID-nya ke `/var/run/asteracea/wm-pid`
 2. Emerald `notifyParentWindowEvent()` membaca file ini dan mengirim event (`GUI_WINDOW_CREATED`, dll) ke Asteracea
 3. Asteracea mengenali PID asing → panggil `registerForeignApp()`
 4. Auto-create `AppEntry` sementara (icon 💻) + mount taskbar button di `tb-running`
@@ -252,7 +252,7 @@ Terminal → shell.exec("/bin/myapp.ts")
 App: new Window() → Emerald.notifyParentWindowEvent()
     │
     ├─► send(parentPid=Terminal, GUI_WINDOW_CREATED)  ← parent langsung
-    └─► send(Asteracea, GUI_WINDOW_CREATED)             ← via /etc/asteracea/wm-pid
+    └─► send(Asteracea, GUI_WINDOW_CREATED)             ← via /var/run/asteracea/wm-pid
             │
             ▼
 Asteracea: registerForeignApp(pid, wid, title)
@@ -293,7 +293,7 @@ rc.local.ts
             ├─► loadMenuFromFiles(/etc/asteracea/menu/*.menu)
             │       → AppEntry[]
             │
-            ├─► tulis PID ke /etc/asteracea/wm-pid
+            ├─► tulis PID ke /var/run/asteracea/wm-pid
             │       → Emerald baca file ini untuk broadcast event
             │
             ├─► new Window("Asteracea Desktop", fullscreen, frameless)
@@ -747,7 +747,7 @@ sequenceDiagram
 | **8 Posisi** | `ne`, `nw`, `se`, `sw`, `n`, `s`, `e`, `w` — dikonfigurasi di `prefs.json` |
 | **Animasi** | Slide dari atas/bawah (0.3s) + fade in/out |
 | **Durasi** | Configurable via `prefs.json` → `notifications.duration` (ms) |
-| **Log** | `desktop-notif.log` dengan auto-rotation (`maxLog` entries) |
+| **Log** | `desktop-notif.log` (`/var/log/asteracea/`) dengan auto-rotation (`maxLog` entries) |
 | **Taskbar Badge** | Bulat merah + angka unread di taskbar |
 | **History Overlay** | Klik badge → modal daftar notif terbaru (20 items) |
 | **Mark as Read** | Tombol ✓ per notif — kurangi unread count |
@@ -778,7 +778,7 @@ Lokasi: `/etc/asteracea/prefs.json`
 
 ### 11.5 Log Format
 
-`/etc/asteracea/desktop-notif.log`:
+`/var/log/asteracea/desktop-notif.log`:
 ```
 [2026-07-21T12:30:45.678Z] 🔥 Alert: Temperature above threshold!
 [2026-07-21T12:30:46.123Z] ✅ Done: File berhasil disalin.
@@ -820,9 +820,26 @@ Lokasi: `/etc/asteracea/wallpaper.json`
 {
     "type": "image",
     "mime": "image/jpeg",
-    "value": "/etc/asteracea/wallpaper/1712345678_wallpaper.b64"
+    "value": "/etc/asteracea/wallpaper/current-wp.b64"
 }
 ```
+
+### Layout Berkas (FHS)
+
+| Path | Isi |
+|------|-----|
+| `/etc/asteracea/menu/*.menu` | Definisi aplikasi launcher |
+| `/etc/asteracea/theme-*.json` | Tema (dark/light) |
+| `/etc/asteracea/prefs.json` | Preferensi WM (notifikasi, autorun, tema aktif) |
+| `/etc/asteracea/wallpaper.json` + `wallpaper/*.b64` | Wallpaper aktif + berkas gambarnya |
+| `/etc/asteracea/notif-ringtone.mp3` | Nada notifikasi |
+| `/var/lib/asteracea/*.list` | Hasil keputusan trust user (`trusted`/`blocked`/`ddc-*`) |
+| `/var/run/asteracea/wm-pid` | PID WM — dibaca Emerald & WorkerEntry |
+| `/var/log/asteracea/desktop-notif.log` | Riwayat notifikasi (auto-rotate) |
+| `/opt/asteracea/asteracea.ts` | KODE WM — bukan config |
+
+> Path-nya punya SATU sumber kebenaran: `src/common/AsteraceaPaths.ts`. Jangan
+> tulis literal `/etc/asteracea/...` di kode baru — impor konstantanya.
 
 ### Credentials
 
@@ -942,7 +959,7 @@ const watchdogInterval = setInterval(async () => {
 | `src/mirror/bin/dome-client.html` | DOME Browser Engine (file terpisah) |
 | `src/common/GUITypes.ts` | PixelSpace Protocol interfaces |
 | `src/mirror/etc/asteracea/menu/*.menu` | App menu definitions |
-| `/etc/asteracea/wm-pid` | PID file untuk broadcast event ke Asteracea |
+| `/var/run/asteracea/wm-pid` | PID file untuk broadcast event ke Asteracea |
 
 ### IPC Protocol
 

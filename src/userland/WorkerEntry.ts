@@ -21,6 +21,16 @@ const vfsBytesToUtf8 = (raw: string | null | undefined): string =>
     raw === null || raw === undefined ? "" : Buffer.from(raw, "latin1").toString("utf8");
 
 /**
+ * Path PID file Asteracea WM.
+ *
+ * DISALIN dari `src/common/AsteraceaPaths.ts` (`ASTERACEA_WM_PID_FILE`) karena
+ * alasan yang sama dengan `vfsBytesToUtf8` di atas: berkas ini di-require() di
+ * HOST oleh worker jalur JS-Direct, jadi hanya boleh bergantung pada berkas yang
+ * punya sidecar `.js` di repo.
+ */
+const WM_PID_FILE = "/var/run/asteracea/wm-pid";
+
+/**
  * WORKER ENTRY POINT
 
  * 
@@ -376,7 +386,8 @@ function emitWorkerError(lib: any, pid: number, message: string) {
  * supaya error gagal-load aplikasi juga tampil sebagai popup di desktop — termasuk
  * saat app dijalankan dari file-cruiser/terminal (foreign app). Polanya sama dengan
  * notifyParentWindowEvent() di Emerald: kirim ke parent dulu, lalu ke WM via
- * /opt/asteracea/wm-pid. Fire-and-forget; kegagalan pengiriman tidak fatal.
+ * PID file (`/var/run/asteracea/wm-pid`). Fire-and-forget; kegagalan pengiriman
+ * tidak fatal.
  */
 async function notifyLoadError(lib: any, pid: number, appName: string, message: string) {
     try {
@@ -400,7 +411,7 @@ async function notifyLoadError(lib: any, pid: number, appName: string, message: 
         // 2. Kirim juga ke Asteracea WM — untuk app yang di-run via
         //    file-cruiser/terminal (foreign app). Baca PID WM dari wm-pid file.
         try {
-            const wmPidRaw = await lib.fs.readFile("/opt/asteracea/wm-pid");
+            const wmPidRaw = await lib.fs.readFile(WM_PID_FILE);
             if (wmPidRaw) {
                 const wmPid = parseInt(String(wmPidRaw).trim());
                 const myPid = lib.getPid();

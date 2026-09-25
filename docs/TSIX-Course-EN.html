@@ -58,7 +58,7 @@
   </div>
   <div class="meta">
     System design &amp; architecture: Andriansah<br>
-    Generated: 2026-09-24<br>
+    Generated: 2026-09-25<br>
     Platform: TSIX (educational OS-like runtime on Node.js/TypeScript)
   </div>
 </div>
@@ -504,7 +504,7 @@ Browser → event → DOME → Kernel (SEND_MSG) → Worker (callback)
 <li><strong>DOME</strong> = display server (Ring 4 daemon, port 8080): WS relay + DOM primitive producer + <strong>compositor</strong> (titlebar, drag, resize, focus, replay). Monolithic due to drag/resize latency considerations.</li>
 <li><strong>Emerald</strong> = widget toolkit (<code>@tsix/emerald</code>): <code>Screen</code>, <code>Window</code>, factory functions, connected widgets.</li>
 <li><strong>Cashew</strong> = component framework (<code>@tsix/cashew</code>): OOP/Delphi-style <code>TForm</code>/<code>TButton</code>/<code>TEdit</code>, auto-bind lifecycle, TDialogs &amp; TTimer — a layer above Emerald.</li>
-<li><strong>Asteracea</strong> = window manager (fullscreen frameless app): taskbar, launcher, login, wallpaper; listens to <code>GUI_WINDOW_*</code> lifecycle events via <code>/etc/asteracea/wm-pid</code>.</li>
+<li><strong>Asteracea</strong> = window manager (fullscreen frameless app): taskbar, launcher, login, wallpaper; listens to <code>GUI_WINDOW_*</code> lifecycle events via <code>/var/run/asteracea/wm-pid</code>.</li>
 </ul>
 <hr>
 <h2>11. Development Flow</h2>
@@ -8582,7 +8582,7 @@ form.add(TSplitHorizontal(leftPanel, rightPanel, &quot;1fr&quot;));
 <li><input disabled="" type="checkbox"> Explain the queue-based IPC philosophy (MessageBus)</li>
 <li><input disabled="" type="checkbox"> Explain the taskbar (pinned/running/foreign)</li>
 <li><input disabled="" type="checkbox"> Explain the launcher &amp; fuzzy search</li>
-<li><input disabled="" type="checkbox"> Explain lifecycle events via <code>/opt/asteracea/wm-pid</code></li>
+<li><input disabled="" type="checkbox"> Explain lifecycle events via <code>/var/run/asteracea/wm-pid</code></li>
 </ul>
 <hr>
 <h2>Core Concepts</h2>
@@ -8636,7 +8636,7 @@ Browser ──(click)─────► DOME  ──(shell.send)────► 
 <li><strong>App State Manager</strong></li>
 </ul>
 <h3>IPC lifecycle events</h3>
-<p>The WM listens for <code>GUI_WINDOW_*</code> lifecycle events: <code>GUI_WINDOW_CREATED</code>, <code>GUI_WINDOW_MINIMIZED</code>, <code>GUI_WINDOW_RESTORED</code>, <code>GUI_WINDOW_MAXIMIZED</code>, <code>GUI_WINDOW_UNMAXIMIZED</code>, <code>GUI_WINDOW_CLOSED</code>, and <code>GUI_WINDOW_ERROR</code>. Other GUI apps communicate with the WM through <code>/opt/asteracea/wm-pid</code> (PID file) — Emerald broadcasts events to Asteracea.</p>
+<p>The WM listens for <code>GUI_WINDOW_*</code> lifecycle events: <code>GUI_WINDOW_CREATED</code>, <code>GUI_WINDOW_MINIMIZED</code>, <code>GUI_WINDOW_RESTORED</code>, <code>GUI_WINDOW_MAXIMIZED</code>, <code>GUI_WINDOW_UNMAXIMIZED</code>, <code>GUI_WINDOW_CLOSED</code>, and <code>GUI_WINDOW_ERROR</code>. Other GUI apps communicate with the WM through <code>/var/run/asteracea/wm-pid</code> (PID file) — Emerald broadcasts events to Asteracea.</p>
 <h3>Fixes &amp; Latest Features</h3>
 <p>To stay in sync with the real code, the following behaviors were added:</p>
 <ul>
@@ -8644,7 +8644,7 @@ Browser ──(click)─────► DOME  ──(shell.send)────► 
 <li><strong>Taskbar icon &amp; tooltip for foreign apps</strong> — the <code>GUI_WINDOW_CREATED</code> handler forwards <code>payload.icon || &quot;💻&quot;</code> to <code>registerForeignApp()</code>. The icon is used for the taskbar button; <code>title</code> (the window title) becomes the tooltip via the <code>title</code> prop (translated to <code>data-tt</code> in DOME). Foreign apps can now show a custom icon.</li>
 <li><strong><code>GUI_WINDOW_MAXIMIZED</code> / <code>GUI_WINDOW_UNMAXIMIZED</code> handlers</strong> — both call <code>transitionTo(appId, &quot;RUNNING&quot;)</code> and set the active taskbar style (same as <code>GUI_WINDOW_RESTORED</code>). WM state stays in sync after maximizing via the taskbar context menu; the next taskbar click becomes a minimize toggle.</li>
 <li><strong>Login without password prefill</strong> — the password field is no longer filled with <code>value: &quot;1&quot;</code> (initialized as <code>loginPass = &quot;&quot;</code>). The old prefill would &quot;stick&quot; in front of the new password and make login always fail after <code>passwd</code> changes the password.</li>
-<li><strong>Wallpaper persistence</strong> — before writing <code>/opt/asteracea/wallpaper/current-wp.b64</code>, <code>showWallpaperDialog</code> creates the <code>/opt/asteracea/wallpaper</code> folder (inside a try-catch). Previously the folder did not exist → <code>fs.writeFile</code> failed silently → blank wallpaper after reboot.</li>
+<li><strong>Wallpaper persistence</strong> — before writing <code>/etc/asteracea/wallpaper/current-wp.b64</code>, <code>showWallpaperDialog</code> creates the <code>/etc/asteracea/wallpaper</code> folder (inside a try-catch). Previously the folder did not exist → <code>fs.writeFile</code> failed silently → blank wallpaper after reboot.</li>
 </ul>
 <hr>
 <h2>Source Code</h2>
@@ -8660,7 +8660,7 @@ Browser ──(click)─────► DOME  ──(shell.send)────► 
 <td>Window manager</td>
 </tr>
 <tr>
-<td><code>src/mirror/opt/asteracea/menu/*.menu</code></td>
+<td><code>src/mirror/etc/asteracea/menu/*.menu</code></td>
 <td>Launcher menu configuration</td>
 </tr>
 <tr>
@@ -9500,7 +9500,7 @@ await theme.switchTo(&quot;theme-light.json&quot;);
 // Terapkan ke window ini (titlebar, border, shadow)
 await theme.applyToDome(domePid, app.wid);
 </code></pre>
-<p>Theme files are located in <code>/opt/asteracea/theme-*.json</code> (<code>theme-dark.json</code>, <code>theme-light.json</code>). Full example: <code>src/mirror/opt/set-theme/set-theme.ts</code>.</p>
+<p>Theme files are located in <code>/etc/asteracea/theme-*.json</code> (<code>theme-dark.json</code>, <code>theme-light.json</code>). Full example: <code>src/mirror/opt/set-theme/set-theme.ts</code>.</p>
 <hr>
 <h2>Exercises / Practice</h2>
 <ol>
