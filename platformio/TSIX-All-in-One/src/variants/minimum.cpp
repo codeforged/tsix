@@ -7,13 +7,13 @@
 // ─────────────────────────────────────────────────────────────
 #include <Arduino.h>
 #include <tsixlib.h>
-#include "secrets.h"   // WiFi/MQTT/API key — in include/secrets.h (NOT committed)
+#include "secrets.sample.h" // WiFi/MQTT/API key — in include/secrets.h (NOT committed)
 
 // ── Configuration (network in secrets.h) ──
-#define NODE_ID       "esp-minimum-01"  // device identity in Device Bank
-#define NODE_PORT     100               // virtual port of this MQTNL node
-#define DST_HOST      "tsix"            // target TSIX node
-#define DST_PORT      2500              // target port
+#define NODE_ID "esp-minimum-01" // device identity in Device Bank
+#define NODE_PORT 100            // virtual port of this MQTNL node
+#define DST_HOST "wintsix"       // target TSIX node
+#define DST_PORT 2500            // target port
 
 // Tenant API key = ChaCha20-Poly1305 key (from secrets.h)
 const char apiKey[] = TSIX_API_KEY;
