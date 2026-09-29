@@ -5,6 +5,10 @@ build/
 **/.pio/
 *.tsbuildinfo
 
+# Lockfile — npm menulis dengan indentasi 2 spasi, sedangkan prettier
+# (tabWidth 4) me-reformat seluruh ~3600 baris jadi churn tanpa arti.
+package-lock.json
+
 # Bundles & minified assets (single giant lines — jangan pernah diformat)
 **/*bundle*.js
 **/*.min.js
