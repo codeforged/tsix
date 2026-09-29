@@ -52,11 +52,12 @@ jsix.log
 # --- Environment / secret files (defensive) ---
 .env
 .env.*
-# Kredensial PlatformIO (WiFi/MQTT/API key) — JANGAN pernah di-track.
-# `secrets.h` = kredensial asli; `secrets.sample.h` di-untrack karena
-# pernah ter-commit berisi kredensial asli (lihat riwayat git).
+# Kredensial PlatformIO (WiFi/MQTT/API key).
+# `secrets.h` = kredensial ASLI → JANGAN pernah di-track.
+# `secrets.sample.h` = template placeholder → justru HARUS di-commit
+# (README: clone baru cukup `cp include/secrets.sample.h include/secrets.h`).
+# Pastikan template selalu berisi nilai placeholder, bukan kredensial asli.
 platformio/TSIX-All-in-One/include/secrets.h
-platformio/TSIX-All-in-One/include/secrets.sample.h
 *.pem
 *.key
 !src/mirror/etc/tpkg/keys/public.pem

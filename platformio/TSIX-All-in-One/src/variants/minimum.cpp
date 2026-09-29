@@ -7,7 +7,7 @@
 // ─────────────────────────────────────────────────────────────
 #include <Arduino.h>
 #include <tsixlib.h>
-#include "secrets.sample.h" // WiFi/MQTT/API key — in include/secrets.h (NOT committed)
+#include "secrets.h" // WiFi/MQTT/API key — in include/secrets.h (NOT committed)
 
 // ── Configuration (network in secrets.h) ──
 #define NODE_ID "esp-minimum-01" // device identity in Device Bank
