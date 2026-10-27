@@ -255,10 +255,11 @@ export default class Vpns {
       );
     }
 
-    if (!this.opts.foreground) {
-      await lib.shell.daemonize("MQTNL Tunnel Relay (vpns)");
-    }
-
+    // PENTING — URUTAN: socket dibuka SEBELUM daemonize.
+    // Kalau bind gagal (port dipakai proses lain, interface salah, dsb),
+    // pesan errornya harus terlihat di terminal pemanggil. Setelah detach,
+    // `std.print` tidak lagi sampai ke layar sehingga kegagalan akan tampak
+    // seperti "vpns tidak melakukan apa-apa".
     this.inSocket = new NetSocket({
       port: this.opts.listen,
       iface: this.opts.iface,
@@ -283,7 +284,10 @@ export default class Vpns {
         });
       }
     } catch (e: any) {
-      await lib.std.print(`vpns: gagal membuka port ${listen}: ${e.message}\n`);
+      await lib.std.print(
+        `❌ vpns: gagal membuka port ${listen}: ${e.message}\n` +
+          `   Periksa: port sudah dipakai proses lain? interface '${this.opts.iface ?? "(default)"}' ada?\n`,
+      );
       await lib.shell.exit(1);
       return;
     }
@@ -317,9 +321,19 @@ export default class Vpns {
     const actual = this.inSocket.port ?? listen;
     await lib.std.print(
       `✅ vpns siap — amplop data di port ${actual}` +
-      `${this.opts.handshake ? `, kontrol di ${this.ctrlSocket?.port ?? this.opts.ctrlPort}` : ""}` +
-      `${this.sessionKey ? ` (${this.opts.handshake ? "RSA+ChaCha" : `PSK ${this.opts.agent}`})` : ""}\n`,
+        `${this.opts.handshake ? `, kontrol di ${this.ctrlSocket?.port ?? this.opts.ctrlPort}` : ""}` +
+        `${this.sessionKey ? ` (${this.opts.handshake ? "RSA+ChaCha" : `PSK ${this.opts.agent}`})` : ""}\n`,
     );
+
+    // Baru sekarang lepas dari terminal: semua kegagalan bind sudah dilaporkan
+    // di atas, dan mulai titik ini proses hidup sebagai daemon.
+    if (!this.opts.foreground) {
+      await lib.shell.daemonize("MQTNL Tunnel Relay (vpns)");
+      await lib.std.log(
+        `relay siap di port ${actual}${this.opts.handshake ? ` (kontrol ${this.opts.ctrlPort})` : ""}`,
+        TAG,
+      );
+    }
 
     this.cleanupTimer = setInterval(() => this.sweepSessions(), 15_000);
 
