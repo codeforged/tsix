@@ -88,12 +88,37 @@ const SECTION_SCHEMA: Record<string, Record<string, Kind>> = {
 
 const IFACE_PREFIX = "iface.";
 const DEVICE_PREFIX = "device.";
+const TUNNEL_PREFIX = "tunnel.";
 
 /** Key yang dikenali di `[iface.*]`. */
 const IFACE_SCHEMA: Record<string, Kind> = {
     broker: "string",
     address: "string",
     defaultPort: "number",
+};
+
+/**
+ * Key yang dikenali di `[tunnel.*]`.
+ *
+ * Interface tunnel = device `SimpleMQTNLDriverTunnel`: membungkus paket ke
+ * node relay di broker lain. Section ini OPSIONAL — berkas konfigurasi lama
+ * tanpa `[tunnel.*]` tetap menghasilkan perilaku yang sama persis.
+ */
+const TUNNEL_SCHEMA: Record<string, Kind> = {
+    broker: "string",
+    address: "string",
+    defaultPort: "number",
+    peer: "string",
+    port: "number",
+    controlPort: "number",
+    psk: "string",
+    // Handshake RSA otomatis; `false` memaksa plain (tidak disarankan).
+    handshake: "boolean",
+    trustedFingerprint: "string",
+    rekey: "number",
+    agent: "string",
+    exclude: "string", // array (dipisah koma) maupun satu nilai
+    maxHops: "number",
 };
 
 /** Key yang dikenali di `[device.*]`. */
@@ -236,7 +261,8 @@ function isKnownSection(name: string): boolean {
     return (
         Object.prototype.hasOwnProperty.call(SECTION_SCHEMA, name) ||
         name.startsWith(IFACE_PREFIX) ||
-        name.startsWith(DEVICE_PREFIX)
+        name.startsWith(DEVICE_PREFIX) ||
+        name.startsWith(TUNNEL_PREFIX)
     );
 }
 
@@ -334,6 +360,99 @@ export function parseSysConfigIni(content: string): SysConfigParseResult {
             interfaces.push(iface);
         }
         cfg.network.interfaces = interfaces;
+    }
+
+    // --- [tunnel.*] ---
+    // Interface tunnel: device yang membungkus paket ke relay di broker lain.
+    // Tidak didaftarkan di `[network] interfaces` karena bukan interface
+    // "biasa" — kernel membuatnya dari daftar ini.
+    const tunnelSections = order.filter((name) => name.startsWith(TUNNEL_PREFIX));
+    if (tunnelSections.length > 0) {
+        const tunnels: NonNullable<SysConfig["network"]["tunnels"]> = [];
+        for (const name of tunnelSections) {
+            const deviceName = name.slice(TUNNEL_PREFIX.length);
+            const values = sections[name] ?? {};
+            const tun = {
+                deviceName,
+                broker: "",
+                address: deviceName,
+                defaultPort: 1883,
+                peer: "",
+                port: undefined as number | undefined,
+                controlPort: undefined as number | undefined,
+                psk: undefined as string | undefined,
+                handshake: undefined as boolean | undefined,
+                trustedFingerprint: undefined as string | undefined,
+                rekey: undefined as number | undefined,
+                agent: undefined as string | undefined,
+                exclude: undefined as string[] | undefined,
+                maxHops: undefined as number | undefined,
+            };
+            for (const [key, raw] of Object.entries(values)) {
+                const kind = TUNNEL_SCHEMA[key];
+                if (!kind) {
+                    warn(`[${name}] unknown key '${key}' → ignored`);
+                    continue;
+                }
+                const label = `[${name}] ${key}`;
+                const value = coerce(raw, kind, label, warn);
+                if (value === undefined) continue;
+                switch (key) {
+                    case "broker":
+                        tun.broker = String(value);
+                        break;
+                    case "address":
+                        tun.address = String(value);
+                        break;
+                    case "defaultPort":
+                        tun.defaultPort = Number(value);
+                        break;
+                    case "peer":
+                        tun.peer = String(value);
+                        break;
+                    case "port":
+                        tun.port = Number(value);
+                        break;
+                    case "controlPort":
+                        tun.controlPort = Number(value);
+                        break;
+                    case "psk":
+                        tun.psk = String(value);
+                        break;
+                    case "handshake":
+                        tun.handshake = !!value;
+                        break;
+                    case "trustedFingerprint":
+                        tun.trustedFingerprint = String(value);
+                        break;
+                    case "rekey":
+                        tun.rekey = Number(value);
+                        break;
+                    case "agent":
+                        tun.agent = String(value);
+                        break;
+                    case "exclude":
+                        tun.exclude = String(value)
+                            .split(",")
+                            .map((s) => s.trim())
+                            .filter((s) => s !== "");
+                        break;
+                    case "maxHops":
+                        tun.maxHops = Number(value);
+                        break;
+                }
+            }
+            if (!tun.broker) {
+                warn(`[${name}] 'broker' wajib diisi → tunnel '${deviceName}' dilewati`);
+                continue;
+            }
+            if (!tun.peer) {
+                warn(`[${name}] 'peer' wajib diisi → tunnel '${deviceName}' dilewati`);
+                continue;
+            }
+            tunnels.push(tun);
+        }
+        if (tunnels.length > 0) cfg.network.tunnels = tunnels;
     }
 
     // --- [device.*] ---
@@ -462,6 +581,31 @@ export function formatSysConfigIni(cfg: SysConfig, header?: string): string {
             ["address", iface.address],
             ["defaultPort", iface.defaultPort],
         ]);
+    }
+
+    // Section tunnel hanya ditulis kalau dipakai — konfigurasi lama tidak
+    // berubah bentuk saat di-format ulang. Key yang tidak di-set TIDAK ditulis
+    // sebagai baris kosong: `port = ` (kosong) akan diperingatkan parser
+    // sebagai "bukan angka" saat berkas dibaca kembali.
+    for (const tun of cfg.network.tunnels ?? []) {
+        const rows: Array<[string, string | number | boolean | undefined]> = [
+            ["broker", tun.broker],
+            ["address", tun.address],
+            ["peer", tun.peer],
+        ];
+        if (tun.port !== undefined) rows.push(["port", tun.port]);
+        if (tun.controlPort !== undefined) rows.push(["controlPort", tun.controlPort]);
+        if (tun.psk !== undefined) rows.push(["psk", tun.psk]);
+        if (tun.handshake !== undefined) rows.push(["handshake", tun.handshake]);
+        if (tun.trustedFingerprint !== undefined)
+            rows.push(["trustedFingerprint", tun.trustedFingerprint]);
+        if (tun.rekey !== undefined) rows.push(["rekey", tun.rekey]);
+        if (tun.agent !== undefined) rows.push(["agent", tun.agent]);
+        if (tun.maxHops !== undefined) rows.push(["maxHops", tun.maxHops]);
+        if (tun.exclude !== undefined && tun.exclude.length > 0) {
+            rows.push(["exclude", tun.exclude.join(", ")]);
+        }
+        pushSection(out, `${TUNNEL_PREFIX}${tun.deviceName}`, rows);
     }
 
     for (const [devName, device] of Object.entries(cfg.devices ?? {})) {

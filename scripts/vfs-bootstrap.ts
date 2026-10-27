@@ -32,6 +32,11 @@ const PRESERVE_IF_EXISTS = [
     // start dan membuatnya sendiri kalau belum ada, jadi bootstrap TIDAK boleh
     // mengembalikan port yang sudah disesuaikan ke nilai mirror.
     /^\/etc\/dome\/dome\.conf$/,
+    // Kebijakan ACL bridge (`/etc/packetforwarder/firewalltables.conf`) hanya
+    // dipakai node yang MENJALANKAN `forward`. Isinya keputusan operator untuk
+    // bridge itu, jadi bootstrap hanya menyalinnya kalau belum ada — jangan
+    // mengembalikan aturan yang sudah disesuaikan ke contoh bawaan.
+    /^\/etc\/packetforwarder\/firewalltables\.conf$/,
     // Config desktop Asteracea yang BERUBAH saat dipakai: pilihan tema/wallpaper,
     // preferensi (autorun, notifikasi), dan wallpaper terpilih. Semua ini milik
     // user node — bootstrap tidak boleh mengembalikannya ke nilai mirror.

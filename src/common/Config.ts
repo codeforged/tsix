@@ -74,6 +74,38 @@ export interface SysConfig {
             defaultPort: number;
         }[];
         defaultDevice: string;
+        /**
+         * Interface tunnel (`[tunnel.<nama>]`) — device yang membungkus paket
+         * ke node relay di broker lain (lihat `SimpleMQTNLDriverTunnel`).
+         * Opsional: konfigurasi lama tanpa section ini berperilaku persis
+         * seperti sebelumnya.
+         */
+        tunnels?: {
+            deviceName: string;
+            broker: string;
+            address: string;
+            defaultPort: number;
+            /** Alamat relay: "node" atau "node:port". */
+            peer: string;
+            /** Port tunnel (default 9360). */
+            port?: number;
+            /** Port kontrol handshake (default: port + 1). */
+            controlPort?: number;
+            /** PSK ChaCha20-Poly1305 (hex 64 karakter). Kosong = handshake RSA. */
+            psk?: string;
+            /** Handshake RSA otomatis (default: true bila `psk` kosong). */
+            handshake?: boolean;
+            /** Fingerprint relay yang dipercaya (16 karakter). */
+            trustedFingerprint?: string;
+            /** Handshake ulang tiap N detik (0 = hanya saat start). */
+            rekey?: number;
+            /** Nama agent enkripsi (default "chacha20"). */
+            agent?: string;
+            /** Alamat yang tidak lewat tunnel. */
+            exclude?: string[];
+            /** Batas hop amplop (default 3). */
+            maxHops?: number;
+        }[];
     };
     devices?: {
         [deviceName: string]: {
