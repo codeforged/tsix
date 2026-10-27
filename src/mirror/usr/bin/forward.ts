@@ -401,6 +401,9 @@ export default class main {
         output += `Traffic Flow:\n`;
         output += `  A -> B: ${stats.packetsAtoB.toString().padStart(8)} pkts | ${this.formatBytes(stats.bytesAtoB).padStart(10)} | Rate: ${this.formatBytes(rateAtoB).padStart(9)}/s\n`;
         output += `  B -> A: ${stats.packetsBtoA.toString().padStart(8)} pkts | ${this.formatBytes(stats.bytesBtoA).padStart(10)} | Rate: ${this.formatBytes(rateBtoA).padStart(9)}/s\n`;
+        if (stats.echoDropped > 0) {
+          output += `  Echo dibuang (anti-bounce): ${stats.echoDropped}\n`;
+        }
 
         // Firewall: tampilkan hanya kalau aktif, supaya tampilan lama tidak berubah.
         const fw = stats.firewall;

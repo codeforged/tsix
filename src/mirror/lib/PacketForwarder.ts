@@ -1,4 +1,5 @@
 import * as mqtt from "mqtt";
+import * as crypto from "crypto";
 import { Firewall, FirewallPacket } from "@tsix/Firewall";
 
 /**
@@ -13,11 +14,79 @@ import { Firewall, FirewallPacket } from "@tsix/Firewall";
 const MQTNL_TOPICS = ["mqtnl@1.0/#", "mqtnl@1.1/#", "mqtnl@1.2/#"];
 
 /**
- * Paket hanya di-forward bila `forwarded == 0` (origin dari broker lokal).
- * Paket yang sudah pernah di-bridge (forwarded >= 1) TIDAK di-forward balik —
- * mencegah "bounce" A↔B yang mengirim payload SAMA berkali-kali ke tujuan
- * (bug: tssh/telnet ke node di broker lain jadi karakter berlipat & login gagal).
+ * ANTI-BOUNCE (echo suppression).
+ *
+ * Bridge ikut subscribe `mqtnl@1.x/#`, jadi SETIAP paket yang ia publish ke
+ * satu broker akan dipantulkan kembali oleh broker itu — termasuk publish
+ * miliknya sendiri. Tanpa penjagaan, siklusnya:
+ *
+ *   A→B publish (forwarded=1) → broker B echo → B→A publish (forwarded=2)
+ *   → broker A echo → A→B (forwarded=3) → … sampai MAX_FORWARD
+ *
+ * Akibatnya satu paket tiba 3× di tujuan (duplikat payload: karakter berlipat
+ * di tssh/telnet, baris ganda di log) dan lalu lintas bridge membengkak.
+ *
+ * `forwarded` saja TIDAK cukup untuk membedakan echo dari paket asli, karena
+ * bridge juga harus meneruskan paket dari bridge lain (rantai A-B-C). Karena
+ * itu dipakai jejak sidik-jari (hash) pesan yang BARU SAJA kita publish:
+ * kalau byte yang sama datang kembali dari broker yang kita kirimi, itu echo.
+ *
+ * TTL pendek + kapasitas terbatas supaya paket identik yang sah (mis. dua
+ * penekanan tombol yang sama) tetap lolos setelah jendela echo lewat.
  */
+export const ECHO_TTL_MS = 15_000;
+export const ECHO_MAX_ENTRIES = 2048;
+
+/**
+ * EchoGuard: jejak hash pesan yang sudah kita publish ke satu broker.
+ *
+ * Dipakai satu instance per arah kirim (A dan B) sehingga echo dari broker A
+ * tidak pernah dianggap echo broker B.
+ */
+export class EchoGuard {
+  private seen = new Map<string, number>();
+
+  constructor(
+    private readonly ttlMs: number = ECHO_TTL_MS,
+    private readonly maxEntries: number = ECHO_MAX_ENTRIES,
+  ) {}
+
+  /** True kalau `hash` adalah echo publish kita sendiri (entri ikut dihapus). */
+  public consume(hash: string): boolean {
+    const at = this.seen.get(hash);
+    if (at === undefined) return false;
+    this.seen.delete(hash);
+    return Date.now() - at <= this.ttlMs;
+  }
+
+  /** Catat bahwa `hash` baru saja kita publish ke broker ini. */
+  public remember(hash: string): void {
+    this.seen.set(hash, Date.now());
+    if (this.seen.size > this.maxEntries) this.prune();
+  }
+
+  /** Buang entri kedaluwarsa, lalu pangkas yang tertua kalau masih terlalu besar. */
+  public prune(): void {
+    const cutoff = Date.now() - this.ttlMs;
+    for (const [key, at] of this.seen) {
+      if (at < cutoff) this.seen.delete(key);
+    }
+    if (this.seen.size <= this.maxEntries) return;
+
+    const oldest = [...this.seen.entries()].sort((a, b) => a[1] - b[1]);
+    const excess = this.seen.size - this.maxEntries;
+    for (let i = 0; i < excess; i++) this.seen.delete(oldest[i][0]);
+  }
+
+  public get size(): number {
+    return this.seen.size;
+  }
+}
+
+/** SHA-1 payload → kunci jejak echo (cukup untuk dedupe, bukan keamanan). */
+export function messageFingerprint(buf: Buffer): string {
+  return crypto.createHash("sha1").update(buf).digest("hex");
+}
 
 /** Header MQTNL yang sudah diurai — dipakai firewall + penanda `forwarded`. */
 interface MqtnlHeader {
@@ -56,6 +125,11 @@ export class PacketForwarder {
   private firewall: Firewall | null = null;
   private firewallBlocked: number = 0;
   private firewallLastBlock: string | null = null;
+
+  // Anti-bounce: pesan yang baru kita publish ke masing-masing broker.
+  private publishedToA = new EchoGuard();
+  private publishedToB = new EchoGuard();
+  private echoDropped: number = 0;
 
   constructor(brokerA: string, brokerB: string) {
     this.brokerAUrl = this.ensureMqttProtocol(brokerA);
@@ -161,7 +235,18 @@ export class PacketForwarder {
     const MAX_FORWARD = 5;
     const header = this.readHeader(message, topic);
     if (!header) return; // bukan MQTNL yang dikenal
-    if (header.forwarded >= MAX_FORWARD) return; // sudah pernah di-bridge (anti-loop)
+    if (header.forwarded >= MAX_FORWARD) return; // batas rantai bridge
+
+    // --- ANTI-BOUNCE ---
+    // Pesan yang datang dari broker A dan byte-nya sama dengan yang BARU SAJA
+    // kita publish ke A adalah echo publish kita sendiri → jangan diteruskan
+    // balik (kalau diteruskan, paket memantul A↔B dan tiba berkali-kali).
+    const incomingFingerprint = messageFingerprint(message);
+    const arrivedGuard = direction === "A->B" ? this.publishedToA : this.publishedToB;
+    if (arrivedGuard.consume(incomingFingerprint)) {
+      this.echoDropped++;
+      return;
+    }
 
     // --- FIREWALL (ACL) ---
     // Dievaluasi SEBELUM `forwarded` dinaikkan supaya paket yang diblokir tidak
@@ -181,6 +266,10 @@ export class PacketForwarder {
 
     const next = this.markForwarded(header);
     if (!next) return;
+
+    // Catat byte yang kita publish → echo-nya akan dikenali saat kembali.
+    const publishGuard = direction === "A->B" ? this.publishedToB : this.publishedToA;
+    publishGuard.remember(messageFingerprint(next));
 
     targetClient.publish(topic, next, (err) => {
       if (!err) {
@@ -351,6 +440,7 @@ export class PacketForwarder {
       bytesAtoB: this.bytesAtoB,
       bytesBtoA: this.bytesBtoA,
       uptime: this.isRunning ? Date.now() - this.startTime : 0,
+      echoDropped: this.echoDropped,
       firewall: {
         enabled: !!this.firewall,
         active: !!this.firewall?.active,
