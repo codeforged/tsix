@@ -1,49 +1,61 @@
 /**
- * lantana-cmd.ts — Lantana Utility: Kirim Command ke Device (dua arah)
+ * lantana-cmd.ts — Kirim command ke device (dua arah).
  *
- * Mengirim perintah ke device tertentu melalui daemon Lantana. Daemon
- * me-resolve alamat device (dari Device Bank) lalu meneruskan ke device
- * via MQTNL (mis. "RELAY_1:ON" / "RELAY_2:OFF").
+ * Command diotorisasi di daemon berdasarkan `accountId` peminta, lalu
+ * dienkripsi dengan session key device.
  *
  * Usage:
- *   lantana-cmd <nodeId> <command> [target] [tenant]
- *   lantana-cmd esp32-dev-01 "RELAY_1:ON"
- *   lantana-cmd gudang-a "LAMP:OFF" <lantanaPid|uuid>
- *   lantana-cmd dev-01 "RELAY_1:ON" <lantanaPid|uuid> "Juragan Sensor"
+ *   lantana-cmd <accountId> <deviceId> <command> [target]
+ *   lantana-cmd juragan 3f2a... "RELAY_1:ON"
  *
  * (c) 2026 TSIX Project — Lantana
  */
 
 import { Program, std, shell } from "@tsix/Application";
-import { LANTANA_UUID, EVT_COMMAND } from "@tsix/lantana/lantana-core";
+import { EVT_COMMAND, EVT_COMMAND_RESULT, LANTANA_UUID, resolveDaemonTarget } from "@tsix/lantana/lantana-core";
 
 const TAG = "lantana-cmd";
+const REPLY_TIMEOUT_MS = 3000;
 
 export const main = Program(async (args: string[]) => {
-    const nodeId = args[0];
-    const command = args[1];
-    const target = args[2] || LANTANA_UUID;
-    const tenant = args[3];
+    const accountId = args[0];
+    const deviceId = args[1];
+    const command = args[2];
+    const target = resolveDaemonTarget(args[3] || LANTANA_UUID);
 
-    if (!nodeId || !command) {
-        await std.print("Usage: lantana-cmd <nodeId> <command> [target] [tenant]\n");
-        await std.print("  lantana-cmd esp32-dev-01 \"RELAY_1:ON\"\n");
+    if (!accountId || !deviceId || !command) {
+        await std.print("Usage: lantana-cmd <accountId> <deviceId> <command> [target]\n");
+        await std.print('  lantana-cmd juragan 3f2a-... "RELAY_1:ON"\n');
         return;
     }
 
-    await std.print(`[${TAG}] Mengirim "${command}" → ${nodeId} via ${target}...\n`);
+    const lib = (global as any)._tsixLib;
+    const pid = shell.getPid();
 
-    // Kirim command ke daemon Lantana; daemon yang me-resolve alamat device
-    const res = await shell.send(target, {
+    const result = new Promise<any>((resolve) => {
+        const timer = setTimeout(() => resolve({ ok: false, error: "timeout menunggu balasan daemon" }), REPLY_TIMEOUT_MS);
+        lib.onEvent("ipc_message", (msg: any) => {
+            const payload = msg?.data || msg;
+            if (payload?.type !== EVT_COMMAND_RESULT) return;
+            if (payload.data?.deviceId !== deviceId || payload.data?.accountId !== accountId) return;
+            clearTimeout(timer);
+            resolve(payload.data);
+        });
+    });
+
+    await shell.send(target, {
         type: EVT_COMMAND,
-        nodeId,
+        accountId,
+        deviceId,
         command,
-        tenant, // opsional — target tenant saat nodeId sama di beberapa tenant
-        from: "lantana-cmd",
-    }).catch((e: any) => ({ error: e?.message || String(e) }));
+        from: TAG,
+        fromPid: pid,
+    }).catch(() => false);
 
-    // shell.send tidak memberi balasan langsung (fire-and-forget);
-    // hasil bisa dicek di log daemon / di device.
-    await std.print(`[${TAG}] Command terkirim ke daemon. Cek log Lantana & device.\n`);
-    return "";
+    const res = await result;
+    if (res.ok) {
+        await std.print(`[${TAG}] Command terkirim ke ${deviceId}.\n`);
+    } else {
+        await std.print(`[${TAG}] Gagal: ${res.error}\n`);
+    }
 });

@@ -1,30 +1,43 @@
 /**
- * lantana-db-injector.ts — Lantana Consumer: Database Injector
+ * lantana-db-injector.ts — Consumer: tulis bacaan ke database eksternal.
  *
- * Berlangganan data sensor dari distributor (LANTANA_SENSOR_DATA) dan
- * menulisnya ke database eksternal (MySQL) via DbLib. Transport DB memakai
- * daemon mysqld (DB service) yang harus berjalan.
+ * Berlangganan event `LANTANA_READING` untuk satu akun, lalu menulis setiap
+ * bacaan tervalidasi ke tabel `sensor_readings`. INSERT idempoten memakai
+ * PRIMARY KEY `reading_id` supaya pengiriman ulang tidak menggandakan data.
  *
  * Usage:
- *   lantana-db-injector <lantanaPid|uuid> [tenant] [--db host user pass db]
- *   lantana-db-injector <lantanaPid|uuid> --db 192.168.1.50 root pass antigonon_iot
+ *   lantana-db-injector <accountId> [target] --db <host> <user> <pass> <database>
+ *   lantana-db-injector <accountId> [target]          (mode kering: cetak saja)
  *
  * (c) 2026 TSIX Project — Lantana
  */
 
 import { Program, std, shell, db } from "@tsix/Application";
-import { LANTANA_UUID } from "@tsix/lantana/lantana-core";
+import { LANTANA_UUID, EVT_READING, EVT_SNAPSHOT_REPLY, resolveDaemonTarget } from "@tsix/lantana/lantana-core";
 
 const TAG = "lantana-db-injector";
 
-export const main = Program(async (args: string[]) => {
-    const target = args[0] || LANTANA_UUID;
-    const tenantFilter = args[1] && !args[1].startsWith("--") ? args[1] : undefined;
+interface DbConfig {
+    host: string;
+    user: string;
+    password: string;
+    database: string;
+}
 
-    // Parse --db host user pass db
-    let dbCfg: { host: string; user: string; password: string; database: string } | null = null;
+export const main = Program(async (args: string[]) => {
+    const accountId = args[0];
+    if (!accountId || accountId.startsWith("--")) {
+        await std.print("Usage: lantana-db-injector <accountId> [target] --db <host> <user> <pass> <db>\n");
+        return;
+    }
+
+    const flagsStart = args.findIndex((a) => a.startsWith("--"));
+    const positional = flagsStart >= 0 ? args.slice(0, flagsStart) : args;
+    const target = resolveDaemonTarget(positional[1] || LANTANA_UUID);
+
+    let dbCfg: DbConfig | null = null;
     const idx = args.indexOf("--db");
-    if (idx >= 0 && args.length >= idx + 4) {
+    if (idx >= 0 && args.length >= idx + 5) {
         dbCfg = {
             host: args[idx + 1],
             user: args[idx + 2],
@@ -33,83 +46,80 @@ export const main = Program(async (args: string[]) => {
         };
     }
 
-    await std.println(`[${TAG}] Menghubungkan ke DB...`, TAG);
     if (dbCfg) {
         const ok = await db.connect(dbCfg);
         if (!ok) {
-            await std.println(`[${TAG}] Gagal konek DB (pastikan mysqld jalan & kredensial benar)`, TAG);
+            await std.println(`[${TAG}] Gagal konek DB ${dbCfg.host}/${dbCfg.database}`);
             return;
         }
-        await std.println(`[${TAG}] Terhubung ke ${dbCfg.host}/${dbCfg.database}`, TAG);
+        await std.println(`[${TAG}] Terhubung ke ${dbCfg.host}/${dbCfg.database}`);
     } else {
-        await std.println(`[${TAG}] Mode kering (tanpa --db) — data hanya dicetak, tidak di-INSERT.`, TAG);
+        await std.println(`[${TAG}] Mode kering — bacaan hanya dicetak.`);
     }
 
-    // Register sebagai consumer di distributor
+    const lib = (global as any)._tsixLib;
+    const pid = shell.getPid();
+
     await shell.send(target, {
         type: "LANTANA_REGISTER",
         name: "db-injector",
-        tenant: tenantFilter,
-        fromPid: shell.getPid(),
-    }).catch(() => { });
+        accountId,
+        fromPid: pid,
+    }).catch(() => false);
+    await shell.send(target, { type: "LANTANA_SNAPSHOT", accountId, fromPid: pid }).catch(() => false);
 
-    // Request snapshot (data terkini)
-    await shell.send(target, { type: "LANTANA_SNAPSHOT", fromPid: shell.getPid() }).catch(() => { });
-
-    // Terima data
-    (global as any)._tsixLib.onEvent("ipc_message", async (msg: any) => {
+    lib.onEvent("ipc_message", async (msg: any) => {
         const payload = msg?.data || msg;
         if (!payload || typeof payload !== "object") return;
 
-        if (payload.type === "LANTANA_SENSOR_DATA") {
-            const data = payload.data;
-            if (tenantFilter && data.tenant !== tenantFilter) return;
-            await handleSensorData(data, dbCfg);
-        } else if (payload.type === "LANTANA_SNAPSHOT_REPLY") {
-            const snap = payload.data;
-            for (const dev of snap.devices || []) {
-                for (const s of (snap.sensorData || []).find((d: any) => d.nodeId === dev.nodeId)?.sensors || []) {
-                    const data = {
-                        tenant: dev.tenant,
-                        nodeId: dev.nodeId,
-                        nodeCategory: dev.category,
-                        sensors: [s],
-                        receivedAt: snap.ts,
-                    };
-                    await handleSensorData(data, dbCfg);
-                }
+        if (payload.type === EVT_READING) {
+            if (payload.data?.accountId !== accountId) return;
+            await writeBatch(payload.data.readings || [], dbCfg);
+        } else if (payload.type === EVT_SNAPSHOT_REPLY) {
+            for (const entry of payload.data?.devices || []) {
+                if (entry.device?.accountId !== accountId) continue;
+                await writeBatch(entry.readings || [], dbCfg);
             }
         }
     });
 
-    await std.println(`[${TAG}] Siap. Tenant filter: ${tenantFilter || "*"}.`, TAG);
+    await std.println(`[${TAG}] Siap untuk akun ${accountId}.`);
 
-    // Stay alive
     while (true) {
         await new Promise((r) => setTimeout(r, 5000));
     }
 });
 
-async function handleSensorData(data: any, dbCfg: any): Promise<void> {
-    try {
-        const nodeId = data.nodeId || "unknown";
-        const tenant = data.tenant || "default";
-        const ts = new Date(data.receivedAt || Date.now()).toISOString().slice(0, 19).replace("T", " ");
+async function writeBatch(readings: any[], dbCfg: DbConfig | null): Promise<void> {
+    for (const r of readings) {
+        const ts = new Date(r.receivedAt || r.ts || Date.now())
+            .toISOString()
+            .slice(0, 19)
+            .replace("T", " ");
 
-        for (const s of data.sensors || []) {
-            const line = `[${ts}] tenant=${tenant} node=${nodeId} sensor=${s.id}(${s.category}) value=${s.value}${s.unit ? " " + s.unit : ""}`;
-            if (!dbCfg) {
-                await std.print(line + "\n");
-                continue;
-            }
-            const sql = `INSERT INTO sensor_data (tenant, node_id, sensor_id, sensor_category, value, timestamp) VALUES ('${tenant}', '${nodeId}', '${s.id}', '${s.category}', ${s.value}, '${ts}')`;
-            const res = await db.query(sql);
-          	// std.println(sql);
-            if (res && res.error) {
-                await std.println(`[${TAG}] DB error: ${res.error}`, TAG);
-            }
+        if (!dbCfg) {
+            await std.print(
+                `[${ts}] account=${r.accountId} device=${r.deviceId} scheme=${r.schemeId}(${r.label})=${r.value}${r.unit ? " " + r.unit : ""}\n`,
+            );
+            continue;
         }
-    } catch (e: any) {
-        await std.println(`[${TAG}] Gagal proses data: ${e?.message}`, TAG);
+
+        if (typeof r.readingId !== "string") continue;
+
+        const sql =
+            `INSERT INTO sensor_readings ` +
+            `(reading_id, account_id, device_id, scheme_id, label, unit, value, received_at) VALUES (` +
+            `${quote(r.readingId)}, ${quote(r.accountId)}, ${quote(r.deviceId)}, ${Number(r.schemeId)}, ` +
+            `${quote(r.label)}, ${quote(r.unit || "")}, ${quote(String(r.value))}, ${quote(ts)}) ` +
+            `ON DUPLICATE KEY UPDATE reading_id = reading_id`;
+
+        const res = await db.query(sql);
+        if (res && (res as any).error) {
+            await std.println(`[${TAG}] DB error: ${(res as any).error}`);
+        }
     }
+}
+
+function quote(value: string): string {
+    return `'${String(value).replace(/'/g, "''")}'`;
 }
