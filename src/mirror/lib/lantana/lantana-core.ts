@@ -1,358 +1,487 @@
 /**
- * lantana-core.ts — Lantana IoT Stack (shared core)
+ * lantana-core.ts — Lantana V2 shared core
  *
- * Modul bersama untuk seluruh layer Lantana: tipe data, konstanta, parsing
- * payload (biner/plaintext), dan loading config /etc/lantana/config.json.
+ * Tipe, konstanta, dan parser payload. Modul ini SENDIRI TANPA dependensi
+ * runtime (tidak mengimpor @tsix/Application) supaya bisa diuji langsung
+ * dengan vitest tanpa runtime VFS.
+ *
+ * Identitas V2: `accountId` + `deviceId`. Port hanya alamat routing.
  *
  * (c) 2026 TSIX Project — Lantana
  */
 
-import { fs } from "@tsix/Application";
-
-// ─── Konstanta ────────────────────────────────────────────────────────────
+// ─── Path & identitas ─────────────────────────────────────────────────────
 export const LANTANA_CONFIG_PATH = "/etc/lantana/config.json";
+export const LANTANA_ACCOUNTS_PATH = "/etc/lantana/accounts.json";
+export const LANTANA_DEVICES_PATH = "/etc/lantana/devices.json";
+export const LANTANA_SCHEMES_PATH = "/etc/lantana/schemes.json";
 export const LANTANA_LOG_DIR = "/var/log/lantana";
-export const LANTANA_DEFAULT_PORT = 1000;
-export const LANTANA_UUID = "5f4e2a91-4b0f-4c9a-b1c3-0a1b2c3d4e5f"; // identity daemon Lantana
+export const LANTANA_UUID = "5f4e2a91-4b0f-4c9a-b1c3-0a1b2c3d4e5f";
 
-// Tipe event IPC antar layer & ke consumer
-export const EVT_RAW_DATA = "LANTANA_RAW_DATA";          // listener → device-bank/distributor
-export const EVT_SENSOR_DATA = "LANTANA_SENSOR_DATA";    // distributor → consumer
-export const EVT_DEVICE_STATUS = "LANTANA_DEVICE_STATUS";// distributor → consumer (heartbeat update)
-export const EVT_SNAPSHOT = "LANTANA_SNAPSHOT";          // consumer → distributor (request data)
-export const EVT_COMMAND = "LANTANA_COMMAND";            // consumer → distributor (kirim command ke device)
+// ─── Event IPC ────────────────────────────────────────────────────────────
+export const EVT_READING = "LANTANA_READING";
+export const EVT_DEVICE_STATUS = "LANTANA_DEVICE_STATUS";
+export const EVT_SNAPSHOT = "LANTANA_SNAPSHOT";
+export const EVT_SNAPSHOT_REPLY = "LANTANA_SNAPSHOT_REPLY";
+export const EVT_COMMAND = "LANTANA_COMMAND";
+export const EVT_COMMAND_RESULT = "LANTANA_COMMAND_RESULT";
 
-// Status heartbeat device
+// ─── Pesan handshake sesi ─────────────────────────────────────────────────
+export const MSG_HELLO = "LANTANA_HELLO";
+export const MSG_CHALLENGE = "LANTANA_CHALLENGE";
+export const MSG_KEYSET = "LANTANA_KEYSET";
+export const MSG_AUTH = "LANTANA_AUTH";
+/** Mode handshake yang dipilih device di LANTANA_HELLO. */
+export type HandshakeMode = "rsa" | "psk";
+
+// ─── Heartbeat ────────────────────────────────────────────────────────────
 export type DeviceStatus = "ONLINE" | "STALE" | "OFFLINE";
-export const DEVICE_STALE_MS = 15000;   // >15s tanpa data → STALE
-export const DEVICE_OFFLINE_MS = 60000; // >60s tanpa data → OFFLINE
+export const DEVICE_STALE_MS = 15000;
+export const DEVICE_OFFLINE_MS = 60000;
 
-// ─── Tipe data ────────────────────────────────────────────────────────────
-
-export interface LantanaConfig {
-    ports: Record<string, LantanaPortConfig>;
-    deviceCategories: Record<string, LantanaDeviceCategory>;
-    sensorCategories: Record<string, LantanaSensorCategory>;
-    /** Peta grup tenant: { tenant: { nodeId: group } } — pengelompokan device di
-     *  sisi tenant/dashboard. nodeId boleh sama antar tenant (key per tenant).
-     *  Bentuk flat legacy { nodeId: group } tetap didukung (backward compat). */
-    deviceGroupMap?: Record<string, Record<string, string>>;
+// ─── Kode error / NACK ────────────────────────────────────────────────────
+export enum LantanaError {
+    BAD_REQUEST = 0x01,
+    UNAUTHENTICATED = 0x05,
+    UNKNOWN_ACCOUNT = 0x06,
+    UNAUTHORIZED_INJECT = 0x07,
+    UNAUTHORIZED_QUERY = 0x08,
+    UNAUTHORIZED_COMMAND = 0x09,
+    UNKNOWN_DEVICE = 0x0a,
+    UNKNOWN_SCHEME = 0x0b,
+    INVALID_VALUE = 0x0c,
+    DATABANK_UNAVAILABLE = 0x0d,
+    PAYLOAD_INVALID = 0x0e,
 }
 
-export interface LantanaPortConfig {
-    tenant: string;
-    /** API key tenant (hex) — kredensial akses ke layanan Lantana, sekaligus
-     *  kunci enkripsi ChaCha20 (diterbitkan portal saat registrasi). */
-    apiKeyHex: string;
-    enabled: boolean;
-    /** Opsional: mode default untuk port ini ("auto" | "binary" | "plain") */
-    mode?: "auto" | "binary" | "plain";
+export function errorName(code: LantanaError): string {
+    return LantanaError[code] || `ERR_0x${code.toString(16)}`;
 }
 
-export interface LantanaDeviceCategory {
+// ─── Akun & izin ──────────────────────────────────────────────────────────
+/** Satu scheme ID, atau rentang inklusif `{ from, to }`. */
+export type SchemeRange = number | { from: number; to: number };
+
+export interface Permissions {
+    /** Scheme yang boleh di-inject device milik akun. */
+    allowedInjectSchemes: SchemeRange[];
+    /** Scheme yang boleh dibaca lewat IPC/HTTP. */
+    allowedQuerySchemes: SchemeRange[];
+    /** deviceId yang boleh dikirimi command. */
+    allowedCommandDevices: string[];
+}
+
+export interface StoredCredential {
+    /** Salt hex + hash scrypt hex. Key mentah tidak pernah disimpan. */
+    salt: string;
+    hash: string;
+    /** Verifier untuk handshake PSK: SHA-256(accessKey) hex. */
+    psk?: string;
+    issuedAt: number;
+}
+
+export interface AccountRecord {
+    accountId: string;
+    parentId: string | null;
+    permissions: Permissions;
+    credential: StoredCredential | null;
+    portableDashboard?: PortableDashboard[];
+    createdAt: number;
+}
+
+export type PortableDashboardItemType =
+    | "text"
+    | "radialGauge"
+    | "lineChart"
+    | "switchIndicator";
+
+export interface PortableDashboardItem {
+    id?: number | string;
+    type: PortableDashboardItemType;
+    title: string;
+    icon: string;
+    updateInterval: number;
+    scrollAfter?: number;
+    deviceId: string;
+    schemeId: number;
+}
+
+export interface PortableDashboard {
+    dashboardId: number;
+    title: string;
+    /** SHA-256 verifier for a random dashboard key; the raw key is never persisted. */
+    accessKeyHash?: string;
+    dashboardItems: PortableDashboardItem[];
+}
+
+// ─── Scheme ───────────────────────────────────────────────────────────────
+export type SchemeType = "number" | "boolean" | "string";
+
+export interface SchemeDef {
+    schemeId: number;
+    /** Pemilik scheme; akun lain butuh izin eksplisit untuk memakainya. */
+    ownerAccountId: string;
     label: string;
-    icon?: string;
-    description?: string;
-}
-
-export interface LantanaSensorCategory {
-    label: string;
-    unit: string;
-    icon?: string;
-    /** Rentang normal utk display/health (opsional) */
+    unit?: string;
+    type: SchemeType;
     min?: number;
     max?: number;
 }
 
-/** Satu bacaan sensor (nilai sudah dinormalisasi) */
+// ─── Device ───────────────────────────────────────────────────────────────
+export interface DeviceMeta {
+    name?: string;
+    city?: string;
+    category?: string;
+    group?: string;
+}
+
+export interface DeviceRecord {
+    deviceId: string;
+    accountId: string;
+    meta: DeviceMeta;
+    createdAt: number;
+}
+
+// ─── Data ─────────────────────────────────────────────────────────────────
+export type ReadingValue = number | boolean | string;
+
+/** Bacaan mentah hasil decode payload (belum divalidasi). */
+export interface RawReading {
+    schemeId: number;
+    value: ReadingValue;
+}
+
+/** Bacaan yang sudah lolos autentikasi, otorisasi, dan validasi. */
+export interface AcceptedReading {
+    /** ID unik untuk idempotensi submit ke DataBank. */
+    readingId: string;
+    accountId: string;
+    deviceId: string;
+    schemeId: number;
+    value: ReadingValue;
+    label: string;
+    unit: string;
+    receivedAt: number;
+}
+
+/** Satu bacaan dalam bentuk yang dikirim ke consumer. */
 export interface SensorReading {
-    id: string;
-    value: number;
-    /** Kategori sensor (mis. "temp", "hum") — di-resolve dari config */
-    category: string;
+    schemeId: number;
+    value: ReadingValue;
     label: string;
     unit: string;
     ts: number;
 }
 
-/** Satu paket data mentah dari device (hasil parse listener) */
-export interface RawSensorData {
-    nodeId: string;
-    /** Port tujuan paket → menentukan tenant */
-    port: number;
-    /** Alamat sumber device (untuk kirim command balik / dua arah) */
-    srcAddress: string;
-    /** Port sumber device (untuk kirim command balik / dua arah) */
-    srcPort: number;
-    tenant: string;
-    format: "binary" | "plain";
-    receivedAt: number;
-    sensors: { id: string; value: number }[];
-}
-
-/** Perintah dua arah dari consumer ke device tertentu (mis. "RELAY_1:ON"). */
-export interface LantanaCommand {
-    type: typeof EVT_COMMAND;
-    /** nodeId tujuan (device di Device Bank) */
-    nodeId: string;
-    /** Isi perintah yang dikirim ke device, mis. "RELAY_1:ON" */
-    command: string;
-    /** Opsional: tenant tujuan — dipakai saat nodeId sama di beberapa tenant */
-    tenant?: string;
-    /** Opsional: siapa yang meminta (untuk log) */
-    from?: string;
-}
-
-/** Data sensor ternormalisasi yang dikirim ke consumer */
-export interface NormalizedSensorData {
-    type: typeof EVT_SENSOR_DATA;
-    tenant: string;
-    nodeId: string;
-    nodeCategory: string;
-    nodeLabel: string;
-    /** Grup tenant (dari deviceGroupMap) — opsional */
-    group?: string;
-    format: "binary" | "plain";
-    receivedAt: number;
-    dataAgeMs: number;
-    deviceStatus: DeviceStatus;
-    sensors: SensorReading[];
-    meta: {
-        port: number;
-        count: number;
-        source: string;
-    };
-}
-
-/** Status device terkini (untuk EVT_DEVICE_STATUS / snapshot) */
 export interface DeviceStatusInfo {
-    nodeId: string;
-    tenant: string;
+    accountId: string;
+    deviceId: string;
+    name: string;
     category: string;
-    label: string;
-    /** Grup tenant (dari deviceGroupMap) — opsional */
     group?: string;
+    city?: string;
     lastDataAt: number;
     dataAgeMs: number;
     status: DeviceStatus;
-    sensorIds: string[];
+    schemeIds: number[];
 }
 
-/** Payload protokol Lantana untuk device (agar device tahu cara kirim) */
-export const LANTANA_PROTOCOL = {
-    /** Magic MQTNL binary protocol v1.1 (dari driver) */
-    magicBinary: 0x42,
-    /** Magic frame sensor Lantana (biner di atas payload MQTNL) */
-    magicFrameBinary: 0x4c,
-    magicPlain: "LANTANA",
-};
-
-// ─── Config loader ────────────────────────────────────────────────────────
-
-/** Baca & parse /etc/lantana/config.json; kembalikan config default jika gagal. */
-export async function loadConfig(): Promise<LantanaConfig> {
-    const fallback: LantanaConfig = {
-        ports: {
-            "1000": {
-                tenant: "default",
-                apiKeyHex: "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619",
-                enabled: true,
-                mode: "auto",
-            },
-        },
-        deviceCategories: {
-            esp: { label: "ESP", icon: "🔧" },
-            simulator: { label: "Simulator", icon: "💻" },
-            generic: { label: "Generic Device", icon: "📡" },
-        },
-        sensorCategories: {
-            temp: { label: "Temperature", unit: "°C", icon: "🌡️", min: -40, max: 125 },
-            hum: { label: "Humidity", unit: "%", icon: "💧", min: 0, max: 100 },
-            pres: { label: "Pressure", unit: "hPa", icon: "🌀", min: 800, max: 1100 },
-            light: { label: "Light", unit: "lx", icon: "☀️", min: 0, max: 100 },
-            generic: { label: "Sensor", unit: "", icon: "📊" },
-        },
-        deviceGroupMap: {},
-    };
-
-    try {
-        const raw = await fs.readFile(LANTANA_CONFIG_PATH);
-        if (!raw) return fallback;
-        const parsed = JSON.parse(raw);
-        // Merge shallow dengan fallback (agar config parsial tetap aman)
-        return {
-            ports: parsed.ports || fallback.ports,
-            deviceCategories: parsed.deviceCategories || fallback.deviceCategories,
-            sensorCategories: parsed.sensorCategories || fallback.sensorCategories,
-            deviceGroupMap: parsed.deviceGroupMap || {},
-        };
-    } catch (e: any) {
-        // Config tidak ada/rusak → gunakan default
-        return fallback;
-    }
+export interface NormalizedReadingBatch {
+    type: typeof EVT_READING;
+    accountId: string;
+    deviceId: string;
+    name: string;
+    category: string;
+    group?: string;
+    city?: string;
+    receivedAt: number;
+    dataAgeMs: number;
+    deviceStatus: DeviceStatus;
+    readings: SensorReading[];
 }
 
-/** Cari port config untuk tenant/apiKey; return null jika port tidak di-enable. */
-export function getPortConfig(
-    config: LantanaConfig,
-    port: number,
-): LantanaPortConfig | null {
-    const p = config.ports[String(port)];
-    return p && p.enabled !== false ? p : null;
+export interface LantanaCommand {
+    type: typeof EVT_COMMAND;
+    deviceId: string;
+    command: string;
+    /** Akun yang meminta; dipakai untuk pemeriksaan izin command. */
+    accountId: string;
+    from?: string;
 }
 
-// ─── Parsing payload ──────────────────────────────────────────────────────
+export interface Endpoint {
+    address: string;
+    port: number;
+}
+
+// ─── Payload ──────────────────────────────────────────────────────────────
+export const LANTANA_BINARY_MAGIC = 0x4c;
+export const LANTANA_BINARY_VERSION = 0x02;
+export const LANTANA_PLAIN_PREFIX = "LANTANA";
+
+export type ReadingTypeCode = 0x00 | 0x01 | 0x02; // f32 | bool | string
+export const READING_TYPE_F32: ReadingTypeCode = 0x00;
+export const READING_TYPE_BOOL: ReadingTypeCode = 0x01;
+export const READING_TYPE_STRING: ReadingTypeCode = 0x02;
+
+export type ParsedPayload =
+    | { ok: true; format: "binary" | "plain"; deviceId: string; readings: RawReading[] }
+    | { ok: false; error: LantanaError; message: string };
 
 /**
- * Deteksi format payload dari data mentah (string atau Buffer).
- * - diawali byte 0x42 (MQTNL binary) atau 0x4C (frame sensor Lantana) → "binary"
- * - diawali token "LANTANA" → "plain" (protokol teks ber-nodeId)
- * - selain itu → "plain" (fallback kompatibel `id:val;id:val`)
+ * Deteksi format payload.
+ * - Buffer dengan magic 0x4C → biner V2
+ * - string diawali "LANTANA|" → plain V2
+ * Format lain ditolak (tidak ada mode kompatibilitas).
  */
-export function detectFormat(data: any): "binary" | "plain" {
+export function detectFormat(data: any): "binary" | "plain" | "unknown" {
     if (Buffer.isBuffer(data)) {
-        return data.length > 0 &&
-            (data[0] === LANTANA_PROTOCOL.magicBinary ||
-                data[0] === LANTANA_PROTOCOL.magicFrameBinary)
-            ? "binary"
-            : "plain";
+        return data.length > 0 && data[0] === LANTANA_BINARY_MAGIC ? "binary" : "unknown";
     }
     if (typeof data === "string") {
         const s = data.trim();
-        if (s.startsWith("{")) {
-            // Mungkin payload JSON { type: "Buffer", data: [...] } — cek isinya
-            try {
-                const obj = JSON.parse(s);
-                if (obj && obj.type === "Buffer" && Array.isArray(obj.data)) {
-                    const arr = obj.data as number[];
-                    if (arr.length > 0 &&
-                        (arr[0] === LANTANA_PROTOCOL.magicBinary ||
-                            arr[0] === LANTANA_PROTOCOL.magicFrameBinary)) {
-                        return "binary";
-                    }
-                }
-            } catch (_) {
-                /* bukan JSON */
-            }
-        }
-        return "plain";
+        if (s.startsWith(`${LANTANA_PLAIN_PREFIX}|`)) return "plain";
+        return "unknown";
     }
-    return "plain";
+    return "unknown";
 }
 
-/**
- * Parse payload plaintext Lantana.
- * Mendukung 2 bentuk:
- *   1. "LANTANA|nodeId|sensorId:value;sensorId:value;..."  (ber-nodeId, protokol baru)
- *   2. "sensorId:value;sensorId:value;..."                  (kompatibel iot-listener lama)
- */
-export function parsePlainPayload(
-    data: string,
-    defaultNodeId: string,
-): { nodeId: string; sensors: { id: string; value: number }[] } {
+/** Parse teks: `LANTANA|<deviceId>|<schemeId>:<value>;...` */
+export function parsePlainPayload(data: string): ParsedPayload {
     const s = (data || "").trim();
-    const sensors: { id: string; value: number }[] = [];
-    let nodeId = defaultNodeId;
+    if (!s) {
+        return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "payload kosong" };
+    }
 
-    if (!s) return { nodeId, sensors };
+    const parts = s.split("|");
+    if (parts.length < 3 || parts[0] !== LANTANA_PLAIN_PREFIX) {
+        return {
+            ok: false,
+            error: LantanaError.PAYLOAD_INVALID,
+            message: "format harus LANTANA|<deviceId>|scheme:value;...",
+        };
+    }
 
-    let body = s;
-    if (s.startsWith(LANTANA_PROTOCOL.magicPlain + "|")) {
-        // Format: LANTANA|<nodeId>|<payload>
-        const parts = s.split("|");
-        if (parts.length >= 3 && parts[1]) {
-            nodeId = parts[1];
-            body = parts.slice(2).join("|");
+    const deviceId = parts[1].trim();
+    if (!deviceId) {
+        return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "deviceId kosong" };
+    }
+
+    const readings: RawReading[] = [];
+    for (const entry of parts.slice(2).join("|").split(";")) {
+        const item = entry.trim();
+        if (!item) continue;
+        const idx = item.indexOf(":");
+        if (idx < 0) {
+            return {
+                ok: false,
+                error: LantanaError.PAYLOAD_INVALID,
+                message: `entri tidak valid: ${item}`,
+            };
         }
+        const schemeId = Number(item.substring(0, idx).trim());
+        if (!Number.isInteger(schemeId) || schemeId < 0 || schemeId > 0xffff) {
+            return {
+                ok: false,
+                error: LantanaError.PAYLOAD_INVALID,
+                message: `schemeId tidak valid: ${item.substring(0, idx)}`,
+            };
+        }
+        const parsed = parseTextValue(item.substring(idx + 1).trim());
+        if (parsed === null) {
+            return {
+                ok: false,
+                error: LantanaError.INVALID_VALUE,
+                message: `nilai tidak valid untuk scheme ${schemeId}`,
+            };
+        }
+        readings.push({ schemeId, value: parsed });
     }
 
-    for (const entry of body.split(";")) {
-        if (!entry) continue;
-        const idx = entry.indexOf(":");
-        if (idx < 0) continue;
-        const id = entry.substring(0, idx).trim();
-        const val = parseFloat(entry.substring(idx + 1).trim());
-        if (id && !isNaN(val)) sensors.push({ id, value: val });
+    if (readings.length === 0) {
+        return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "tidak ada bacaan" };
     }
+    return { ok: true, format: "plain", deviceId, readings };
+}
 
-    return { nodeId, sensors };
+function parseTextValue(raw: string): ReadingValue | null {
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+    if (raw === "") return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
 }
 
 /**
- * Parse payload biner MQTNL v1.1 (sudah di-unpack oleh driver menjadi
- * { header, payload: Buffer }) ATAU raw Buffer.
- *
- * Bentuk frame sensor Lantana (custom di atas MQTNL binary payload):
- *   [MAGIC 0x4C] [VER 0x01] [NODE_LEN 1] [NODE...] [CNT 1]
- *   per sensor: [SID_LEN 1][SID...][VAL 4 float32 LE]
- *
- * Jika payload tidak dikenali → fallback ke parsePlainPayload(payload.toString()).
+ * Parse frame biner V2:
+ *   [0x4C][0x02][devLen:1][deviceId][count:1]
+ *   per bacaan: [schemeId:u16 LE][type:1][value]
+ *     type 0x00 → f32 LE (4 byte)
+ *     type 0x01 → u8 (0/1)
+ *     type 0x02 → len:u8 + utf8
  */
-export function parseBinaryPayload(
-    payload: Buffer | any,
-    defaultNodeId: string,
-): { nodeId: string; sensors: { id: string; value: number }[] } {
-    let buf: Buffer;
-    if (Buffer.isBuffer(payload)) {
-        buf = payload;
-    } else if (payload && payload.header && payload.payload) {
-        buf = Buffer.isBuffer(payload.payload)
-            ? payload.payload
-            : Buffer.from(payload.payload);
-    } else if (payload && payload.data) {
-        buf = Buffer.isBuffer(payload.data) ? payload.data : Buffer.from(String(payload.data), "binary");
-    } else {
-        return { nodeId: defaultNodeId, sensors: [] };
+export function parseBinaryPayload(data: Buffer): ParsedPayload {
+    const buf = data;
+    if (!buf || buf.length < 4 || buf[0] !== LANTANA_BINARY_MAGIC) {
+        return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "magic biner tidak dikenal" };
+    }
+    if (buf[1] !== LANTANA_BINARY_VERSION) {
+        return {
+            ok: false,
+            error: LantanaError.PAYLOAD_INVALID,
+            message: `versi frame tidak didukung: 0x${buf[1].toString(16)}`,
+        };
     }
 
-    // Frame sensor Lantana
-    if (buf.length >= 2 && buf[0] === 0x4c && buf[1] === 0x01) {
-        try {
-            let off = 2;
-            const nodeLen = buf.readUInt8(off++);
-            const nodeId = buf.subarray(off, off + nodeLen).toString("utf8") || defaultNodeId;
-            off += nodeLen;
-            const cnt = buf.readUInt8(off++);
-            const sensors: { id: string; value: number }[] = [];
-            for (let i = 0; i < cnt; i++) {
-                if (off + 1 > buf.length) break;
-                const sidLen = buf.readUInt8(off++);
-                if (off + sidLen > buf.length) break;
-                const sid = buf.subarray(off, off + sidLen).toString("utf8");
-                off += sidLen;
-                if (off + 4 > buf.length) break;
-                const val = buf.readFloatLE(off);
-                off += 4;
-                if (sid) sensors.push({ id: sid, value: val });
+    try {
+        let off = 2;
+        const deviceLen = buf.readUInt8(off++);
+        if (deviceLen === 0 || off + deviceLen > buf.length) {
+            return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "deviceId rusak" };
+        }
+        const deviceId = buf.subarray(off, off + deviceLen).toString("utf8");
+        off += deviceLen;
+        if (off >= buf.length) {
+            return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "jumlah bacaan hilang" };
+        }
+        const count = buf.readUInt8(off++);
+        if (count === 0) {
+            return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "tidak ada bacaan" };
+        }
+
+        const readings: RawReading[] = [];
+        for (let i = 0; i < count; i++) {
+            if (off + 3 > buf.length) {
+                return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "frame terpotong" };
             }
-            return { nodeId, sensors };
-        } catch (_) {
-            /* fallback di bawah */
+            const schemeId = buf.readUInt16LE(off);
+            off += 2;
+            const type = buf.readUInt8(off++);
+
+            if (type === READING_TYPE_F32) {
+                if (off + 4 > buf.length) {
+                    return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "frame terpotong" };
+                }
+                readings.push({ schemeId, value: buf.readFloatLE(off) });
+                off += 4;
+            } else if (type === READING_TYPE_BOOL) {
+                if (off + 1 > buf.length) {
+                    return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "frame terpotong" };
+                }
+                readings.push({ schemeId, value: buf.readUInt8(off) !== 0 });
+                off += 1;
+            } else if (type === READING_TYPE_STRING) {
+                if (off + 1 > buf.length) {
+                    return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "frame terpotong" };
+                }
+                const len = buf.readUInt8(off++);
+                if (off + len > buf.length) {
+                    return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "frame terpotong" };
+                }
+                readings.push({ schemeId, value: buf.subarray(off, off + len).toString("utf8") });
+                off += len;
+            } else {
+                return {
+                    ok: false,
+                    error: LantanaError.PAYLOAD_INVALID,
+                    message: `tipe bacaan tidak dikenal: 0x${type.toString(16)}`,
+                };
+            }
+        }
+
+        return { ok: true, format: "binary", deviceId, readings };
+    } catch (e: any) {
+        return {
+            ok: false,
+            error: LantanaError.PAYLOAD_INVALID,
+            message: `frame tidak valid: ${e?.message || e}`,
+        };
+    }
+}
+
+/** Parse payload apa pun (Buffer biner atau string plain) → ParsedPayload. */
+export function parsePayload(data: any): ParsedPayload {
+    if (Buffer.isBuffer(data)) return parseBinaryPayload(data);
+    if (typeof data === "string") return parsePlainPayload(data);
+    return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "tipe payload tidak didukung" };
+}
+
+/** Encode frame biner V2 — dipakai device simulator dan test. */
+export function encodeBinaryPayload(
+    deviceId: string,
+    readings: RawReading[],
+): Buffer {
+    const devBuf = Buffer.from(deviceId, "utf8");
+    if (devBuf.length === 0 || devBuf.length > 255) throw new Error("deviceId harus 1..255 byte");
+    if (readings.length === 0 || readings.length > 255) throw new Error("jumlah bacaan harus 1..255");
+
+    const parts: Buffer[] = [Buffer.from([LANTANA_BINARY_MAGIC, LANTANA_BINARY_VERSION, devBuf.length])];
+    parts.push(devBuf);
+    parts.push(Buffer.from([readings.length]));
+
+    for (const r of readings) {
+        if (!Number.isInteger(r.schemeId) || r.schemeId < 0 || r.schemeId > 0xffff) {
+            throw new Error(`schemeId tidak valid: ${r.schemeId}`);
+        }
+        const idBuf = Buffer.alloc(2);
+        idBuf.writeUInt16LE(r.schemeId, 0);
+        parts.push(idBuf);
+
+        if (typeof r.value === "boolean") {
+            parts.push(Buffer.from([READING_TYPE_BOOL, r.value ? 1 : 0]));
+        } else if (typeof r.value === "number") {
+            const v = Buffer.alloc(4);
+            v.writeFloatLE(r.value, 0);
+            parts.push(Buffer.from([READING_TYPE_F32]));
+            parts.push(v);
+        } else {
+            const strBuf = Buffer.from(String(r.value), "utf8");
+            if (strBuf.length > 255) throw new Error("nilai string maksimal 255 byte");
+            parts.push(Buffer.from([READING_TYPE_STRING, strBuf.length]));
+            parts.push(strBuf);
         }
     }
 
-    // Bukan frame Lantana → coba baca sebagai teks (device lama / OTA debug)
-    const text = buf.toString("utf8").trim();
-    if (text) {
-        return parsePlainPayload(text, defaultNodeId);
-    }
-    return { nodeId: defaultNodeId, sensors: [] };
+    return Buffer.concat(parts);
 }
 
-/**
- * Parse payload apa pun (string/buffer/objek) → RawSensorData.
- * Dipakai listener untuk menyeragamkan input dari device.
- */
-export function parsePayload(
-    data: any,
-    defaultNodeId: string,
-): { nodeId: string; sensors: { id: string; value: number }[]; format: "binary" | "plain" } {
-    const format = detectFormat(data);
-    if (format === "binary") {
-        return { ...parseBinaryPayload(data, defaultNodeId), format };
-    }
-    const text = Buffer.isBuffer(data)
-        ? data.toString("utf8")
-        : String(data || "");
-    return { ...parsePlainPayload(text, defaultNodeId), format };
+/** Encode payload teks V2. */
+export function encodePlainPayload(deviceId: string, readings: RawReading[]): string {
+    const body = readings.map((r) => `${r.schemeId}:${String(r.value)}`).join(";");
+    return `${LANTANA_PLAIN_PREFIX}|${deviceId}|${body}`;
 }
+
+// ─── Helper target daemon ─────────────────────────────────────────────────
+/**
+ * Terjemahkan argumen target dari CLI menjadi target `shell.send`.
+ *
+ * Kernel memperlakukan string sebagai IDENTITY (UUID), bukan PID. Jadi "7"
+ * harus dikirim sebagai angka 7, sedangkan UUID tetap string.
+ */
+export function resolveDaemonTarget(arg?: string | null): number | string {
+    const raw = (arg || "").trim();
+    if (!raw) return LANTANA_UUID;
+    if (/^\d+$/.test(raw)) return parseInt(raw, 10);
+    return raw;
+}
+
+// ─── Helper izin ──────────────────────────────────────────────────────────
+/** Apakah schemeId termasuk dalam daftar scheme/rentang. */
+export function schemeInList(list: SchemeRange[] | undefined, schemeId: number): boolean {
+    if (!list || list.length === 0) return false;
+    for (const entry of list) {
+        if (typeof entry === "number") {
+            if (entry === schemeId) return true;
+        } else if (schemeId >= entry.from && schemeId <= entry.to) {
+            return true;
+        }
+    }
+    return false;
+}
+
+export const EMPTY_PERMISSIONS: Permissions = {
+    allowedInjectSchemes: [],
+    allowedQuerySchemes: [],
+    allowedCommandDevices: [],
+};

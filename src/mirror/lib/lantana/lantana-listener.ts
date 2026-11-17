@@ -1,181 +1,560 @@
 /**
- * lantana-listener.ts — Lantana Layer 1: Listener
+ * lantana-listener.ts — Ingest MQTNL dengan sesi terautentikasi.
  *
- * Bertugas menerima data mentah dari device via MQTNL socket dan
- * meneruskannya (raw) ke layer berikutnya (DeviceBank/Distributor).
+ * Alur per device (semua di atas port layanan yang sama):
+ *   1. LANTANA_HELLO      → server balas LANTANA_CHALLENGE (nonce + public key)
+ *   2. LANTANA_KEYSET     → device kirim session key yang dibungkus RSA-OAEP
+ *   3. LANTANA_AUTH       → (terenkripsi) accountId + deviceId + AccessKey
+ *   4. payload sensor     → (terenkripsi) Lantana V2 frame/teks
  *
- * Kemampuan:
- *  - Bind ke satu atau lebih port dari config /etc/lantana/config.json
- *  - Auto-detect format payload: BINER (MQTNL v1.1, magic 0x42 / frame 0x4C)
- *    atau PLAINTEXT (`id:val;id:val` atau `LANTANA|<nodeId>|...`)
- *  - Upgrade security ChaCha20 per port (apiKey tenant dari config, bukan hardcode)
- *  - Kirim raw data ke distributor via IPC (LANTANA_RAW_DATA)
+ * Keamanan bersifat PER SESI, bukan per port: banyak device dengan AccessKey
+ * berbeda boleh memakai port layanan yang sama. Port hanya alamat routing.
+ *
+ * Tidak ada fallback plaintext: paket sensor tanpa sesi terautentikasi dibuang.
  *
  * (c) 2026 TSIX Project — Lantana
  */
 
-import { net, std, NetworkLib } from "@tsix/Application";
+import * as crypto from "crypto";
+import { net, std } from "@tsix/Application";
+import { SecurityAgent } from "@common/SecurityAgent";
+import { AccountManager } from "@tsix/lantana/account-manager";
+import { DeviceRegistry } from "@tsix/lantana/device-registry";
+import { IngestPipeline } from "@tsix/lantana/lantana-ingest";
+import { LantanaDistributor } from "@tsix/lantana/lantana-distributor";
+import { DeviceBank } from "@tsix/lantana/lantana-device-bank";
+import { DataBankQueue } from "@tsix/lantana/lantana-databank";
+import { SessionManager } from "@tsix/lantana/session-manager";
+import { loadConfig, enabledPorts } from "@tsix/lantana/lantana-config";
+import { ServerKeyPair } from "@tsix/lantana/lantana-keys";
 import {
-  loadConfig,
-  getPortConfig,
-  parsePayload,
-  RawSensorData,
+    Endpoint,
+    EVT_READING,
+    LantanaError,
+    MSG_AUTH,
+    MSG_CHALLENGE,
+    MSG_HELLO,
+    MSG_KEYSET,
+    NormalizedReadingBatch,
+    errorName,
+    parsePayload,
 } from "@tsix/lantana/lantana-core";
+import {
+    clientProof,
+    deriveSessionKey,
+    safeEqualHex,
+    serverProof,
+} from "@tsix/lantana/lantana-psk";
 
 const TAG = "lantana-listener";
 
+const MSG_KEYSET_OK = "LANTANA_KEYSET_OK";
+const MSG_AUTH_OK = "LANTANA_AUTH_OK";
+const MSG_NACK = "LANTANA_NACK";
+
+export interface ListenerDeps {
+    accounts: AccountManager;
+    devices: DeviceRegistry;
+    sessions: SessionManager;
+    ingest: IngestPipeline;
+    bank: DeviceBank;
+    dataBank: DataBankQueue;
+    distributor: LantanaDistributor;
+    serverKey: ServerKeyPair;
+}
+
 export class LantanaListener {
-  private socketFds: Map<number, number> = new Map(); // port → fd
+    private socketFds: Map<number, number> = new Map(); // port → fd
+    private agents: Map<string, SecurityAgent> = new Map(); // sessionId → agent
+    private warned: Set<string> = new Set();
+    /** State handshake PSK per sesi (ESP8266 / device tanpa RSA). */
+    private pskState: Map<string, { psk: Buffer; clientNonce: string; serverNonce: string }> = new Map();
 
-  constructor(private emitRaw: (data: RawSensorData) => void) { }
+    constructor(private deps: ListenerDeps) {}
 
-  /** Bind & upgrade security untuk semua port yang di-enable di config. */
-  async start(): Promise<boolean> {
-    const config = await loadConfig();
-
-    for (const [portStr, portCfg] of Object.entries(config.ports)) {
-      if (portCfg.enabled === false) continue;
-      const port = parseInt(portStr, 10);
-      if (isNaN(port)) continue;
-
-      const fd = await net.socket();
-      if (fd < 0) {
-        await std.log(`[${TAG}] Gagal buat socket untuk port ${port}`, TAG);
-        continue;
-      }
-
-      const bound = await net.bind(fd, port);
-      if (!bound) {
-        await std.log(
-          `[${TAG}] Gagal bind port ${port} (mungkin sudah dipakai)`,
-          TAG,
-        );
-        continue;
-      }
-
-      // Upgrade security per port — apiKey tenant dari config (bukan hardcode)
-      try {
-        await net.ioctl(fd, 0x1001, { port, sessionKey: portCfg.apiKeyHex });
-      } catch (e: any) {
-        await std.log(
-          `[${TAG}] Warning: gagal upgrade security port ${port}: ${e?.message}`,
-          TAG,
-        );
-      }
-
-      this.socketFds.set(port, fd);
-      await std.log(
-        `[${TAG}] Listening MQTNL port ${port} (tenant: ${portCfg.tenant}, format: ${portCfg.mode || "auto"})`,
-        TAG,
-      );
+    private sessionIdOf(src: string, srcPort: number): string {
+        return `${src}:${srcPort}`;
     }
 
-    if (this.socketFds.size === 0) {
-      await std.log(`[${TAG}] Tidak ada port aktif dari config.`, TAG);
-      return false;
-    }
+    async start(): Promise<boolean> {
+        const config = await loadConfig();
+        const ports = enabledPorts(config);
 
-    // Mulai loop penerimaan untuk tiap port
-    for (const [port, fd] of this.socketFds.entries()) {
-      this.receiveLoop(port, fd).catch(async (e: any) => {
-        await std.log(`[${TAG}] Loop port ${port} error: ${e?.message}`, TAG);
-      });
-    }
-
-    return true;
-  }
-
-  /** Loop penerimaan data untuk satu port. */
-  private async receiveLoop(port: number, fd: number): Promise<void> {
-    const config = await loadConfig();
-    const portCfg = getPortConfig(config, port);
-
-    while (true) {
-      const pkt = await net.recv(fd);
-      if (pkt) {
-        const defaultNodeId = pkt.src || `node-${port}`;
-        // Reconstruct payload ke bentuk yang bisa diproses (Buffer jika biner)
-        const rawData: any = pkt.data;
-        const buf = NetworkLib.toBuffer(rawData);
-        // Jika payload aslinya string plaintext, gunakan string asli agar
-        // parsePlainPayload bekerja; jika biner, gunakan Buffer.
-        const payloadForParse =
-          typeof rawData === "string" && rawData.length > 0
-            ? rawData
-            : buf.length > 0
-              ? buf
-              : rawData;
-
-        const { nodeId, sensors, format } = parsePayload(
-          payloadForParse,
-          defaultNodeId,
-        );
-
-        if (sensors.length === 0) {
-          // Mungkin paket kontrol (relay/command) — ignore untuk ingest data
-          continue;
+        for (const port of ports) {
+            const fd = await net.socket();
+            if (fd < 0) {
+                await std.log(`[${TAG}] gagal membuat socket port ${port}`, TAG);
+                continue;
+            }
+            if (!(await net.bind(fd, port))) {
+                await std.log(`[${TAG}] gagal bind port ${port}`, TAG);
+                continue;
+            }
+            this.socketFds.set(port, fd);
+            await std.log(`[${TAG}] mendengarkan MQTNL port ${port}`, TAG);
         }
 
-        const raw: RawSensorData = {
-          nodeId,
-          port,
-          srcAddress: pkt.src || defaultNodeId,
-          srcPort: pkt.port || 0,
-          tenant: portCfg?.tenant || "default",
-          format,
-          receivedAt: Date.now(),
-          sensors,
+        if (this.socketFds.size === 0) {
+            await std.log(`[${TAG}] tidak ada port aktif`, TAG);
+            return false;
+        }
+
+        for (const [port, fd] of this.socketFds.entries()) {
+            this.receiveLoop(port, fd).catch(async (e: any) => {
+                await std.log(`[${TAG}] loop port ${port} berhenti: ${e?.message}`, TAG);
+            });
+        }
+
+        await std.log(`[${TAG}] fingerprint server: ${this.deps.serverKey.fingerprint}`, TAG);
+        return true;
+    }
+
+    private async receiveLoop(port: number, fd: number): Promise<void> {
+        while (true) {
+            const pkt = await net.recv(fd);
+            if (pkt) {
+                try {
+                    await this.handlePacket(port, fd, pkt);
+                } catch (e: any) {
+                    await std.log(`[${TAG}] paket dari ${pkt.src}:${pkt.port} ditolak: ${e?.message}`, TAG);
+                }
+            }
+            await new Promise((r) => setTimeout(r, 5));
+        }
+    }
+
+    private async handlePacket(port: number, fd: number, pkt: any): Promise<void> {
+        const src = pkt.src || "unknown";
+        const srcPort = pkt.port || 0;
+        const sessionId = this.sessionIdOf(src, srcPort);
+        const endpoint: Endpoint = { address: src, port: srcPort };
+
+        const session = this.deps.sessions.open(sessionId);
+        const agent = this.agents.get(sessionId) || null;
+
+        const control = this.asJson(pkt.data);
+        if (control && typeof control.type === "string") {
+            await this.handleControl(port, fd, sessionId, endpoint, control, agent);
+            return;
+        }
+
+        if (!agent || !session.authenticated) {
+            if (!this.warned.has(sessionId)) {
+                this.warned.add(sessionId);
+                await std.log(
+                    `[${TAG}] data tanpa sesi terautentikasi dari ${sessionId} dibuang`,
+                    TAG,
+                );
+            }
+            return;
+        }
+
+        await this.handleSensorPayload(fd, port, sessionId, endpoint, pkt.data, agent);
+    }
+
+    private async handleControl(
+        port: number,
+        fd: number,
+        sessionId: string,
+        endpoint: Endpoint,
+        msg: any,
+        agent: SecurityAgent | null,
+    ): Promise<void> {
+        const session = this.deps.sessions.open(sessionId);
+
+        switch (msg.type) {
+            case MSG_HELLO: {
+                // Handshake baru selalu memulai sesi kripto baru; agent lama
+                // dibuang agar key sebelumnya tidak bisa dipakai ulang.
+                this.agents.delete(sessionId);
+                this.pskState.delete(sessionId);
+
+                const mode = msg.mode === "psk" ? "psk" : "rsa";
+                const serverNonce = crypto.randomBytes(16).toString("hex");
+
+                if (mode === "psk") {
+                    const clientNonce = String(msg.clientNonce || "");
+                    if (!/^[0-9a-f]{16,64}$/i.test(clientNonce)) {
+                        await this.sendPlain(fd, port, endpoint, this.nack(
+                            LantanaError.BAD_REQUEST,
+                            "clientNonce (hex) wajib untuk mode psk",
+                        ));
+                        return;
+                    }
+
+                    // Akun belum tentu valid di tahap ini. Bila tidak dikenal,
+                    // pakai PSK acak supaya balasan tidak membocorkan keberadaan akun.
+                    const accountId = String(msg.accountId || "");
+                    const psk =
+                        this.deps.accounts.getPsk(accountId) ||
+                        crypto.randomBytes(32);
+
+                    this.pskState.set(sessionId, { psk, clientNonce, serverNonce });
+
+                    await this.sendPlain(fd, port, endpoint, {
+                        type: MSG_CHALLENGE,
+                        mode: "psk",
+                        nonce: serverNonce,
+                        clientNonce,
+                        serverProof: serverProof(psk, clientNonce, serverNonce),
+                    });
+                    return;
+                }
+
+                this.deps.sessions.setNonce(sessionId, serverNonce);
+                await this.sendPlain(fd, port, endpoint, {
+                    type: MSG_CHALLENGE,
+                    mode: "rsa",
+                    nonce: serverNonce,
+                    publicKey: this.deps.serverKey.publicKey,
+                    fingerprint: this.deps.serverKey.fingerprint,
+                });
+                return;
+            }
+
+            case MSG_KEYSET: {
+                if (!session.nonce) {
+                    await this.sendPlain(fd, port, endpoint, this.nack(
+                        LantanaError.UNAUTHENTICATED,
+                        "hello belum dikirim",
+                    ));
+                    return;
+                }
+                const encryptedKeyHex = msg.encryptedKey;
+                if (typeof encryptedKeyHex !== "string" || !encryptedKeyHex) {
+                    await this.sendPlain(fd, port, endpoint, this.nack(
+                        LantanaError.BAD_REQUEST,
+                        "encryptedKey wajib diisi",
+                    ));
+                    return;
+                }
+
+                let sessionKey: Buffer;
+                try {
+                    sessionKey = SecurityAgent.decryptWithPrivateKey(
+                        this.deps.serverKey.privateKey,
+                        encryptedKeyHex,
+                    );
+                } catch {
+                    await this.sendPlain(fd, port, endpoint, this.nack(
+                        LantanaError.UNAUTHENTICATED,
+                        "session key tidak bisa didekripsi",
+                    ));
+                    return;
+                }
+                if (sessionKey.length !== 32) {
+                    await this.sendPlain(fd, port, endpoint, this.nack(
+                        LantanaError.BAD_REQUEST,
+                        "session key harus 32 byte",
+                    ));
+                    return;
+                }
+
+                const newAgent = new SecurityAgent();
+                newAgent.setSessionKey(sessionKey);
+                this.agents.set(sessionId, newAgent);
+                await this.sendPlain(fd, port, endpoint, { type: MSG_KEYSET_OK });
+                return;
+            }
+
+            case MSG_AUTH: {
+                // ── Jalur PSK: proof HMAC, tanpa RSA ──
+                if (msg.mode === "psk" || (!agent && this.pskState.has(sessionId))) {
+                    const state = this.pskState.get(sessionId);
+                    if (!state) {
+                        await this.sendPlain(fd, port, endpoint, this.nack(
+                            LantanaError.UNAUTHENTICATED,
+                            "challenge psk belum dilakukan",
+                        ));
+                        return;
+                    }
+
+                    const expect = clientProof(state.psk, state.clientNonce, state.serverNonce);
+                    if (!safeEqualHex(String(msg.proof || ""), expect)) {
+                        this.pskState.delete(sessionId);
+                        await this.sendPlain(fd, port, endpoint, this.nack(
+                            LantanaError.UNAUTHENTICATED,
+                            "proof klien tidak cocok",
+                        ));
+                        return;
+                    }
+
+                    const accountId = String(msg.accountId || "");
+                    const deviceId = String(msg.deviceId || "");
+                    if (!this.deps.accounts.getPsk(accountId)) {
+                        this.pskState.delete(sessionId);
+                        await this.sendPlain(fd, port, endpoint, this.nack(
+                            LantanaError.UNAUTHENTICATED,
+                            "accountId tidak dikenal",
+                        ));
+                        return;
+                    }
+                    if (!this.deps.devices.belongsTo(accountId, deviceId)) {
+                        this.pskState.delete(sessionId);
+                        await this.sendPlain(fd, port, endpoint, this.nack(
+                            LantanaError.UNKNOWN_DEVICE,
+                            "device tidak terdaftar pada akun",
+                        ));
+                        return;
+                    }
+
+                    const sessionKey = deriveSessionKey(
+                        state.psk,
+                        state.clientNonce,
+                        state.serverNonce,
+                    );
+                    const pskAgent = new SecurityAgent();
+                    pskAgent.setSessionKey(sessionKey);
+                    this.agents.set(sessionId, pskAgent);
+                    this.pskState.delete(sessionId);
+
+                    this.deps.sessions.bind(sessionId, accountId, deviceId);
+                    this.warned.delete(sessionId);
+                    await this.sendEncrypted(fd, port, endpoint, pskAgent, { type: MSG_AUTH_OK });
+                    await std.log(
+                        `[${TAG}] sesi terautentikasi (psk): ${accountId}/${deviceId} (${sessionId})`,
+                        TAG,
+                    );
+                    return;
+                }
+
+                if (!agent) {
+                    await this.sendPlain(fd, port, endpoint, this.nack(
+                        LantanaError.UNAUTHENTICATED,
+                        "keyset belum dilakukan",
+                    ));
+                    return;
+                }
+
+                const plain = agent.securePacketIn(String(msg.payload || ""));
+                if (!plain) {
+                    await this.sendNack(fd, port, endpoint, agent, LantanaError.UNAUTHENTICATED, "payload auth tidak bisa didekripsi");
+                    return;
+                }
+
+                let auth: any;
+                try {
+                    auth = JSON.parse(plain);
+                } catch {
+                    await this.sendNack(fd, port, endpoint, agent, LantanaError.BAD_REQUEST, "payload auth bukan JSON");
+                    return;
+                }
+
+                if (auth.nonce !== session.nonce) {
+                    await this.sendNack(fd, port, endpoint, agent, LantanaError.UNAUTHENTICATED, "nonce tidak cocok");
+                    return;
+                }
+
+                const accountId = String(auth.accountId || "");
+                const deviceId = String(auth.deviceId || "");
+                const accessKey = String(auth.accessKey || "");
+
+                if (!this.deps.accounts.verifyAccessKey(accountId, accessKey)) {
+                    await this.sendNack(fd, port, endpoint, agent, LantanaError.UNAUTHENTICATED, "accountId/AccessKey tidak cocok");
+                    return;
+                }
+                if (!this.deps.devices.belongsTo(accountId, deviceId)) {
+                    await this.sendNack(fd, port, endpoint, agent, LantanaError.UNKNOWN_DEVICE, "device tidak terdaftar pada akun");
+                    return;
+                }
+
+                this.deps.sessions.bind(sessionId, accountId, deviceId);
+                this.warned.delete(sessionId);
+                await this.sendEncrypted(fd, port, endpoint, agent, { type: MSG_AUTH_OK });
+                await std.log(`[${TAG}] sesi terautentikasi: ${accountId}/${deviceId} (${sessionId})`, TAG);
+                return;
+            }
+
+            default:
+                // Pesan kontrol tak dikenal dari sesi belum tentu berbahaya;
+                // abaikan tanpa membocorkan detail.
+                return;
+        }
+    }
+
+    private async handleSensorPayload(
+        fd: number,
+        port: number,
+        sessionId: string,
+        endpoint: Endpoint,
+        data: any,
+        agent: SecurityAgent,
+    ): Promise<void> {
+        let plain: Buffer | null = null;
+
+        if (Buffer.isBuffer(data)) {
+            plain = agent.securePacketInRawBuffer(data);
+        } else if (typeof data === "string") {
+            // Device mengirim ciphertext sebagai hex. WAJIB lewat jalur Buffer:
+            // frame biner mengandung byte >= 0x80 yang rusak bila dikonversi
+            // ke utf8 dulu (gejala: "tipe bacaan tidak dikenal: 0x66").
+            const hex = data.trim();
+            if (/^[0-9a-f]+$/i.test(hex) && hex.length % 2 === 0) {
+                plain = agent.securePacketInRawBuffer(Buffer.from(hex, "hex"));
+            } else {
+                const text = agent.securePacketIn(hex);
+                plain = text ? Buffer.from(text, "utf8") : null;
+            }
+        }
+
+        if (!plain) {
+            await this.sendNack(fd, port, endpoint, agent, LantanaError.UNAUTHENTICATED, "payload tidak bisa didekripsi");
+            return;
+        }
+
+        const parsed = this.parseDecrypted(plain);
+        if (!parsed.ok) {
+            await this.sendNack(fd, port, endpoint, agent, parsed.error, parsed.message);
+            return;
+        }
+
+        const result = this.deps.ingest.ingest({
+            sessionId,
+            deviceId: parsed.deviceId,
+            readings: parsed.readings,
+            endpoint,
+        });
+
+        if (!result.ok) {
+            await this.sendNack(fd, port, endpoint, agent, result.error, result.message);
+            return;
+        }
+
+        const device = this.deps.devices.get(result.accountId, result.deviceId);
+        const meta = device?.meta || {};
+        const entry = this.deps.bank.upsert(
+            result.accountId,
+            result.deviceId,
+            meta,
+            result.readings,
+            endpoint,
+        );
+
+        const queued = await this.deps.dataBank.submit(result.readings);
+        if (!queued.ok) {
+            await std.log(
+                `[${TAG}] DataBank menolak ${result.readings.length} bacaan (${queued.error}) — antrean ${this.deps.dataBank.pending}`,
+                TAG,
+            );
+        }
+
+        const batch: NormalizedReadingBatch = {
+            type: EVT_READING,
+            accountId: result.accountId,
+            deviceId: result.deviceId,
+            name: entry.meta.name || result.deviceId,
+            category: entry.meta.category || "generic",
+            group: entry.meta.group,
+            city: entry.meta.city,
+            receivedAt: result.readings[0]?.receivedAt || Date.now(),
+            dataAgeMs: 0,
+            deviceStatus: "ONLINE",
+            readings: result.readings.map((r) => ({
+                schemeId: r.schemeId,
+                value: r.value,
+                label: r.label,
+                unit: r.unit,
+                ts: r.receivedAt,
+            })),
         };
-
-        // Teruskan ke distributor (in-process — daemon Lantana satu proses)
-        this.emitRaw(raw);
-      }
-
-      // Multitasking gap
-      await new Promise((r) => setTimeout(r, 10));
+        await this.deps.distributor.broadcastBatch(batch);
     }
-  }
 
-  /**
-   * Kirim perintah (command) ke device tertentu — jalur dua arah.
-   * Menggunakan alamat & port sumber terakhir device (dari Device Bank).
-   *
-   * @param nodeId   ID device tujuan
-   * @param srcAddress Alamat device (hasil simpan dari paket masuk)
-   * @param srcPort  Port sumber device
-   * @param command  Isi perintah, mis. "RELAY_1:ON"
-   */
-  async sendCommand(
-    nodeId: string,
-    srcAddress: string,
-    srcPort: number,
-    command: string,
-  ): Promise<boolean> {
-    // Cari socket untuk port tujuan (port listener Lantana tempat paket device masuk)
-    const config = await loadConfig();
-    for (const [port, fd] of this.socketFds.entries()) {
-      const portCfg = getPortConfig(config, port);
-      if (!portCfg) continue;
-      try {
-        const ok = await net.sendto(fd, srcAddress, srcPort, command, 0, port);
-        if (ok) {
-          await std.log(
-            `[${TAG}] Command "${command}" → ${nodeId} (${srcAddress}:${srcPort})`,
-            TAG,
-          );
-          return true;
+    /** Payload bisa berupa frame biner V2 atau teks LANTANA|... */
+    private parseDecrypted(plain: Buffer) {
+        const asText = plain.toString("utf8");
+        if (asText.startsWith("LANTANA|")) {
+            return parsePayload(asText);
         }
-      } catch (e: any) {
-        await std.log(
-          `[${TAG}] Gagal kirim command ke ${nodeId}: ${e?.message}`,
-          TAG,
-        );
-      }
+        return parsePayload(plain);
     }
-    await std.log(
-      `[${TAG}] Tidak ada socket tersedia untuk kirim command ke ${nodeId}`,
-      TAG,
-    );
-    return false;
-  }
+
+    private asJson(data: any): any | null {
+        if (typeof data === "string") {
+            const s = data.trim();
+            if (!s.startsWith("{")) return null;
+            try {
+                const parsed = JSON.parse(s);
+                return parsed && typeof parsed === "object" ? parsed : null;
+            } catch {
+                return null;
+            }
+        }
+        if (data && typeof data === "object" && !Buffer.isBuffer(data) && typeof (data as any).type === "string") {
+            return data;
+        }
+        return null;
+    }
+
+    private nack(error: LantanaError, message: string) {
+        return { type: MSG_NACK, code: error, name: errorName(error), message };
+    }
+
+    private async sendPlain(fd: number, port: number, to: Endpoint, payload: unknown): Promise<void> {
+        await net.sendto(fd, to.address, to.port, JSON.stringify(payload), 0, port);
+    }
+
+    private async sendEncrypted(
+        fd: number,
+        port: number,
+        to: Endpoint,
+        agent: SecurityAgent,
+        payload: unknown,
+    ): Promise<void> {
+        const encrypted = agent.securePacketOut(JSON.stringify(payload));
+        await net.sendto(fd, to.address, to.port, encrypted, 0, port);
+    }
+
+    private async sendNack(
+        fd: number,
+        port: number,
+        to: Endpoint,
+        agent: SecurityAgent,
+        error: LantanaError,
+        message: string,
+    ): Promise<void> {
+        await this.sendEncrypted(fd, port, to, agent, this.nack(error, message));
+    }
+
+    /**
+     * Kirim command ke device. Payload dienkripsi dengan session key device
+     * sehingga hanya device dengan sesi aktif yang bisa menerimanya.
+     */
+    async sendCommand(
+        accountId: string,
+        deviceId: string,
+        endpoint: Endpoint,
+        command: string,
+    ): Promise<boolean> {
+        const sessionId = this.sessionIdOf(endpoint.address, endpoint.port);
+        const agent = this.agents.get(sessionId);
+        const session = this.deps.sessions.get(sessionId);
+
+        if (!agent || !session?.authenticated) {
+            await std.log(`[${TAG}] command ke ${deviceId} gagal: sesi tidak aktif`, TAG);
+            return false;
+        }
+        if (session.accountId !== accountId || session.deviceId !== deviceId) {
+            await std.log(`[${TAG}] command ke ${deviceId} gagal: sesi bukan milik device itu`, TAG);
+            return false;
+        }
+
+        const payload = agent.securePacketOut(command);
+
+        for (const [port, fd] of this.socketFds.entries()) {
+            try {
+                const ok = await net.sendto(fd, endpoint.address, endpoint.port, payload, 0, port);
+                if (ok) {
+                    await std.log(
+                        `[${TAG}] command "${command}" → ${deviceId} (${endpoint.address}:${endpoint.port})`,
+                        TAG,
+                    );
+                    return true;
+                }
+            } catch {
+                /* coba port lain */
+            }
+        }
+        return false;
+    }
 }

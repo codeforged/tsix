@@ -1,139 +1,95 @@
 /**
- * lantana-device-bank.test.ts — Unit test untuk Lantana Device Bank
- *
- * Menguji:
- *  - resolveGroup: pengelompokan device per tenant (deviceGroupMap)
- *  - kategori & grup diterapkan saat upsert (device baru vs lama)
- *  - listDevices meneruskan group ke DeviceStatusInfo
+ * lantana-device-bank.test.ts — State terkini, heartbeat, endpoint command.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { DeviceBank } from "./lantana-device-bank";
+import { AcceptedReading } from "./lantana-core";
 
-// Mock penuh modul core — TIDAK memuat @tsix/Application (fs VFS) agar test
-// bisa jalan tanpa runtime TSIX. Sediakan hanya simbol yang dipakai DeviceBank.
-vi.mock("@tsix/lantana/lantana-core", () => {
-    return {
-        DEVICE_STALE_MS: 15000,
-        DEVICE_OFFLINE_MS: 60000,
-        loadConfig: vi.fn(async () => ({
-            ports: {},
-            deviceCategories: {
-                esp: { label: "ESP", icon: "🔧" },
-                generic: { label: "Generic Device", icon: "📡" },
-            },
-            sensorCategories: {
-                temp: { label: "Temperature", unit: "°C" },
-                generic: { label: "Sensor", unit: "" },
-            },
-            deviceGroupMap: {
-                "Juragan Sensor": {
-                    "esp8266-dev-01": "client-a",
-                    "esp8266-dev-02": "client-a",
-                    "esp8266-dev-03": "client-b",
-                },
-            },
-        })),
-    };
+const reading = (schemeId: number, value: number): AcceptedReading => ({
+    readingId: `r-${schemeId}`,
+    accountId: "acc",
+    deviceId: "dev-1",
+    schemeId,
+    value,
+    label: `S${schemeId}`,
+    unit: "",
+    receivedAt: 1000,
 });
 
-const upsert = (
-    bank: DeviceBank,
-    nodeId: string,
-    tenant: string = "Juragan Sensor",
-    port: number = 1001,
-    sensors: { id: string; value: number }[] = [{ id: "01", value: 25 }],
-) =>
-    bank.upsert(nodeId, tenant, port, "plain", sensors, Date.now(), nodeId, 100);
+describe("DeviceBank", () => {
+    it("menyimpan bacaan terbaru per scheme", () => {
+        const bank = new DeviceBank();
+        bank.upsert("acc", "dev-1", { name: "Satu" }, [reading(101, 25)], { address: "10.0.0.1", port: 4000 }, 1000);
+        bank.upsert("acc", "dev-1", { name: "Satu" }, [reading(101, 30), reading(102, 60)], { address: "10.0.0.1", port: 4000 }, 2000);
 
-describe("DeviceBank group (deviceGroupMap)", () => {
-    let bank: DeviceBank;
-
-    beforeEach(async () => {
-        bank = new DeviceBank();
-        await bank.init();
+        const readings = bank.getReadings("acc", "dev-1");
+        expect(readings.map((r) => [r.schemeId, r.value])).toEqual([
+            [101, 30],
+            [102, 60],
+        ]);
     });
 
-    it("memberi group sesuai deviceGroupMap saat device baru di-upsert", async () => {
-        const dev = upsert(bank, "esp8266-dev-01");
-        expect(dev.group).toBe("client-a");
-        const dev2 = upsert(bank, "esp8266-dev-03");
-        expect(dev2.group).toBe("client-b");
-    });
-
-    it("tidak memberi group untuk node yang tidak terdaftar di deviceGroupMap", async () => {
-        const dev = upsert(bank, "esp32-999");
-        expect(dev.group).toBeUndefined();
-    });
-
-    it("kategori device tetap berjalan normal (tidak terganggu group)", async () => {
-        const dev = upsert(bank, "esp8266-dev-01");
-        expect(dev.category).toBe("esp"); // heuristic: mengandung "esp"
-        expect(dev.group).toBe("client-a");
-    });
-
-    it("listDevices meneruskan group ke DeviceStatusInfo", async () => {
-        upsert(bank, "esp8266-dev-01");
-        upsert(bank, "esp8266-dev-02");
-        const devices = bank.listDevices(Date.now());
-        const byNode = Object.fromEntries(devices.map((d) => [d.nodeId, d.group]));
-        expect(byNode["esp8266-dev-01"]).toBe("client-a");
-        expect(byNode["esp8266-dev-02"]).toBe("client-a");
-    });
-});
-
-describe("DeviceBank kategori (tidak regresi)", () => {
-    let bank: DeviceBank;
-
-    beforeEach(async () => {
-        bank = new DeviceBank();
-        await bank.init();
-    });
-
-    it("infer kategori dari nodeId (fallback generic)", async () => {
-        const dev = upsert(bank, "esp32-01");
-        expect(dev.category).toBe("esp");
-        const gen = upsert(bank, "something-else");
-        expect(gen.category).toBe("generic");
-    });
-});
-
-describe("DeviceBank multi-tenant (nodeId sama, tenant beda)", () => {
-    let bank: DeviceBank;
-
-    beforeEach(async () => {
-        bank = new DeviceBank();
-        await bank.init();
-    });
-
-    it("tidak konflik: nodeId yang sama di tenant berbeda jadi entri terpisah", async () => {
-        upsert(bank, "dev-01", "Juragan Sensor", 1001, [{ id: "01", value: 25 }]);
-        upsert(bank, "dev-01", "Tenant Lain", 1002, [{ id: "01", value: 99 }]);
+    it("memisahkan device dengan deviceId sama di akun berbeda", () => {
+        const bank = new DeviceBank();
+        bank.upsert("acc-a", "dev-1", {}, [reading(101, 10)], { address: "a", port: 1 }, 1000);
+        bank.upsert("acc-b", "dev-1", {}, [reading(101, 99)], { address: "b", port: 2 }, 1000);
 
         expect(bank.size).toBe(2);
-
-        const a = bank.getDevice("dev-01", "Juragan Sensor")!;
-        const b = bank.getDevice("dev-01", "Tenant Lain")!;
-        expect(a.tenant).toBe("Juragan Sensor");
-        expect(b.tenant).toBe("Tenant Lain");
-        expect(a.sensors.get("01")!.value).toBe(25);
-        expect(b.sensors.get("01")!.value).toBe(99);
+        expect(bank.getReadings("acc-a", "dev-1")[0].value).toBe(10);
+        expect(bank.getReadings("acc-b", "dev-1")[0].value).toBe(99);
     });
 
-    it("group per tenant tidak saling timpa", async () => {
-        upsert(bank, "esp8266-dev-01", "Juragan Sensor");
-        upsert(bank, "esp8266-dev-01", "Tenant Lain");
-        expect(bank.getDevice("esp8266-dev-01", "Juragan Sensor")!.group).toBe("client-a");
-        expect(bank.getDevice("esp8266-dev-01", "Tenant Lain")!.group).toBeUndefined();
+    it("menyimpan endpoint terakhir untuk command balik", () => {
+        const bank = new DeviceBank();
+        bank.upsert("acc", "dev-1", {}, [reading(101, 1)], { address: "10.0.0.5", port: 4100 }, 1000);
+        expect(bank.getEndpoint("acc", "dev-1")).toEqual({ address: "10.0.0.5", port: 4100 });
+        expect(bank.getEndpoint("acc", "tidak-ada")).toBeNull();
     });
 
-    it("listDevices menampilkan keduanya", async () => {
-        upsert(bank, "dev-01", "Juragan Sensor");
-        upsert(bank, "dev-01", "Tenant Lain");
-        const devices = bank.listDevices(Date.now());
-        const pairs = devices.map((d) => `${d.tenant}::${d.nodeId}`);
-        expect(pairs).toContain("Juragan Sensor::dev-01");
-        expect(pairs).toContain("Tenant Lain::dev-01");
-        expect(devices).toHaveLength(2);
+    it("menghitung status heartbeat dari umur data", () => {
+        const bank = new DeviceBank();
+        expect(bank.computeStatus(0, 10_000)).toBe("ONLINE");
+        expect(bank.computeStatus(0, 30_000)).toBe("STALE");
+        expect(bank.computeStatus(0, 120_000)).toBe("OFFLINE");
+    });
+
+    it("memakai metadata registry untuk nama/kota/grup", () => {
+        const bank = new DeviceBank();
+        bank.upsert(
+            "acc",
+            "dev-1",
+            { name: "Sensor Bandung", city: "Bandung", group: "jabar" },
+            [reading(101, 1)],
+            { address: "a", port: 1 },
+            1000,
+        );
+        const [dev] = bank.listDevices(1000, "acc");
+        expect(dev).toMatchObject({
+            accountId: "acc",
+            deviceId: "dev-1",
+            name: "Sensor Bandung",
+            city: "Bandung",
+            group: "jabar",
+            status: "ONLINE",
+            schemeIds: [101],
+        });
+    });
+
+    it("listDevices memfilter per akun", () => {
+        const bank = new DeviceBank();
+        bank.upsert("acc-a", "d1", {}, [reading(101, 1)], { address: "a", port: 1 }, 1000);
+        bank.upsert("acc-b", "d2", {}, [reading(101, 1)], { address: "b", port: 2 }, 1000);
+
+        expect(bank.listDevices(1000)).toHaveLength(2);
+        expect(bank.listDevices(1000, "acc-a").map((d) => d.deviceId)).toEqual(["d1"]);
+    });
+
+    it("getQueryableReadings menyaring sesuai policy", () => {
+        const bank = new DeviceBank();
+        bank.upsert("acc", "dev", {}, [reading(101, 1), reading(203, 2)], { address: "a", port: 1 }, 1000);
+
+        const filtered = bank.getQueryableReadings("acc", "dev", (id) => id === 101);
+        expect(filtered.map((r) => r.schemeId)).toEqual([101]);
     });
 });
