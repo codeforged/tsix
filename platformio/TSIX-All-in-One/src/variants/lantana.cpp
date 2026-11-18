@@ -139,6 +139,7 @@ void loop()
              SCHEME_IDS[3], schemeVals[3]);
 
     bool ok = tsix.sendEncrypted(LANTANA_HOST, LANTANA_PORT, data);
+    auth.noteSendResult(ok);
     Serial.printf("[TX] %s (%s)\n", data, ok ? "OK" : "FAILED");
   }
 }

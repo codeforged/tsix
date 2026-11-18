@@ -52,6 +52,9 @@ const MSG_KEYSET_OK = "LANTANA_KEYSET_OK";
 const MSG_AUTH_OK = "LANTANA_AUTH_OK";
 const MSG_NACK = "LANTANA_NACK";
 
+/** Jarak minimum NACK "sesi tidak aktif" per device agar tidak membanjiri link. */
+const SESSION_NACK_INTERVAL_MS = 5000;
+
 export interface ListenerDeps {
     accounts: AccountManager;
     devices: DeviceRegistry;
@@ -67,6 +70,8 @@ export class LantanaListener {
     private socketFds: Map<number, number> = new Map(); // port → fd
     private agents: Map<string, SecurityAgent> = new Map(); // sessionId → agent
     private warned: Set<string> = new Set();
+    /** Waktu NACK terakhir per sesi (rate limit permintaan handshake ulang). */
+    private nackSentAt: Map<string, number> = new Map();
     /** State handshake PSK per sesi (ESP8266 / device tanpa RSA). */
     private pskState: Map<string, { psk: Buffer; clientNonce: string; serverNonce: string }> = new Map();
 
@@ -146,6 +151,7 @@ export class LantanaListener {
                     TAG,
                 );
             }
+            await this.requestHandshake(fd, port, endpoint, sessionId);
             return;
         }
 
@@ -484,6 +490,27 @@ export class LantanaListener {
             return data;
         }
         return null;
+    }
+
+    /**
+     * Minta device mengulang handshake setelah sesinya hilang (server restart,
+     * port sumber berubah, atau TTL habis). Dikirim plaintext karena device
+     * tidak mungkin membaca pesan terenkripsi dengan kunci sesi lama.
+     */
+    private async requestHandshake(
+        fd: number,
+        port: number,
+        to: Endpoint,
+        sessionId: string,
+    ): Promise<void> {
+        const now = Date.now();
+        const last = this.nackSentAt.get(sessionId) ?? 0;
+        if (now - last < SESSION_NACK_INTERVAL_MS) return;
+        this.nackSentAt.set(sessionId, now);
+        await this.sendPlain(fd, port, to, this.nack(
+            LantanaError.UNAUTHENTICATED,
+            "sesi tidak aktif — kirim LANTANA_HELLO",
+        ));
     }
 
     private nack(error: LantanaError, message: string) {

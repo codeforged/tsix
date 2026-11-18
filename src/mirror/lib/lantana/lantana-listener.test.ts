@@ -119,8 +119,65 @@ describe("listener handshake + ingest", () => {
 
     it("menolak data sensor sebelum sesi terautentikasi", async () => {
         await ctx.send(encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 25 }]));
-        expect(sent).toHaveLength(0);
         expect(ctx.bank.size).toBe(0);
+        // Device diminta handshake ulang lewat NACK plaintext (sesi server hilang).
+        expect(JSON.parse(lastSent())).toMatchObject({
+            type: "LANTANA_NACK",
+            name: "UNAUTHENTICATED",
+        });
+    });
+
+    it("meminta handshake ulang saat port sumber device berubah", async () => {
+        // Sesi lama hidup di port DEVICE_PORT; device reconnect memakai port baru.
+        await ctx.send(JSON.stringify({ type: "LANTANA_HELLO" }));
+        const challenge = JSON.parse(lastSent());
+        const client = new SecurityAgent();
+        const sessionKey = SecurityAgent.generateSessionKey();
+        await ctx.send(
+            JSON.stringify({
+                type: "LANTANA_KEYSET",
+                encryptedKey: SecurityAgent.encryptWithPublicKey(challenge.publicKey, sessionKey),
+            }),
+        );
+        client.setSessionKey(sessionKey);
+        await ctx.send(
+            JSON.stringify({
+                type: "LANTANA_AUTH",
+                payload: client.securePacketOut(
+                    JSON.stringify({
+                        accountId: "juragan",
+                        deviceId: ctx.device.deviceId,
+                        accessKey: ctx.accessKey,
+                        nonce: challenge.nonce,
+                    }),
+                ),
+            }),
+        );
+        sent.length = 0;
+
+        await (ctx.listener as any).handlePacket(SERVICE_PORT, 1, {
+            src: DEVICE_ADDR,
+            port: DEVICE_PORT + 1,
+            data: client.securePacketOut(
+                encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 31 }]),
+            ),
+        });
+
+        expect(JSON.parse(lastSent())).toMatchObject({
+            type: "LANTANA_NACK",
+            name: "UNAUTHENTICATED",
+        });
+        expect(ctx.bank.size).toBe(0);
+    });
+
+    it("membatasi NACK handshake ulang per device", async () => {
+        const payload = encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 25 }]);
+
+        await ctx.send(payload);
+        await ctx.send(payload);
+        await ctx.send(payload);
+
+        expect(sent).toHaveLength(1);
     });
 
     it("menjalankan HELLO → KEYSET → AUTH → data terenkripsi", async () => {

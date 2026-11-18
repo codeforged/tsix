@@ -6,6 +6,29 @@
 
 ## 2026-11-18
 
+### Sesi device pulih setelah server/Lantana restart
+- **File:** `src/mirror/lib/lantana/lantana-listener.ts`, `lantana-listener.test.ts`,
+  `platformio/TSIX-All-in-One/lib/lantana-auth/{lantana_auth.h,lantana_auth.cpp}`,
+  `platformio/TSIX-All-in-One/src/variants/lantana.cpp`
+- **Masalah:** sesi Lantana hanya hidup di memori server dan di-key `address:port`
+  sumber device. Saat TSIX/Lantana restart (atau device reconnect sehingga port
+  sumbernya berubah) sesi di server hilang, sedangkan ESP tetap merasa `ONLINE`
+  dengan session key lama. Data sensor dibuang server tanpa pemberitahuan, jadi
+  device tampak "berhenti mengirim data" sampai di-reboot.
+- **Perubahan server:** data tanpa sesi terautentikasi kini dibalas `LANTANA_NACK`
+  **plaintext** (`UNAUTHENTICATED`, "sesi tidak aktif — kirim LANTANA_HELLO")
+  maksimal sekali per 5 detik per device, supaya device tahu harus handshake ulang.
+  NACK terenkripsi tidak berguna di sini karena kunci sesi device sudah tidak cocok.
+- **Perubahan ESP:** `LantanaAuth` memulai sesi baru ketika link MQTT baru
+  tersambung (broker/server restart), saat NACK diterima, saat umur sesi melewati
+  10 menit (server hanya menyimpan sesi di memori), dan saat `sendEncrypted` gagal
+  3 kali berturut-turut. `noteSendResult()` dipanggil varian Lantana setiap kirim.
+- **Dampak:** device kembali terautentikasi otomatis dalam hitungan detik tanpa
+  reboot; data sensor lanjut masuk ke DeviceBank setelah server hidup lagi.
+- **Verifikasi:** 120 tes Lantana lulus (termasuk NACK handshake ulang, rate
+  limit-nya); firmware `lantana-esp32` dan `lantana-esp8266` berhasil dikompilasi.
+- **Oleh:** Copilot
+
 ### `portableDashboard` dipindah ke `/etc/lantana/dashboard.json`
 - **File:** `src/mirror/lib/lantana/dashboard-registry.ts` (baru), `dashboard-registry.test.ts` (baru), `account-manager.ts`, `lantana-core.ts`, `lantana-store.ts`, `lantana-ctl.ts`, `lantana-dashboard-server.ts`
 - **Masalah:** konfigurasi dashboard menumpang di `accounts.json` bersama kredensial akun, sehingga edit dashboard berisiko menyentuh file kredensial dan formatnya bercampur.

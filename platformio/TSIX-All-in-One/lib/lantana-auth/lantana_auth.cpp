@@ -16,6 +16,10 @@
 
 #define HANDSHAKE_TIMEOUT_MS 8000
 #define HANDSHAKE_RETRY_MS 15000
+// Server hanya menyimpan sesi di memori. Handshake diulang setelah umur ini
+// supaya device tidak terjebak memakai kunci sesi yang sudah tidak dikenal.
+#define SESSION_REFRESH_MS (10UL * 60UL * 1000UL)
+#define SEND_FAILURE_LIMIT 3
 
 static void sha256(const uint8_t *data, size_t len, uint8_t out[32])
 {
@@ -113,7 +117,8 @@ LantanaAuth::LantanaAuth(TSIX &transport, const char *host, int port,
                          const char *accessKey, const char *fingerprint)
     : transport_(transport), host_(host), port_(port), accountId_(accountId),
       deviceId_(deviceId), accessKey_(accessKey), fingerprint_(fingerprint),
-      state_(IDLE), stateStartedAt_(0), lastHelloAt_(0)
+      state_(IDLE), stateStartedAt_(0), lastHelloAt_(0), onlineSince_(0),
+      lastLinkUp_(false), sendFailures_(0)
 {
   memset(sessionKey_, 0, sizeof(sessionKey_));
   memset(clientNonceHex_, 0, sizeof(clientNonceHex_));
@@ -139,9 +144,43 @@ void LantanaAuth::begin()
   sendHello();
 }
 
+void LantanaAuth::restartSession(const char *reason)
+{
+  Serial.printf("[HS] %s — handshake ulang\n", reason);
+  state_ = IDLE;
+  lastHelloAt_ = 0;
+  onlineSince_ = 0;
+  sendFailures_ = 0;
+}
+
+void LantanaAuth::noteSendResult(bool ok)
+{
+  if (ok)
+  {
+    sendFailures_ = 0;
+    return;
+  }
+  if (state_ != ONLINE)
+    return;
+  if (++sendFailures_ < SEND_FAILURE_LIMIT)
+    return;
+  restartSession("kirim data gagal berulang");
+}
+
 void LantanaAuth::loop()
 {
   uint32_t now = millis();
+  const bool linkUp = transport_.mqttConnected();
+
+  // Link MQTT putus = broker/server restart (atau WiFi sempat hilang).
+  // Sesi di server ikut hilang, jadi sesi lama tidak boleh dipakai lagi.
+  if (linkUp != lastLinkUp_)
+  {
+    lastLinkUp_ = linkUp;
+    if (linkUp)
+      restartSession("link MQTT tersambung");
+  }
+
   if (state_ != ONLINE && state_ != IDLE &&
       now - stateStartedAt_ > HANDSHAKE_TIMEOUT_MS)
   {
@@ -149,7 +188,10 @@ void LantanaAuth::loop()
     state_ = IDLE;
   }
 
-  if (state_ == IDLE && transport_.mqttConnected() &&
+  if (state_ == ONLINE && now - onlineSince_ > SESSION_REFRESH_MS)
+    restartSession("sesi kedaluwarsa");
+
+  if (state_ == IDLE && linkUp &&
       (lastHelloAt_ == 0 || now - lastHelloAt_ > HANDSHAKE_RETRY_MS))
     sendHello();
 }
@@ -191,8 +233,8 @@ bool LantanaAuth::onPlainMessage(const char *json)
 
   if (jsonHas(json, "\"LANTANA_NACK\""))
   {
-    Serial.println("[HS] NACK dari server — ulangi handshake");
-    state_ = IDLE;
+    Serial.printf("[HS] NACK dari server: %s\n", json);
+    restartSession("NACK dari server");
     return true;
   }
 
@@ -206,13 +248,16 @@ bool LantanaAuth::onEncryptedMessage(const char *payload)
   if (jsonHas(payload, "\"LANTANA_AUTH_OK\""))
   {
     state_ = ONLINE;
+    onlineSince_ = millis();
+    sendFailures_ = 0;
+    lastLinkUp_ = transport_.mqttConnected();
     Serial.println("[HS] ONLINE — mulai kirim data");
     return true;
   }
   if (jsonHas(payload, "\"LANTANA_NACK\""))
   {
     Serial.printf("[HS] NACK: %s\n", payload);
-    state_ = IDLE;
+    restartSession("NACK dari server");
     return true;
   }
 
