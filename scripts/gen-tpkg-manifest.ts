@@ -72,6 +72,11 @@ const NODE_LOCAL_PATTERNS: RegExp[] = [
     /^\/etc\/tpkg\/trusted_repos$/,
     /^\/etc\/tpkg\/keys\//,
     /^\/etc\/tsd\//, // trust + manifest milik tsd (legacy, per node)
+    // ACL bridge (`/etc/packetforwarder/firewalltables.conf`) hanya dibaca oleh
+    // node yang MENJALANKAN `forward`. Isinya kebijakan operator untuk bridge
+    // itu, bukan default sistem → paket engine tidak boleh menyebarkannya ke
+    // node lain (yang mungkin tidak menjalankan bridge sama sekali).
+    /^\/etc\/packetforwarder\//,
 ];
 
 /**

@@ -77,6 +77,33 @@ export class main implements IProgram {
         `   Rx/Tx:       ${this.formatBytes(stats.rxBytes)} / ${this.formatBytes(stats.txBytes)}\n`,
       );
       await std.print(`   Total bind/connections: ${stats.binds}\n`);
+
+      // Interface tunnel: tampilkan keadaan jalur supaya masalah "tidak sampai"
+      // bisa dilokalisasi tanpa harus membaca log daemon.
+      const tun = (stats as any).tunnel;
+      if (tun) {
+        const state = tun.ready ? "✅ siap" : "⏳ menunggu";
+        await std.print(
+          `   Tunnel:      → ${tun.peer} [${tun.mode}] ${state}` +
+            `${tun.encrypted ? " 🔒" : " ⚠️  tanpa enkripsi"}\n`,
+        );
+        if (tun.fingerprint) {
+          await std.print(`   Fingerprint: ${tun.fingerprint}\n`);
+        }
+        await std.print(
+          `   Tunnel pkt:  keluar ${tun.tunneled} | masuk ${tun.rx} | ` +
+            `diteruskan ${tun.delivered} | antri ${tun.queued}\n`,
+        );
+        await std.print(
+          `   Dibuang:     ${tun.dropped} (hop ${tun.droppedHops}, nack ${tun.nack}) | ` +
+            `lokal ${tun.loopback} | langsung ${tun.direct}\n`,
+        );
+        if (tun.hsRequests > 0) {
+          await std.print(
+            `   Handshake:   ${tun.hsRequests} permintaan, ${tun.hsOk} ok, ${tun.hsFail} gagal\n`,
+          );
+        }
+      }
     }
 
     await std.print(`\n   Default Interface : ${data.defaultDevice}\n`);

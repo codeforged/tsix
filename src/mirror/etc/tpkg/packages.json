@@ -458,6 +458,11 @@
                     "hostDst": "src/mirror/sbin/vfs-pull.ts"
                 },
                 {
+                    "src": "/sbin/vpns.ts",
+                    "dst": "/sbin/vpns.ts",
+                    "hostDst": "src/mirror/sbin/vpns.ts"
+                },
+                {
                     "src": "/usr/bin/airterm.ts",
                     "dst": "/usr/bin/airterm.ts",
                     "hostDst": "src/mirror/usr/bin/airterm.ts",
@@ -592,6 +597,11 @@
                     "src": "/lib/ConfigParser.ts",
                     "dst": "/lib/ConfigParser.ts",
                     "hostDst": "src/mirror/lib/ConfigParser.ts"
+                },
+                {
+                    "src": "/lib/Firewall.ts",
+                    "dst": "/lib/Firewall.ts",
+                    "hostDst": "src/mirror/lib/Firewall.ts"
                 },
                 {
                     "src": "/lib/DbLib.ts",

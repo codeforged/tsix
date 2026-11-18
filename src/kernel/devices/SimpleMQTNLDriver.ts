@@ -60,7 +60,7 @@ export class SimpleMQTNLDriver implements IDevice {
   }
 
   private client: mqtt.MqttClient | null = null;
-  private logger: Logger;
+  protected logger: Logger;
   private security: ISecurityAgent;
   private onMessageHandlers: Map<number, (data: any) => void> = new Map();
   private portProcess: Map<number, string> = new Map(); // port -> nama proses/script pemilik
@@ -68,7 +68,7 @@ export class SimpleMQTNLDriver implements IDevice {
 
   // Instance config
   private brokerUrl: string;
-  private localAddress: string;
+  protected localAddress: string;
 
   // Stats
   private rxBytes: number = 0;
@@ -91,7 +91,7 @@ export class SimpleMQTNLDriver implements IDevice {
   // OTA, "Binfeo" utk biner TERSANDI komunikasi normal). Dipakai supaya aplikasi
   // TIDAK mengubah activeProtocol GLOBAL (yang membuat aplikasi lain seperti
   // ping/scanif ikut binary). Default: kosong → semua port memakai activeProtocol (JSON).
-  private portProtocols: Map<number, string> = new Map();
+  protected portProtocols: Map<number, string> = new Map();
 
   // Sniffer (bitshark): callback menangkap paket
   // TX = payload SEBELUM dienkripsi, RX = payload SETELAH dekripsi (plaintext terbaca)
@@ -427,6 +427,10 @@ export class SimpleMQTNLDriver implements IDevice {
           localPort: packet.header.dstPort,
           data: decryptedPayload,
           isBinary: isBinary,
+          // `flag` diteruskan supaya relay/daemon bisa membedakan DATA dari
+          // PING_REPLY/BROADCAST (dipakai jalur tunnel). Properti tambahan —
+          // pemakai lama tidak terpengaruh.
+          flag: packet.header.packetHeaderFlag,
           ts: Date.now(),
         };
 
@@ -463,6 +467,44 @@ export class SimpleMQTNLDriver implements IDevice {
 
   public registerHandler(port: number, handler: (data: any) => void) {
     this.onMessageHandlers.set(port, handler);
+  }
+
+  /**
+   * deliverLocal(): Serahkan payload ke handler userland pada port LOKAL,
+   * dengan identitas pengirim yang ditentukan pemanggil.
+   *
+   * Ini jalur "inject" yang dipakai device turunan (mis. SimpleMQTNLDriverTunnel)
+   * ketika paket datang lewat jalur alternatif: payload sudah di-decode di luar
+   * mesin RX normal, tetapi aplikasi tetap harus menerimanya seolah-olah datang
+   * dari node aslinya. Tanpa method ini, satu-satunya cara adalah `send()` —
+   * yang selalu menimpa `srcAddress` jadi alamat lokal (identitas asli hilang).
+   *
+   * Penting: TIDAK ada dekripsi/enkripsi di sini. Pemanggil bertanggung jawab
+   * menyerahkan payload yang sudah plaintext.
+   *
+   * @returns true kalau ada handler yang menerima paket.
+   */
+  public deliverLocal(
+    srcAddress: string,
+    srcPort: number,
+    dstPort: number,
+    data: any,
+    isBinary: boolean = false,
+    flag: number = PacketFlags.FLAG_DATA,
+  ): boolean {
+    const handler = this.onMessageHandlers.get(dstPort);
+    if (!handler) return false;
+
+    handler({
+      src: srcAddress,
+      port: srcPort,
+      localPort: dstPort,
+      data,
+      isBinary,
+      flag,
+      ts: Date.now(),
+    });
+    return true;
   }
 
   /**

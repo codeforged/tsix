@@ -79,6 +79,8 @@ graph LR
 | `AesGcmAgent`       | `AesGcmAgent.ts`       | Contoh agent kustom AES-256-GCM                                                |
 | `NetSocket`         | `NetworkLib.ts`        | API high-level ala Cashew (open → event → close)                               |
 | `PacketForwarder`   | `PacketForwarder.ts`   | Routing & forwarding paket antar-interface                                     |
+| `TunnelEnvelope`    | `TunnelEnvelope.ts`    | Amplop biner untuk tunnel MQTNL (lihat [🕳️ Tunnel MQTNL](Tunnel-MQTNL.md))       |
+| `Firewall`          | `Firewall.ts`          | ACL forwarder: allow/deny alamat & port (`forward --fw`)                        |
 
 ---
 
@@ -170,6 +172,8 @@ defaultPort = 1883
 | `scp <src> <node>:<dst>` | Secure file copy antar-node                                                                     |
 | `listen_net`             | Listen incoming packets di port tertentu                                                        |
 | `forward`                | Port forwarding antar-interface                                                                 |
+| `vpns`                   | Relay tunnel MQTNL (sisi server) — lihat [🕳️ Tunnel MQTNL](Tunnel-MQTNL.md)                      |
+| `forward --fw`           | Tampilkan ACL firewall forwarder (`/etc/packetforwarder/firewalltables.conf`)                    |
 | `secagent`               | Tampilkan daftar Security Agent yang terdaftar di kernel (`secagent` / `--list` / `--json`)     |
 
 ### Contoh Penggunaan

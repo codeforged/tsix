@@ -52,6 +52,11 @@ export interface NetPacket {
   data: any;
   /** True kalau datang lewat protocol biner (MQTNL v1.1). */
   isBinary?: boolean;
+  /**
+   * Flag paket (`PacketFlags`) — hanya diisi kalau driver mengirimkannya.
+   * Dipakai relay/tunnel untuk membedakan DATA dari PING_REPLY/BROADCAST.
+   */
+  flag?: number;
   /** Timestamp kedatangan (ms). */
   ts: number;
 }

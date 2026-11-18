@@ -6,6 +6,54 @@
 
 ---
 
+## 2026-10-27
+
+### Firewall `[address]` — aturan berarah (`allow-src` / `allow-dst` / `deny-src` / `deny-dst`)
+
+- **File:** `src/mirror/lib/Firewall.ts`, `src/mirror/lib/Firewall.test.ts`, `src/mirror/etc/packetforwarder/firewalltables.conf`, `wiki/Tunnel-MQTNL.md`
+- **Perubahan:**
+  - `[address]` kini punya empat key berarah yang sejajar dengan `[port]`: `allow-src`, `allow-dst`, `deny-src`, `deny-dst` (masing-masing menerima `"*"`).
+  - `allow`/`deny` tetap ada sebagai bentuk ringkas dua arah (kompatibel dengan konfigurasi sebelumnya).
+  - Urutan evaluasi: semua `deny` (dua arah lalu berarah) → `allow` dua arah → `allow-src`/`allow-dst`. Semua allow yang diisi harus lolos (AND).
+  - `forward --fw` menampilkan enam key `[address]`; `summary()`/monitor memakai prefiks `addr-*` agar tidak tertukar dengan aturan port.
+  - Berkas contoh diperluas dengan dua gaya penulisan, tiga skenario siap pakai, dan peringatan eksplisit bahwa balasan berbalik arah (`allow-dst` saja akan memblokir balasan).
+- **Dampak:** aturan seperti "hanya X yang boleh mengakses Y" bisa ditulis presisi tanpa efek samping ke arah sebaliknya; konfigurasi lama tetap berjalan sama.
+- **Oleh:** Copilot · **Verifikasi:** 37 test firewall lulus (14 di antaranya khusus aturan berarah); suite `src/common` + `src/kernel` + firewall tanpa regresi.
+
+---
+
+## 2026-10-26
+
+### Firewall forwarder + handshake RSA pada tunnel MQTNL
+
+- **File baru:** `src/mirror/lib/Firewall.ts` (+ test), `src/mirror/etc/packetforwarder/firewalltables.conf`
+- **File diubah (aditif):** `src/mirror/lib/PacketForwarder.ts` (ACL per paket, `setFirewall`, `getStats().firewall`, `readHeader`/`markForwarded` dipisah dari `nextHop`), `src/mirror/usr/bin/forward.ts` (`--fw`, `--fw-file`, `--no-fw`, `--fw-check`, tampilan firewall di monitor), `src/mirror/sbin/vpns.ts` (mode handshake + port kontrol), `src/kernel/devices/SimpleMQTNLDriverTunnel.ts` (handshake klien, antrian amplop), `src/common/Config.ts`, `src/common/SysConfigIni.ts` (`handshake`/`controlPort`/`trustedFingerprint`/`rekey`), `wiki/Tunnel-MQTNL.md`
+- **Perubahan:**
+  - `forward` membaca `/etc/packetforwarder/firewalltables.conf` (`[address]` allow/deny dua arah, `[port]` allow/deny src/dst, `"*"` = semua). Deny menang atas allow; berkas tidak ada = non-aktif (perilaku lama utuh).
+  - `forward --fw` menampilkan aturan, `forward --fw-check src:port dst:port` menguji satu paket tanpa menjalankan broker (exit 3 bila diblokir).
+  - `vpns` kini default **handshake RSA-OAEP + ChaCha20-Poly1305**: relay membangkitkan keypair + satu kunci sesi, membagikan kunci ke klien lewat port kontrol (`listen + 1`) yang tidak berkunci; klien memverifikasi fingerprint relay dan membuktikan possession kunci dengan menandatangani nonce. `--psk` tetap didukung.
+  - Klien tunnel menahan amplop selama handshake (maks 64) lalu melepasnya; `rekey` memungkinkan pemulihan otomatis setelah relay restart.
+- **Dampak:** skenario "forward memblokir node Y, lalu diakali lewat tunnel" bisa disimulasikan end-to-end tanpa secret manual di dua sisi.
+- **Oleh:** Copilot · **Verifikasi:** 74 test baru/terkait lulus (firewall 23, tunnel 26, envelope 14, `[tunnel.*]` 10); suite `src/common` + `src/kernel` tanpa regresi (8 kegagalan lama identik dengan baseline).
+
+---
+
+## 2026-10-26 (sebelumnya)
+
+### Tunnel MQTNL — `[tunnel.*]`, `SimpleMQTNLDriverTunnel`, `vpns`, amplop `TunnelEnvelope`
+
+- **File baru:** `src/common/protocols/TunnelEnvelope.ts` (+ test), `src/kernel/devices/SimpleMQTNLDriverTunnel.ts` (+ test), `src/mirror/sbin/vpns.ts`, `wiki/Tunnel-MQTNL.md`
+- **File diubah (aditif):** `src/kernel/devices/SimpleMQTNLDriver.ts` (method `deliverLocal()`, `flag` pada objek dispatch, 3 field jadi `protected`), `src/mirror/lib/NetworkLib.ts` (`NetPacket.flag?`), `src/common/Config.ts`, `src/common/SysConfigIni.ts` (`[tunnel.*]`), `src/kernel/Kernel.ts` (instansiasi device tunnel), `src/mirror/etc/tpkg/packages.json`
+- **Perubahan:**
+  - Interface jaringan baru `[tunnel.*]` → device `SimpleMQTNLDriverTunnel`: membungkus paket ke relay (`vpns`) di broker lain dengan amplop biner, lalu mengembalikan balasan ke aplikasi dengan **identitas asli** pengirim.
+  - Routing default (wildcard): tujuan lokal → loopback, `exclude` → langsung, sisanya (termasuk `*`) → tunnel. Alamat tujuan tidak dikonfigurasi karena MQTT memakai nama node sebagai topik.
+  - `vpns` menyediakan NAPT per `(client, clientPort, dst, dstPort)` dengan socket ephemeral (NPR), idle TTL, batas sesi, dan NACK bila tidak bisa meneruskan.
+  - PSK ChaCha20-Poly1305 per port tunnel + framing Binfeo, sehingga amplop biner utuh (tanpa overhead hex).
+- **Dampak:** node di balik `forward` yang memblokir alamat tertentu tetap bisa dijangkau lewat relay; konfigurasi lama tanpa `[tunnel.*]` berperilaku identik seperti sebelumnya.
+- **Oleh:** Copilot · **Verifikasi:** 39 test baru lulus (codec, routing device, kontrak relay, parser `[tunnel.*]`); suite `src/common` + `src/kernel` tanpa regresi (8 kegagalan lama identik dengan baseline).
+
+---
+
 ## 2026-09-06
 
 ### `scanif` — kompatibilitas discovery NOS/Felica dan identity ringkas

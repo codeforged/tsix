@@ -6,11 +6,11 @@
 #ifndef TSIX_SECRETS_SAMPLE_H
 #define TSIX_SECRETS_SAMPLE_H
 
-#define TSIX_WIFI_SSID     "Your SSID"
-#define TSIX_WIFI_PASSWORD "Your Password"
-#define TSIX_MQTT_SERVER   "MQTT Server IP or Hostname"
-#define TSIX_MQTT_PORT     1883
-#define TSIX_API_KEY       "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+#define TSIX_WIFI_SSID "Your WiFi SSID"
+#define TSIX_WIFI_PASSWORD "Your WiFi Password"
+#define TSIX_MQTT_SERVER "MQTT Broker Address"
+#define TSIX_MQTT_PORT 1883
+#define TSIX_API_KEY "<64 char hex key>"
 
 // ── Lantana V2 ──
 // AccessKey diterbitkan Lantana: `lantana-ctl account key-issue <akun>`.

@@ -14,6 +14,7 @@ import { PermissionManager } from "./PermissionManager";
 import { Config } from "../common/Config";
 import { PortManager } from "./PortManager";
 import { SimpleMQTNLDriver } from "./devices/SimpleMQTNLDriver";
+import { SimpleMQTNLDriverTunnel } from "./devices/SimpleMQTNLDriverTunnel";
 import { TTYManager } from "./tty/TTYManager";
 import { TTYDevice } from "./devices/TTYDevice";
 import { PTYManager } from "./PTYManager";
@@ -254,6 +255,24 @@ export class Kernel {
           iface.address,
         );
       });
+    }
+
+    // Initialize Tunnel Interfaces (`[tunnel.*]`) — device yang membungkus paket
+    // ke node relay di broker lain. Tidak ada section → tidak ada device baru,
+    // jadi node lama berperilaku persis seperti sebelumnya.
+    for (const tun of cfg.network.tunnels ?? []) {
+      try {
+        this.devices[tun.deviceName] = new SimpleMQTNLDriverTunnel(tun);
+        this.bootLog(
+          `Tunnel interface '${tun.deviceName}' → relay ${tun.peer}`,
+          true,
+        );
+      } catch (e: any) {
+        this.bootLog(
+          `Tunnel interface '${tun.deviceName}' gagal dibuat: ${e.message}`,
+          false,
+        );
+      }
     }
 
     // 3. Load Auxiliary Devices (Kernel Plugins)
