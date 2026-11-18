@@ -145,6 +145,11 @@ export class TForm extends TComponent {
     }
   }
 
+  /** Perbesar window ke ukuran penuh viewport. */
+  async maximize(): Promise<void> {
+    await this._screen?.maximize();
+  }
+
   /** Tutup window dan hancurkan seluruh subtree. */
   async close(): Promise<void> {
     this.onClose?.();

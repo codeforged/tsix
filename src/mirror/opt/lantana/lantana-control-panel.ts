@@ -1,672 +1,463 @@
 /**
- * Lantana Control Panel — GUI Cashew untuk mengelola Lantana lewat lantana-ctl.
+ * Lantana Control Panel — GUI Pistachio untuk mengelola Lantana lewat lantana-ctl.
+ *
+ * Navigasi kiri berupa pohon: akun → Device/Scheme/Portable Dashboard → entri.
+ * Memilih entri menampilkan editornya di kanan; field bisa langsung disunting
+ * lalu disimpan dengan tombol Simpan.
+ *
+ * (c) 2026 TSIX Project
  */
 
 import { Program } from "@tsix/Application";
 import {
-    HStack,
     TButton,
     TComboBox,
+    TDialogs,
     TEdit,
     TForm,
+    TGridPanel,
+    THStack,
     TLabel,
-    TListBox,
-    TPanel,
-    VStack,
-} from "@tsix/cashew";
+    TScrollBox,
+    TTreeView,
+    TVStack,
+    type TComponent,
+    type TTreeNode,
+} from "@tsix/pistachio";
+import {
+    buildControlTree,
+    deviceTitle,
+    findPayload as findPayloadIn,
+    nodeIdOf,
+    type AccountView,
+    type DashboardView,
+    type DeviceView,
+    type NavKind,
+    type NavPayload,
+    type SchemeRange,
+    type SchemeView,
+    type ServerView,
+} from "@tsix/lantana/control-panel-tree";
 import { runLantanaCtl } from "@tsix/lantana/lantana-ctl-client";
 
 export const appMode = "gui";
 
-type SchemeRange = number | { from: number; to: number };
-type Section = "accounts" | "devices" | "schemes" | "dashboards" | "server";
-type RecordKind =
-    | "account"
-    | "device"
-    | "scheme"
-    | "dashboard"
-    | "dashboardItem"
-    | "server";
-type EditableKind = Exclude<RecordKind, "server">;
-type EditorMode = "view" | "edit" | "create";
-
-interface AccountView {
+/** Rancangan entri baru yang belum disimpan. */
+interface Draft {
+    kind: Exclude<NavKind, "server" | "group">;
     accountId: string;
-    parentId: string | null;
-    permissions: {
-        allowedInjectSchemes: SchemeRange[];
-        allowedQuerySchemes: SchemeRange[];
-        allowedCommandDevices: string[];
-    };
-    hasAccessKey: boolean;
-    children: number;
-    dashboards: Array<{ dashboardId: number; title: string; hasAccessKey: boolean }>;
+    parentId?: string | null;
+    dashboard?: DashboardView;
 }
 
-interface DeviceView {
-    accountId: string;
-    deviceId: string;
-    meta: {
-        name?: string;
-        city?: string;
-        category?: string;
-        group?: string;
-    };
-}
+const ITEM_TYPES = ["text", "radialGauge", "lineChart", "switchIndicator"];
+const SCHEME_TYPES = ["number", "boolean", "string"];
 
-interface SchemeView {
-    schemeId: number;
-    ownerAccountId: string;
+const FIELD_LABEL_STYLE = {
+    fontSize: "11px",
+    fontWeight: "600",
+    color: "var(--text-dim, #ccc)",
+} as const;
+
+interface Field {
     label: string;
-    unit?: string;
-    type: "number" | "boolean" | "string";
-    min?: number;
-    max?: number;
+    input: TEdit | TComboBox;
 }
-
-interface DashboardItemView {
-    id?: number | string;
-    type: "text" | "radialGauge" | "lineChart" | "switchIndicator";
-    title: string;
-    icon: string;
-    updateInterval: number;
-    scrollAfter?: number;
-    deviceId: string;
-    schemeId: number;
-}
-
-interface DashboardView {
-    dashboardId: number;
-    title: string;
-    hasAccessKey: boolean;
-    dashboardItems: DashboardItemView[];
-    accountId: string;
-}
-
-interface ServerView {
-    fingerprint: string;
-    ports: Record<string, { enabled: boolean }>;
-    deviceCategories: Record<
-        string,
-        { label: string; icon?: string; description?: string }
-    >;
-}
-
-type TreeEntry =
-    | { kind: "account"; label: string; record: AccountView }
-    | { kind: "device"; label: string; record: DeviceView }
-    | { kind: "scheme"; label: string; record: SchemeView }
-    | { kind: "dashboard"; label: string; record: DashboardView }
-    | {
-          kind: "dashboardItem";
-          label: string;
-          record: DashboardItemView;
-          dashboard: DashboardView;
-          itemIndex: number;
-      }
-    | { kind: "server"; label: string; record: ServerView };
-
-type Field = TEdit | TComboBox;
-
-const SECTIONS: Array<{ key: Section; title: string; icon: string }> = [
-    { key: "accounts", title: "Akun", icon: "◉" },
-    { key: "devices", title: "Device", icon: "▣" },
-    { key: "schemes", title: "Scheme", icon: "◇" },
-    { key: "dashboards", title: "Portable Dashboard", icon: "▤" },
-    { key: "server", title: "Server", icon: "⌁" },
-];
 
 export const main = Program(async () => {
     const form = new TForm({
         title: "Lantana Control Panel",
         icon: "🌿",
-        width: 1120,
-        height: 760,
+        width: 1180,
+        height: 780,
         maximizable: true,
         resizable: true,
         desktopCentered: true,
+        style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+            padding: "12px",
+            height: "100%",
+            boxSizing: "border-box",
+        },
     });
-    form.style = {
-        display: "flex",
-        flexDirection: "column",
-        gap: "0",
-        width: "100%",
-        height: "100%",
-        padding: "0 14px 0",
-        background: "var(--bg, #101820)",
-        color: "var(--text, #e0e0e0)",
-        fontFamily: "sans-serif",
-        overflow: "hidden",
-        boxSizing: "border-box",
-    };
 
-    let activeSection: Section = "accounts";
-    let editorMode: EditorMode = "view";
-    let selectedEntry: TreeEntry | null = null;
-    let createKind: EditableKind | null = null;
-    let createDashboard: DashboardView | null = null;
-    let screenReady = false;
     let accounts: AccountView[] = [];
     let devices: DeviceView[] = [];
     let schemes: SchemeView[] = [];
     let dashboards: DashboardView[] = [];
     let server: ServerView | null = null;
-    let treeEntries: TreeEntry[] = [];
+    let selection: NavPayload | null = null;
+    let draft: Draft | null = null;
+    let busy = false;
 
-    const pageTitle = new TLabel({
-        caption: "Lantana Control Panel",
-        style: {
-            color: "var(--text, #f1f5f9)",
-            fontSize: "19px",
-            fontWeight: "700",
-            padding: "14px 0 8px",
-        },
+    const title = new TLabel({
+        text: "Lantana Control Panel",
+        style: { fontSize: "19px", fontWeight: "700" },
     });
-    const connectionStatus = new TLabel({
-        caption: "Siap",
+    const status = new TLabel({
+        text: "Siap",
         style: {
-            color: "var(--text-muted, #94a3b8)",
             fontSize: "11px",
-            padding: "4px 8px",
-            border: "1px solid var(--border, #334155)",
+            color: "var(--text-muted, #94a3b8)",
+            border: "1px solid var(--border, rgba(255,255,255,0.12))",
             borderRadius: "12px",
+            padding: "4px 10px",
         },
     });
-    const header = HStack(
-        {
+    const header = new THStack({
+        style: {
             justifyContent: "space-between",
-            minHeight: "46px",
-            borderBottom: "1px solid var(--border, #293642)",
+            minHeight: "40px",
+            borderBottom: "1px solid var(--border, rgba(255,255,255,0.12))",
+            paddingBottom: "6px",
         },
-        pageTitle,
-        connectionStatus,
-    );
-
-    const toolbar = HStack({
-        minHeight: "48px",
-        padding: "7px 0",
-        borderBottom: "1px solid var(--border, #293642)",
-        gap: "7px",
-        flexWrap: "nowrap",
-        overflowX: "auto",
+        children: [title, status],
     });
 
-    const workArea = new TPanel("lcp-work-area");
-    workArea.style = {
-        display: "flex",
-        flex: "1",
-        minHeight: "0",
-        overflow: "hidden",
-        background: "var(--bg, #101820)",
-        border: "none",
-        borderRadius: "0",
-        padding: "0",
-        gap: "0",
-    };
-
-    const sidebar = new TPanel("lcp-sidebar");
-    sidebar.style = {
-        display: "flex",
-        flexDirection: "column",
-        width: "244px",
-        minWidth: "205px",
-        maxWidth: "300px",
-        padding: "12px 10px 10px 0",
-        gap: "9px",
-        border: "none",
-        borderRight: "1px solid var(--border, #293642)",
-        borderRadius: "0",
-        background: "transparent",
-        overflow: "hidden",
-        boxSizing: "border-box",
-    };
-    const sidebarHeading = new TLabel({
-        caption: "NAVIGASI",
+    const tree = new TTreeView({ id: "lcp-tree", indent: 14 });
+    const sidebar = new TVStack({
         style: {
-            color: "var(--text-muted, #94a3b8)",
-            fontSize: "10px",
-            fontWeight: "700",
-            letterSpacing: "1px",
-            padding: "2px 6px",
+            width: "320px",
+            minWidth: "240px",
+            maxWidth: "420px",
+            minHeight: "0",
+            gap: "6px",
+            paddingRight: "10px",
+            borderRight: "1px solid var(--border, rgba(255,255,255,0.12))",
         },
-    });
-    const sectionButtons = new Map<Section, TButton>();
-    const sectionNav = VStack({ gap: "3px" });
-    for (const section of SECTIONS) {
-        const button = new TButton({
-            caption: `${section.icon}   ${section.title}`,
-            style: {
-                display: "block",
-                width: "100%",
-                textAlign: "left",
-                padding: "8px 10px",
-                border: "1px solid transparent",
-                background: "transparent",
-                color: "var(--text-dim, #cbd5e1)",
-                fontSize: "12px",
-                fontWeight: "500",
-            },
-        });
-        button.onClick = () => {
-            void runAction(async () => {
-                activeSection = section.key;
-                selectedEntry = null;
-                editorMode = "view";
-                createKind = null;
-                createDashboard = null;
-                updateSectionStyles();
-                await renderTree();
-                await renderEditor();
-                updateToolbar();
-            });
-        };
-        sectionButtons.set(section.key, button);
-        sectionNav.add(button);
-    }
-
-    const treeHeading = new TLabel({
-        caption: "ENTRI",
-        style: {
-            color: "var(--text-muted, #94a3b8)",
-            fontSize: "10px",
-            fontWeight: "700",
-            letterSpacing: "1px",
-            padding: "7px 6px 1px",
-        },
-    });
-    const treeList = new TListBox("lcp-tree-list");
-    treeList.style = {
-        flex: "1",
-        minHeight: "80px",
-        background: "transparent",
-        border: "none",
-        borderRadius: "4px",
-        padding: "2px",
-    };
-    treeList.onClick = (index) => {
-        const entry = treeEntries[index];
-        if (!entry) return;
-        void runAction(async () => {
-            selectedEntry = entry;
-            editorMode = "view";
-            createKind = null;
-            createDashboard = null;
-            await renderEditor();
-            updateToolbar();
-        });
-    };
-    sidebar.add(sidebarHeading);
-    sidebar.add(sectionNav);
-    sidebar.add(treeHeading);
-    sidebar.add(treeList);
-
-    const splitter = new TPanel("lcp-splitter");
-    splitter.style = {
-        width: "1px",
-        minWidth: "1px",
-        padding: "0",
-        border: "none",
-        borderRadius: "0",
-        background: "var(--border, #293642)",
-    };
-
-    const editor = new TPanel("lcp-editor");
-    editor.style = {
-        display: "flex",
-        flexDirection: "column",
-        flex: "1",
-        minWidth: "0",
-        padding: "15px 4px 12px 18px",
-        gap: "11px",
-        border: "none",
-        borderRadius: "0",
-        background: "transparent",
-        overflow: "hidden",
-        boxSizing: "border-box",
-    };
-    const editorHeading = new TLabel({
-        caption: "Pilih entri",
-        style: {
-            color: "var(--text, #f1f5f9)",
-            fontSize: "16px",
-            fontWeight: "700",
-        },
-    });
-    const editorDescription = new TLabel({
-        caption: "Pilih data di panel navigasi untuk melihat atau mengubah detailnya.",
-        style: {
-            color: "var(--text-muted, #94a3b8)",
-            fontSize: "11px",
-        },
-    });
-    const editorHeader = VStack({ gap: "4px" }, editorHeading, editorDescription);
-    const editorBody = new TPanel("lcp-editor-body");
-    editorBody.style = {
-        display: "flex",
-        flexDirection: "column",
-        flex: "1",
-        minHeight: "0",
-        overflowY: "auto",
-        padding: "14px",
-        gap: "12px",
-        border: "1px solid var(--border, #293642)",
-        borderRadius: "8px",
-        background: "var(--surface, #16212b)",
-        boxSizing: "border-box",
-    };
-    const emptyState = new TLabel({
-        caption: "Pilih entri di sebelah kiri, atau gunakan tombol Tambah untuk membuat data baru.",
-        style: {
-            display: "block",
-            padding: "16px 4px",
-            color: "var(--text-muted, #94a3b8)",
-            fontSize: "13px",
-        },
-    });
-
-    function addTextField(
-        parent: TPanel,
-        id: string,
-        caption: string,
-        placeholder = "",
-    ): TEdit {
-        const label = new TLabel({
-            caption,
-            style: {
-                color: "var(--text-dim, #cbd5e1)",
-                fontSize: "11px",
-                fontWeight: "600",
-            },
-        });
-        const input = new TEdit(id);
-        input.placeholder = placeholder;
-        input.style = {
-            ...input.style,
-            height: "36px",
-            padding: "8px 10px",
-            fontSize: "12px",
-        };
-        const fieldBox = VStack({ gap: "5px", minWidth: "0" }, label, input);
-        parent.add(fieldBox);
-        return input;
-    }
-    function addComboField(
-        parent: TPanel,
-        id: string,
-        caption: string,
-        items: string[],
-    ): TComboBox {
-        const label = new TLabel({
-            caption,
-            style: {
-                color: "var(--text-dim, #cbd5e1)",
-                fontSize: "11px",
-                fontWeight: "600",
-            },
-        });
-        const combo = new TComboBox(id);
-        combo.items = items;
-        combo.style = {
-            ...combo.style,
-            height: "36px",
-            padding: "8px 10px",
-            fontSize: "12px",
-        };
-        const fieldBox = VStack({ gap: "5px", minWidth: "0" }, label, combo);
-        parent.add(fieldBox);
-        return combo;
-    }
-    function createGroup(id: string, title: string): TPanel {
-        const group = new TPanel(id);
-        group.style = {
-            display: "none",
-            flexDirection: "column",
-            gap: "13px",
-            padding: "0",
-            border: "none",
-            borderRadius: "0",
-            background: "transparent",
-        };
-        group.add(
+        children: [
             new TLabel({
-                caption: title,
+                text: "NAVIGASI",
                 style: {
-                    color: "var(--accent, #8bd49c)",
-                    fontSize: "12px",
+                    fontSize: "10px",
                     fontWeight: "700",
+                    letterSpacing: "1px",
+                    color: "var(--text-muted, #94a3b8)",
                 },
             }),
-        );
-        return group;
-    }
-    function createGrid(id: string): TPanel {
-        const grid = new TPanel(id);
-        grid.style = {
-            display: "grid",
-            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-            gap: "12px",
-            border: "none",
-            borderRadius: "0",
-            padding: "0",
-            background: "transparent",
+            tree,
+        ],
+    });
+
+    const editorTitle = new TLabel({
+        text: "Pilih entri",
+        style: { fontSize: "16px", fontWeight: "700" },
+    });
+    const editorHint = new TLabel({
+        text: "Klik akun, lalu Device / Scheme / Portable Dashboard untuk membuka isinya.",
+        style: { fontSize: "11px", color: "var(--text-muted, #94a3b8)" },
+    });
+
+    function textInput(id: string, placeholder: string, label: string): Field {
+        return {
+            label,
+            input: new TEdit({
+                id,
+                placeholder,
+                style: { width: "100%", height: "34px", fontSize: "12px" },
+            }),
         };
+    }
+
+    function comboInput(id: string, items: string[], label: string): Field {
+        return {
+            label,
+            input: new TComboBox({
+                id,
+                items,
+                style: { width: "100%", height: "34px", fontSize: "12px" },
+            }),
+        };
+    }
+
+    function fieldGrid(id: string, fields: Field[]): TGridPanel {
+        const grid = new TGridPanel({
+            id,
+            columns: 2,
+            style: { gap: "10px" },
+        });
+        for (const field of fields) {
+            grid.add(
+                new TVStack({
+                    style: { gap: "4px", minWidth: "0" },
+                    children: [
+                        new TLabel({ text: field.label, style: FIELD_LABEL_STYLE }),
+                        field.input,
+                    ],
+                }),
+            );
+        }
         return grid;
     }
 
-    const accountGroup = createGroup("lcp-account-fields", "Identitas dan izin akun");
-    const accountGrid = createGrid("lcp-account-grid");
-    const accountIdField = addTextField(accountGrid, "lcp-account-id", "Account ID", "contoh: juragan");
-    const accountParentField = addTextField(accountGrid, "lcp-account-parent", "Parent account ID", "kosongkan untuk akun root");
-    const accountInjectField = addTextField(accountGrid, "lcp-account-inject", "Scheme yang boleh di-inject", "contoh: 101,201-205");
-    const accountQueryField = addTextField(accountGrid, "lcp-account-query", "Scheme yang boleh di-query", "contoh: 101,201-205");
-    const accountCommandField = addTextField(accountGrid, "lcp-account-command", "Device yang boleh di-command", "pisahkan dengan koma");
-    accountGroup.add(accountGrid);
+    /** Grup field yang ditampilkan sesuai entri yang dipilih di pohon. */
+    function group(id: string, caption: string, body: TComponent[]): TVStack {
+        return new TVStack({
+            id,
+            style: { display: "none", gap: "10px" },
+            children: [
+                new TLabel({
+                    text: caption,
+                    style: {
+                        fontSize: "12px",
+                        fontWeight: "700",
+                        color: "var(--accent, #4caf50)",
+                    },
+                }),
+                ...body,
+            ],
+        });
+    }
 
-    const deviceGroup = createGroup("lcp-device-fields", "Metadata device");
-    const deviceGrid = createGrid("lcp-device-grid");
-    const deviceAccountField = addTextField(deviceGrid, "lcp-device-account", "Account ID");
-    const deviceIdField = addTextField(deviceGrid, "lcp-device-id", "Device ID");
-    const deviceNameField = addTextField(deviceGrid, "lcp-device-name", "Nama");
-    const deviceCityField = addTextField(deviceGrid, "lcp-device-city", "Kota");
-    const deviceCategoryField = addTextField(deviceGrid, "lcp-device-category", "Kategori");
-    const deviceGroupField = addTextField(deviceGrid, "lcp-device-group", "Grup");
-    deviceGroup.add(deviceGrid);
-
-    const schemeGroup = createGroup("lcp-scheme-fields", "Definisi scheme");
-    const schemeGrid = createGrid("lcp-scheme-grid");
-    const schemeIdField = addTextField(schemeGrid, "lcp-scheme-id", "Scheme ID");
-    const schemeOwnerField = addTextField(schemeGrid, "lcp-scheme-owner", "Owner account ID");
-    const schemeLabelField = addTextField(schemeGrid, "lcp-scheme-label", "Label");
-    const schemeUnitField = addTextField(schemeGrid, "lcp-scheme-unit", "Unit");
-    const schemeTypeField = addComboField(schemeGrid, "lcp-scheme-type", "Tipe data", [
-        "number",
-        "boolean",
-        "string",
+    const accountInfo = new TLabel({ text: "", style: { fontSize: "11px" } });
+    const accountIdField = textInput("lcp-account-id", "contoh: juragan", "Account ID");
+    const accountParentField = textInput(
+        "lcp-account-parent",
+        "kosongkan untuk akun root",
+        "Parent account ID",
+    );
+    const accountInjectField = textInput(
+        "lcp-account-inject",
+        "contoh: 101,201-205",
+        "Scheme yang boleh di-inject",
+    );
+    const accountQueryField = textInput(
+        "lcp-account-query",
+        "contoh: 101,201-205",
+        "Scheme yang boleh di-query",
+    );
+    const accountCommandField = textInput(
+        "lcp-account-command",
+        "pisahkan dengan koma",
+        "Device yang boleh di-command",
+    );
+    const accountGroup = group("lcp-group-account", "Akun", [
+        accountInfo,
+        fieldGrid("lcp-account-grid", [
+            accountIdField,
+            accountParentField,
+            accountInjectField,
+            accountQueryField,
+            accountCommandField,
+        ]),
     ]);
-    const schemeMinField = addTextField(schemeGrid, "lcp-scheme-min", "Nilai minimum", "opsional");
-    const schemeMaxField = addTextField(schemeGrid, "lcp-scheme-max", "Nilai maksimum", "opsional");
-    schemeGroup.add(schemeGrid);
 
-    const dashboardGroup = createGroup("lcp-dashboard-fields", "Portable dashboard");
-    const dashboardGrid = createGrid("lcp-dashboard-grid");
-    const dashboardAccountField = addTextField(dashboardGrid, "lcp-dashboard-account", "Account ID");
-    const dashboardIdField = addTextField(dashboardGrid, "lcp-dashboard-id", "Dashboard ID");
-    const dashboardTitleField = addTextField(dashboardGrid, "lcp-dashboard-title", "Judul");
-    const dashboardKeyField = addTextField(dashboardGrid, "lcp-dashboard-key", "AccessKey");
-    dashboardGroup.add(dashboardGrid);
-
-    const itemGroup = createGroup("lcp-dashboard-item-fields", "Item dashboard");
-    const itemGrid = createGrid("lcp-dashboard-item-grid");
-    const itemAccountField = addTextField(itemGrid, "lcp-item-account", "Account ID");
-    const itemDashboardIdField = addTextField(itemGrid, "lcp-item-dashboard-id", "Dashboard ID");
-    const itemIndexField = addTextField(itemGrid, "lcp-item-index", "Nomor item");
-    const itemTypeField = addComboField(itemGrid, "lcp-item-type", "Tipe", [
-        "text",
-        "radialGauge",
-        "lineChart",
-        "switchIndicator",
+    const deviceInfo = new TLabel({ text: "", style: { fontSize: "11px" } });
+    const deviceNameField = textInput("lcp-device-name", "Sensor Ruang Tamu", "Nama");
+    const deviceCityField = textInput("lcp-device-city", "Bandung", "Kota");
+    const deviceCategoryField = textInput("lcp-device-category", "sensor", "Kategori");
+    const deviceGroupField = textInput("lcp-device-group", "lantai-1", "Grup");
+    const deviceGroup = group("lcp-group-device", "Device", [
+        deviceInfo,
+        fieldGrid("lcp-device-grid", [
+            deviceNameField,
+            deviceCityField,
+            deviceCategoryField,
+            deviceGroupField,
+        ]),
     ]);
-    const itemTitleField = addTextField(itemGrid, "lcp-item-title", "Judul kartu");
-    const itemIconField = addTextField(itemGrid, "lcp-item-icon", "Icon", "contoh: thermostat");
-    const itemIntervalField = addTextField(itemGrid, "lcp-item-interval", "Update interval (detik)");
-    const itemScrollField = addTextField(itemGrid, "lcp-item-scroll", "Scroll after", "opsional");
-    const itemDeviceField = addTextField(itemGrid, "lcp-item-device", "Device ID");
-    const itemSchemeField = addTextField(itemGrid, "lcp-item-scheme", "Scheme ID");
-    itemGroup.add(itemGrid);
 
-    const serverGroup = createGroup("lcp-server-fields", "Status layanan Lantana");
-    const serverDetails = new TLabel({
-        caption: "",
+    const schemeInfo = new TLabel({ text: "", style: { fontSize: "11px" } });
+    const schemeIdField = textInput("lcp-scheme-id", "contoh: 101", "Scheme ID");
+    const schemeLabelField = textInput("lcp-scheme-label", "Suhu Ruangan", "Label");
+    const schemeUnitField = textInput("lcp-scheme-unit", "°C", "Unit");
+    const schemeTypeField = comboInput("lcp-scheme-type", SCHEME_TYPES, "Tipe data");
+    const schemeMinField = textInput("lcp-scheme-min", "opsional", "Nilai minimum");
+    const schemeMaxField = textInput("lcp-scheme-max", "opsional", "Nilai maksimum");
+    const schemeGroup = group("lcp-group-scheme", "Scheme", [
+        schemeInfo,
+        fieldGrid("lcp-scheme-grid", [
+            schemeIdField,
+            schemeTypeField,
+            schemeLabelField,
+            schemeUnitField,
+            schemeMinField,
+            schemeMaxField,
+        ]),
+    ]);
+
+    const dashboardInfo = new TLabel({ text: "", style: { fontSize: "11px" } });
+    const dashboardTitleField = textInput(
+        "lcp-dashboard-title",
+        "Sensor Rumah",
+        "Judul",
+    );
+    const dashboardGroup = group("lcp-group-dashboard", "Portable dashboard", [
+        dashboardInfo,
+        fieldGrid("lcp-dashboard-grid", [dashboardTitleField]),
+    ]);
+
+    const itemInfo = new TLabel({ text: "", style: { fontSize: "11px" } });
+    const itemTypeField = comboInput("lcp-item-type", ITEM_TYPES, "Tipe kartu");
+    const itemTitleField = textInput("lcp-item-title", "Suhu Ruangan", "Judul kartu");
+    const itemIconField = textInput("lcp-item-icon", "thermostat", "Icon");
+    const itemIntervalField = textInput("lcp-item-interval", "5", "Update interval (detik)");
+    const itemScrollField = textInput("lcp-item-scroll", "opsional", "Scroll after");
+    const itemDeviceField = textInput("lcp-item-device", "device id", "Device ID");
+    const itemSchemeField = textInput("lcp-item-scheme", "101", "Scheme ID");
+    const itemGroup = group("lcp-group-item", "Item dashboard", [
+        itemInfo,
+        fieldGrid("lcp-item-grid", [
+            itemTypeField,
+            itemTitleField,
+            itemIconField,
+            itemIntervalField,
+            itemScrollField,
+            itemDeviceField,
+            itemSchemeField,
+        ]),
+    ]);
+
+    const serverInfo = new TLabel({
+        text: "",
         style: {
-            whiteSpace: "pre-wrap",
-            color: "var(--text-dim, #cbd5e1)",
             fontSize: "12px",
             lineHeight: "1.7",
+            whiteSpace: "pre-wrap",
+            fontFamily: "monospace",
         },
     });
-    serverGroup.add(serverDetails);
+    const serverGroup = group("lcp-group-server", "Status layanan", [serverInfo]);
 
-    const footer = new TLabel({
-        caption: "Operasi data dijalankan melalui lantana-ctl · perubahan disimpan langsung ke registry Lantana",
+    const groupInfo = new TLabel({
+        text: "",
+        style: { fontSize: "12px", color: "var(--text-muted, #94a3b8)" },
+    });
+    const groupSummary = group("lcp-group-summary", "Grup", [groupInfo]);
+
+    const emptyState = new TLabel({
+        text: "Pilih entri di pohon kiri untuk melihat datanya.",
         style: {
             display: "block",
-            padding: "8px 0 10px",
-            borderTop: "1px solid var(--border, #293642)",
+            padding: "18px 2px",
+            fontSize: "13px",
             color: "var(--text-muted, #94a3b8)",
-            fontSize: "10px",
         },
     });
 
-    editorBody.add(emptyState);
-    editorBody.add(accountGroup);
-    editorBody.add(deviceGroup);
-    editorBody.add(schemeGroup);
-    editorBody.add(dashboardGroup);
-    editorBody.add(itemGroup);
-    editorBody.add(serverGroup);
-    editor.add(editorHeader);
-    editor.add(editorBody);
-    workArea.add(sidebar);
-    workArea.add(splitter);
-    workArea.add(editor);
+    const editorBody = new TVStack({
+        style: { gap: "12px" },
+        children: [
+            emptyState,
+            accountGroup,
+            deviceGroup,
+            schemeGroup,
+            dashboardGroup,
+            itemGroup,
+            serverGroup,
+            groupSummary,
+        ],
+    });
 
-    const buttons = {
-        add: toolbarButton("lcp-add", "+ Tambah"),
-        edit: toolbarButton("lcp-edit", "Edit"),
-        save: toolbarButton("lcp-save", "Simpan"),
-        cancel: toolbarButton("lcp-cancel", "Batal"),
-        remove: toolbarButton("lcp-remove", "Hapus"),
-        key: toolbarButton("lcp-key", "Terbitkan key"),
-        revoke: toolbarButton("lcp-revoke", "Cabut key"),
-        addItem: toolbarButton("lcp-add-item", "+ Item"),
-        refresh: toolbarButton("lcp-refresh", "Muat ulang"),
-    };
+    const workArea = new THStack({
+        style: {
+            flex: "1",
+            minHeight: "0",
+            alignItems: "stretch",
+            flexWrap: "nowrap",
+            gap: "14px",
+        },
+        children: [
+            sidebar,
+            new TVStack({
+                style: { flex: "1", minWidth: "0", minHeight: "0", gap: "10px" },
+                children: [
+                    new TVStack({
+                        style: { gap: "2px" },
+                        children: [editorTitle, editorHint],
+                    }),
+                    new TScrollBox({
+                        style: {
+                            flex: "1",
+                            minHeight: "0",
+                            padding: "14px",
+                            border:
+                                "1px solid var(--border, rgba(255,255,255,0.12))",
+                            borderRadius: "8px",
+                            background: "var(--surface, #16212b)",
+                            boxSizing: "border-box",
+                        },
+                        children: [editorBody],
+                    }),
+                ],
+            }),
+        ],
+    });
+
     function toolbarButton(id: string, caption: string): TButton {
-        const button = new TButton(id);
-        button.caption = caption;
-        button.style = {
-            ...button.style,
-            padding: "7px 11px",
-            borderRadius: "5px",
-            whiteSpace: "nowrap",
-            fontSize: "11px",
-        };
-        toolbar.add(button);
-        return button;
+        return new TButton({
+            id,
+            caption,
+            style: {
+                padding: "7px 12px",
+                fontSize: "11px",
+                borderRadius: "5px",
+                whiteSpace: "nowrap",
+            },
+        });
     }
 
-    buttons.add.onClick = () => void runAction(startCreate);
-    buttons.edit.onClick = () => void runAction(startEdit);
-    buttons.save.onClick = () => void runAction(saveEditor);
-    buttons.cancel.onClick = () => void runAction(cancelEditor);
-    buttons.remove.onClick = () => void runAction(deleteRecord);
-    buttons.key.onClick = () => void runAction(manageKey);
-    buttons.revoke.onClick = () => void runAction(revokeKey);
-    buttons.addItem.onClick = () => void runAction(startCreateItem);
-    buttons.refresh.onClick = () => void runAction(refresh);
+    const addButton = toolbarButton("lcp-add", "+ Tambah");
+    const saveButton = toolbarButton("lcp-save", "Simpan");
+    const cancelButton = toolbarButton("lcp-cancel", "Batal");
+    const removeButton = toolbarButton("lcp-remove", "Hapus");
+    const keyButton = toolbarButton("lcp-key", "Terbitkan key");
+    const revokeButton = toolbarButton("lcp-revoke", "Cabut key");
+    const refreshButton = toolbarButton("lcp-refresh", "Muat ulang");
 
-    form.add(header);
-    form.add(toolbar);
-    form.add(workArea);
-    form.add(footer);
-    form.onSetup = async () => {
-        screenReady = true;
-        await form.maximize();
-        updateSectionStyles();
-        updateToolbar();
-        await refresh();
-    };
+    const toolbar = new THStack({
+        style: {
+            minHeight: "44px",
+            paddingBottom: "6px",
+            borderBottom: "1px solid var(--border, rgba(255,255,255,0.12))",
+            flexWrap: "nowrap",
+            overflowX: "auto",
+        },
+        children: [
+            addButton,
+            saveButton,
+            cancelButton,
+            removeButton,
+            keyButton,
+            revokeButton,
+            refreshButton,
+        ],
+    });
 
-    await form.run();
+    const footer = new TLabel({
+        text: "Perubahan disimpan langsung ke registry Lantana lewat lantana-ctl.",
+        style: {
+            fontSize: "10px",
+            color: "var(--text-muted, #94a3b8)",
+            paddingTop: "6px",
+            borderTop: "1px solid var(--border, rgba(255,255,255,0.12))",
+        },
+    });
 
-    function updateSectionStyles(): void {
-        for (const section of SECTIONS) {
-            const button = sectionButtons.get(section.key);
-            if (!button) continue;
-            const active = section.key === activeSection;
-            button.style = {
-                ...button.style,
-                background: active ? "var(--accent-bg, rgba(76,175,80,0.14))" : "transparent",
-                color: active ? "var(--accent, #8bd49c)" : "var(--text-dim, #cbd5e1)",
-                borderColor: active ? "var(--border, #42624a)" : "transparent",
-                fontWeight: active ? "700" : "500",
-            };
-        }
-    }
+    form.add(
+        new TVStack({
+            style: { flex: "1", minHeight: "0", gap: "8px" },
+            children: [header, toolbar, workArea, footer],
+        }),
+    );
 
-    function showButton(button: TButton, visible: boolean): void {
-        button.style = { ...button.style, display: visible ? "inline-block" : "none" };
-    }
-
-    function updateToolbar(): void {
-        const isCreating = editorMode === "create";
-        const isEditing = editorMode === "edit";
-        const entry = selectedEntry;
-        const isServer = entry?.kind === "server" || activeSection === "server";
-        const isDashboard = entry?.kind === "dashboard";
-        const isDashboardItem = entry?.kind === "dashboardItem";
-        const keyRecord =
-            entry?.kind === "account" || entry?.kind === "dashboard";
-        const dashboardAccess = isDashboard ? entry.record.hasAccessKey : false;
-        const accountAccess = entry?.kind === "account" ? entry.record.hasAccessKey : false;
-
-        showButton(buttons.add, !isServer && !isCreating && !isEditing);
-        showButton(buttons.edit, !!entry && !isServer && editorMode === "view");
-        showButton(buttons.save, isCreating || isEditing);
-        showButton(buttons.cancel, isCreating || isEditing);
-        showButton(buttons.remove, !!entry && !isServer && !isCreating && !isEditing);
-        showButton(buttons.key, !!keyRecord && !isServer && !isCreating && !isEditing);
-        buttons.key.caption = accountAccess || dashboardAccess ? "Rotasi key" : "Terbitkan key";
-        showButton(
-            buttons.revoke,
-            !!keyRecord && (accountAccess || dashboardAccess) && !isCreating && !isEditing,
-        );
-        showButton(
-            buttons.addItem,
-            activeSection === "dashboards" &&
-                !!entry &&
-                (isDashboard || isDashboardItem) &&
-                !isCreating &&
-                !isEditing,
-        );
-        showButton(buttons.refresh, !isCreating && !isEditing);
-        buttons.remove.caption = isDashboardItem ? "Hapus item" : "Hapus";
-        buttons.add.caption =
-            activeSection === "dashboards" ? "+ Dashboard" : "+ Tambah";
-    }
-
-    async function runAction(action: () => void | Promise<void>): Promise<void> {
+    async function run(action: () => void | Promise<void>): Promise<void> {
+        if (busy) return;
+        busy = true;
         try {
             await action();
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            connectionStatus.caption = "Gagal";
-            await form.alert("Lantana Control Panel", message);
+            status.text = "Gagal";
+            await TDialogs.alert(form, "Lantana Control Panel", message);
+        } finally {
+            busy = false;
         }
     }
 
-    function formatRanges(ranges: SchemeRange[]): string {
-        if (!ranges.length) return "";
+    function rangeText(ranges: SchemeRange[]): string {
         return ranges
             .map((range) =>
                 typeof range === "number" ? String(range) : `${range.from}-${range.to}`,
@@ -674,503 +465,553 @@ export const main = Program(async () => {
             .join(",");
     }
 
-    function getSelectedDashboard(): DashboardView | null {
-        if (selectedEntry?.kind === "dashboard") return selectedEntry.record;
-        if (selectedEntry?.kind === "dashboardItem") return selectedEntry.dashboard;
-        return null;
-    }
-
-    async function refresh(): Promise<void> {
-        connectionStatus.caption = "Memuat...";
-        const accountData = await runLantanaCtl<AccountView[]>("account", "list");
-        accounts = accountData;
-        const [deviceLists, schemeData, serverData] = await Promise.all([
-            Promise.all(
-                accounts.map(async (account) => {
-                    const records = await runLantanaCtl<Array<Omit<DeviceView, "accountId">>>(
-                        "device",
-                        "list",
-                        account.accountId,
-                    );
-                    return records.map((record) => ({ ...record, accountId: account.accountId }));
-                }),
-            ),
-            runLantanaCtl<SchemeView[]>("scheme", "list"),
-            runLantanaCtl<ServerView>("server", "status"),
-        ]);
-        devices = deviceLists.flat();
-        schemes = schemeData;
-        server = serverData;
-        dashboards = (
-            await Promise.all(
-                accounts.map(async (account) => {
-                    const records = await runLantanaCtl<
-                        Array<Omit<DashboardView, "accountId">>
-                    >("dashboard", "show", account.accountId);
-                    return records.map((record) => ({
-                        ...record,
-                        accountId: account.accountId,
-                    }));
-                }),
-            )
-        ).flat();
-        selectedEntry = null;
-        createKind = null;
-        createDashboard = null;
-        editorMode = "view";
-        await renderTree();
-        await renderEditor();
-        updateToolbar();
-        connectionStatus.caption = `${accounts.length} akun · ${devices.length} device`;
-    }
-
-    async function renderTree(): Promise<void> {
-        treeEntries = [];
-        if (activeSection === "accounts") {
-            const visited = new Set<string>();
-            const append = (account: AccountView, depth: number) => {
-                if (visited.has(account.accountId)) return;
-                visited.add(account.accountId);
-                treeEntries.push({
-                    kind: "account",
-                    record: account,
-                    label: `${"  ".repeat(depth)}◉  ${account.accountId}`,
-                });
-                accounts
-                    .filter((child) => child.parentId === account.accountId)
-                    .sort((a, b) => a.accountId.localeCompare(b.accountId))
-                    .forEach((child) => append(child, depth + 1));
-            };
-            accounts
-                .filter((account) => !account.parentId)
-                .sort((a, b) => a.accountId.localeCompare(b.accountId))
-                .forEach((account) => append(account, 0));
-            accounts.forEach((account) => append(account, 0));
-        } else if (activeSection === "devices") {
-            treeEntries = devices
-                .slice()
-                .sort((a, b) => a.accountId.localeCompare(b.accountId) || a.deviceId.localeCompare(b.deviceId))
-                .map((record) => ({
-                    kind: "device",
-                    record,
-                    label: `▣  ${record.meta.name || record.deviceId}  ·  ${record.accountId}`,
-                }));
-        } else if (activeSection === "schemes") {
-            treeEntries = schemes
-                .slice()
-                .sort((a, b) => a.schemeId - b.schemeId)
-                .map((record) => ({
-                    kind: "scheme",
-                    record,
-                    label: `◇  ${record.schemeId}  ·  ${record.label}`,
-                }));
-        } else if (activeSection === "dashboards") {
-            for (const dashboard of dashboards) {
-                treeEntries.push({
-                    kind: "dashboard",
-                    record: dashboard,
-                    label: `▤  ${dashboard.title}  ·  ${dashboard.accountId}`,
-                });
-                dashboard.dashboardItems.forEach((item, itemIndex) => {
-                    treeEntries.push({
-                        kind: "dashboardItem",
-                        record: item,
-                        dashboard,
-                        itemIndex,
-                        label: `    •  ${item.title}  (${item.type})`,
-                    });
-                });
-            }
-        } else if (server) {
-            treeEntries.push({
-                kind: "server",
-                record: server,
-                label: "⌁  Status layanan",
-            });
-        }
-
-        treeList.items = treeEntries.map((entry) => entry.label);
-        treeList.selectedIndex = -1;
-        await treeList.refresh(form.screen);
-        const section = SECTIONS.find((item) => item.key === activeSection);
-        treeHeading.caption = section ? section.title.toUpperCase() : "ENTRI";
-    }
-
-    async function setFieldValue(
-        field: Field,
-        value: string,
-        disabled: boolean,
-    ): Promise<void> {
-        if (field instanceof TEdit) {
-            field.text = value;
-            field.readOnly = disabled;
-            if (screenReady) {
-                await form.screen.update(field.id, { value });
-            }
-        } else {
-            const index = field.items.indexOf(value);
-            field.selectedIndex = index >= 0 ? index : 0;
-            field.props.disabled = disabled;
-            if (screenReady) {
-                await form.screen.update(field.id, {
-                    value: String(field.selectedIndex),
-                    disabled,
-                });
-            }
-        }
-    }
-
-    function setGroupVisible(group: TPanel, visible: boolean): void {
-        group.style = { ...group.style, display: visible ? "flex" : "none" };
-    }
-
-    async function renderEditor(): Promise<void> {
-        const kind = createKind || selectedEntry?.kind || null;
-        const isCreating = editorMode === "create";
-        const isReadOnly = editorMode === "view";
-        setGroupVisible(accountGroup, kind === "account");
-        setGroupVisible(deviceGroup, kind === "device");
-        setGroupVisible(schemeGroup, kind === "scheme");
-        setGroupVisible(dashboardGroup, kind === "dashboard");
-        setGroupVisible(itemGroup, kind === "dashboardItem");
-        setGroupVisible(serverGroup, kind === "server");
-        emptyState.style = {
-            ...emptyState.style,
-            display: kind ? "none" : "block",
-        };
-
-        if (!kind) {
-            editorHeading.caption = "Pilih entri";
-            editorDescription.caption =
-                "Pilih data di panel navigasi untuk melihat atau mengubah detailnya.";
+    function setValue(field: Field, text: string, readOnly = false): void {
+        if (field.input instanceof TComboBox) {
+            const index = field.input.items.indexOf(text);
+            field.input.selectedIndex = index >= 0 ? index : 0;
             return;
         }
+        field.input.text = text;
+        field.input.readOnly = readOnly;
+    }
 
-        const modeText = isCreating ? "Tambah" : editorMode === "edit" ? "Edit" : "Detail";
-        if (kind === "account") {
-            const account = selectedEntry?.kind === "account" ? selectedEntry.record : null;
-            const name = isCreating ? "Akun baru" : account?.accountId || "Akun";
-            editorHeading.caption = `${modeText} akun · ${name}`;
-            editorDescription.caption = isCreating
-                ? "Isi identitas akun dan izin. Parent ID kosong akan membuat akun root."
-                : `${account?.parentId ? `Child dari ${account.parentId}` : "Akun root"} · ${account?.hasAccessKey ? "AccessKey tersedia" : "Belum ada AccessKey"}`;
-            await setFieldValue(accountIdField, account?.accountId || "", isReadOnly || (!isCreating));
-            await setFieldValue(accountParentField, account?.parentId || "", isReadOnly || !isCreating);
-            await setFieldValue(
-                accountInjectField,
-                formatRanges(account?.permissions.allowedInjectSchemes || []),
-                isReadOnly,
-            );
-            await setFieldValue(
-                accountQueryField,
-                formatRanges(account?.permissions.allowedQuerySchemes || []),
-                isReadOnly,
-            );
-            await setFieldValue(
-                accountCommandField,
-                account?.permissions.allowedCommandDevices.join(",") || "",
-                isReadOnly,
-            );
-        } else if (kind === "device") {
-            const device = selectedEntry?.kind === "device" ? selectedEntry.record : null;
-            editorHeading.caption = `${modeText} device · ${device?.meta.name || device?.deviceId || "Device baru"}`;
-            editorDescription.caption = device
-                ? `Terdaftar pada akun ${device.accountId}`
-                : "Pilih akun pemilik device dan isi metadata awal.";
-            await setFieldValue(deviceAccountField, device?.accountId || accounts[0]?.accountId || "", isReadOnly || !isCreating);
-            await setFieldValue(deviceIdField, device?.deviceId || "Dibuat otomatis saat disimpan", true);
-            await setFieldValue(deviceNameField, device?.meta.name || "", isReadOnly);
-            await setFieldValue(deviceCityField, device?.meta.city || "", isReadOnly);
-            await setFieldValue(deviceCategoryField, device?.meta.category || "", isReadOnly);
-            await setFieldValue(deviceGroupField, device?.meta.group || "", isReadOnly);
-        } else if (kind === "scheme") {
-            const scheme = selectedEntry?.kind === "scheme" ? selectedEntry.record : null;
-            editorHeading.caption = `${modeText} scheme · ${scheme?.schemeId ?? "Scheme baru"}`;
-            editorDescription.caption = scheme
-                ? `Dimiliki akun ${scheme.ownerAccountId}`
-                : "Scheme ID harus unik dan bernilai integer positif.";
-            await setFieldValue(schemeIdField, scheme ? String(scheme.schemeId) : "", isReadOnly || !isCreating);
-            await setFieldValue(schemeOwnerField, scheme?.ownerAccountId || accounts[0]?.accountId || "", isReadOnly || !isCreating);
-            await setFieldValue(schemeLabelField, scheme?.label || "", isReadOnly);
-            await setFieldValue(schemeUnitField, scheme?.unit || "", isReadOnly);
-            await setFieldValue(schemeTypeField, scheme?.type || "number", isReadOnly);
-            await setFieldValue(schemeMinField, scheme?.min === undefined ? "" : String(scheme.min), isReadOnly);
-            await setFieldValue(schemeMaxField, scheme?.max === undefined ? "" : String(scheme.max), isReadOnly);
-        } else if (kind === "dashboard") {
-            const dashboard =
-                selectedEntry?.kind === "dashboard" ? selectedEntry.record : null;
-            editorHeading.caption = `${modeText} dashboard · ${dashboard?.title || "Dashboard baru"}`;
-            editorDescription.caption = dashboard
-                ? `${dashboard.dashboardItems.length} item · ${dashboard.hasAccessKey ? "AccessKey tersedia" : "Belum ada AccessKey"}`
-                : "Dashboard dibuat untuk akun yang dipilih; AccessKey ditampilkan sekali setelah dibuat.";
-            await setFieldValue(dashboardAccountField, dashboard?.accountId || accounts[0]?.accountId || "", isReadOnly || !isCreating);
-            await setFieldValue(dashboardIdField, dashboard ? String(dashboard.dashboardId) : "Dibuat otomatis", true);
-            await setFieldValue(dashboardTitleField, dashboard?.title || "", isReadOnly);
-            await setFieldValue(
-                dashboardKeyField,
-                dashboard ? (dashboard.hasAccessKey ? "Tersimpan (tidak dapat dibaca)" : "Belum diterbitkan") : "Diterbitkan saat membuat dashboard",
-                true,
-            );
-        } else if (kind === "dashboardItem") {
-            const entry = selectedEntry?.kind === "dashboardItem" ? selectedEntry : null;
-            const dashboard = entry?.dashboard || createDashboard;
-            const item = entry?.record || null;
-            editorHeading.caption = `${modeText} item · ${item?.title || "Item baru"}`;
-            editorDescription.caption = dashboard
-                ? `Dashboard ${dashboard.title} · akun ${dashboard.accountId}`
-                : "Item dashboard harus terkait pada dashboard yang tersedia.";
-            await setFieldValue(itemAccountField, dashboard?.accountId || "", true);
-            await setFieldValue(itemDashboardIdField, dashboard ? String(dashboard.dashboardId) : "", true);
-            await setFieldValue(itemIndexField, entry ? String(entry.itemIndex) : "Item baru", true);
-            await setFieldValue(itemTypeField, item?.type || "text", isReadOnly);
-            await setFieldValue(itemTitleField, item?.title || "", isReadOnly);
-            await setFieldValue(itemIconField, item?.icon || "", isReadOnly);
-            await setFieldValue(itemIntervalField, String(item?.updateInterval ?? 5), isReadOnly);
-            await setFieldValue(itemScrollField, item?.scrollAfter === undefined ? "" : String(item.scrollAfter), isReadOnly);
-            await setFieldValue(itemDeviceField, item?.deviceId || "", isReadOnly);
-            await setFieldValue(itemSchemeField, item ? String(item.schemeId) : "", isReadOnly);
-        } else if (kind === "server") {
-            const record = selectedEntry?.kind === "server" ? selectedEntry.record : server;
-            editorHeading.caption = "Status layanan";
-            editorDescription.caption = "Informasi runtime dibaca dari lantana-ctl.";
-            serverDetails.caption = record
-                ? `Fingerprint public key\n${record.fingerprint}\n\nPort layanan\n${Object.entries(record.ports)
-                      .map(([port, config]) => `${port}: ${config.enabled === false ? "nonaktif" : "aktif"}`)
-                      .join("\n") || "-"}\n\nKategori device\n${Object.entries(record.deviceCategories)
-                      .map(
-                          ([key, category]) =>
-                              `${category.icon ? `${category.icon} ` : ""}${category.label || key}${category.description ? ` — ${category.description}` : ""}`,
-                      )
-                      .join("\n") || "-"}`
-                : "Status server belum tersedia.";
+    function readValue(field: Field): string {
+        if (field.input instanceof TComboBox) {
+            return field.input.items[field.input.selectedIndex] ?? "";
         }
-
+        return field.input.text.trim();
     }
 
-    async function startCreate(): Promise<void> {
-        if (activeSection === "server") return;
-        selectedEntry = null;
-        createDashboard = null;
-        createKind =
-            activeSection === "accounts"
-                ? "account"
-                : activeSection === "devices"
-                  ? "device"
-                  : activeSection === "schemes"
-                    ? "scheme"
-                    : "dashboard";
-        editorMode = "create";
-        treeList.selectedIndex = -1;
-        await treeList.refresh(form.screen);
-        await renderEditor();
-        updateToolbar();
+    function required(field: Field, name: string): string {
+        const text = readValue(field);
+        if (!text) throw new Error(`${name} wajib diisi.`);
+        return text;
     }
 
-    async function startCreateItem(): Promise<void> {
-        const dashboard = getSelectedDashboard();
-        if (!dashboard) throw new Error("Pilih dashboard terlebih dahulu.");
-        createDashboard = dashboard;
-        createKind = "dashboardItem";
-        editorMode = "create";
-        await renderEditor();
-        updateToolbar();
-    }
-
-    async function startEdit(): Promise<void> {
-        if (!selectedEntry || selectedEntry.kind === "server") return;
-        createKind = null;
-        createDashboard = null;
-        editorMode = "edit";
-        await renderEditor();
-        updateToolbar();
-    }
-
-    async function cancelEditor(): Promise<void> {
-        editorMode = "view";
-        createKind = null;
-        createDashboard = null;
-        await renderEditor();
-        updateToolbar();
-    }
-
-    function requiredValue(field: TEdit, name: string): string {
-        const value = field.text.trim();
-        if (!value) throw new Error(`${name} wajib diisi.`);
-        return value;
-    }
-
-    function optionalFlag(args: string[], flag: string, field: TEdit): void {
-        const value = field.text.trim();
-        if (value) args.push(flag, value);
-    }
-
-    function numericValue(field: TEdit, name: string, optional = false): string | null {
-        const value = field.text.trim();
-        if (!value && optional) return null;
-        if (!value || !Number.isFinite(Number(value))) {
-            throw new Error(`${name} harus berupa angka${optional ? " atau dikosongkan" : ""}.`);
+    function optionalNumber(field: Field, name: string): string | null {
+        const text = readValue(field);
+        if (!text) return null;
+        if (!Number.isFinite(Number(text))) {
+            throw new Error(`${name} harus berupa angka atau dikosongkan.`);
         }
-        return value;
+        return text;
     }
 
-    async function saveEditor(): Promise<void> {
-        if (editorMode !== "create" && editorMode !== "edit") return;
-        const kind = createKind || selectedEntry?.kind;
-        if (!kind || kind === "server") throw new Error("Tidak ada editor yang aktif.");
-        let oneTimeKey: string | null = null;
-        let oneTimeDashboardId: number | null = null;
-
-        if (editorMode === "create") {
-            if (kind === "account") {
-                const id = requiredValue(accountIdField, "Account ID");
-                const parent = accountParentField.text.trim();
-                const args = parent
-                    ? ["account", "create-child", parent, id]
-                    : ["account", "create-root", id];
-                optionalFlag(args, "--inject", accountInjectField);
-                optionalFlag(args, "--query", accountQueryField);
-                optionalFlag(args, "--command", accountCommandField);
-                await runLantanaCtl(...args);
-            } else if (kind === "device") {
-                const accountId = requiredValue(deviceAccountField, "Account ID");
-                const args = ["device", "add", accountId];
-                optionalFlag(args, "--name", deviceNameField);
-                optionalFlag(args, "--city", deviceCityField);
-                optionalFlag(args, "--category", deviceCategoryField);
-                optionalFlag(args, "--group", deviceGroupField);
-                const created = await runLantanaCtl<{ deviceId: string }>(...args);
-                await form.alert("Device dibuat", `Device ID: ${created.deviceId}`);
-            } else if (kind === "scheme") {
-                const accountId = requiredValue(schemeOwnerField, "Owner account ID");
-                const schemeId = requiredValue(schemeIdField, "Scheme ID");
-                if (!/^[1-9]\d*$/.test(schemeId)) throw new Error("Scheme ID harus integer positif.");
-                const args = [
-                    "scheme",
-                    "add",
-                    accountId,
-                    schemeId,
-                    "--label",
-                    requiredValue(schemeLabelField, "Label"),
-                    "--type",
-                    schemeTypeField.items[schemeTypeField.selectedIndex] || "number",
-                ];
-                optionalFlag(args, "--unit", schemeUnitField);
-                const min = numericValue(schemeMinField, "Nilai minimum", true);
-                const max = numericValue(schemeMaxField, "Nilai maksimum", true);
-                if (min !== null) args.push("--min", min);
-                if (max !== null) args.push("--max", max);
-                await runLantanaCtl(...args);
-            } else if (kind === "dashboard") {
-                const accountId = requiredValue(dashboardAccountField, "Account ID");
-                const title = requiredValue(dashboardTitleField, "Judul dashboard");
-                const result = await runLantanaCtl<{ dashboardAccessKey: string; dashboardId: number }>(
-                    "dashboard",
-                    "key-issue",
-                    accountId,
-                    "--title",
-                    title,
-                );
-                oneTimeKey = result.dashboardAccessKey;
-                oneTimeDashboardId = result.dashboardId;
-            } else if (kind === "dashboardItem") {
-                const dashboard = createDashboard;
-                if (!dashboard) throw new Error("Dashboard induk tidak ditemukan.");
-                const args = dashboardItemArgs(dashboard.accountId, dashboard.dashboardId, "new");
-                await runLantanaCtl(...args);
-            }
-        } else if (selectedEntry) {
-            if (selectedEntry.kind === "account") {
-                const args = [
-                    "account",
-                    "permissions",
-                    selectedEntry.record.accountId,
-                ];
-                optionalFlag(args, "--inject", accountInjectField);
-                optionalFlag(args, "--query", accountQueryField);
-                optionalFlag(args, "--command", accountCommandField);
-                await runLantanaCtl(...args);
-            } else if (selectedEntry.kind === "device") {
-                const device = selectedEntry.record;
-                const args = [
-                    "device",
-                    "update",
-                    device.accountId,
-                    device.deviceId,
-                ];
-                addMetadataFlag(args, "--name", deviceNameField);
-                addMetadataFlag(args, "--city", deviceCityField);
-                addMetadataFlag(args, "--category", deviceCategoryField);
-                addMetadataFlag(args, "--group", deviceGroupField);
-                if (args.length === 4) throw new Error("Tidak ada metadata yang diubah.");
-                await runLantanaCtl(...args);
-            } else if (selectedEntry.kind === "scheme") {
-                const scheme = selectedEntry.record;
-                const args = [
-                    "scheme",
-                    "update",
-                    scheme.ownerAccountId,
-                    String(scheme.schemeId),
-                    "--label",
-                    requiredValue(schemeLabelField, "Label"),
-                    "--type",
-                    schemeTypeField.items[schemeTypeField.selectedIndex] || "number",
-                ];
-                const unit = schemeUnitField.text.trim();
-                if (unit) args.push("--unit", unit);
-                else args.push("--clear-unit");
-                addOptionalNumber(args, "--min", "--clear-min", schemeMinField, "Nilai minimum");
-                addOptionalNumber(args, "--max", "--clear-max", schemeMaxField, "Nilai maksimum");
-                await runLantanaCtl(...args);
-            } else if (selectedEntry.kind === "dashboard") {
-                await runLantanaCtl(
-                    "dashboard",
-                    "update",
-                    selectedEntry.record.accountId,
-                    String(selectedEntry.record.dashboardId),
-                    "--title",
-                    requiredValue(dashboardTitleField, "Judul dashboard"),
-                );
-            } else if (selectedEntry.kind === "dashboardItem") {
-                await runLantanaCtl(
-                    ...dashboardItemArgs(
-                        selectedEntry.dashboard.accountId,
-                        selectedEntry.dashboard.dashboardId,
-                        String(selectedEntry.itemIndex),
-                    ),
-                );
-            }
-        }
-
-        await refresh();
-        connectionStatus.caption = "Perubahan tersimpan";
-        if (oneTimeKey) {
-            await form.alert(
-                "Dashboard dibuat",
-                `Dashboard ID: ${oneTimeDashboardId}\nAccessKey (hanya ditampilkan sekali):\n${oneTimeKey}`,
-            );
-        }
+    function pushFlag(args: string[], flag: string, field: Field): void {
+        const text = readValue(field);
+        if (text) args.push(flag, text);
     }
 
-    function addMetadataFlag(args: string[], flag: string, field: TEdit): void {
-        const value = field.text.trim();
-        if (value) args.push(flag, value);
+    function pushMetadata(args: string[], flag: string, field: Field): void {
+        const text = readValue(field);
+        if (text) args.push(flag, text);
         else args.push(`--clear-${flag.slice(2)}`);
     }
 
-    function addOptionalNumber(
+    function pushOptionalNumber(
         args: string[],
         flag: string,
         clearFlag: string,
-        field: TEdit,
+        field: Field,
         name: string,
     ): void {
-        const value = numericValue(field, name, true);
-        if (value === null) args.push(clearFlag);
-        else args.push(flag, value);
+        const text = optionalNumber(field, name);
+        if (text === null) args.push(clearFlag);
+        else args.push(flag, text);
     }
 
-    function dashboardItemArgs(accountId: string, dashboardId: number, index: string): string[] {
-        const type = itemTypeField.items[itemTypeField.selectedIndex] || "text";
+    function accountsOf(accountId: string): AccountView | null {
+        return accounts.find((item) => item.accountId === accountId) ?? null;
+    }
+
+    function showGroup(active: TComponent | null): void {
+        for (const item of [
+            accountGroup,
+            deviceGroup,
+            schemeGroup,
+            dashboardGroup,
+            itemGroup,
+            serverGroup,
+            groupSummary,
+        ]) {
+            item.style = {
+                ...item.style,
+                display: item === active ? "flex" : "none",
+            };
+        }
+        emptyState.style = {
+            ...emptyState.style,
+            display: active ? "none" : "block",
+        };
+    }
+
+    async function loadAll(): Promise<void> {
+        status.text = "Memuat...";
+        accounts = await runLantanaCtl<AccountView[]>("account", "list");
+
+        const [deviceLists, schemeData, serverData, dashboardLists] =
+            await Promise.all([
+                Promise.all(
+                    accounts.map(async (account) => {
+                        const rows = await runLantanaCtl<
+                            Array<Omit<DeviceView, "accountId">>
+                        >("device", "list", account.accountId);
+                        return rows.map((row) => ({
+                            ...row,
+                            accountId: account.accountId,
+                        }));
+                    }),
+                ),
+                runLantanaCtl<SchemeView[]>("scheme", "list"),
+                runLantanaCtl<ServerView>("server", "status"),
+                Promise.all(
+                    accounts.map(async (account) => {
+                        const rows = await runLantanaCtl<
+                            Array<Omit<DashboardView, "accountId">>
+                        >("dashboard", "show", account.accountId);
+                        return rows.map((row) => ({
+                            ...row,
+                            accountId: account.accountId,
+                        }));
+                    }),
+                ),
+            ]);
+
+        devices = deviceLists.flat();
+        schemes = schemeData;
+        server = serverData;
+        dashboards = dashboardLists.flat();
+        await tree.setNodes(
+            buildControlTree({ accounts, devices, schemes, dashboards }),
+        );
+        status.text = `${accounts.length} akun · ${devices.length} device · ${schemes.length} scheme`;
+    }
+
+    function findPayload(nodeId: string): NavPayload | null {
+        return findPayloadIn(tree.nodes, nodeId);
+    }
+
+    /** Segarkan entri terpilih dari data baru setelah `loadAll()`. */
+    async function syncSelection(preferredId?: string | null): Promise<void> {
+        const id = preferredId ?? (selection ? nodeIdOf(selection) : null);
+        const payload = id ? findPayload(id) : null;
+        selection = payload;
+        await tree.select(payload ? id : null, false);
+        renderEditor();
+        updateToolbar();
+    }
+
+    function renderEditor(): void {
+        const kind = draft?.kind ?? selection?.kind ?? null;
+        if (!kind) {
+            showGroup(null);
+            editorTitle.text = "Pilih entri";
+            editorHint.text =
+                "Klik akun, lalu Device / Scheme / Portable Dashboard untuk membuka isinya.";
+            return;
+        }
+
+        if (kind === "server") {
+            showGroup(serverGroup);
+            editorTitle.text = "Status layanan";
+            editorHint.text = "Informasi runtime Lantana.";
+            serverInfo.text = server
+                ? `Fingerprint public key\n${server.fingerprint}\n\nPort layanan\n${
+                      Object.entries(server.ports)
+                          .map(
+                              ([port, config]) =>
+                                  `${port}: ${config.enabled === false ? "nonaktif" : "aktif"}`,
+                          )
+                          .join("\n") || "-"
+                  }\n\nKategori device\n${
+                      Object.entries(server.deviceCategories)
+                          .map(
+                              ([key, category]) =>
+                                  `${category.icon ? `${category.icon} ` : ""}${category.label || key}${category.description ? ` — ${category.description}` : ""}`,
+                          )
+                          .join("\n") || "-"
+                  }`
+                : "Status server belum tersedia.";
+            return;
+        }
+
+        if (kind === "group") {
+            const groupKind = selection?.group;
+            const accountId = selection?.account?.accountId ?? "-";
+            const count =
+                groupKind === "devices"
+                    ? devices.filter((device) => device.accountId === accountId).length
+                    : groupKind === "schemes"
+                      ? schemes.filter(
+                            (scheme) => scheme.ownerAccountId === accountId,
+                        ).length
+                      : dashboards.filter(
+                            (dashboard) => dashboard.accountId === accountId,
+                        ).length;
+            showGroup(groupSummary);
+            editorTitle.text =
+                groupKind === "devices"
+                    ? `Device · ${accountId}`
+                    : groupKind === "schemes"
+                      ? `Scheme · ${accountId}`
+                      : `Portable Dashboard · ${accountId}`;
+            editorHint.text =
+                "Klik salah satu entri di pohon untuk melihat dan menyunting datanya.";
+            groupInfo.text = `${count} entri. Gunakan tombol ${addLabel()} untuk membuat entri baru.`;
+            return;
+        }
+
+        if (kind === "account") {
+            showGroup(accountGroup);
+            const creating = draft !== null;
+            const account = creating ? null : selection?.account;
+            editorTitle.text = creating
+                ? "Akun baru"
+                : `Akun · ${account?.accountId ?? "-"}`;
+            editorHint.text = creating
+                ? "Isi Account ID dan (opsional) parent untuk membuat akun."
+                : `${account?.parentId ? `Child dari ${account.parentId}` : "Akun root"} · ${account?.hasAccessKey ? "AccessKey aktif" : "Belum ada AccessKey"}`;
+            accountInfo.text = creating
+                ? "Permissions dapat diisi setelah akun dibuat."
+                : `ID: ${account?.accountId ?? "-"} · Sub-akun: ${account?.children ?? 0} · Dashboard: ${account?.dashboards.length ?? 0}`;
+            setValue(accountIdField, account?.accountId ?? "", !creating);
+            setValue(
+                accountParentField,
+                account?.parentId ?? draft?.parentId ?? "",
+                !creating,
+            );
+            setValue(
+                accountInjectField,
+                rangeText(account?.permissions.allowedInjectSchemes ?? []),
+            );
+            setValue(
+                accountQueryField,
+                rangeText(account?.permissions.allowedQuerySchemes ?? []),
+            );
+            setValue(
+                accountCommandField,
+                (account?.permissions.allowedCommandDevices ?? []).join(","),
+            );
+            return;
+        }
+
+        if (kind === "device") {
+            showGroup(deviceGroup);
+            const device = draft ? null : selection?.device;
+            const accountId = draft?.accountId ?? selection?.account?.accountId ?? "-";
+            editorTitle.text = draft
+                ? "Device baru"
+                : `Device · ${device ? deviceTitle(device) : "-"}`;
+            editorHint.text = draft
+                ? `Akan didaftarkan pada akun ${accountId}.`
+                : `Akun ${accountId}`;
+            deviceInfo.text = draft
+                ? "Device ID dibuat otomatis saat disimpan."
+                : `Device ID: ${device?.deviceId ?? "-"}`;
+            setValue(deviceNameField, device?.meta.name ?? "");
+            setValue(deviceCityField, device?.meta.city ?? "");
+            setValue(deviceCategoryField, device?.meta.category ?? "");
+            setValue(deviceGroupField, device?.meta.group ?? "");
+            return;
+        }
+
+        if (kind === "scheme") {
+            showGroup(schemeGroup);
+            const creating = draft !== null;
+            const scheme = creating ? null : selection?.scheme;
+            const accountId = draft?.accountId ?? scheme?.ownerAccountId ?? "-";
+            editorTitle.text = creating
+                ? "Scheme baru"
+                : `Scheme · ${scheme?.schemeId ?? "-"}`;
+            editorHint.text = creating
+                ? `Akan dimiliki akun ${accountId}. Scheme ID harus integer positif.`
+                : `Dimiliki akun ${accountId}`;
+            schemeInfo.text = creating
+                ? "Scheme ID harus unik."
+                : `Scheme ID: ${scheme?.schemeId ?? "-"}`;
+            setValue(schemeIdField, scheme ? String(scheme.schemeId) : "", !creating);
+            setValue(schemeLabelField, scheme?.label ?? "");
+            setValue(schemeUnitField, scheme?.unit ?? "");
+            setValue(schemeTypeField, scheme?.type ?? "number");
+            setValue(
+                schemeMinField,
+                scheme?.min === undefined ? "" : String(scheme.min),
+            );
+            setValue(
+                schemeMaxField,
+                scheme?.max === undefined ? "" : String(scheme.max),
+            );
+            return;
+        }
+
+        if (kind === "dashboard") {
+            showGroup(dashboardGroup);
+            const dashboard = draft ? null : selection?.dashboard;
+            const accountId = draft?.accountId ?? selection?.account?.accountId ?? "-";
+            editorTitle.text = draft
+                ? "Portable dashboard baru"
+                : `Dashboard · ${dashboard?.title ?? "-"}`;
+            editorHint.text = draft
+                ? `Dibuat untuk akun ${accountId}. AccessKey ditampilkan sekali setelah disimpan.`
+                : `Akun ${accountId} · ${dashboard?.dashboardItems.length ?? 0} item · ${dashboard?.hasAccessKey ? "AccessKey aktif" : "Belum ada AccessKey"}`;
+            dashboardInfo.text = draft
+                ? "Dashboard ID dibuat otomatis."
+                : `Dashboard ID: ${dashboard?.dashboardId ?? "-"}`;
+            setValue(dashboardTitleField, dashboard?.title ?? "");
+            return;
+        }
+
+        showGroup(itemGroup);
+        const dashboard = draft?.dashboard ?? selection?.dashboard ?? null;
+        const item = draft ? null : selection?.item;
+        editorTitle.text = draft
+            ? "Item dashboard baru"
+            : `Item · ${item?.title ?? "-"}`;
+        editorHint.text = dashboard
+            ? `Dashboard ${dashboard.title} · akun ${dashboard.accountId}`
+            : "Item harus terkait pada sebuah dashboard.";
+        itemInfo.text = draft
+            ? "Item ditambahkan ke akhir daftar dashboard."
+            : `Posisi: ${(selection?.itemIndex ?? 0) + 1} dari ${dashboard?.dashboardItems.length ?? 0}`;
+        setValue(itemTypeField, item?.type ?? "text");
+        setValue(itemTitleField, item?.title ?? "");
+        setValue(itemIconField, item?.icon ?? "");
+        setValue(itemIntervalField, String(item?.updateInterval ?? 5));
+        setValue(
+            itemScrollField,
+            item?.scrollAfter === undefined ? "" : String(item.scrollAfter),
+        );
+        setValue(itemDeviceField, item?.deviceId ?? "");
+        setValue(itemSchemeField, item?.schemeId === undefined ? "" : String(item.schemeId));
+    }
+
+    function addLabel(): string {
+        if (draft) return "+ Tambah";
+        const kind = selection?.kind;
+        if (kind === "group") {
+            return selection?.group === "devices"
+                ? "+ Device"
+                : selection?.group === "schemes"
+                  ? "+ Scheme"
+                  : "+ Dashboard";
+        }
+        if (kind === "item" || kind === "dashboard") return "+ Item";
+        if (kind === "device") return "+ Device";
+        if (kind === "scheme") return "+ Scheme";
+        if (kind === "account") return "+ Sub-akun";
+        return "+ Akun";
+    }
+
+    function updateToolbar(): void {
+        const editable =
+            selection !== null &&
+            selection.kind !== "server" &&
+            selection.kind !== "group";
+        const keyTarget =
+            selection?.kind === "account" || selection?.kind === "dashboard";
+        const hasKey =
+            selection?.kind === "account"
+                ? Boolean(selection.account?.hasAccessKey)
+                : selection?.kind === "dashboard"
+                  ? Boolean(selection.dashboard?.hasAccessKey)
+                  : false;
+
+        saveButton.enabled = draft !== null || editable;
+        cancelButton.enabled = draft !== null;
+        removeButton.enabled = editable && draft === null;
+        keyButton.enabled = keyTarget && draft === null;
+        keyButton.caption = hasKey ? "Rotasi key" : "Terbitkan key";
+        revokeButton.enabled = keyTarget && hasKey && draft === null;
+        addButton.caption = addLabel();
+    }
+
+    async function selectPayload(payload: NavPayload | null): Promise<void> {
+        selection = payload;
+        draft = null;
+        renderEditor();
+        updateToolbar();
+    }
+
+    tree.onSelect = (node) => {
+        const payload = findPayload(node.id);
+        if (!payload) return;
+        void run(() => selectPayload(payload));
+    };
+
+    function startCreate(): void {
+        const kind = selection?.kind;
+        const accountId = selection?.account?.accountId ?? accounts[0]?.accountId ?? "";
+        if (!accountId && kind !== "server") {
+            throw new Error("Belum ada akun. Buat akun root terlebih dahulu.");
+        }
+
+        if (kind === "group") {
+            if (selection?.group === "devices") {
+                draft = { kind: "device", accountId };
+            } else if (selection?.group === "schemes") {
+                draft = { kind: "scheme", accountId };
+            } else {
+                draft = { kind: "dashboard", accountId };
+            }
+        } else if (kind === "device") {
+            draft = { kind: "device", accountId };
+        } else if (kind === "scheme") {
+            draft = { kind: "scheme", accountId };
+        } else if (kind === "dashboard" || kind === "item") {
+            const dashboard = selection?.dashboard;
+            if (!dashboard) throw new Error("Pilih dashboard terlebih dahulu.");
+            draft = { kind: "item", accountId: dashboard.accountId, dashboard };
+        } else if (kind === "account") {
+            draft = { kind: "account", accountId: "", parentId: accountId };
+        } else {
+            draft = { kind: "account", accountId: "", parentId: null };
+        }
+
+        renderEditor();
+        updateToolbar();
+        status.text = "Isi detail entri baru lalu tekan Simpan.";
+    }
+
+    async function saveAccount(): Promise<string> {
+        if (draft) {
+            const id = required(accountIdField, "Account ID");
+            const parent = readValue(accountParentField);
+            const args = parent
+                ? ["account", "create-child", parent, id]
+                : ["account", "create-root", id];
+            pushFlag(args, "--inject", accountInjectField);
+            pushFlag(args, "--query", accountQueryField);
+            pushFlag(args, "--command", accountCommandField);
+            await runLantanaCtl(...args);
+            return `acc:${id}`;
+        }
+        const account = selection?.account;
+        if (!account) throw new Error("Akun tidak dipilih.");
+        const args = ["account", "permissions", account.accountId];
+        pushFlag(args, "--inject", accountInjectField);
+        pushFlag(args, "--query", accountQueryField);
+        pushFlag(args, "--command", accountCommandField);
+        await runLantanaCtl(...args);
+        return `acc:${account.accountId}`;
+    }
+
+    async function saveDevice(): Promise<string> {
+        if (draft) {
+            const args = ["device", "add", draft.accountId];
+            pushFlag(args, "--name", deviceNameField);
+            pushFlag(args, "--city", deviceCityField);
+            pushFlag(args, "--category", deviceCategoryField);
+            pushFlag(args, "--group", deviceGroupField);
+            const created = await runLantanaCtl<{ deviceId: string }>(...args);
+            await TDialogs.alert(
+                form,
+                "Device dibuat",
+                `Device ID: ${created.deviceId}`,
+            );
+            return `dev:${draft.accountId}:${created.deviceId}`;
+        }
+        const device = selection?.device;
+        if (!device) throw new Error("Device tidak dipilih.");
+        const args = ["device", "update", device.accountId, device.deviceId];
+        pushMetadata(args, "--name", deviceNameField);
+        pushMetadata(args, "--city", deviceCityField);
+        pushMetadata(args, "--category", deviceCategoryField);
+        pushMetadata(args, "--group", deviceGroupField);
+        await runLantanaCtl(...args);
+        return `dev:${device.accountId}:${device.deviceId}`;
+    }
+
+    async function saveScheme(): Promise<string> {
+        const type = readValue(schemeTypeField) || "number";
+        if (draft) {
+            const schemeId = required(schemeIdField, "Scheme ID");
+            if (!/^[1-9]\d*$/.test(schemeId)) {
+                throw new Error("Scheme ID harus integer positif.");
+            }
+            const args = [
+                "scheme",
+                "add",
+                draft.accountId,
+                schemeId,
+                "--label",
+                required(schemeLabelField, "Label"),
+                "--type",
+                type,
+            ];
+            pushFlag(args, "--unit", schemeUnitField);
+            const min = optionalNumber(schemeMinField, "Nilai minimum");
+            const max = optionalNumber(schemeMaxField, "Nilai maksimum");
+            if (min !== null) args.push("--min", min);
+            if (max !== null) args.push("--max", max);
+            await runLantanaCtl(...args);
+            return `sch:${draft.accountId}:${schemeId}`;
+        }
+        const scheme = selection?.scheme;
+        if (!scheme) throw new Error("Scheme tidak dipilih.");
+        const args = [
+            "scheme",
+            "update",
+            scheme.ownerAccountId,
+            String(scheme.schemeId),
+            "--label",
+            required(schemeLabelField, "Label"),
+            "--type",
+            type,
+        ];
+        const unit = readValue(schemeUnitField);
+        if (unit) args.push("--unit", unit);
+        else args.push("--clear-unit");
+        pushOptionalNumber(args, "--min", "--clear-min", schemeMinField, "Nilai minimum");
+        pushOptionalNumber(args, "--max", "--clear-max", schemeMaxField, "Nilai maksimum");
+        await runLantanaCtl(...args);
+        return `sch:${scheme.ownerAccountId}:${scheme.schemeId}`;
+    }
+
+    async function saveDashboard(): Promise<string> {
+        if (draft) {
+            const result = await runLantanaCtl<{
+                dashboardId: number;
+                dashboardAccessKey: string;
+            }>(
+                "dashboard",
+                "key-issue",
+                draft.accountId,
+                "--title",
+                required(dashboardTitleField, "Judul dashboard"),
+            );
+            await TDialogs.alert(
+                form,
+                "Dashboard dibuat",
+                `Dashboard ID: ${result.dashboardId}\nAccessKey (hanya tampil sekali):\n${result.dashboardAccessKey}`,
+            );
+            return `dash:${draft.accountId}:${result.dashboardId}`;
+        }
+        const dashboard = selection?.dashboard;
+        if (!dashboard) throw new Error("Dashboard tidak dipilih.");
+        await runLantanaCtl(
+            "dashboard",
+            "update",
+            dashboard.accountId,
+            String(dashboard.dashboardId),
+            "--title",
+            required(dashboardTitleField, "Judul dashboard"),
+        );
+        return `dash:${dashboard.accountId}:${dashboard.dashboardId}`;
+    }
+
+    function itemArgs(
+        accountId: string,
+        dashboardId: number,
+        index: string,
+    ): string[] {
+        const interval = required(itemIntervalField, "Update interval");
+        const schemeId = required(itemSchemeField, "Scheme ID");
+        if (!/^[1-9]\d*$/.test(interval)) {
+            throw new Error("Update interval harus integer positif.");
+        }
+        if (!/^[1-9]\d*$/.test(schemeId)) {
+            throw new Error("Scheme ID harus integer positif.");
+        }
         const args = [
             "dashboard",
             "item-set",
@@ -1178,133 +1019,224 @@ export const main = Program(async () => {
             String(dashboardId),
             index,
             "--type",
-            type,
+            readValue(itemTypeField) || "text",
             "--title",
-            requiredValue(itemTitleField, "Judul item"),
+            required(itemTitleField, "Judul item"),
             "--icon",
-            requiredValue(itemIconField, "Icon"),
+            required(itemIconField, "Icon"),
             "--interval",
-            requiredValue(itemIntervalField, "Update interval"),
+            interval,
             "--device-id",
-            requiredValue(itemDeviceField, "Device ID"),
+            required(itemDeviceField, "Device ID"),
             "--scheme-id",
-            requiredValue(itemSchemeField, "Scheme ID"),
+            schemeId,
         ];
-        if (!/^[1-9]\d*$/.test(args[args.indexOf("--interval") + 1])) {
-            throw new Error("Update interval harus integer positif.");
-        }
-        if (!/^[1-9]\d*$/.test(args[args.indexOf("--scheme-id") + 1])) {
-            throw new Error("Scheme ID harus integer positif.");
-        }
-        const scrollAfter = itemScrollField.text.trim();
-        if (scrollAfter) {
-            if (!Number.isFinite(Number(scrollAfter))) {
-                throw new Error("Scroll after harus berupa angka.");
-            }
-            args.push("--scroll-after", scrollAfter);
-        }
+        const scrollAfter = optionalNumber(itemScrollField, "Scroll after");
+        if (scrollAfter !== null) args.push("--scroll-after", scrollAfter);
         return args;
     }
 
-    async function deleteRecord(): Promise<void> {
-        const entry = selectedEntry;
-        if (!entry || entry.kind === "server") return;
-        const title =
-            entry.kind === "dashboardItem"
-                ? `item "${entry.record.title}"`
-                : entry.kind === "account"
-                  ? `akun "${entry.record.accountId}"`
-                  : entry.kind === "device"
-                    ? `device "${entry.record.deviceId}"`
-                    : entry.kind === "scheme"
-                      ? `scheme ${entry.record.schemeId}`
-                      : `dashboard "${entry.record.title}"`;
-        const answer = await form.confirm(
+    async function saveItem(): Promise<string> {
+        const dashboard = draft?.dashboard ?? selection?.dashboard;
+        if (!dashboard) throw new Error("Dashboard induk tidak ditemukan.");
+        const index =
+            draft !== null || selection?.itemIndex === undefined
+                ? "new"
+                : String(selection.itemIndex);
+        await runLantanaCtl(
+            ...itemArgs(dashboard.accountId, dashboard.dashboardId, index),
+        );
+        return `dash:${dashboard.accountId}:${dashboard.dashboardId}`;
+    }
+
+    async function save(): Promise<void> {
+        const kind = draft?.kind ?? selection?.kind ?? null;
+        if (!kind || kind === "server" || kind === "group") {
+            throw new Error("Tidak ada entri yang bisa disimpan.");
+        }
+        const pending = draft;
+        const target =
+            kind === "account"
+                ? await saveAccount()
+                : kind === "device"
+                  ? await saveDevice()
+                  : kind === "scheme"
+                    ? await saveScheme()
+                    : kind === "dashboard"
+                      ? await saveDashboard()
+                      : await saveItem();
+
+        await loadAll();
+        draft = null;
+        let resolved = target;
+        // Item baru selalu ditambahkan di akhir daftar dashboard.
+        if (pending?.kind === "item" && pending.dashboard) {
+            const fresh = dashboards.find(
+                (dashboard) =>
+                    dashboard.accountId === pending.dashboard!.accountId &&
+                    dashboard.dashboardId === pending.dashboard!.dashboardId,
+            );
+            if (fresh?.dashboardItems.length) {
+                resolved = `item:${fresh.accountId}:${fresh.dashboardId}:${fresh.dashboardItems.length - 1}`;
+            }
+        }
+        await syncSelection(resolved);
+        status.text = pending ? "Data dibuat" : "Perubahan tersimpan";
+    }
+
+    async function cancel(): Promise<void> {
+        draft = null;
+        renderEditor();
+        updateToolbar();
+        status.text = "Perubahan dibatalkan";
+    }
+
+    async function remove(): Promise<void> {
+        const entry = selection;
+        if (!entry || entry.kind === "server" || entry.kind === "group") return;
+        const label =
+            entry.kind === "account"
+                ? `akun "${entry.account?.accountId}"`
+                : entry.kind === "device"
+                  ? `device "${deviceTitle(entry.device!)}"`
+                  : entry.kind === "scheme"
+                    ? `scheme ${entry.scheme?.schemeId}`
+                    : entry.kind === "dashboard"
+                      ? `dashboard "${entry.dashboard?.title}"`
+                      : `item "${entry.item?.title}"`;
+        const answer = await TDialogs.confirm(
+            form,
             "Konfirmasi penghapusan",
-            `Yakin ingin menghapus ${title}?`,
+            `Yakin ingin menghapus ${label}?`,
             ["Hapus", "Batal"],
         );
         if (answer !== "Hapus") return;
 
         if (entry.kind === "account") {
-            await runLantanaCtl("account", "remove", entry.record.accountId);
+            await runLantanaCtl("account", "remove", entry.account!.accountId);
         } else if (entry.kind === "device") {
-            await runLantanaCtl("device", "remove", entry.record.accountId, entry.record.deviceId);
+            await runLantanaCtl(
+                "device",
+                "remove",
+                entry.device!.accountId,
+                entry.device!.deviceId,
+            );
         } else if (entry.kind === "scheme") {
             await runLantanaCtl(
                 "scheme",
                 "remove",
-                entry.record.ownerAccountId,
-                String(entry.record.schemeId),
+                entry.scheme!.ownerAccountId,
+                String(entry.scheme!.schemeId),
             );
         } else if (entry.kind === "dashboard") {
             await runLantanaCtl(
                 "dashboard",
                 "delete",
-                entry.record.accountId,
-                String(entry.record.dashboardId),
+                entry.dashboard!.accountId,
+                String(entry.dashboard!.dashboardId),
             );
-        } else if (entry.kind === "dashboardItem") {
+        } else {
             await runLantanaCtl(
                 "dashboard",
                 "item-remove",
-                entry.dashboard.accountId,
-                String(entry.dashboard.dashboardId),
-                String(entry.itemIndex),
+                entry.dashboard!.accountId,
+                String(entry.dashboard!.dashboardId),
+                String(entry.itemIndex ?? 0),
             );
         }
-        await refresh();
-        connectionStatus.caption = "Data dihapus";
+        selection = null;
+        await loadAll();
+        await syncSelection(null);
+        status.text = "Data dihapus";
     }
 
-    async function manageKey(): Promise<void> {
-        const entry = selectedEntry;
-        if (!entry) return;
-        if (entry.kind === "account") {
-            const action = entry.record.hasAccessKey ? "key-rotate" : "key-issue";
+    async function issueKey(): Promise<void> {
+        const entry = selection;
+        if (entry?.kind === "account") {
+            const action = entry.account?.hasAccessKey ? "key-rotate" : "key-issue";
             const result = await runLantanaCtl<{ accessKey: string }>(
                 "account",
                 action,
-                entry.record.accountId,
+                entry.account!.accountId,
             );
-            await form.alert(
-                action === "key-issue" ? "AccessKey diterbitkan" : "AccessKey dirotasi",
-                `Simpan key ini sekarang; setelah dialog ditutup, key tidak dapat dibaca lagi:\n${result.accessKey}`,
+            await TDialogs.alert(
+                form,
+                action === "key-issue"
+                    ? "AccessKey diterbitkan"
+                    : "AccessKey dirotasi",
+                `Simpan key ini sekarang; setelah dialog ditutup key tidak dapat dibaca lagi:\n${result.accessKey}`,
             );
-        } else if (entry.kind === "dashboard") {
+        } else if (entry?.kind === "dashboard") {
             const result = await runLantanaCtl<{ dashboardAccessKey: string }>(
                 "dashboard",
                 "key-rotate",
-                entry.record.accountId,
-                String(entry.record.dashboardId),
+                entry.dashboard!.accountId,
+                String(entry.dashboard!.dashboardId),
             );
-            await form.alert(
-                entry.record.hasAccessKey ? "Dashboard key dirotasi" : "Dashboard key diterbitkan",
-                `Simpan key ini sekarang; setelah dialog ditutup, key tidak dapat dibaca lagi:\n${result.dashboardAccessKey}`,
+            await TDialogs.alert(
+                form,
+                entry.dashboard?.hasAccessKey
+                    ? "Dashboard key dirotasi"
+                    : "Dashboard key diterbitkan",
+                `Simpan key ini sekarang; setelah dialog ditutup key tidak dapat dibaca lagi:\n${result.dashboardAccessKey}`,
             );
         }
-        await refresh();
+        await loadAll();
+        await syncSelection();
+        status.text = "Key diperbarui";
     }
 
     async function revokeKey(): Promise<void> {
-        const entry = selectedEntry;
+        const entry = selection;
         if (!entry) return;
-        const answer = await form.confirm(
+        const answer = await TDialogs.confirm(
+            form,
             "Konfirmasi pencabutan key",
-            "Key yang dicabut tidak bisa digunakan lagi untuk autentikasi. Lanjutkan?",
+            "Key yang dicabut tidak bisa dipakai lagi untuk autentikasi. Lanjutkan?",
             ["Cabut", "Batal"],
         );
         if (answer !== "Cabut") return;
         if (entry.kind === "account") {
-            await runLantanaCtl("account", "key-revoke", entry.record.accountId);
+            await runLantanaCtl("account", "key-revoke", entry.account!.accountId);
         } else if (entry.kind === "dashboard") {
             await runLantanaCtl(
                 "dashboard",
                 "key-revoke",
-                entry.record.accountId,
-                String(entry.record.dashboardId),
+                entry.dashboard!.accountId,
+                String(entry.dashboard!.dashboardId),
             );
         }
-        await refresh();
+        await loadAll();
+        await syncSelection();
+        status.text = "Key dicabut";
     }
+
+    addButton.onClick = () => void run(startCreate);
+    saveButton.onClick = () => void run(save);
+    cancelButton.onClick = () => void run(cancel);
+    removeButton.onClick = () => void run(remove);
+    keyButton.onClick = () => void run(issueKey);
+    revokeButton.onClick = () => void run(revokeKey);
+    refreshButton.onClick = () =>
+        void run(async () => {
+            await loadAll();
+            await syncSelection();
+            status.text = "Data dimuat ulang";
+        });
+
+    renderEditor();
+    updateToolbar();
+
+    form.onSetup = async () => {
+        await form.maximize();
+        await run(async () => {
+            await loadAll();
+            const first = tree.nodes.find((node) => node.id !== "server");
+            const payload = first ? findPayload(first.id) : null;
+            if (first) await tree.select(first.id, false);
+            await selectPayload(payload);
+        });
+    };
+
+    await form.run();
 });

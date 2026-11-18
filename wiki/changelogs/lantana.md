@@ -6,6 +6,39 @@
 
 ## 2026-11-18
 
+### Control Panel dipindah ke Pistachio dengan navigasi pohon
+
+- **File:** `src/mirror/opt/lantana/lantana-control-panel.ts`,
+  `src/mirror/lib/lantana/control-panel-tree.ts` (baru),
+  `control-panel-tree.test.ts` (baru).
+- **Latar:** control panel lama memakai Cashew dan navigasinya berupa tombol
+  section + daftar datar, sehingga akun, device, scheme, dan dashboard
+  tercampur dalam satu list per section.
+- **Perubahan UI:** panel kini dibangun dari komponen Pistachio (`TForm`,
+  `TTreeView`, `TVStack`, `THStack`, `TGridPanel`, `TScrollBox`, `TEdit`,
+  `TComboBox`, `TLabel`, `TButton`, `TDialogs`).
+- **Navigasi pohon:** akun → `Device (n)` / `Scheme (n)` / `Portable Dashboard (n)`
+  → entri → item dashboard. Klik baris akun/grup membuka anaknya; klik entri
+  menampilkan editornya. Sub-akun tampil sebagai anak akun induk, akun dengan
+  parent hilang tetap muncul sebagai root.
+- **Editing:** field langsung bisa disunting tanpa mode terpisah; tombol Simpan
+  mengirim perubahan ke `lantana-ctl` (`account permissions`, `device update`,
+  `scheme update`, `dashboard update`, `dashboard item-set`). Tombol Tambah
+  mengikuti konteks pilihan (sub-akun, device, scheme, dashboard, atau item),
+  dan Batal membatalkan draft.
+- **Konsistensi:** setelah memuat ulang data, entri terpilih disegarkan dari
+  registry supaya editor tidak menampilkan record lama; item baru langsung
+  terpilih setelah disimpan.
+- **Testabilitas:** model pohon dipisah ke `control-panel-tree.ts`
+  (`buildControlTree`, `findPayload`, `nodeIdOf`) sehingga bisa diuji tanpa
+  menjalankan window.
+- **Verifikasi:** 5 tes model pohon lulus; 204 tes Pistachio + Lantana lulus;
+  typecheck tidak menambah error baru.
+- **Oleh:** Copilot
+
+---
+## 2026-11-18
+
 ### Sesi device pulih setelah server/Lantana restart
 - **File:** `src/mirror/lib/lantana/lantana-listener.ts`, `lantana-listener.test.ts`,
   `platformio/TSIX-All-in-One/lib/lantana-auth/{lantana_auth.h,lantana_auth.cpp}`,

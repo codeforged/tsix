@@ -435,7 +435,7 @@ menyediakan buffer/cursor `TClientDataset` dan binding notifikasi
 
 ### Fase 6–8
 
-- [x] Kontrol dasar (`TLabel`, `TButton`, `TEdit`, `TMemo`, `TCheckBox`, `TRadioButton`, `TComboBox`, `TListBox`)
+- [x] Kontrol dasar (`TLabel`, `TButton`, `TEdit`, `TMemo`, `TCheckBox`, `TRadioButton`, `TComboBox`, `TListBox`, `TTreeView`)
 - [x] Layout (`TPanel`, `THStack`, `TVStack`, `TGridPanel`, `TScrollBox`, `TSpacer`, `TGroupBox`)
 - [x] `TForm` (window + mount/bind/refresh/dispose)
 - [x] `TDataGrid` — data manual, **tidak** terhubung ke stack database

@@ -6,6 +6,25 @@
 
 ## 2026-11-18
 
+### `TTreeView` dan `TForm.maximize()`
+
+- **File:** `src/mirror/lib/pistachio/treeview.ts` (baru),
+  `src/mirror/lib/pistachio/form.ts`, `src/mirror/lib/pistachio.ts`,
+  `src/mirror/lib/pistachio-controls.test.ts`.
+- **Komponen:** `TTreeView` menampilkan pohon beranak dengan `icon`, `hint`, dan
+  `data` per simpul. Baris di-flatten sesuai state buka/tutup sehingga pemakai
+  tidak menghitung kedalaman sendiri. `onSelect` memberi simpul yang diklik,
+  `onToggle` melaporkan buka/tutup; `select()` ikut membuka rantai induknya.
+- **Interaksi:** klik baris memilih simpul (dan membuka anaknya bila tertutup),
+  sedangkan klik chevron hanya membuka/menutup agar pemilihan tidak berubah.
+- **API:** `setNodes()` mengganti isi pohon sambil mempertahankan id yang masih
+  ada, `expand()/collapse()/toggle()/expandAll()/collapseAll()`, serta getter
+  `rows`, `selectedId`, `selectedNode`, dan `expandedIds`.
+- **`TForm.maximize()`:** meneruskan ke `Screen.maximize()` supaya form bisa
+  dibuka penuh tanpa mengakses `form.screen`.
+- **Verifikasi:** 5 tes `TTreeView` ditambahkan; 25 tes controls lulus.
+- **Oleh:** Copilot
+
 ### Fase 4 DB — DB Controls
 
 - **File:** `src/mirror/lib/pistachio/dbcontrols.ts`,

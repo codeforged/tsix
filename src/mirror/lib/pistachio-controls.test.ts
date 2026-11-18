@@ -18,6 +18,7 @@ import {
   TRadioButton,
   TScrollBox,
   TSpacer,
+  TTreeView,
   TVStack,
   type TScreenPort,
 } from "@tsix/pistachio";
@@ -41,6 +42,16 @@ function clickHandler(port: ReturnType<typeof createPort>, id: string) {
   const call = port.on.mock.calls.find(
     ([target, event]) => target === id && event === "click",
   );
+  if (!call) throw new Error(`no click handler for ${id}`);
+  return call[2] as () => void;
+}
+
+/** Baris pohon dirender ulang, jadi handler terakhir yang dipakai. */
+function lastClickHandler(port: ReturnType<typeof createPort>, id: string) {
+  const calls = port.on.mock.calls.filter(
+    ([target, event]) => target === id && event === "click",
+  );
+  const call = calls[calls.length - 1];
   if (!call) throw new Error(`no click handler for ${id}`);
   return call[2] as () => void;
 }
@@ -364,6 +375,96 @@ describe("TDataGrid", () => {
     call[2]();
 
     expect(onSort).toHaveBeenCalledWith("no", "asc");
+  });
+});
+
+describe("TTreeView", () => {
+  function makeNodes() {
+    return [
+      {
+        id: "acc",
+        label: "juragan",
+        icon: "◉",
+        children: [
+          {
+            id: "grp-devices",
+            label: "Device (1)",
+            children: [{ id: "dev-a", label: "Sensor A", hint: "d1" }],
+          },
+          {
+            id: "dash",
+            label: "Sensor Rumah",
+            children: [{ id: "item-1", label: "Suhu Ruangan" }],
+          },
+        ],
+      },
+    ];
+  }
+
+  it("renders only open branches and toggles them from the chevron", async () => {
+    const port = createPort();
+    const tree = new TTreeView({ nodes: makeNodes() });
+    tree.bindEventHandler(port);
+
+    expect(tree.rows.map((row) => row.node.id)).toEqual(["acc"]);
+
+    lastClickHandler(port, `${tree.id}_tog_0`)();
+    await vi.waitFor(() =>
+      expect(tree.rows.map((row) => row.node.id)).toEqual([
+        "acc",
+        "grp-devices",
+        "dash",
+      ]),
+    );
+    expect(tree.rows[1].depth).toBe(1);
+
+    lastClickHandler(port, `${tree.id}_tog_0`)();
+    await vi.waitFor(() => expect(tree.rows).toHaveLength(1));
+    tree.dispose();
+  });
+
+  it("selects a row, opens its ancestors, and reports the node", async () => {
+    const port = createPort();
+    const tree = new TTreeView({ nodes: makeNodes() });
+    tree.bindEventHandler(port);
+    const onSelect = vi.fn();
+    tree.onSelect = onSelect;
+
+    lastClickHandler(port, `${tree.id}_row_0`)();
+    await vi.waitFor(() =>
+      expect(onSelect).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "acc" }),
+      ),
+    );
+    expect(tree.selectedId).toBe("acc");
+    expect(tree.isExpanded("acc")).toBe(true);
+
+    await tree.select("item-1");
+    expect(tree.selectedNode?.label).toBe("Suhu Ruangan");
+    expect(tree.isExpanded("dash")).toBe(true);
+    expect(tree.rows.map((row) => row.node.id)).toContain("item-1");
+    tree.dispose();
+  });
+
+  it("keeps expansion for ids that survive setNodes", async () => {
+    const port = createPort();
+    const tree = new TTreeView({ nodes: makeNodes() });
+    tree.bindEventHandler(port);
+    await tree.expand("acc");
+    await tree.select("dev-a", false);
+
+    await tree.setNodes([
+      {
+        id: "acc",
+        label: "juragan",
+        children: [{ id: "dev-b", label: "Sensor B" }],
+      },
+    ]);
+
+    expect(tree.isExpanded("acc")).toBe(true);
+    expect(tree.selectedId).toBeNull();
+    expect(tree.rows.map((row) => row.node.id)).toEqual(["acc", "dev-b"]);
+    tree.dispose();
   });
 });
 
