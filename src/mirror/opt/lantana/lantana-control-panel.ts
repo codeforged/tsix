@@ -1338,7 +1338,15 @@ export const main = Program(async () => {
             return;
         }
         const accountId = selection?.account?.accountId ?? accounts[0]?.accountId ?? "";
-        if (!accountId && kind !== "server") {
+        // Akun root tidak butuh akun induk, jadi tetap boleh dibuat saat data
+        // masih kosong; hanya entri turunan yang mensyaratkan akun.
+        const needsAccount =
+            kind === "group" ||
+            kind === "device" ||
+            kind === "scheme" ||
+            kind === "dashboard" ||
+            kind === "item";
+        if (!accountId && needsAccount) {
             throw new Error("Belum ada akun. Buat akun root terlebih dahulu.");
         }
 
