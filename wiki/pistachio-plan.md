@@ -142,21 +142,28 @@ const toolbar = new THStack({
 ## 5. Struktur Paket
 
 ```
+src/mirror/lib/pistachio.ts        // barrel publik (@tsix/pistachio)
 src/mirror/lib/pistachio/
-  index.ts          // re-export publik
-  core/             // TComponent, TOptions, registry, lifecycle, errors
-  controls/         // TLabel, TButton, TEdit, TMemo, TCheckBox, TComboBox, ...
-  layout/           // THStack, TVStack, TGridPanel, TSplit, TScrollBox, TSpacer
-  widgets/          // TLineChart, TRadialGauge, TSensorCard, TDataGrid, ...
-  data/             // TDBConnection, TProvider, TClientDataset, TDataSource
-  dbcontrols/       // TDBText, TDBEdit, TDBListBox, TDBMemo, TDBGrid, TDBNavigator
+  core.ts                          // TComponent, TOptions, registry, lifecycle, error, TScreenPort
+  layout.ts                        // TPanel, THStack, TVStack, TGridPanel, TScrollBox, TSpacer, TGroupBox
+  controls.ts                      // TLabel, TButton, TEdit, TMemo, TCheckBox, TRadioButton, TComboBox, TListBox
+  form.ts                          // TForm (window + mount/bind/refresh/dispose)
+  widgets.ts                       // TLineChart, TRadialGauge, TSensorCard, TChart, ...
+  data.ts                          // TDBConnection, TDBQuery, TProvider, TClientDataset, TDataSource
+  dbcontrols.ts                    // TDBText, TDBEdit, TDBListBox, TDBMemo, TDBGrid, TDBNavigator
 ```
+
+**Kenapa bukan folder dengan `index.ts`?** Resolver runtime memetakan
+`@tsix/<nama>` ke `/lib/<nama>.ts` (lihat `src/userland/WorkerEntry.ts`), jadi
+paket harus punya file barrel. Konsekuensi menguntungkan: import dalam
+(`@tsix/pistachio/core`) juga langsung berfungsi karena dipetakan ke
+`/lib/pistachio/core.ts`.
 
 Aturan struktur:
 
-- `core/` tidak boleh mengimpor `controls/`, `data/`, atau `dbcontrols/`.
-- `controls/` dan `widgets/` hanya bergantung pada `core/` + `emerald`.
-- `dbcontrols/` hanya berbicara ke `TDataSource`, bukan ke `TProvider`.
+- `core.ts` tidak boleh mengimpor modul lain di `pistachio/`.
+- `controls.ts` dan `widgets.ts` hanya bergantung pada `core.ts` + `emerald`.
+- `dbcontrols.ts` hanya berbicara ke `TDataSource`, bukan ke `TProvider`.
 
 ---
 
@@ -329,6 +336,10 @@ Referensi perilaku: [gui-db-test-csh.ts](../src/mirror/opt/test/gui-db-test-csh.
 Fase 0–4 menghasilkan slice MySQL yang bisa dipakai. Fase 5 membuktikan
 driver-agnostic. Fase 6–7 melengkapi cakupan.
 
+**Status eksekusi (2026-11-18):** Fase 0 selesai. Atas keputusan pemilik
+proyek, Fase 6 (kontrol dasar & layout) dikerjakan lebih dulu; Fase 1–5 (stack
+database) ditunda sampai komponen UI stabil.
+
 ---
 
 ## 10. Koeksistensi & Migrasi
@@ -367,11 +378,12 @@ driver-agnostic. Fase 6–7 melengkapi cakupan.
 
 ### Fase 0 — Core
 
-- [ ] Alias `@tsix/pistachio` di `tsconfig.json` + `vitest.config.mts`
-- [ ] `TOptions` + normalisasi konstruktor tunggal
-- [ ] `TComponent`: `add/remove/dispose/byId`, guard parent & ID
-- [ ] Error terketik (`EComponentError`)
-- [ ] Tes core
+- [x] Barrel `@tsix/pistachio` (resolusi runtime `@tsix/X` → `/lib/X.ts`)
+- [x] `TOptions` + normalisasi konstruktor tunggal
+- [x] `TComponent`: `add/remove/dispose/byId`, guard parent & ID
+- [x] Error terketik (`EComponentError`)
+- [x] Tes core
+- [ ] Verifikasi resolusi VFS runtime (butuh aplikasi demo, menyusul fase kontrol)
 
 ### Fase 1 — Driver, Connection & Query
 
@@ -411,9 +423,15 @@ driver-agnostic. Fase 6–7 melengkapi cakupan.
 
 ### Fase 6–8
 
-- [ ] Kontrol dasar & layout
-- [ ] Widget IoT
-- [ ] Dokumentasi `pistachio-in-a-nutshell.md` + changelog + panduan migrasi
+- [x] Kontrol dasar (`TLabel`, `TButton`, `TEdit`, `TMemo`, `TCheckBox`, `TRadioButton`, `TComboBox`, `TListBox`)
+- [x] Layout (`TPanel`, `THStack`, `TVStack`, `TGridPanel`, `TScrollBox`, `TSpacer`, `TGroupBox`)
+- [x] `TForm` (window + mount/bind/refresh/dispose)
+- [x] `TDataGrid` — data manual, **tidak** terhubung ke stack database
+- [x] Demo `src/mirror/opt/test/pistachio-demo.ts`
+- [x] Verifikasi runtime lewat DOME + `npm run vfs:bootstrap` (dikonfirmasi pemilik proyek, 2026-11-18)
+- [x] Widget IoT — `TProgressBar`, `TIndicatorLamp`, `TToggleSwitch`, `TRelayCard`, `TSensorCard`, `TLineChart`, `TRadialGauge`, `TSevenSegment`, `TVerticalGauge`
+- [ ] Widget lanjutan — `TImage`, `TSlider`, `TKeyboard`, `TStatusBar`, `TTabulatorGrid`
+- [ ] Dokumentasi `pistachio-in-a-nutshell.md` + panduan migrasi
 
 ---
 

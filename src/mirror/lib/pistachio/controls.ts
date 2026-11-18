@@ -1,0 +1,583 @@
+/**
+ * pistachio/controls.ts — Kontrol dasar Pistachio.
+ *
+ * Konvensi:
+ * - Props DOM (`text`, `value`, `onClickId`, `onInputId`) dibangun di `build()`.
+ * - State publik memakai accessor; perubahan setelah mount dikirim lewat `push()`.
+ * - Event memakai listener mount-time DOME + handler `host.on()`.
+ *
+ * (c) 2026 TSIX Project
+ */
+
+import { TComponent, TNode, TOptions, TScreenPort, TStyle } from "./core";
+
+const TEXT = "var(--text, #e0e0e0)";
+const TEXT_DIM = "var(--text-dim, #ccc)";
+const BORDER = "1px solid var(--border, rgba(255,255,255,0.12))";
+const ACCENT = "var(--accent, #4caf50)";
+
+const INPUT_STYLE: TStyle = {
+  width: "100%",
+  padding: "8px 12px",
+  background: "var(--input-bg, rgba(255,255,255,0.06))",
+  border: BORDER,
+  borderRadius: "6px",
+  color: TEXT,
+  fontSize: "13px",
+  outline: "none",
+  boxSizing: "border-box",
+};
+
+const READONLY_STYLE: TStyle = {
+  background: "var(--input-readonly-bg, rgba(255,255,255,0.03))",
+  color: "var(--text-muted, #8fa3bf)",
+  border: "1px solid rgba(255,255,255,0.06)",
+  boxShadow: "inset 0 1px 3px rgba(0,0,0,0.45)",
+  cursor: "default",
+};
+
+/** Gabungkan style dasar + style pengguna; tambah efek embos saat read-only. */
+function inputStyle(base: TStyle, user: TStyle, readOnly: boolean): TStyle {
+  return readOnly ? { ...base, ...user, ...READONLY_STYLE } : { ...base, ...user };
+}
+
+const MEMO_STYLE: TStyle = {
+  ...INPUT_STYLE,
+  fontFamily: "monospace",
+  resize: "vertical",
+};
+
+const CHECK_STYLE: TStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  cursor: "pointer",
+  fontSize: "12px",
+};
+
+/** Teks statis. */
+export interface TLabelOptions extends TOptions {
+  text?: string;
+}
+
+export class TLabel extends TComponent {
+  constructor(
+    idOrOpts?: string | TLabelOptions,
+    opts?: TLabelOptions,
+    knownProps: readonly string[] = [],
+  ) {
+    super(idOrOpts, opts, ["text", ...knownProps]);
+    this.tag = "span";
+    const o = this.options as TLabelOptions;
+    if (o.text !== undefined) this.text = o.text;
+    this.style = { color: TEXT_DIM, fontSize: "13px", ...this.style };
+  }
+
+  get text(): string {
+    return this.props.text ?? "";
+  }
+  set text(value: string) {
+    this.props.text = value;
+    this.push({ text: value });
+  }
+}
+
+/** Tombol dengan callback klik. */
+export interface TButtonOptions extends TOptions {
+  caption?: string;
+  enabled?: boolean;
+}
+
+export class TButton extends TComponent {
+  public onClick: (() => void) | null = null;
+
+  constructor(
+    idOrOpts?: string | TButtonOptions,
+    opts?: TButtonOptions,
+    knownProps: readonly string[] = [],
+  ) {
+    super(idOrOpts, opts, ["caption", "enabled", ...knownProps]);
+    this.tag = "button";
+    this.props.onClickId = this.id;
+    const o = this.options as TButtonOptions;
+    if (o.caption !== undefined) this.caption = o.caption;
+    if (o.enabled !== undefined) this.enabled = o.enabled;
+    this.style = {
+      background: "var(--button-bg, #0f3460)",
+      color: ACCENT,
+      border: `1px solid ${ACCENT}`,
+      borderRadius: "6px",
+      padding: "6px 16px",
+      cursor: "pointer",
+      fontSize: "12px",
+      fontWeight: "600",
+      ...this.style,
+    };
+  }
+
+  get caption(): string {
+    return this.props.text ?? "";
+  }
+  set caption(value: string) {
+    this.props.text = value;
+    this.push({ text: value });
+  }
+
+  get enabled(): boolean {
+    return !this.props.disabled;
+  }
+  set enabled(value: boolean) {
+    this.props.disabled = !value;
+    this.push({ disabled: !value });
+  }
+
+  bindEventHandler(host: TScreenPort): void {
+    super.bindEventHandler(host);
+    host.on(this.id, "click", () => this.onClick?.());
+  }
+}
+
+/** Input satu baris. */
+export interface TEditOptions extends TOptions {
+  text?: string;
+  placeholder?: string;
+  readOnly?: boolean;
+}
+
+export class TEdit extends TComponent {
+  public onInput: ((value: string) => void) | null = null;
+
+  constructor(
+    idOrOpts?: string | TEditOptions,
+    opts?: TEditOptions,
+    knownProps: readonly string[] = [],
+  ) {
+    super(idOrOpts, opts, ["text", "placeholder", "readOnly", ...knownProps]);
+    this.tag = "input";
+    this.props.type = "text";
+    this.props.onInputId = this.id;
+    const o = this.options as TEditOptions;
+    this.style = { ...INPUT_STYLE, ...this.style };
+    if (o.text !== undefined) this.text = o.text;
+    if (o.placeholder !== undefined) this.placeholder = o.placeholder;
+    if (o.readOnly !== undefined) this.readOnly = o.readOnly;
+  }
+
+  get text(): string {
+    return this.props.value ?? "";
+  }
+  set text(value: string) {
+    this.props.value = value;
+    this.push({ value });
+  }
+
+  get placeholder(): string {
+    return this.props.placeholder ?? "";
+  }
+  set placeholder(value: string) {
+    this.props.placeholder = value;
+    this.push({ placeholder: value });
+  }
+
+  get readOnly(): boolean {
+    return Boolean(this.props.readOnly);
+  }
+  set readOnly(value: boolean) {
+    this.props.readOnly = Boolean(value);
+    const userStyle = (this.options as TEditOptions).style ?? {};
+    this.style = inputStyle(INPUT_STYLE, userStyle, this.readOnly);
+    this.push({ readOnly: Boolean(value) });
+  }
+
+  bindEventHandler(host: TScreenPort): void {
+    super.bindEventHandler(host);
+    host.on(this.id, "input", (ev: any) => {
+      const value = ev?.value ?? "";
+      this.props.value = value;
+      this.onInput?.(value);
+    });
+  }
+}
+
+/** Input multiline. */
+export interface TMemoOptions extends TOptions {
+  text?: string;
+  rows?: number;
+  readOnly?: boolean;
+}
+
+export class TMemo extends TComponent {
+  public onInput: ((value: string) => void) | null = null;
+
+  constructor(
+    idOrOpts?: string | TMemoOptions,
+    opts?: TMemoOptions,
+    knownProps: readonly string[] = [],
+  ) {
+    super(idOrOpts, opts, ["text", "rows", "readOnly", ...knownProps]);
+    this.tag = "textarea";
+    this.props.onInputId = this.id;
+    const o = this.options as TMemoOptions;
+    this.style = { ...MEMO_STYLE, ...this.style };
+    this.rows = o.rows ?? 5;
+    if (o.text !== undefined) this.text = o.text;
+    if (o.readOnly !== undefined) this.readOnly = o.readOnly;
+  }
+
+  get text(): string {
+    return this.props.text ?? "";
+  }
+  set text(value: string) {
+    this.props.text = value;
+    this.push({ text: value });
+  }
+
+  get rows(): number {
+    return this.props.rows ?? 5;
+  }
+  set rows(value: number) {
+    this.props.rows = value;
+    this.push({ rows: value });
+  }
+
+  get readOnly(): boolean {
+    return Boolean(this.props.readOnly);
+  }
+  set readOnly(value: boolean) {
+    this.props.readOnly = Boolean(value);
+    const userStyle = (this.options as TMemoOptions).style ?? {};
+    this.style = inputStyle(MEMO_STYLE, userStyle, this.readOnly);
+    this.push({ readOnly: Boolean(value) });
+  }
+
+  bindEventHandler(host: TScreenPort): void {
+    super.bindEventHandler(host);
+    host.on(this.id, "input", (ev: any) => {
+      const value = ev?.value ?? "";
+      this.props.text = value;
+      this.onInput?.(value);
+    });
+  }
+}
+
+/** Checkbox dengan simbol teks (kompatibel DOME). */
+export interface TCheckBoxOptions extends TOptions {
+  caption?: string;
+  checked?: boolean;
+}
+
+export class TCheckBox extends TComponent {
+  public onClick: ((checked: boolean) => void) | null = null;
+  private _caption: string = "";
+
+  constructor(
+    idOrOpts?: string | TCheckBoxOptions,
+    opts?: TCheckBoxOptions,
+    knownProps: readonly string[] = [],
+  ) {
+    super(idOrOpts, opts, ["caption", "checked", ...knownProps]);
+    this.tag = "div";
+    this.props.onClickId = this.id;
+    const o = this.options as TCheckBoxOptions;
+    this._caption = o.caption ?? "";
+    if (o.checked !== undefined) this.checked = o.checked;
+    this.style = { ...CHECK_STYLE, ...this.style };
+  }
+
+  get caption(): string {
+    return this._caption;
+  }
+  set caption(value: string) {
+    this._caption = value;
+    this.pushChild(`${this.id}_cap`, { text: value });
+  }
+
+  get checked(): boolean {
+    return this.props["data-checked"] === "true";
+  }
+  set checked(value: boolean) {
+    this.props["data-checked"] = value ? "true" : "false";
+    this.pushChild(`${this.id}_sym`, { text: value ? "☑ " : "☐ " });
+  }
+
+  bindEventHandler(host: TScreenPort): void {
+    super.bindEventHandler(host);
+    host.on(this.id, "click", () => this.handleClick());
+  }
+
+  /** Perilaku klik default: toggle. Radio meng-override jadi pilih tunggal. */
+  protected handleClick(): void {
+    this.checked = !this.checked;
+    this.onClick?.(this.checked);
+  }
+
+  build(): TNode {
+    return {
+      id: this.id,
+      tag: this.tag,
+      props: { ...this.props, style: { ...this.style } },
+      children: [
+        {
+          id: `${this.id}_sym`,
+          tag: "span",
+          props: {
+            style: { fontSize: "20px", verticalAlign: "middle" },
+            text: this.checked ? "☑ " : "☐ ",
+          },
+          children: [],
+        },
+        {
+          id: `${this.id}_cap`,
+          tag: "span",
+          props: {
+            style: { fontSize: "11px", verticalAlign: "middle" },
+            text: this._caption,
+          },
+          children: [],
+        },
+      ],
+    };
+  }
+
+  private pushChild(id: string, props: Record<string, any>): void {
+    if (this.host) void this.host.update(id, props);
+  }
+}
+
+/** Radio button dengan pengelompokan per parent. */
+export interface TRadioButtonOptions extends TCheckBoxOptions {
+  group?: string;
+}
+
+export class TRadioButton extends TCheckBox {
+  private _group: string;
+
+  constructor(
+    idOrOpts?: string | TRadioButtonOptions,
+    opts?: TRadioButtonOptions,
+  ) {
+    super(idOrOpts, opts, ["group"]);
+    const o = this.options as TRadioButtonOptions;
+    this._group = o.group ?? "default";
+  }
+
+  get group(): string {
+    return this._group;
+  }
+
+  protected handleClick(): void {
+    if (this.checked) return;
+
+    const parent = this.parent;
+    if (parent) {
+      for (const sibling of parent.children) {
+        if (
+          sibling instanceof TRadioButton &&
+          sibling !== this &&
+          sibling.group === this._group
+        ) {
+          sibling.checked = false;
+        }
+      }
+    }
+
+    this.checked = true;
+    this.onClick?.(true);
+  }
+}
+
+/** Dropdown pilihan tunggal. */
+export interface TComboBoxOptions extends TOptions {
+  items?: string[];
+  selectedIndex?: number;
+}
+
+export class TComboBox extends TComponent {
+  public onChange: ((index: number, item: string) => void) | null = null;
+  private _items: string[] = [];
+  private _selectedIndex: number = -1;
+
+  constructor(
+    idOrOpts?: string | TComboBoxOptions,
+    opts?: TComboBoxOptions,
+    knownProps: readonly string[] = [],
+  ) {
+    super(idOrOpts, opts, ["items", "selectedIndex", ...knownProps]);
+    this.tag = "select";
+    this.props.onInputId = this.id;
+    const o = this.options as TComboBoxOptions;
+    this._items = [...(o.items ?? [])];
+    this._selectedIndex = o.selectedIndex ?? -1;
+    this.style = {
+      ...INPUT_STYLE,
+      padding: "8px 10px",
+      cursor: "pointer",
+      ...this.style,
+    };
+  }
+
+  get items(): readonly string[] {
+    return this._items;
+  }
+  set items(value: string[]) {
+    this._items = [...value];
+    if (this._selectedIndex >= this._items.length) this._selectedIndex = -1;
+  }
+
+  get selectedIndex(): number {
+    return this._selectedIndex;
+  }
+  set selectedIndex(value: number) {
+    this._selectedIndex = value;
+    this.push({ value: String(value) });
+  }
+
+  bindEventHandler(host: TScreenPort): void {
+    super.bindEventHandler(host);
+    host.on(this.id, "input", (ev: any) => {
+      const index = Number.parseInt(ev?.value ?? "", 10);
+      if (Number.isNaN(index)) return;
+      this._selectedIndex = index;
+      this.onChange?.(index, this._items[index] ?? "");
+    });
+  }
+
+  build(): TNode {
+    return {
+      id: this.id,
+      tag: this.tag,
+      props: { ...this.props, style: { ...this.style } },
+      children: this._items.map((item, index) => ({
+        id: `${this.id}_opt_${index}`,
+        tag: "option",
+        props: {
+          value: String(index),
+          text: item,
+          ...(index === this._selectedIndex ? { selected: true } : {}),
+        },
+        children: [],
+      })),
+    };
+  }
+}
+
+/** Daftar pilihan dengan seleksi baris. */
+export interface TListBoxOptions extends TOptions {
+  items?: string[];
+  selectedIndex?: number;
+}
+
+export class TListBox extends TComponent {
+  public onClick: ((index: number, item: string) => void) | null = null;
+  private _items: string[] = [];
+  private _selectedIndex: number = -1;
+
+  constructor(
+    idOrOpts?: string | TListBoxOptions,
+    opts?: TListBoxOptions,
+    knownProps: readonly string[] = [],
+  ) {
+    super(idOrOpts, opts, ["items", "selectedIndex", ...knownProps]);
+    this.tag = "div";
+    const o = this.options as TListBoxOptions;
+    this._items = [...(o.items ?? [])];
+    this._selectedIndex = o.selectedIndex ?? -1;
+    this.style = {
+      background: "var(--surface, rgba(0,0,0,0.2))",
+      borderRadius: "6px",
+      padding: "4px",
+      overflowY: "auto",
+      minHeight: "100px",
+      width: "100%",
+      minWidth: "0",
+      border: "1px solid rgba(255,255,255,0.08)",
+      ...this.style,
+    };
+  }
+
+  get items(): readonly string[] {
+    return this._items;
+  }
+  set items(value: string[]) {
+    this._items = [...value];
+    if (this._selectedIndex >= this._items.length) this._selectedIndex = -1;
+  }
+
+  get selectedIndex(): number {
+    return this._selectedIndex;
+  }
+  set selectedIndex(value: number) {
+    this._selectedIndex = value;
+    this.applySelection();
+  }
+
+  /** Ganti isi list saat runtime; butuh host dengan `setContent`. */
+  async setItems(items: string[]): Promise<void> {
+    this._items = [...items];
+    this._selectedIndex = -1;
+    if (!this.host?.setContent) return;
+
+    await this.host.setContent(this.id, ...this.build().children);
+    this.bindRows();
+  }
+
+  bindEventHandler(host: TScreenPort): void {
+    super.bindEventHandler(host);
+    this.bindRows();
+  }
+
+  build(): TNode {
+    return {
+      id: this.id,
+      tag: this.tag,
+      props: { ...this.props, style: { ...this.style } },
+      children: this._items.map((item, index) => ({
+        id: `${this.id}_item_${index}`,
+        tag: "div",
+        props: {
+          onClickId: `${this.id}_item_${index}`,
+          text: item,
+          style: this.rowStyle(index),
+        },
+        children: [],
+      })),
+    };
+  }
+
+  private bindRows(): void {
+    const host = this.host;
+    if (!host) return;
+
+    this._items.forEach((_, index) => {
+      host.on(`${this.id}_item_${index}`, "click", () => this.select(index));
+    });
+  }
+
+  private select(index: number): void {
+    this._selectedIndex = index;
+    this.applySelection();
+    this.onClick?.(index, this._items[index] ?? "");
+  }
+
+  private applySelection(): void {
+    const host = this.host;
+    if (!host) return;
+    this._items.forEach((_, index) => {
+      void host.update(`${this.id}_item_${index}`, {
+        style: this.rowStyle(index),
+      });
+    });
+  }
+
+  private rowStyle(index: number): TStyle {
+    const active = index === this._selectedIndex;
+    return {
+      padding: "5px 3px",
+      cursor: "pointer",
+      fontSize: "12px",
+      borderRadius: "4px",
+      color: active ? ACCENT : TEXT_DIM,
+      background: active ? "var(--accent-bg, rgba(76,175,80,0.15))" : "transparent",
+    };
+  }
+}
