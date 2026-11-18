@@ -37,6 +37,15 @@ describe("TDialogs", () => {
     expect(screen.alert).toHaveBeenCalledWith("Info", "Halo");
   });
 
+  it("alert forwards width options for long content", async () => {
+    const { owner, screen } = fakeOwner();
+    await TDialogs.alert(owner, "AccessKey", "abc123", { width: "auto" });
+
+    expect(screen.alert).toHaveBeenCalledWith("AccessKey", "abc123", {
+      width: "auto",
+    });
+  });
+
   it("confirm returns the clicked button label", async () => {
     const { owner, screen } = fakeOwner();
     const answer = await TDialogs.confirm(owner, "Hapus?", "Yakin?", [

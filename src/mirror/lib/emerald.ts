@@ -3628,6 +3628,18 @@ function splitTitleIcon(
   return { icon, title: rest || "App" };
 }
 
+export interface TAlertOptions {
+  /**
+   * Lebar kotak dialog.
+   * - angka: lebar dalam piksel
+   * - "auto" | "fit-content": melebar mengikuti isi (mis. AccessKey panjang)
+   * - string CSS lain: dipakai apa adanya
+   */
+  width?: number | string;
+  /** Batas lebar maksimum; default `min(560px, 90vw)` (atau `90vw` saat auto). */
+  maxWidth?: number | string;
+}
+
 export class Window {
   /** Window ID (unik, auto-generated) */
   public readonly wid: string;
@@ -4397,11 +4409,24 @@ export class Window {
    * Usage:
    *   await win.alert("File berhasil disimpan!");
    *   await win.alert("Error!", "Gagal menyimpan file.");
+   *   await win.alert("AccessKey", key, { width: "auto" });
    */
-  public async alert(title: string, message?: string): Promise<void> {
+  public async alert(
+    title: string,
+    message?: string,
+    options: TAlertOptions = {},
+  ): Promise<void> {
     const suffix = Math.random().toString(36).slice(2, 7);
     const overlayId = `__alert_overlay_${suffix}`;
     const btnId = `${overlayId}_btn`;
+    const cssSize = (value?: number | string) =>
+      typeof value === "number" ? `${value}px` : value;
+    const autoWidth =
+      options.width === "auto" || options.width === "fit-content";
+    const boxWidth = autoWidth ? "max-content" : cssSize(options.width);
+    const boxMaxWidth =
+      cssSize(options.maxWidth) ??
+      (autoWidth ? "90vw" : "min(560px, 90vw)");
 
     await this.mount(
       div(
@@ -4430,8 +4455,9 @@ export class Window {
               border: "1px solid var(--accent, #4caf50)",
               borderRadius: "12px",
               padding: "32px",
-              minWidth: "280px",
-              maxWidth: "400px",
+              minWidth: "320px",
+              width: boxWidth ?? "auto",
+              maxWidth: boxMaxWidth,
               textAlign: "center",
               boxShadow: "0 8px 40px rgba(0,0,0,0.6)",
               pointerEvents: "auto",
@@ -4460,6 +4486,10 @@ export class Window {
               marginBottom: "20px",
               textAlign: "left",
               whiteSpace: "pre-wrap",
+              // Token panjang tanpa spasi (mis. AccessKey) harus turun baris
+              // alih-alih melimpah keluar kotak dialog.
+              overflowWrap: "anywhere",
+              wordBreak: "break-word",
             },
           }),
           button({
@@ -5017,10 +5047,15 @@ export class Screen {
    * Usage:
    *   await app.alert("File berhasil disimpan!");
    *   await app.alert("Error!", "Gagal menyimpan file.");
+   *   await app.alert("AccessKey", key, { width: "auto" });
    */
-  async alert(title: string, message?: string): Promise<void> {
+  async alert(
+    title: string,
+    message?: string,
+    options: TAlertOptions = {},
+  ): Promise<void> {
     // Delegasi ke Window.alert — implementasi ada di level Window.
-    return await this.win.alert(title, message);
+    return await this.win.alert(title, message, options);
   }
 
   /**

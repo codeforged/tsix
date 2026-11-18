@@ -1305,8 +1305,9 @@ export const main = Program(async () => {
 
         const monitorGroupSelected =
             selection?.kind === "group" && selection.group === "monitor";
-        addButton.enabled =
-            !monitorGroupSelected && selection?.kind !== "server";
+        // "Status layanan" dan kondisi tanpa pilihan tetap bisa membuat akun
+        // root; hanya Monitor yang murni read-only.
+        addButton.enabled = !monitorGroupSelected;
         saveButton.enabled = draft !== null || editable;
         cancelButton.enabled = draft !== null;
         removeButton.enabled = editable && draft === null;
@@ -1679,6 +1680,7 @@ export const main = Program(async () => {
                     ? "AccessKey diterbitkan"
                     : "AccessKey dirotasi",
                 `Simpan key ini sekarang; setelah dialog ditutup key tidak dapat dibaca lagi:\n${result.accessKey}`,
+                { width: "auto" },
             );
         } else if (entry?.kind === "dashboard") {
             const result = await runLantanaCtl<{ dashboardAccessKey: string }>(
@@ -1693,6 +1695,7 @@ export const main = Program(async () => {
                     ? "Dashboard key dirotasi"
                     : "Dashboard key diterbitkan",
                 `Simpan key ini sekarang; setelah dialog ditutup key tidak dapat dibaca lagi:\n${result.dashboardAccessKey}`,
+                { width: "auto" },
             );
         }
         const version = selectionVersion;

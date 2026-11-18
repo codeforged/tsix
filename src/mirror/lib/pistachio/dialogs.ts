@@ -7,7 +7,7 @@
  * (c) 2026 TSIX Project
  */
 
-import { Screen } from "@tsix/emerald";
+import { Screen, type TAlertOptions } from "@tsix/emerald";
 import { fs } from "@tsix/Application";
 import { TForm } from "./form";
 
@@ -50,8 +50,12 @@ export class TDialogs {
     owner: TDialogOwner,
     title: string,
     message?: string,
+    options?: TAlertOptions,
   ): Promise<void> {
-    await resolveScreen(owner).alert(title, message);
+    const screen = resolveScreen(owner);
+    // Pertahankan pemanggilan dua argumen untuk pemilik dialog lama/mock.
+    if (options) await screen.alert(title, message, options);
+    else await screen.alert(title, message);
   }
 
   static async confirm(
