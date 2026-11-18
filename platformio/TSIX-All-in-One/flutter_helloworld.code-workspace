@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"path": "../../../../flutter/helloworld/flutter_helloworld"
+		},
+		{
+			"path": "../../.."
+		},
+		{
+			"name": "TSIX-All-in-One",
+			"path": ".."
+		}
+	],
+	"settings": {}
+}

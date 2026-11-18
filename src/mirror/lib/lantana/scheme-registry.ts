@@ -39,6 +39,15 @@ export class SchemeRegistry {
         if (!def.ownerAccountId) throw new SchemeRegistryError("ownerAccountId wajib diisi");
         if (!isSchemeType(def.type)) throw new SchemeRegistryError(`tipe scheme tidak valid: ${def.type}`);
         if (!def.label || !def.label.trim()) throw new SchemeRegistryError("label wajib diisi");
+        if (def.min !== undefined && !Number.isFinite(def.min)) {
+            throw new SchemeRegistryError("min harus berupa angka finite");
+        }
+        if (def.max !== undefined && !Number.isFinite(def.max)) {
+            throw new SchemeRegistryError("max harus berupa angka finite");
+        }
+        if (def.min !== undefined && def.max !== undefined && def.min > def.max) {
+            throw new SchemeRegistryError("min tidak boleh lebih besar dari max");
+        }
 
         const record: SchemeDef = {
             schemeId: def.schemeId,
@@ -74,8 +83,18 @@ export class SchemeRegistry {
         if (patch.label !== undefined && !patch.label.trim()) {
             throw new SchemeRegistryError("label tidak boleh kosong");
         }
+        if (patch.min !== undefined && !Number.isFinite(patch.min)) {
+            throw new SchemeRegistryError("min harus berupa angka finite");
+        }
+        if (patch.max !== undefined && !Number.isFinite(patch.max)) {
+            throw new SchemeRegistryError("max harus berupa angka finite");
+        }
 
-        const next: SchemeDef = { ...rec, ...patch };
+        const next: SchemeDef = {
+            ...rec,
+            ...patch,
+            ...(patch.label !== undefined ? { label: patch.label.trim() } : {}),
+        };
         if (next.min !== undefined && next.max !== undefined && next.min > next.max) {
             throw new SchemeRegistryError("min tidak boleh lebih besar dari max");
         }

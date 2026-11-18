@@ -11,7 +11,7 @@ export class MySQLDevice implements IDevice {
     uid = 0;
     gid = 0;
     mode = 0o660;
-    disabled: boolean = true;
+    disabled: boolean = false;
 
     /**
      * MULTI-INSTANCE: koneksi disimpan per-PID (Map<pid, Connection>).

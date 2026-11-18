@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-11-18
+
+### `portableDashboard` dipindah ke `/etc/lantana/dashboard.json`
+- **File:** `src/mirror/lib/lantana/dashboard-registry.ts` (baru), `dashboard-registry.test.ts` (baru), `account-manager.ts`, `lantana-core.ts`, `lantana-store.ts`, `lantana-ctl.ts`, `lantana-dashboard-server.ts`
+- **Masalah:** konfigurasi dashboard menumpang di `accounts.json` bersama kredensial akun, sehingga edit dashboard berisiko menyentuh file kredensial dan formatnya bercampur.
+- **Perubahan:** dashboard + verifier key-nya dipisah ke registry sendiri dengan file `/etc/lantana/dashboard.json` berformat `[{ accountId, portableDashboard, createdAt }]`. `accounts.json` tidak lagi memuat `portableDashboard`. State lama yang masih menyimpan dashboard di `accounts.json` dimigrasikan otomatis saat `loadState()` (dashboardId duplikat tidak digandakan).
+- **Dampak:** `lantana-ctl dashboard ...`, `lantana-dashboard-server`, dan `account list` membaca/menulis ke file dashboard; isi dashboard yang sudah ada tetap terbaca.
+- **Oleh:** Copilot
+
+---
+
 ## 2026-08-31 (lanjutan 2)
 
 ### Fix duplikasi daftar device di dashboard (race render)

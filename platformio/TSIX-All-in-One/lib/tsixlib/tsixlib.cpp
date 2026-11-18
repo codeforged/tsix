@@ -8,7 +8,7 @@ TSIX *TSIX::instance = nullptr;
 // Constructor / init
 // ============================================================
 TSIX::TSIX(const char *id, uint16_t port, const char *apiKeyHex, const char *mqttServer, int mqttPort)
-    : id(id), port(port), apiKey(apiKeyHex), mqttServer(mqttServer), mqttPort(mqttPort),
+    : id(id), port(port), apiKey(apiKeyHex), mqttServer(mqttServer), mqttPort(mqttPort), plainCb(nullptr),
       mqttClient(espClient), encCb(nullptr), rawCb(nullptr)
 {
   memset(keyBytes, 0, sizeof(keyBytes));
@@ -167,9 +167,91 @@ bool TSIX::decrypt(const uint8_t *in, uint8_t *out, const uint8_t *nonce, const 
   return memcmp(tagBytes, verify, TSIX_TAG_SIZE) == 0;
 }
 
+void TSIX::setSessionKey(const uint8_t *key)
+{
+  if (key)
+    memcpy(keyBytes, key, TSIX_KEY_SIZE);
+}
+
+void TSIX::setSessionKeyHex(const char *hex)
+{
+  if (hex)
+    hexToBytes(hex, keyBytes, sizeof(keyBytes));
+}
+
+bool TSIX::encryptPayloadHex(const char *payload, char *out, size_t outCap)
+{
+  if (!payload || !out)
+    return false;
+
+  size_t payloadLen = strlen(payload);
+  size_t wireLen = TSIX_NONCE_SIZE + TSIX_TAG_SIZE + payloadLen;
+  if (payloadLen > 4096 || outCap < wireLen * 2 + 1)
+    return false;
+
+  uint8_t nonce[TSIX_NONCE_SIZE];
+  randomBytes(nonce, sizeof(nonce));
+
+  uint8_t *cipher = (uint8_t *)malloc(payloadLen ? payloadLen : 1);
+  if (!cipher)
+    return false;
+  encrypt((const uint8_t *)payload, cipher, nonce, payloadLen);
+
+  size_t offset = bytesToHex(nonce, sizeof(nonce), out, outCap);
+  offset += bytesToHex(tag, sizeof(tag), out + offset, outCap - offset);
+  offset += bytesToHex(cipher, payloadLen, out + offset, outCap - offset);
+  free(cipher);
+  return offset == wireLen * 2;
+}
+
 // ============================================================
 // Kanal v1.0 — JSON terenkripsi
 // ============================================================
+
+/**
+ * sendPlain(): publish JSON MQTNL v1.0 TANPA enkripsi (pesan kontrol
+ * handshake). Isi payload di-escape agar koma di dalam JSON tidak memecah
+ * field wire protocol.
+ */
+bool TSIX::sendPlain(const char *dstAddress, int dstPort, const char *payload)
+{
+  if (!mqttClient.connected() || !payload || !dstAddress)
+    return false;
+
+  size_t len = strlen(payload);
+  char *escaped = (char *)malloc(len * 2 + 1);
+  if (!escaped)
+    return false;
+  char *w = escaped;
+  for (const char *r = payload; *r; r++)
+  {
+    if (*r == '"' || *r == '\\')
+      *w++ = '\\';
+    *w++ = *r;
+  }
+  *w = '\0';
+
+  size_t cap = 64 + id.length() + strlen(dstAddress) + strlen(escaped);
+  char *json = (char *)malloc(cap);
+  if (!json)
+  {
+    free(escaped);
+    return false;
+  }
+  snprintf(json, cap, "[\"%s\",%u,\"%s\",%d,1,0,%u,0,0,\"%s\"]",
+           id.c_str(), (unsigned)port, dstAddress, dstPort,
+           (unsigned)strlen(escaped), escaped);
+
+  String topic = "mqtnl@1.0/";
+  topic += dstAddress;
+  bool ok = mqttClient.beginPublish(topic.c_str(), strlen(json), false) &&
+            mqttClient.write((uint8_t *)json, strlen(json)) == strlen(json) &&
+            mqttClient.endPublish();
+
+  free(escaped);
+  free(json);
+  return ok;
+}
 bool TSIX::sendEncrypted(const char *dstAddress, int dstPort, const char *payload)
 {
   if (!mqttClient.connected() || !payload)
@@ -358,33 +440,75 @@ void TSIX::handleV1(const char *topic, byte *payload, unsigned int length)
   size_t l = strlen(json);
   if (l && json[l - 1] == ']') json[l - 1] = '\0';
 
-  const char *srcAddress = nullptr;
-  int srcPort = 0;
-  const char *dstAddress = nullptr;
-  int dstPort = 0;
-  int flag = 0;
-  const char *message = nullptr;
-  int index = 0;
-
-  char *token = strtok(json, ",");
-  while (token)
+  // Split array JSON dengan menghormati string berkutip: payload bisa berisi
+  // koma (mis. {"type":"LANTANA_HELLO","accountId":"x"}).
+  char *f[10];
+  int nf = 0;
   {
-    while (*token == ' ' || *token == '"') token++;
-    char *end = token + strlen(token) - 1;
-    while (end >= token && (*end == '"' || *end == ' ')) { *end = '\0'; end--; }
-
-    switch (index)
+    bool inQ = false, esc = false;
+    char *start = json;
+    for (char *p = json;; p++)
     {
-      case 0: srcAddress = token; break;
-      case 1: srcPort = atoi(token); break;
-      case 2: dstAddress = token; break;
-      case 3: dstPort = atoi(token); break;
-      case 7: flag = atoi(token); break;
-      case 9: message = token; break;
+      char ch = *p;
+      if (esc)
+        esc = false;
+      else if (ch == '\\')
+        esc = true;
+      else if (ch == '"')
+        inQ = !inQ;
+      else if ((ch == ',' && !inQ) || ch == '\0')
+      {
+        if (nf < 10)
+          f[nf++] = start;
+        if (ch == '\0')
+          break;
+        *p = '\0';
+        start = p + 1;
+      }
     }
-    token = strtok(nullptr, ",");
-    index++;
   }
+  if (nf < 10)
+  {
+    free(buf);
+    return;
+  }
+  for (int i = 0; i < 10; i++)
+  {
+    char *t = f[i];
+    while (*t == ' ') t++;
+    size_t tl = strlen(t);
+    while (tl && t[tl - 1] == ' ') t[--tl] = '\0';
+    if (tl >= 2 && t[0] == '"' && t[tl - 1] == '"')
+    {
+      memmove(t, t + 1, tl - 2);
+      t[tl - 2] = '\0';
+      char *w = t;
+      for (char *r = t; *r; r++)
+      {
+        if (*r == '\\' && r[1])
+        {
+          r++;
+          switch (*r)
+          {
+            case 'n': *w++ = '\n'; break;
+            case 'r': *w++ = '\r'; break;
+            case 't': *w++ = '\t'; break;
+            default:  *w++ = *r;   break;
+          }
+        }
+        else
+          *w++ = *r;
+      }
+      *w = '\0';
+    }
+  }
+
+  const char *srcAddress = f[0];
+  int srcPort = atoi(f[1]);
+  const char *dstAddress = f[2];
+  int dstPort = atoi(f[3]);
+  int flag = atoi(f[7]);
+  const char *message = f[9];
 
   // PING / BROADCAST_SCAN → balas otomatis
   if (flag == TSIX_FLAG_PING_REQUEST && dstPort == TSIX_PING_PORT)
@@ -392,10 +516,28 @@ void TSIX::handleV1(const char *topic, byte *payload, unsigned int length)
   if (flag == TSIX_FLAG_BROADCAST_PING && dstPort == TSIX_BROADCAST_PORT)
     sendPong(srcAddress ? srcAddress : "", srcPort, TSIX_FLAG_BROADCAST_REPLY);
 
-  // Dekripsi hanya kalau paket memang untuk node ini
+  // Hanya pesan untuk node ini yang diproses
   if (message && dstAddress && strcmp(dstAddress, id.c_str()) == 0 && dstPort == (int)port)
   {
     size_t hexLen = strlen(message);
+
+    // Pesan kontrol handshake dikirim plaintext (bukan hex) → plainCb.
+    bool looksHex = hexLen > 0 && (hexLen % 2 == 0);
+    for (size_t i = 0; looksHex && i < hexLen; i++)
+    {
+      char ch = message[i];
+      if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')))
+        looksHex = false;
+    }
+
+    if (!looksHex)
+    {
+      if (plainCb)
+        plainCb(srcAddress, srcPort, message);
+      free(buf);
+      return;
+    }
+
     if (hexLen < (TSIX_NONCE_SIZE + TSIX_TAG_SIZE) * 2)
     {
       free(buf);

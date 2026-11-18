@@ -1,5 +1,5 @@
 /**
- * lantana-store.ts — Persistensi akun, device, dan scheme ke VFS.
+ * lantana-store.ts — Persistensi akun, dashboard, device, dan scheme ke VFS.
  *
  * Tidak ada kompatibilitas dengan konfigurasi V1: file dibaca apa adanya
  * sebagai kontrak V2. File yang belum ada dibuat otomatis dengan isi kosong
@@ -10,12 +10,15 @@
 
 import { fs } from "@tsix/Application";
 import { AccountManager } from "@tsix/lantana/account-manager";
+import { DashboardRegistry } from "@tsix/lantana/dashboard-registry";
 import { DeviceRegistry } from "@tsix/lantana/device-registry";
 import { SchemeRegistry } from "@tsix/lantana/scheme-registry";
 import {
     AccountRecord,
+    DashboardRecord,
     DeviceRecord,
     LANTANA_ACCOUNTS_PATH,
+    LANTANA_DASHBOARDS_PATH,
     LANTANA_DEVICES_PATH,
     LANTANA_SCHEMES_PATH,
     SchemeDef,
@@ -23,9 +26,13 @@ import {
 
 export interface LantanaState {
     accounts: AccountManager;
+    dashboards: DashboardRegistry;
     devices: DeviceRegistry;
     schemes: SchemeRegistry;
 }
+
+/** accounts.json versi lama masih menyimpan dashboard di dalam akun. */
+type LegacyAccountRecord = AccountRecord & { portableDashboard?: unknown };
 
 export class LantanaStoreError extends Error {}
 
@@ -76,18 +83,33 @@ async function writeJson(path: string, value: unknown): Promise<void> {
     }
 }
 
+/**
+ * Pindahkan `portableDashboard` yang tertinggal di accounts.json ke
+ * dashboard.json. Mengembalikan true bila ada yang dimigrasikan.
+ */
+function migrateLegacyDashboards(
+    records: LegacyAccountRecord[],
+    dashboards: DashboardRegistry,
+): boolean {
+    let migrated = false;
+    for (const record of records) {
+        if (!record || typeof record.accountId !== "string") continue;
+        if (record.portableDashboard === undefined || record.portableDashboard === null) continue;
+        dashboards.importLegacy(record.accountId, record.portableDashboard);
+        migrated = true;
+    }
+    return migrated;
+}
+
 export async function loadState(): Promise<LantanaState> {
-    const accountRecords = await readJson<AccountRecord[]>(LANTANA_ACCOUNTS_PATH, "akun");
+    const accountRecords = await readJson<LegacyAccountRecord[]>(LANTANA_ACCOUNTS_PATH, "akun");
     const accounts = AccountManager.fromJSON(accountRecords);
-    if (
-        accountRecords.some(
-            (account) =>
-                account?.portableDashboard !== undefined &&
-                account.portableDashboard !== null &&
-                !Array.isArray(account.portableDashboard),
-        )
-    ) {
+    const dashboards = DashboardRegistry.fromJSON(
+        await readJson<DashboardRecord[]>(LANTANA_DASHBOARDS_PATH, "dashboard"),
+    );
+    if (migrateLegacyDashboards(accountRecords, dashboards)) {
         await writeJson(LANTANA_ACCOUNTS_PATH, accounts.toJSON());
+        await writeJson(LANTANA_DASHBOARDS_PATH, dashboards.toJSON());
     }
     const devices = DeviceRegistry.fromJSON(
         await readJson<DeviceRecord[]>(LANTANA_DEVICES_PATH, "device"),
@@ -95,11 +117,12 @@ export async function loadState(): Promise<LantanaState> {
     const schemes = SchemeRegistry.fromJSON(
         await readJson<SchemeDef[]>(LANTANA_SCHEMES_PATH, "scheme"),
     );
-    return { accounts, devices, schemes };
+    return { accounts, dashboards, devices, schemes };
 }
 
 export async function saveState(state: LantanaState): Promise<void> {
     await writeJson(LANTANA_ACCOUNTS_PATH, state.accounts.toJSON());
+    await writeJson(LANTANA_DASHBOARDS_PATH, state.dashboards.toJSON());
     await writeJson(LANTANA_DEVICES_PATH, state.devices.toJSON());
     await writeJson(LANTANA_SCHEMES_PATH, state.schemes.toJSON());
 }

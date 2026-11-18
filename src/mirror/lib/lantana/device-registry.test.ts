@@ -31,6 +31,15 @@ describe("DeviceRegistry", () => {
         expect(updated.meta).toEqual({ name: "Baru", category: "esp", group: "kota-bandung" });
     });
 
+    it("metadata bisa dihapus saat field di-set kosong", () => {
+        const reg = new DeviceRegistry();
+        const dev = reg.register("account-a", { name: "Sensor", city: "Bandung" });
+
+        reg.updateMeta("account-a", dev.deviceId, { city: "" });
+
+        expect(dev.meta).toEqual({ name: "Sensor" });
+    });
+
     it("membuang metadata kosong", () => {
         const reg = new DeviceRegistry();
         const dev = reg.register("account-a", { name: "   ", city: "" });

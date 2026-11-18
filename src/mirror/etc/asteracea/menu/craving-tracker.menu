@@ -1,5 +1,5 @@
 name=Craving Tracker
 icon=🚭
 command=/opt/craving-tracker/craving-tracker.js
-pinned_launcher=true
+pinned_launcher=false
 group=Kesehatan

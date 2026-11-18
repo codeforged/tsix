@@ -13,6 +13,7 @@
 // ─── Path & identitas ─────────────────────────────────────────────────────
 export const LANTANA_CONFIG_PATH = "/etc/lantana/config.json";
 export const LANTANA_ACCOUNTS_PATH = "/etc/lantana/accounts.json";
+export const LANTANA_DASHBOARDS_PATH = "/etc/lantana/dashboard.json";
 export const LANTANA_DEVICES_PATH = "/etc/lantana/devices.json";
 export const LANTANA_SCHEMES_PATH = "/etc/lantana/schemes.json";
 export const LANTANA_LOG_DIR = "/var/log/lantana";
@@ -85,7 +86,6 @@ export interface AccountRecord {
     parentId: string | null;
     permissions: Permissions;
     credential: StoredCredential | null;
-    portableDashboard?: PortableDashboard[];
     createdAt: number;
 }
 
@@ -112,6 +112,13 @@ export interface PortableDashboard {
     /** SHA-256 verifier for a random dashboard key; the raw key is never persisted. */
     accessKeyHash?: string;
     dashboardItems: PortableDashboardItem[];
+}
+
+/** Satu entri `/etc/lantana/dashboard.json`; dipisah dari accounts.json. */
+export interface DashboardRecord {
+    accountId: string;
+    portableDashboard: PortableDashboard[];
+    createdAt: number;
 }
 
 // ─── Scheme ───────────────────────────────────────────────────────────────

@@ -194,10 +194,7 @@ async function handlePacket(
     }
 
     const state = await loadState();
-    const account = state.accounts.get(session.accountId);
-    const dashboard = account?.portableDashboard?.find(
-        (candidate) => String(candidate.dashboardId) === session.dashboardId,
-    );
+    const dashboard = state.dashboards.get(session.accountId, session.dashboardId);
     if (
         !dashboard?.accessKeyHash ||
         dashboard.accessKeyHash !== session.accessKeyHash ||
@@ -366,15 +363,8 @@ async function handleControl(
     }
 
     const state = await loadState();
-    const account = state.accounts.verifyPortableDashboardProof(
-        session.dashboardId,
-        session.nonce,
-        auth.proof,
-    );
-    const dashboard = account?.portableDashboard?.find(
-        (candidate) => String(candidate.dashboardId) === session.dashboardId,
-    );
-    if (!account || !dashboard?.accessKeyHash) {
+    const match = state.dashboards.verifyProof(session.dashboardId, session.nonce, auth.proof);
+    if (!match?.dashboard.accessKeyHash) {
         await sendEncrypted(session, {
             type: "LANTANA_DASH_AUTH_FAILED",
             message: "Dashboard authentication gagal",
@@ -382,14 +372,14 @@ async function handleControl(
         return;
     }
 
-    session.accountId = account.accountId;
-    session.accessKeyHash = dashboard.accessKeyHash;
+    session.accountId = match.accountId;
+    session.accessKeyHash = match.dashboard.accessKeyHash;
     session.nonce = "";
     await sendEncrypted(session, {
         type: "LANTANA_DASH_AUTH_OK",
         dashboardId: session.dashboardId,
-        title: dashboard.title,
-        itemCount: dashboard.dashboardItems.length,
+        title: match.dashboard.title,
+        itemCount: match.dashboard.dashboardItems.length,
     });
     await std.log(`[${TAG}] dashboard ${session.dashboardId} authenticated`, TAG);
 }
@@ -414,11 +404,7 @@ async function handleSnapshotReply(
     session.lastSeen = Date.now();
 
     const state = await loadState();
-    const dashboard = state.accounts
-        .get(session.accountId)
-        ?.portableDashboard?.find(
-            (candidate) => String(candidate.dashboardId) === session.dashboardId,
-        );
+    const dashboard = state.dashboards.get(session.accountId, session.dashboardId);
     if (
         !dashboard?.accessKeyHash ||
         dashboard.accessKeyHash !== session.accessKeyHash ||

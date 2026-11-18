@@ -32,6 +32,8 @@
 
 // Callback signatures
 typedef void (*TSIXEncryptedCb)(const char *srcAddress, int srcPort, const char *payload);
+/** Pesan JSON plaintext (pesan kontrol handshake). */
+typedef void (*TSIXPlainCb)(const char *srcAddress, int srcPort, const char *json);
 typedef void (*TSIXRawCb)(const char *srcAddress, int srcPort, const uint8_t *payload, size_t length);
 
 /**
@@ -64,6 +66,7 @@ public:
 
   // ── Kanal v1.0: JSON terenkripsi (ChaCha20-Poly1305) ──
   bool sendEncrypted(const char *dstAddress, int dstPort, const char *payload);
+  bool encryptPayloadHex(const char *payload, char *out, size_t outCap);
 
   // ── Kanal v1.1: biner plain (untuk OTA / raw) ──
   bool sendRaw(const char *dstAddress, int dstPort, const uint8_t *payload, size_t length);
@@ -80,7 +83,15 @@ public:
     return sendBinfeo(dstAddress, dstPort, (const uint8_t *)payload, strlen(payload));
   }
 
+  // ── Pesan kontrol plaintext (HELLO/CHALLENGE/KEYSET/AUTH/LANTANA_NACK) ──
+  bool sendPlain(const char *dstAddress, int dstPort, const char *payload);
+
+  // ── Ganti session key saat runtime (hasil handshake) ──
+  void setSessionKey(const uint8_t *key);
+  void setSessionKeyHex(const char *hex);
+
   // ── Callbacks ──
+  void onPlainMessage(TSIXPlainCb cb) { plainCb = cb; }
   void onEncryptedMessage(TSIXEncryptedCb cb) { encCb = cb; }
   void onBinfeoMessage(TSIXRawCb cb) { binfeoCb = cb; }
   void onRawMessage(TSIXRawCb cb) { rawCb = cb; }
@@ -107,6 +118,7 @@ private:
   PubSubClient mqttClient;
 
   TSIXEncryptedCb encCb;
+  TSIXPlainCb plainCb;
   TSIXRawCb binfeoCb;
   TSIXRawCb rawCb;
 

@@ -66,7 +66,14 @@ export class DeviceRegistry {
     updateMeta(accountId: string, deviceId: string, patch: DeviceMeta): DeviceRecord {
         const rec = this.get(accountId, deviceId);
         if (!rec) throw new DeviceRegistryError(`device tidak ditemukan: ${deviceId}`);
-        rec.meta = { ...rec.meta, ...sanitizeMeta(patch) };
+        const next = { ...rec.meta };
+        for (const key of ["name", "city", "category", "group"] as const) {
+            if (!Object.prototype.hasOwnProperty.call(patch, key)) continue;
+            const value = patch[key];
+            if (typeof value === "string" && value.trim()) next[key] = value.trim();
+            else delete next[key];
+        }
+        rec.meta = next;
         return rec;
     }
 

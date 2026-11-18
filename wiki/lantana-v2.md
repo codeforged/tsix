@@ -161,7 +161,7 @@ data dibaca atau dikembalikan.
 | `lantana-ctl` | Manajemen akun, device, scheme, AccessKey, dan izin dari CLI. |
 | `lantana-dashboard-server.ts` | Consumer MQTNL khusus dashboard portable; mengambil snapshot lewat IPC Lantana yang sudah difilter policy. |
 | Flutter portable dashboard | Client Android; menghubungkan MQTT broker dan endpoint MQTNL dashboard secara terpisah. |
-| UI admin (ekstensi dashboard) | Registrasi device, pengelompokan, akun child, serta konfigurasi izin. |
+| Lantana Control Panel | GUI Cashew untuk mengelola akun, device, scheme, portable dashboard, dan melihat status server melalui `lantana-ctl`. |
 | Dashboard/logger/DB injector | Consumer; kontrak event-nya diperbarui bersamaan dengan V2, tanpa lapisan kompatibilitas. |
 
 ### Struktur file V2
@@ -174,21 +174,24 @@ src/mirror/lib/lantana/
   lantana-core.ts          # tipe, konstanta, kode error, parser/encoder payload
   lantana-config.ts        # loader /etc/lantana/config.json (tanpa kredensial)
   account-manager.ts       # akun parent-child + AccessKey (verifier scrypt)
+  dashboard-registry.ts    # portable dashboard per akun + verifier key dashboard
   device-registry.ts       # deviceId, ikatan account+device, metadata grup
   scheme-registry.ts       # definisi scheme + validasi tipe/rentang
   permission-policy.ts     # inject/query/command
   session-manager.ts       # state sesi MQTNL (nonce, binding akun/device)
   lantana-keys.ts          # key pair server (pinned fingerprint device)
-  lantana-store.ts         # persistensi accounts/devices/schemes
+  lantana-store.ts         # persistensi accounts/dashboard/devices/schemes
   lantana-ingest.ts        # pipeline auth → policy → validate
   lantana-listener.ts      # handshake + decrypt + ingest + command
   lantana-device-bank.ts   # state terkini + heartbeat + endpoint balik
   lantana-databank.ts      # sink + antrean berbatas (idempoten)
   lantana-distributor.ts   # event ke consumer + otorisasi command
+  lantana-ctl-client.ts    # adapter proses lantana-ctl untuk GUI
 
 src/mirror/opt/lantana/
   lantana.ts               # daemon
   lantana-ctl.ts           # CLI admin
+  lantana-control-panel.ts # GUI admin Cashew (Lantana Control Panel)
   lantana-cmd.ts           # kirim command ke device
   lantana-dashboard.ts     # GUI monitoring
   lantana-dashboard-server.ts # consumer dashboard portable (default MQTNL 1001)
@@ -201,20 +204,24 @@ Konfigurasi & state V2:
 - `/etc/lantana/config.json` — service port dan kategori device. Tidak berisi
   kredensial.
 - `/etc/lantana/accounts.json` — akun, relasi parent, izin, dan **verifier**
-  AccessKey akun (salt + scrypt), bukan key mentah. Jika dipakai,
-  `portableDashboard` adalah array dashboard; setiap entry menyimpan
-  `dashboardId`, `title`, `accessKeyHash` (SHA-256), dan `dashboardItems`.
-  Key dashboard mentah tidak disimpan. Format object lama otomatis dimigrasikan
-  ke array saat state dimuat.
+  AccessKey akun (salt + scrypt), bukan key mentah. Tidak berisi konfigurasi
+  dashboard.
+- `/etc/lantana/dashboard.json` — portable dashboard per akun. Setiap entri
+  berbentuk `{ accountId, portableDashboard, createdAt }`; `portableDashboard`
+  adalah array dashboard dengan `dashboardId`, `title`, `accessKeyHash`
+  (SHA-256), dan `dashboardItems`. Key dashboard mentah tidak disimpan. State
+  lama yang masih menyimpan `portableDashboard` di `accounts.json` dipindahkan
+  otomatis saat state dimuat.
 - `/etc/lantana/devices.json` — ikatan `accountId + deviceId` dan metadata.
 - `/etc/lantana/schemes.json` — definisi scheme.
 - `/etc/lantana/keys/server-key.json` — key pair server untuk handshake;
   fingerprint di-pin di firmware. Jangan commit.
 
-`accounts.json`, `devices.json`, dan `schemes.json` **dibuat otomatis** (isi
-`[]`) saat daemon atau CLI pertama kali dijalankan, jadi instalasi baru tidak
-gagal start. Ketiganya sengaja tidak disertakan di mirror `src/mirror/etc/lantana/`
-supaya `vfs:bootstrap` tidak menimpa state runtime dengan file kosong.
+`accounts.json`, `dashboard.json`, `devices.json`, dan `schemes.json` **dibuat
+otomatis** (isi `[]`) saat daemon atau CLI pertama kali dijalankan, jadi
+instalasi baru tidak gagal start. Keempatnya sengaja tidak disertakan di mirror
+`src/mirror/etc/lantana/` supaya `vfs:bootstrap` tidak menimpa state runtime
+dengan file kosong.
 
 Tabel DataBank yang diharapkan consumer contoh (`lantana-db-injector`):
 
@@ -299,11 +306,27 @@ lantana-file-logger juragan
 lantana-cmd juragan <deviceId> "RELAY_1:ON"
 ```
 
+### Lantana Control Panel
+
+Lantana Control Panel tersedia dari menu **IoT** di Asteracea. Panel Cashew
+menyediakan navigasi pohon akun, device, scheme, dan portable dashboard di
+sisi kiri, serta editor detail di panel tengah. Toolbar di atas menyediakan
+aksi tambah, edit, simpan, hapus, pengelolaan key, dan muat ulang. Bagian Server
+menampilkan fingerprint dan konfigurasi layanan yang sedang dibaca. Operasi
+mutasi dan pembacaan tetap dijalankan oleh
+`lantana-ctl --json`, dengan adapter proses terpusat. Panel tidak mengimpor
+registry/store atau mengedit file state secara langsung.
+
+Rotasi/penerbitan AccessKey menampilkan key satu kali dalam dialog. Cabut key,
+hapus akun, device, scheme, dashboard, dan item dashboard meminta konfirmasi.
+Penghapusan akun ditolak selama akun masih memiliki child atau resource terkait.
+Izin query/inject bersifat eksplisit dan tidak diwariskan dari parent.
+
 ### Portable dashboard Android
 
 Dashboard portable memakai credential terpisah dari AccessKey sensor. Terbitkan
-key dashboard; key mentah dicetak satu kali, sedangkan `accounts.json` hanya
-menyimpan SHA-256 verifier:
+key dashboard; key mentah dicetak satu kali, sedangkan
+`/etc/lantana/dashboard.json` hanya menyimpan SHA-256 verifier:
 
 ```sh
 lantana-ctl dashboard key-issue juragan
@@ -313,44 +336,64 @@ lantana-ctl dashboard key-revoke juragan 1000
 lantana-dashboard-server 1001
 ```
 
-`key-issue` menambahkan dashboard baru ke array akun. `key-rotate` mengganti key
-untuk `dashboardId` yang dipilih tanpa menghapus item; `key-revoke` mencabut key
-dashboard tersebut tanpa menghapus konfigurasinya. Default endpoint MQTNL adalah
-`tsix:1001`. Port ini berbeda dari port listener sensor (default `1000`).
+`key-issue` menambahkan dashboard baru ke array akun di `dashboard.json`.
+`key-rotate` mengganti key untuk `dashboardId` yang dipilih tanpa menghapus item;
+`key-revoke` mencabut key dashboard tersebut tanpa menghapus konfigurasinya.
+Default endpoint MQTNL adalah `tsix:1001`. Port ini berbeda dari port listener
+sensor (default `1000`).
 
-Item dashboard dapat diedit langsung pada `/etc/lantana/accounts.json` untuk
-sementara, atau kelak melalui Configurator. Gunakan `accessKeyHash` dari state;
-jangan menulis key mentah di `accounts.json`. Contoh:
+Item dashboard dapat dikelola melalui Lantana Control Panel atau CLI. Mode
+`--json` menyediakan envelope versi 1 (`{ version, ok, data }` untuk sukses;
+`{ version, ok, error }` untuk gagal) yang dipakai GUI, tanpa mengubah output
+teks CLI biasa. GUI menjalankan operasi lewat `lantana-ctl`; ia tidak membaca
+atau menulis registry/state secara langsung. AccessKey mentah hanya tampil
+saat diterbitkan/dirotasi dan tidak disimpan oleh GUI.
+
+Contoh mengubah judul dashboard dan menambah item lewat CLI:
+
+```sh
+lantana-ctl dashboard update juragan 1000 --title "Sensor Rumah"
+lantana-ctl dashboard item-set juragan 1000 new \
+  --type text --title "Suhu Ruangan" --icon thermostat \
+  --interval 5 --device-id <deviceId> --scheme-id 101
+```
+
+Jangan menulis key mentah di `dashboard.json`; file tersebut hanya menyimpan
+`accessKeyHash`. Contoh:
 
 ```json
-{
-  "portableDashboard": [
-    {
-      "dashboardId": 1000,
-      "title": "Sensor Rumah",
-      "accessKeyHash": "<SHA-256 dashboard key, 64 karakter hex>",
-      "dashboardItems": [
-        {
-          "type": "radialGauge",
-          "title": "Kelembaban",
-          "icon": "water_drop",
-          "updateInterval": 60,
-          "deviceId": "7f352db1-c787-4976-b441-d1bf7387fe49",
-          "schemeId": 102
-        },
-        {
-          "type": "lineChart",
-          "title": "Tekanan",
-          "icon": "bolt",
-          "updateInterval": 60,
-          "scrollAfter": 7,
-          "deviceId": "7f352db1-c787-4976-b441-d1bf7387fe49",
-          "schemeId": 103
-        }
-      ]
-    }
-  ]
-}
+[
+  {
+    "accountId": "juragan",
+    "portableDashboard": [
+      {
+        "dashboardId": 1000,
+        "title": "Sensor Rumah",
+        "accessKeyHash": "<SHA-256 dashboard key, 64 karakter hex>",
+        "dashboardItems": [
+          {
+            "type": "radialGauge",
+            "title": "Kelembaban",
+            "icon": "water_drop",
+            "updateInterval": 60,
+            "deviceId": "7f352db1-c787-4976-b441-d1bf7387fe49",
+            "schemeId": 102
+          },
+          {
+            "type": "lineChart",
+            "title": "Tekanan",
+            "icon": "bolt",
+            "updateInterval": 60,
+            "scrollAfter": 7,
+            "deviceId": "7f352db1-c787-4976-b441-d1bf7387fe49",
+            "schemeId": 103
+          }
+        ]
+      }
+    ],
+    "createdAt": 1794912387013
+  }
+]
 ```
 
 `type` yang didukung: `text`, `radialGauge`, `lineChart`, dan
@@ -363,9 +406,9 @@ Pada Android, isi alamat/port MQTT broker, alamat/port server MQTNL, dashboard
 ID, dan key yang dicetak CLI. App hanya menyimpan hash key di Android secure
 storage dan mengirim HMAC proof yang terikat nonce challenge (bukan raw key atau
 hash verifier yang bisa diputar ulang). Hash verifier tetap setara credential
-bila dicuri, jadi lindungi permission file `accounts.json` dan Android secure
-storage. Key exchange RSA-OAEP memakai encoding yang sama dengan TSSH/TSIX;
-paket data menggunakan ChaCha20-Poly1305. Saat koneksi pertama, bandingkan
+bila dicuri, jadi lindungi permission file `accounts.json`/`dashboard.json` dan
+Android secure storage. Key exchange RSA-OAEP memakai encoding yang sama dengan
+TSSH/TSIX; paket data menggunakan ChaCha20-Poly1305. Saat koneksi pertama, bandingkan
 fingerprint di layar dengan `lantana-ctl server fingerprint`.
 
 Build APK debug:

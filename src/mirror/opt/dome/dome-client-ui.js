@@ -117,20 +117,8 @@
       if (old) old.remove();
       const menu = document.createElement("div");
       menu.id = "__tsix_context_menu__";
-      let menuLeft = e.clientX,
-        menuTop = e.clientY;
-      const menuW = 150,
-        menuH = 80;
-      if (menuTop + menuH > window.innerHeight) menuTop = e.clientY - menuH;
-      if (menuLeft + menuW > window.innerWidth)
-        menuLeft = window.innerWidth - menuW;
-      if (menuTop < 0) menuTop = 0;
       menu.style.cssText =
-        "position:fixed;z-index:99999999;background:#1e2a4a;border:1px solid #4caf50;border-radius:6px;padding:4px 0;min-width:120px;box-shadow:0 4px 20px rgba(0,0,0,0.5);left:" +
-        menuLeft +
-        "px;top:" +
-        (parseInt(menuTop) - 50) +
-        "px;";
+        "position:fixed;z-index:2147483647;background:#1e2a4a;border:1px solid #4caf50;border-radius:6px;padding:4px 0;min-width:150px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;box-sizing:border-box;pointer-events:auto;";
       const makeItem = (label, onClick, opts) => {
         const disabled = !!(opts && opts.disabled);
         const item = document.createElement("div");
@@ -256,7 +244,28 @@
           eventType: "close_window",
         });
       });
-      document.body.appendChild(menu);
+      const overlay =
+        S.overlayLayer || document.getElementById("__tsix_overlay_layer__");
+      (overlay || document.body).appendChild(menu);
+      const menuRect = menu.getBoundingClientRect();
+      const taskbar = document.getElementById("taskbar-inner");
+      const taskbarTop = taskbar
+        ? taskbar.getBoundingClientRect().top
+        : e.clientY;
+      const gap = 8;
+      const menuLeft = Math.max(
+        8,
+        Math.min(e.clientX, window.innerWidth - menuRect.width - 8),
+      );
+      const menuTop = Math.max(
+        8,
+        Math.min(
+          taskbarTop - menuRect.height - gap,
+          window.innerHeight - menuRect.height - 8,
+        ),
+      );
+      menu.style.left = menuLeft + "px";
+      menu.style.top = menuTop + "px";
       const closeMenu = (ev) => {
         if (!menu.contains(ev.target)) {
           menu.remove();

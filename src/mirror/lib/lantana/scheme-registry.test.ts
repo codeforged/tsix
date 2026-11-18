@@ -37,6 +37,12 @@ describe("SchemeRegistry CRUD", () => {
         expect(() => reg.add(temp({ schemeId: 70000 }))).toThrow(SchemeRegistryError);
     });
 
+    it("menolak rentang min/max yang tidak valid saat membuat scheme", () => {
+        const reg = new SchemeRegistry();
+        expect(() => reg.add(temp({ min: 200, max: 100 }))).toThrow(/min/);
+        expect(() => reg.add(temp({ min: Number.NaN }))).toThrow(/finite/);
+    });
+
     it("hanya pemilik yang boleh update/hapus", () => {
         const reg = new SchemeRegistry();
         reg.add(temp());
