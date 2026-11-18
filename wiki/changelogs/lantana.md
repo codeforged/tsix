@@ -50,6 +50,31 @@
 ---
 ## 2026-11-18
 
+### Menu Monitor di control panel
+
+- **File:** `src/mirror/opt/lantana/lantana-control-panel.ts`,
+  `src/mirror/lib/lantana/control-panel-tree.ts`,
+  `src/mirror/lib/lantana/monitor-view.ts` (baru), `monitor-view.test.ts` (baru).
+- **Pohon:** setiap akun mendapat grup **Monitor** di posisi paling bawah,
+  selevel dengan Device / Scheme / Portable Dashboard. Klik Monitor langsung
+  menampilkan tampilan live di area kanan (tidak ada entri anak).
+- **Isi monitor:** status koneksi (`🟢 Connected` / `🔴 Menunggu daemon`), waktu
+  snapshot terakhir, lalu kartu device per grup: judul + device ID, metadata
+  (`akun · cat · kota · grp`), baris sensor (`101=20 °C  102=31 %`), status
+  ONLINE/STALE/OFFLINE berwarna, dan umur data (`0.0s ago`).
+- **Data:** memakai jalur yang sama dengan `lantana-dashboard` — kirim
+  `LANTANA_SNAPSHOT` ke daemon tiap 3 detik selagi Monitor aktif, dan
+  menangani `LANTANA_SNAPSHOT_REPLY`, `LANTANA_READING`, serta
+  `LANTANA_DEVICE_STATUS`. Polling berhenti otomatis saat pindah menu atau
+  window ditutup. Device yang terdaftar di registry tetap tampil dengan status
+  OFFLINE sebelum daemon mengirim data.
+- **Testabilitas:** `monitor-view.ts` memuat pemformatan sensor, umur data,
+  warna status, pengelompokan (Ungrouped di akhir), dan merge bacaan per
+  `schemeId` — semuanya diuji tanpa GUI.
+- **Verifikasi:** 7 tes `monitor-view`, 5 tes pohon (Monitor ikut di posisi
+  terakhir), 165 tes Lantana + controls lulus; typecheck tidak menambah error.
+- **Oleh:** Copilot
+
 ### Sesi device pulih setelah server/Lantana restart
 - **File:** `src/mirror/lib/lantana/lantana-listener.ts`, `lantana-listener.test.ts`,
   `platformio/TSIX-All-in-One/lib/lantana-auth/{lantana_auth.h,lantana_auth.cpp}`,

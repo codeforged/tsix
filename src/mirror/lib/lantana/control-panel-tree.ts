@@ -10,7 +10,7 @@
 import type { TTreeNode } from "@tsix/pistachio";
 
 export type SchemeRange = number | { from: number; to: number };
-export type GroupKind = "devices" | "schemes" | "dashboards";
+export type GroupKind = "devices" | "schemes" | "dashboards" | "monitor";
 
 export interface AccountView {
     accountId: string;
@@ -219,6 +219,19 @@ export function buildControlTree(data: ControlTreeData): TTreeNode[] {
                         } satisfies NavPayload,
                     })),
                 })),
+            },
+            {
+                // Monitor selalu paling bawah: tampilan live seperti
+                // `lantana-dashboard`, bukan editor data.
+                id: `grp:${account.accountId}:monitor`,
+                label: "Monitor",
+                icon: "◫",
+                hint: `${ownDevices.length} device`,
+                data: {
+                    kind: "group",
+                    group: "monitor",
+                    account,
+                } satisfies NavPayload,
             },
         ];
 

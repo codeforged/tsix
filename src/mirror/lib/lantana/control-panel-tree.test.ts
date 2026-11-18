@@ -98,6 +98,7 @@ describe("buildControlTree", () => {
             "grp:juragan:devices",
             "grp:juragan:schemes",
             "grp:juragan:dashboards",
+            "grp:juragan:monitor",
             "acc:anak",
         ]);
 
@@ -134,6 +135,11 @@ describe("buildControlTree", () => {
         expect(tetangga.children?.[0].label).toBe("Device (1)");
         expect(tetangga.children?.[1].label).toBe("Scheme (0)");
         expect(tetangga.children?.[2].label).toBe("Portable Dashboard (0)");
+        expect(tetangga.children?.[3]).toMatchObject({
+            id: "grp:tetangga:monitor",
+            label: "Monitor",
+            hint: "1 device",
+        });
     });
 
     it("menampilkan akun yang parent-nya hilang sebagai akun root", () => {
@@ -164,6 +170,11 @@ describe("payload pohon", () => {
             kind: "group",
             group: "schemes",
         });
+        expect(findPayload(nodes, "grp:juragan:monitor")).toMatchObject({
+            kind: "group",
+            group: "monitor",
+            account: { accountId: "juragan" },
+        });
         expect(findPayload(nodes, "sch:juragan:101")).toMatchObject({
             kind: "scheme",
             scheme: { schemeId: 101 },
@@ -186,6 +197,7 @@ describe("payload pohon", () => {
             "server",
             "acc:juragan",
             "grp:juragan:devices",
+            "grp:juragan:monitor",
             "dev:juragan:7f352db1-c787-4976-b441-d1bf7387fe49",
             "sch:juragan:101",
             "dash:juragan:1000",

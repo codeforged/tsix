@@ -8,7 +8,7 @@
  * (c) 2026 TSIX Project
  */
 
-import { Program } from "@tsix/Application";
+import { Program, shell } from "@tsix/Application";
 import {
     TButton,
     TComboBox,
@@ -22,6 +22,7 @@ import {
     TTreeView,
     TVStack,
     type TComponent,
+    type TNode,
     type TTreeNode,
 } from "@tsix/pistachio";
 import {
@@ -39,7 +40,21 @@ import {
     type SchemeView,
     type ServerView,
 } from "@tsix/lantana/control-panel-tree";
+import {
+    EVT_DEVICE_STATUS,
+    EVT_READING,
+    EVT_SNAPSHOT_REPLY,
+    resolveDaemonTarget,
+} from "@tsix/lantana/lantana-core";
 import { iconOptions } from "@tsix/lantana/dashboard-icons";
+import {
+    MONITOR_EMPTY,
+    deviceKey,
+    groupMonitorDevices,
+    mergeReadings,
+    type MonitorDevice,
+    type MonitorReading,
+} from "@tsix/lantana/monitor-view";
 import { runLantanaCtl } from "@tsix/lantana/lantana-ctl-client";
 
 export const appMode = "gui";
@@ -95,6 +110,17 @@ export const main = Program(async () => {
     let busy = false;
     /** Naik setiap user memilih baris lain; mencegah aksi async menimpa pilihan. */
     let selectionVersion = 0;
+
+    // ── Monitor (setara lantana-dashboard) ──
+    const tsixLib = (global as any)._tsixLib;
+    const monitorTarget = resolveDaemonTarget();
+    const monitorDevices = new Map<string, MonitorDevice>();
+    const monitorReadings = new Map<string, MonitorReading[]>();
+    let monitorConnected = false;
+    let monitorLastAt: number | null = null;
+    let monitorTimer: ReturnType<typeof setInterval> | null = null;
+    let monitorPolling = false;
+    let monitorRenderChain: Promise<void> = Promise.resolve();
 
     const title = new TLabel({
         text: "Lantana Control Panel",
@@ -331,6 +357,16 @@ export const main = Program(async () => {
     });
     const groupSummary = group("lcp-group-summary", "Grup", [groupInfo]);
 
+    const monitorStatus = new TLabel({
+        text: "Monitor belum aktif",
+        style: { fontSize: "11px", color: "var(--text-muted, #94a3b8)" },
+    });
+    const monitorBody = new TVStack({ id: "lcp-monitor-body", style: { gap: "8px" } });
+    const monitorGroup = group("lcp-group-monitor", "Monitor device", [
+        monitorStatus,
+        monitorBody,
+    ]);
+
     const emptyState = new TLabel({
         text: "Pilih entri di pohon kiri untuk melihat datanya.",
         style: {
@@ -350,6 +386,7 @@ export const main = Program(async () => {
             schemeGroup,
             dashboardGroup,
             itemGroup,
+            monitorGroup,
             serverGroup,
             groupSummary,
         ],
@@ -535,6 +572,7 @@ export const main = Program(async () => {
             schemeGroup,
             dashboardGroup,
             itemGroup,
+            monitorGroup,
             serverGroup,
             groupSummary,
         ]) {
@@ -634,6 +672,320 @@ export const main = Program(async () => {
         return itemDeviceOptions[itemDeviceCombo.selectedIndex] ?? null;
     }
 
+    // ── Monitor: polling snapshot daemon + render kartu device ──
+    function monitorAccountId(): string {
+        return selection?.account?.accountId ?? "";
+    }
+
+    function monitorActive(): boolean {
+        return (
+            draft === null &&
+            selection?.kind === "group" &&
+            selection.group === "monitor"
+        );
+    }
+
+    function stopMonitorTimer(): void {
+        if (monitorTimer === null) return;
+        clearInterval(monitorTimer);
+        monitorTimer = null;
+    }
+
+    function syncMonitorTimer(): void {
+        if (!form.screen || !monitorActive()) {
+            stopMonitorTimer();
+            return;
+        }
+        if (monitorTimer !== null) return;
+        void pollMonitor();
+        monitorTimer = setInterval(() => void pollMonitor(), 3000);
+    }
+
+    async function pollMonitor(): Promise<void> {
+        if (monitorPolling || !monitorActive()) return;
+        monitorPolling = true;
+        try {
+            await shell.send(monitorTarget, {
+                type: "LANTANA_SNAPSHOT",
+                accountId: monitorAccountId(),
+                fromPid: tsixLib?.getPid?.(),
+            });
+        } catch {
+            /* daemon belum siap */
+        } finally {
+            monitorPolling = false;
+        }
+    }
+
+    function monitorNode(
+        id: string,
+        tag: string,
+        props: Record<string, any>,
+        children: TNode[] = [],
+    ): TNode {
+        return { id, tag, props, children };
+    }
+
+    function updateMonitorStatus(): void {
+        const account = monitorAccountId() || "-";
+        const stamp = monitorLastAt
+            ? new Date(monitorLastAt).toLocaleTimeString()
+            : "-";
+        monitorStatus.text = `Akun ${account} · ${
+            monitorConnected ? "🟢 Connected" : "🔴 Menunggu daemon"
+        } · snapshot ${stamp}`;
+    }
+
+    function renderMonitor(): void {
+        const accountId = monitorAccountId();
+        const run = monitorRenderChain.then(async () => {
+            const screen = form.screen;
+            if (!screen || !monitorActive()) return;
+            updateMonitorStatus();
+
+            const groups = groupMonitorDevices(
+                [...monitorDevices.values()].filter(
+                    (device) => device.accountId === accountId,
+                ),
+                monitorReadings,
+            );
+            if (groups.length === 0) {
+                await screen.setContent(
+                    monitorBody.id,
+                    monitorNode("lcp-monitor-empty", "span", {
+                        text: MONITOR_EMPTY,
+                        style: {
+                            fontSize: "12px",
+                            color: "var(--text-muted, #94a3b8)",
+                        },
+                    }),
+                );
+                return;
+            }
+
+            const rows: TNode[] = [];
+            let index = 0;
+            for (const groupView of groups) {
+                rows.push(
+                    monitorNode(`lcp-monitor-g-${index}`, "div", {
+                        text: `▸ ${groupView.group}  (${groupView.devices.length} device)`,
+                        style: {
+                            fontWeight: "700",
+                            fontSize: "12px",
+                            color: "var(--accent, #4caf50)",
+                            marginTop: index ? "6px" : "0",
+                        },
+                    }),
+                );
+                index += 1;
+                for (const device of groupView.devices) {
+                    rows.push(
+                        monitorNode(
+                            `lcp-monitor-card-${index}`,
+                            "div",
+                            {
+                                style: {
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    gap: "10px",
+                                    padding: "10px 14px",
+                                    borderRadius: "8px",
+                                    border: `1px solid ${device.statusColor}44`,
+                                    background:
+                                        "var(--surface, rgba(0,0,0,0.25))",
+                                },
+                            },
+                            [
+                                monitorNode(
+                                    `lcp-monitor-main-${index}`,
+                                    "div",
+                                    {
+                                        style: {
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            gap: "2px",
+                                            minWidth: "0",
+                                        },
+                                    },
+                                    [
+                                        monitorNode(
+                                            `lcp-monitor-title-${index}`,
+                                            "span",
+                                            {
+                                                text: device.title,
+                                                style: {
+                                                    fontWeight: "600",
+                                                    fontSize: "13px",
+                                                    overflow: "hidden",
+                                                    textOverflow: "ellipsis",
+                                                },
+                                            },
+                                        ),
+                                        monitorNode(
+                                            `lcp-monitor-meta-${index}`,
+                                            "span",
+                                            {
+                                                text: device.meta,
+                                                style: {
+                                                    fontSize: "11px",
+                                                    color: "var(--text-muted, #94a3b8)",
+                                                },
+                                            },
+                                        ),
+                                        monitorNode(
+                                            `lcp-monitor-sensors-${index}`,
+                                            "span",
+                                            {
+                                                text: device.sensors,
+                                                style: {
+                                                    fontSize: "11px",
+                                                    color: "var(--text-dim, #ccc)",
+                                                },
+                                            },
+                                        ),
+                                    ],
+                                ),
+                                monitorNode(
+                                    `lcp-monitor-side-${index}`,
+                                    "div",
+                                    {
+                                        style: {
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            alignItems: "flex-end",
+                                            gap: "2px",
+                                        },
+                                    },
+                                    [
+                                        monitorNode(
+                                            `lcp-monitor-state-${index}`,
+                                            "span",
+                                            {
+                                                text: device.status,
+                                                style: {
+                                                    color: device.statusColor,
+                                                    fontWeight: "700",
+                                                    fontSize: "12px",
+                                                },
+                                            },
+                                        ),
+                                        monitorNode(
+                                            `lcp-monitor-age-${index}`,
+                                            "span",
+                                            {
+                                                text: device.age,
+                                                style: {
+                                                    fontSize: "11px",
+                                                    color: "var(--text-muted, #94a3b8)",
+                                                },
+                                            },
+                                        ),
+                                    ],
+                                ),
+                            ],
+                        ),
+                    );
+                    index += 1;
+                }
+            }
+
+            await screen.setContent(monitorBody.id, ...rows);
+        });
+        monitorRenderChain = run.catch(() => {});
+    }
+
+    function upsertMonitorDevice(device: MonitorDevice | undefined): void {
+        if (!device?.accountId || !device?.deviceId) return;
+        const key = deviceKey(device.accountId, device.deviceId);
+        monitorDevices.set(key, { ...monitorDevices.get(key), ...device });
+    }
+
+    function normalizeReadings(list: unknown): MonitorReading[] {
+        if (!Array.isArray(list)) return [];
+        return list
+            .filter(
+                (reading: any) =>
+                    reading && typeof reading.schemeId === "number",
+            )
+            .map((reading: any) => ({
+                schemeId: reading.schemeId,
+                label: reading.label,
+                unit: reading.unit,
+                value: reading.value,
+            }));
+    }
+
+    function applyMonitorSnapshot(data: any): void {
+        monitorConnected = true;
+        monitorLastAt = Date.now();
+        const entries = Array.isArray(data?.devices) ? data.devices : [];
+        for (const entry of entries) {
+            const device = entry?.device;
+            if (!device?.accountId || !device?.deviceId) continue;
+            const key = deviceKey(device.accountId, device.deviceId);
+            upsertMonitorDevice(device);
+            monitorReadings.set(key, normalizeReadings(entry.readings));
+        }
+        if (monitorActive()) renderMonitor();
+    }
+
+    function applyMonitorReading(data: any): void {
+        if (!data?.accountId || !data?.deviceId) return;
+        monitorConnected = true;
+        monitorLastAt = Date.now();
+        const key = deviceKey(data.accountId, data.deviceId);
+        const previous = monitorDevices.get(key);
+        const readings = normalizeReadings(data.readings);
+        monitorDevices.set(key, {
+            ...previous,
+            accountId: data.accountId,
+            deviceId: data.deviceId,
+            name: data.name ?? previous?.name,
+            category: data.category ?? previous?.category,
+            group: data.group ?? previous?.group,
+            city: data.city ?? previous?.city,
+            status: data.deviceStatus ?? previous?.status ?? "ONLINE",
+            dataAgeMs:
+                typeof data.receivedAt === "number"
+                    ? Date.now() - data.receivedAt
+                    : previous?.dataAgeMs,
+            schemeIds: [
+                ...new Set([
+                    ...(previous?.schemeIds ?? []),
+                    ...readings.map((reading) => reading.schemeId),
+                ]),
+            ],
+        });
+        monitorReadings.set(
+            key,
+            mergeReadings(monitorReadings.get(key), readings),
+        );
+        if (monitorActive()) renderMonitor();
+    }
+
+    function applyMonitorStatuses(data: unknown): void {
+        if (!Array.isArray(data)) return;
+        monitorConnected = true;
+        monitorLastAt = Date.now();
+        for (const device of data) upsertMonitorDevice(device);
+        if (monitorActive()) renderMonitor();
+    }
+
+    function watchMonitorEvents(): void {
+        tsixLib?.onEvent?.("ipc_message", (msg: any) => {
+            const payload = msg?.data || msg;
+            if (!payload || typeof payload !== "object") return;
+            if (payload.type === EVT_SNAPSHOT_REPLY) {
+                applyMonitorSnapshot(payload.data);
+            } else if (payload.type === EVT_READING) {
+                applyMonitorReading(payload.data);
+            } else if (payload.type === EVT_DEVICE_STATUS) {
+                applyMonitorStatuses(payload.data);
+            }
+        });
+    }
+
     /**
      * Muat ulang data lalu pilih `preferred`. Bila user sudah memilih baris lain
      * selama operasi berjalan, pilihan user yang dipertahankan.
@@ -682,6 +1034,22 @@ export const main = Program(async () => {
         schemes = schemeData;
         server = serverData;
         dashboards = dashboardLists.flat();
+
+        // Monitor tetap menampilkan device terdaftar walau daemon belum
+        // mengirim snapshot (status awal OFFLINE).
+        for (const device of devices) {
+            const key = deviceKey(device.accountId, device.deviceId);
+            if (monitorDevices.has(key)) continue;
+            monitorDevices.set(key, {
+                accountId: device.accountId,
+                deviceId: device.deviceId,
+                name: device.meta.name,
+                category: device.meta.category,
+                group: device.meta.group,
+                city: device.meta.city,
+                status: "OFFLINE",
+            });
+        }
         await tree.setNodes(
             buildControlTree({ accounts, devices, schemes, dashboards }),
         );
@@ -711,6 +1079,7 @@ export const main = Program(async () => {
     }
 
     function renderEditor(): void {
+        syncMonitorTimer();
         const kind = draft?.kind ?? selection?.kind ?? null;
         if (!kind) {
             showGroup(null);
@@ -741,6 +1110,15 @@ export const main = Program(async () => {
                           .join("\n") || "-"
                   }`
                 : "Status server belum tersedia.";
+            return;
+        }
+
+        if (kind === "group" && selection?.group === "monitor") {
+            showGroup(monitorGroup);
+            editorTitle.text = `Monitor · ${monitorAccountId() || "-"}`;
+            editorHint.text =
+                "Tampilan live seperti lantana-dashboard: status device dan nilai sensor terakhir, diperbarui tiap 3 detik.";
+            renderMonitor();
             return;
         }
 
@@ -925,6 +1303,10 @@ export const main = Program(async () => {
                   ? Boolean(selection.dashboard?.hasAccessKey)
                   : false;
 
+        const monitorGroupSelected =
+            selection?.kind === "group" && selection.group === "monitor";
+        addButton.enabled =
+            !monitorGroupSelected && selection?.kind !== "server";
         saveButton.enabled = draft !== null || editable;
         cancelButton.enabled = draft !== null;
         removeButton.enabled = editable && draft === null;
@@ -951,6 +1333,10 @@ export const main = Program(async () => {
 
     function startCreate(): void {
         const kind = selection?.kind;
+        if (kind === "group" && selection?.group === "monitor") {
+            status.text = "Monitor hanya menampilkan data; tidak ada entri untuk ditambah.";
+            return;
+        }
         const accountId = selection?.account?.accountId ?? accounts[0]?.accountId ?? "";
         if (!accountId && kind !== "server") {
             throw new Error("Belum ada akun. Buat akun root terlebih dahulu.");
@@ -1343,14 +1729,21 @@ export const main = Program(async () => {
         void run(async () => {
             await loadAll();
             await syncSelection();
+            if (monitorActive()) {
+                await pollMonitor();
+                renderMonitor();
+            }
             status.text = "Data dimuat ulang";
         });
 
     renderEditor();
     updateToolbar();
 
+    form.onClose = () => stopMonitorTimer();
+
     form.onSetup = async () => {
         await form.maximize();
+        watchMonitorEvents();
         await run(async () => {
             await loadAll();
             const first = tree.nodes.find((node) => node.id !== "server");
