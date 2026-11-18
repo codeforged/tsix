@@ -803,9 +803,9 @@ export const main = Program(async () => {
     ): Promise<void> {
         if (field instanceof TEdit) {
             field.text = value;
-            field.props.disabled = disabled;
+            field.readOnly = disabled;
             if (screenReady) {
-                await form.screen.update(field.id, { value, disabled });
+                await form.screen.update(field.id, { value });
             }
         } else {
             const index = field.items.indexOf(value);

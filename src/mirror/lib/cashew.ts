@@ -134,6 +134,9 @@ export class TComponent {
   private _children: TComponent[] = [];
   public tag: string = "div";
   public props: Record<string, any> = {};
+  /** Komponen non-visual (mis. TTimer) tetap di-bind, tapi tidak dibuatkan node DOM. */
+  public isVisual: boolean = true;
+  protected _componentRegistry: Map<string, TComponent> | null = null;
 
   /** Screen tempat komponen di-mount. Diisi saat bindEventHandler()
    *  (otomatis oleh TForm.run()). Dipakai untuk live-sync style. */
@@ -183,15 +186,101 @@ export class TComponent {
     this.id = id ?? genComponentId(this.constructor);
   }
 
-  /** Tambah child otomatis set parent */
+  /** Tambah child dengan menjaga hubungan parent dan keunikan ID dalam tree. */
   add(child: TComponent): TComponent {
+    if (child.parent) {
+      throw new Error(
+        `Component "${child.id}" already belongs to "${child.parent.id}"`,
+      );
+    }
+
+    const root = this.rootComponent();
+    const childTree = collectComponentTree(child);
+    const registry = root._componentRegistry;
+    const existingIds = registry
+      ? null
+      : new Set(collectComponentTree(root).map((component) => component.id));
+    const childIds = new Set<string>();
+
+    for (const component of childTree) {
+      if (
+        childIds.has(component.id) ||
+        registry?.has(component.id) ||
+        existingIds?.has(component.id)
+      ) {
+        throw new Error(`Duplicate component id "${component.id}"`);
+      }
+      childIds.add(component.id);
+    }
+
     child.parent = this;
     this._children.push(child);
+    if (registry) {
+      for (const component of childTree) {
+        registry.set(component.id, component);
+      }
+    }
+
+    root.onChildAdded(child, this);
     return child;
+  }
+
+  /**
+   * Lepas child dari tree. Node DOM dan seluruh handler subtree ikut
+   * dibersihkan supaya tidak ada listener/timer yang tertinggal.
+   */
+  remove(child: TComponent): TComponent {
+    const index = this._children.indexOf(child);
+    if (index < 0) {
+      throw new Error(`Component "${child.id}" is not a child of "${this.id}"`);
+    }
+
+    const screen = this.hostScreen();
+    const registry = this.rootComponent()._componentRegistry;
+    for (const component of collectComponentTree(child)) {
+      if (registry?.get(component.id) === component) {
+        registry.delete(component.id);
+      }
+      if (screen) screen.unregisterHandler(component.id);
+    }
+
+    if (screen && child.isVisual) {
+      void screen.unmount(child.id).catch(() => {});
+    }
+
+    child.dispose();
+    child.parent = null;
+    this._children.splice(index, 1);
+    return child;
+  }
+
+  /** Bersihkan resource subtree. Subclass override untuk timer/chart/dll. */
+  dispose(): void {
+    for (const child of [...this._children]) child.dispose();
+    const screen = this.hostScreen();
+    if (screen) screen.unregisterHandler(this.id);
   }
 
   get children(): TComponent[] {
     return this._children;
+  }
+
+  /** Root teratas dari tree komponen. */
+  protected rootComponent(): TComponent {
+    let root: TComponent = this;
+    while (root.parent) root = root.parent;
+    return root;
+  }
+
+  /** Screen pemilik tree; TForm meng-override dengan screen-nya sendiri. */
+  protected hostScreen(): Screen | null {
+    if (this._screenHost) return this._screenHost;
+    return this.parent ? this.parent.hostScreen() : null;
+  }
+
+  /** Hook saat child masuk tree; TForm memakai ini untuk mount inkremental. */
+  protected onChildAdded(_child: TComponent, _parent: TComponent): void {
+    // Base: no-op — hanya form yang sudah berjalan perlu mount.
   }
 
   /**
@@ -223,12 +312,20 @@ export class TComponent {
       id: this.id,
       tag: this.tag,
       props: { ...this.props, style: { ...this.style } },
-      children: this._children.map((c) => c.build()),
+      children: this._children.filter((c) => c.isVisual).map((c) => c.build()),
     };
     // Hapus style kosong biar payload gak bloat
     if (Object.keys(node.props.style).length === 0) delete node.props.style;
     return node;
   }
+}
+
+function collectComponentTree(root: TComponent): TComponent[] {
+  const components = [root];
+  for (const child of root.children) {
+    components.push(...collectComponentTree(child));
+  }
+  return components;
 }
 
 // ================================================================
@@ -297,6 +394,7 @@ export class TForm extends TComponent {
     frameless: boolean = false,
   ) {
     super("__form__");
+    this._componentRegistry = new Map([[this.id, this]]);
     // Normalisasi argumen — dukung dua bentuk pemanggilan
     let userStyle: Record<string, any> | undefined;
     if (typeof titleOrOpts === "object" && titleOrOpts !== null) {
@@ -339,6 +437,37 @@ export class TForm extends TComponent {
     };
     // Style dari object literal di-merge di atas default (override)
     if (userStyle) this.style = { ...this.style, ...userStyle };
+  }
+
+  byId<T extends TComponent = TComponent>(id: string): T | null {
+    const component = this._componentRegistry?.get(id);
+    return component ? (component as T) : null;
+  }
+
+  protected hostScreen(): Screen | null {
+    return this._screen || super.hostScreen();
+  }
+
+  /** Setelah run(), komponen baru langsung di-bind dan di-mount ke window. */
+  protected onChildAdded(child: TComponent, parent: TComponent): void {
+    if (!this._screen) return;
+    const screen = this._screen;
+
+    if (child.isVisual) {
+      void screen.mount(child.build(), parent.id).catch(() => {});
+    }
+
+    const bind = (component: TComponent) => {
+      component.bindEventHandler(screen);
+      for (const c of component.children) bind(c);
+    };
+    bind(child);
+
+    const refresh = async (component: TComponent) => {
+      await component.refresh(screen);
+      for (const c of component.children) await refresh(c);
+    };
+    void refresh(child).catch(() => {});
   }
 
   set title(v: string) {
@@ -531,6 +660,7 @@ export class TForm extends TComponent {
    */
   async close(): Promise<void> {
     if (this._onClose) this._onClose();
+    for (const child of this.children) child.dispose();
     await this._screen.close();
   }
 }
@@ -746,9 +876,14 @@ export class TEdit extends TComponent {
     this.tag = "input";
     this.props.type = "text";
     this.props.onInputId = this.id;
-    const { props, css } = splitConfig(config, ["text", "placeholder"]);
+    const { props, css } = splitConfig(config, [
+      "text",
+      "placeholder",
+      "readOnly",
+    ]);
     if (props.text !== undefined) this.text = props.text;
     if (props.placeholder !== undefined) this.placeholder = props.placeholder;
+    if (props.readOnly !== undefined) this.readOnly = props.readOnly;
     this.style = {
       width: "100%",
       padding: "8px 12px",
@@ -772,6 +907,17 @@ export class TEdit extends TComponent {
 
   set placeholder(v: string) {
     this.props.placeholder = v;
+  }
+
+  set readOnly(v: boolean) {
+    const changed = Boolean(v) !== this.readOnly;
+    this.props.readOnly = Boolean(v);
+    if (changed && this._screen) {
+      void this._screen.update(this.id, { readOnly: this.props.readOnly });
+    }
+  }
+  get readOnly(): boolean {
+    return Boolean(this.props.readOnly);
   }
 
   /** Binding event handler — panggil setelah mount */
@@ -2505,6 +2651,7 @@ export class TTimer extends TComponent {
   private _interval: number = 1000;
   private _enabled: boolean = false;
   private _screen: Screen | null = null;
+  private _handle: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     idOrOpts?: string | { interval?: number; enabled?: boolean },
@@ -2518,6 +2665,7 @@ export class TTimer extends TComponent {
     super(id);
     this._interval = config?.interval ?? interval ?? 1000;
     this._enabled = config?.enabled ?? enabled ?? false;
+    this.isVisual = false;
   }
 
   /** Interval dalam ms */
@@ -2541,6 +2689,7 @@ export class TTimer extends TComponent {
   }
 
   bindEventHandler(screen: Screen): void {
+    this.stop();
     this._screen = screen;
     // Auto-start jika enabled sudah di-set true
     if (this._enabled) this.start();
@@ -2549,14 +2698,15 @@ export class TTimer extends TComponent {
   private start(): void {
     this.stop();
     if (!this._screen || !this.onTimer) return;
-    this._screen.setInterval(() => {
+    this._handle = this._screen.setInterval(() => {
       if (this._enabled && this.onTimer) this.onTimer();
     }, this._interval);
   }
 
   private stop(): void {
-    // Managed timer di-screen akan auto-cleanup saat close
-    // Tidak perlu clearInterval manual
+    if (!this._screen || this._handle === null) return;
+    this._screen.clearInterval(this._handle);
+    this._handle = null;
   }
 
   /** Restart timer dengan interval baru */
@@ -2564,6 +2714,11 @@ export class TTimer extends TComponent {
     if (this._enabled) {
       this.start();
     }
+  }
+
+  dispose(): void {
+    this.stop();
+    super.dispose();
   }
 }
 

@@ -4006,6 +4006,13 @@ export class Window {
     this.registerHandler(targetId, eventType, callback);
   }
 
+  /** unregisterHandler(): Buang semua handler milik satu node (saat komponen dilepas). */
+  public unregisterHandler(targetId: string): void {
+    this.handlers.delete(targetId);
+    this.dirtyProps.delete(targetId);
+    this.vdom.delete(targetId);
+  }
+
   // ============================================================
   // PRIVATE — Batching Engine
   // ============================================================
@@ -4748,6 +4755,10 @@ export class Screen {
     this._timers.push(id);
     return id;
   }
+  clearInterval(id: ReturnType<typeof setInterval>): void {
+    clearInterval(id);
+    this._timers = this._timers.filter((timer) => timer !== id);
+  }
   setTimeout(cb: () => void, ms: number): ReturnType<typeof setTimeout> {
     const id = setTimeout(() => {
       if (this.running) cb();
@@ -4761,6 +4772,16 @@ export class Screen {
   // ============================================================
   async mount(node: IDOMNode, parentId?: string) {
     return this.win.mount(node, parentId);
+  }
+
+  /** Lepas node dari DOM window (dipakai TComponent.remove). */
+  async unmount(targetId: string) {
+    return this.win.unmount(targetId);
+  }
+
+  /** Buang handler event milik node yang sudah dilepas. */
+  unregisterHandler(targetId: string): void {
+    this.win.unregisterHandler(targetId);
   }
 
   // ============================================================

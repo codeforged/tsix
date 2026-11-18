@@ -190,6 +190,9 @@
         } else if (key === "disabled") {
           if (value) el.setAttribute("disabled", "");
           else el.removeAttribute("disabled");
+        } else if (key === "readOnly" || key === "readonly") {
+          if (value) el.setAttribute("readonly", "");
+          else el.removeAttribute("readonly");
         } else if (key === "onClickId") {
           // Register click → send event back to gued
           // Cursor via CSS attribute (data-tsix-onclick), BUKAN inline —
@@ -515,6 +518,9 @@
       } else if (key === "disabled") {
         if (value) el.setAttribute("disabled", "");
         else el.removeAttribute("disabled");
+      } else if (key === "readOnly" || key === "readonly") {
+        if (value) el.setAttribute("readonly", "");
+        else el.removeAttribute("readonly");
       } else if (key === "className") {
         el.className = value;
       } else if (key === "onClickId") {

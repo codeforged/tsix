@@ -58,7 +58,6 @@ export const main = Program(async (args: string[]) => {
 
     const toolbar = HStack(btnRefresh, status);
     form.add(toolbar);
-  	toolbar.add(btnRefresh);
 
     // ── DataGrid ──
     const grid = new TTabulatorGrid("sensor", [

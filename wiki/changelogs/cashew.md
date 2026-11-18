@@ -6,6 +6,29 @@
 
 ## 2026-09-08
 
+### P0 selesai — lifecycle komponen dinamis
+
+- **File:** `src/mirror/lib/cashew.ts`, `src/mirror/lib/emerald.ts`
+- **Perubahan:**
+  - `TComponent.isVisual` (default `true`); `TTimer` menandai dirinya non-visual sehingga tidak lagi menghasilkan `<div>` kosong di DOM.
+  - `TComponent.remove(child)` melepas subtree dari tree, menghapus entri registry, membuang handler event, dan meng-unmount node DOM.
+  - `TComponent.dispose()` rekursif; `TForm.close()` memanggilnya untuk seluruh child. `TTimer.dispose()` menghentikan interval.
+  - `Screen.unmount()` + `Screen.unregisterHandler()` menjadi jalur resmi pembersihan node/handler.
+  - `TForm.add()` setelah `run()` melakukan mount inkremental ke parent sebenarnya, plus auto-bind dan refresh.
+- **Catatan desain:** `isVisual` default `true` (opt-out) supaya kontainer buatan user dan factory yang sudah ada (`HStack`, `VStack`, `Spacer`) tetap tampil tanpa perubahan.
+- **Verifikasi:** 10 tes Cashew/Emerald lulus; tidak ada error TypeScript pada file yang diubah.
+
+### Guard komponen, lifecycle `TTimer`, dan properti `TEdit.readOnly`
+
+- **File:** `src/mirror/lib/cashew.ts`, `src/mirror/lib/emerald.ts`, `src/mirror/opt/dome/dome-client-dom.js`
+- **Perubahan:**
+  - `TComponent.add()` menolak komponen yang sudah memiliki parent dan ID duplikat dalam satu tree; `TForm.byId<T>()` menyediakan lookup berdasarkan ID.
+  - `TTimer` menyimpan handle interval dan menghentikannya saat disable/restart. `Screen.clearInterval()` juga menghapus handle dari daftar timer terkelola.
+  - `TEdit.readOnly` mendukung konfigurasi awal dan perubahan live; DOME memasang atau melepas atribut `readonly` dengan benar.
+  - Demo DB tidak lagi menambahkan tombol Refresh dua kali; Lantana Control Panel memakai API `readOnly` Cashew.
+- **Verifikasi:** 4 tes regresi Cashew lulus; `node --check` untuk client DOME lulus.
+- **Oleh:** Copilot
+
 ### `TComponent.style` kini accessor — live-sync otomatis ke browser setelah mount
 
 - **File:** `src/mirror/lib/cashew.ts`

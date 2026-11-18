@@ -36,6 +36,7 @@
 | 🔐 **Security**         | [Keamanan-dan-Sandboxing.md](Keamanan-dan-Sandboxing.md) |
 | 🖥️ **GUI Toolkit**      | [emerald-in-a-nutshell.md](emerald-in-a-nutshell.md)     |
 | 🥜 **Cashew Framework** | [cashew-in-a-nutshell.md](cashew-in-a-nutshell.md)       |
+| 🌰 **Pistachio Plan**   | [pistachio-plan.md](pistachio-plan.md)                   |
 | 🧾 **Text Tables**      | [tablelib.md](tablelib.md)                               |
 | �️ **DDC (Native JS)**   | [ddc-in-a-nutshell.md](ddc-in-a-nutshell.md)             |
 | �📖 **Developer Guide** | [Panduan-Developer.md](Panduan-Developer.md)             |
@@ -297,6 +298,7 @@ tsix/
 | [tablelib.md](tablelib.md)                                           | Tabel teks + warna ANSI (`@tsix/tableLib`, `@tsix/ansiLib`) |
 | [cashew-in-a-nutshell.md](cashew-in-a-nutshell.md)                   | Cashew Delphi-style GUI Framework                           |
 | [cashew-improve-plan.md](cashew-improve-plan.md)                     | Rencana peningkatan Cashew (prioritas P0/P1/P2)             |
+| [pistachio-plan.md](pistachio-plan.md)                               | Rancangan set komponen baru Pistachio (non-backward-compatible) |
 | [ASTERACEA_WM.md](ASTERACEA_WM.md)                                   | Window Manager architecture                                 |
 | [PIXELSPACE_DEVELOPER_GUIDE.md](PIXELSPACE_DEVELOPER_GUIDE.md)       | PixelSpace Display Protocol                                 |
 | [DEVELOPER_GUIDE_DEVICES.md](DEVELOPER_GUIDE_DEVICES.md)             | Panduan membuat device driver                               |

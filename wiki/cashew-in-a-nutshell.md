@@ -2,6 +2,12 @@
 
 **Cashew** adalah framework GUI deklaratif untuk TSIX yang mengadopsi pola komponen ala **Delphi / Turbo Pascal**. Tujuannya: bikin kode GUI lebih flat, mudah dibaca, dan bebas dari nesting berlebihan.
 
+> **Status:** Cashew tetap didukung untuk aplikasi yang sudah ada, tetapi kini
+> masuk mode **maintenance** (bugfix saja). Set komponen pengganti yang bersih
+> dan tidak backward compatible sedang dirancang di
+> [pistachio-plan.md](./pistachio-plan.md). Aplikasi baru disarankan menunggu
+> Pistachio siap.
+
 ---
 
 ## 📦 Instalasi
@@ -156,11 +162,30 @@ Semua opsi juga bisa di-set lewat properti: `form.maximizable = false`, `form.fr
 | Method                   | Fungsi                       |
 | :----------------------- | :--------------------------- |
 | `form.add(component)`    | Tambah komponen              |
+| `form.remove(component)` | Lepas komponen + bersihkan DOM/handler/timer |
+| `form.byId<T>(id)`       | Cari komponen berdasarkan ID |
 | `form.alert(title, msg)` | Dialog info                  |
 | `form.update(id, props)` | Update props elemen tertentu |
 | `form.screen`            | Akses Screen (buat TDialogs) |
 | `form.onSetup`           | Callback setelah mount       |
 | `form.onClose`           | Callback saat form ditutup   |
+
+`form.add(component)` hanya menerima komponen yang belum memiliki parent dan ID
+harus unik di dalam form. Gunakan `form.byId<TEdit>("edt-email")` untuk mencari
+komponen berdasarkan ID.
+
+**UI dinamis.** Komponen yang ditambahkan setelah `run()` langsung di-bind dan
+di-mount ke parent-nya. `remove()` melepas node DOM, handler, dan timer di
+subtree tersebut; `dispose()` dipanggil otomatis oleh `form.close()`.
+
+```typescript
+const panel = new TPanel("panel-runtime");
+form.add(panel);          // setelah run() → langsung tampil
+form.remove(panel);       // hilang dari DOM, handler & timer ikut berhenti
+```
+
+Komponen non-visual cukup set `isVisual = false` agar tetap di-bind tanpa
+membuat elemen DOM — `TTimer` sudah begitu.
 
 **Window control** — semua async, delegasi ke `Screen.win`:
 
@@ -219,6 +244,7 @@ btn.onClick = () => {
 ```typescript
 const edt = new TEdit("edt-email");
 edt.placeholder = "Masukkan email...";
+edt.readOnly = true; // tetap dapat dipilih/disalin, tetapi tidak dapat diedit
 edt.onInput = (val) => console.log(val); // opsional — reaksi real-time
 form.add(edt);
 
@@ -227,6 +253,9 @@ btn.onClick = () => std.log("Isi:", edt.text);
 ```
 
 > **Catatan:** Ketikan user otomatis disinkronkan ke `props.value` oleh `TForm.run()` → membaca `edt.text` kapan pun selalu mengembalikan nilai **terbaru** (tidak basi). `onInput` hanya untuk reaksi real-time (opsional).
+
+`readOnly` dapat diubah setelah form di-mount; atribut HTML ikut dipasang atau
+dilepas tanpa menonaktifkan field.
 
 ### TMemo — Textarea Multiline
 

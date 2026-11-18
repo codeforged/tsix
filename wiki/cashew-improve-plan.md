@@ -418,15 +418,16 @@ await form.run();
 
 ### P0 — Bug & Fondasi
 
-- [ ] **P0-1** Guard `add()` (parent + id duplikat) & `form.byId<T>()`
-- [ ] **P0-1** Verifikasi `gui-db-test-csh` hanya menampilkan satu tombol Refresh
-- [ ] **P0-2** `isVisual` / `TControl`; `TForm.build()` hanya mount child visual
-- [ ] **P0-2** Audit `TChart`/`TImage`/`TDataGrid` tetap visual
-- [ ] **P0-3** `Screen.clearInterval()` + `TTimer` simpan handle; fix interval ganda
-- [ ] **P0-3** Update dokumen klaim "close() membersihkan timer"
-- [ ] **P0-4** `TComponent.remove()` + `Screen.removeNode()`/`unregisterHandler`
-- [ ] **P0-4** `dispose()` rekursif pada `TForm.close()`
-- [ ] **P0-4** `form.add()` setelah `run()` → auto-bind + mount inkremental
+- [x] **P0-1** Guard `add()` (parent + id duplikat) & `form.byId<T>()`
+- [x] **P0-1** Hapus penambahan kedua tombol Refresh di `gui-db-test-csh`
+- [x] **P0-2** `isVisual` (default `true`, opt-out) — `build()` hanya mount child visual
+- [x] **P0-2** Audit `TChart`/`TImage`/`TDataGrid` tetap visual
+- [x] **P0-3** `Screen.clearInterval()` + `TTimer` simpan handle; fix interval ganda
+- [x] **P0-3** Perjelas lifecycle timer: `close()` membersihkan timer aktif, `clearInterval()` melepas timer satuan
+- [x] **Lintas layer** `TEdit.readOnly` memasang/melepas atribut saat mount dan update
+- [x] **P0-4** `TComponent.remove()` + `Screen.unmount()`/`unregisterHandler`
+- [x] **P0-4** `dispose()` rekursif pada `TForm.close()`
+- [x] **P0-4** `form.add()` setelah `run()` → auto-bind + mount inkremental
 
 ### P1 — Ergonomi
 
