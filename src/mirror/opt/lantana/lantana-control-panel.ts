@@ -30,6 +30,7 @@ import {
     findPayload as findPayloadIn,
     nodeIdOf,
     type AccountView,
+    type DashboardItemView,
     type DashboardView,
     type DeviceView,
     type NavKind,
@@ -38,6 +39,7 @@ import {
     type SchemeView,
     type ServerView,
 } from "@tsix/lantana/control-panel-tree";
+import { iconOptions } from "@tsix/lantana/dashboard-icons";
 import { runLantanaCtl } from "@tsix/lantana/lantana-ctl-client";
 
 export const appMode = "gui";
@@ -294,11 +296,11 @@ export const main = Program(async () => {
     const itemInfo = new TLabel({ text: "", style: { fontSize: "11px" } });
     const itemTypeField = comboInput("lcp-item-type", ITEM_TYPES, "Tipe kartu");
     const itemTitleField = textInput("lcp-item-title", "Suhu Ruangan", "Judul kartu");
-    const itemIconField = textInput("lcp-item-icon", "thermostat", "Icon");
+    const itemIconField = comboInput("lcp-item-icon", iconOptions(), "Icon");
     const itemIntervalField = textInput("lcp-item-interval", "5", "Update interval (detik)");
     const itemScrollField = textInput("lcp-item-scroll", "opsional", "Scroll after");
-    const itemDeviceField = textInput("lcp-item-device", "device id", "Device ID");
-    const itemSchemeField = textInput("lcp-item-scheme", "101", "Scheme ID");
+    const itemDeviceField = comboInput("lcp-item-device", [], "Device");
+    const itemSchemeField = comboInput("lcp-item-scheme", [], "Scheme");
     const itemGroup = group("lcp-group-item", "Item dashboard", [
         itemInfo,
         fieldGrid("lcp-item-grid", [
@@ -547,6 +549,91 @@ export const main = Program(async () => {
         };
     }
 
+    const itemSchemeCombo = itemSchemeField.input as TComboBox;
+    const itemDeviceCombo = itemDeviceField.input as TComboBox;
+    const itemIconCombo = itemIconField.input as TComboBox;
+    let itemSchemeOptions: SchemeView[] = [];
+    let itemDeviceOptions: DeviceView[] = [];
+
+    function schemeOptionLabel(scheme: SchemeView): string {
+        return `${scheme.schemeId} · ${scheme.label}${scheme.unit ? ` (${scheme.unit})` : ""}`;
+    }
+
+    function deviceOptionLabel(device: DeviceView): string {
+        return `${deviceTitle(device)} · ${device.deviceId.slice(0, 8)}`;
+    }
+
+    function applyCombo(
+        combo: TComboBox,
+        labels: string[],
+        selectedIndex: number,
+    ): void {
+        combo.items = labels;
+        combo.selectedIndex = labels.length ? Math.max(0, selectedIndex) : -1;
+        void combo.setItems(labels);
+    }
+
+    /**
+     * Isi combobox device/scheme/icon dari data akun dashboard. Nilai lama yang
+     * tidak ada di daftar tetap ditampilkan agar tidak berubah tanpa disengaja.
+     */
+    function fillItemLookups(
+        accountId: string,
+        item: DashboardItemView | null,
+    ): void {
+        const accountSchemes = schemes
+            .filter((scheme) => scheme.ownerAccountId === accountId)
+            .sort((a, b) => a.schemeId - b.schemeId);
+        if (
+            item?.schemeId !== undefined &&
+            !accountSchemes.some((scheme) => scheme.schemeId === item.schemeId)
+        ) {
+            accountSchemes.unshift({
+                schemeId: item.schemeId,
+                ownerAccountId: accountId,
+                label: "(scheme lama)",
+                type: "number",
+            });
+        }
+        itemSchemeOptions = accountSchemes;
+        applyCombo(
+            itemSchemeCombo,
+            accountSchemes.map(schemeOptionLabel),
+            accountSchemes.findIndex((scheme) => scheme.schemeId === item?.schemeId),
+        );
+
+        const accountDevices = devices
+            .filter((device) => device.accountId === accountId)
+            .sort((a, b) => deviceTitle(a).localeCompare(deviceTitle(b)));
+        if (
+            item?.deviceId &&
+            !accountDevices.some((device) => device.deviceId === item.deviceId)
+        ) {
+            accountDevices.unshift({
+                accountId,
+                deviceId: item.deviceId,
+                meta: {},
+            });
+        }
+        itemDeviceOptions = accountDevices;
+        applyCombo(
+            itemDeviceCombo,
+            accountDevices.map(deviceOptionLabel),
+            accountDevices.findIndex((device) => device.deviceId === item?.deviceId),
+        );
+
+        const icons = iconOptions(item?.icon);
+        applyCombo(itemIconCombo, icons, icons.indexOf(item?.icon ?? ""));
+    }
+
+    function selectedItemScheme(): SchemeView | null {
+        return itemSchemeOptions[itemSchemeCombo.selectedIndex] ?? null;
+    }
+
+    function selectedItemDevice(): DeviceView | null {
+        return itemDeviceOptions[itemDeviceCombo.selectedIndex] ?? null;
+    }
+
     /**
      * Muat ulang data lalu pilih `preferred`. Bila user sudah memilih baris lain
      * selama operasi berjalan, pilihan user yang dipertahankan.
@@ -790,21 +877,21 @@ export const main = Program(async () => {
             ? "Item dashboard baru"
             : `Item · ${item?.title ?? "-"}`;
         editorHint.text = dashboard
-            ? `Dashboard ${dashboard.title} · akun ${dashboard.accountId}`
+            ? `Dashboard ${dashboard.title} · akun ${dashboard.accountId} — Device, Scheme, dan Icon dipilih dari daftar akun ini.`
             : "Item harus terkait pada sebuah dashboard.";
-        itemInfo.text = draft
-            ? "Item ditambahkan ke akhir daftar dashboard."
-            : `Posisi: ${(selection?.itemIndex ?? 0) + 1} dari ${dashboard?.dashboardItems.length ?? 0}`;
+        fillItemLookups(dashboard?.accountId ?? "-", item ?? null);
         setValue(itemTypeField, item?.type ?? "text");
         setValue(itemTitleField, item?.title ?? "");
-        setValue(itemIconField, item?.icon ?? "");
         setValue(itemIntervalField, String(item?.updateInterval ?? 5));
         setValue(
             itemScrollField,
             item?.scrollAfter === undefined ? "" : String(item.scrollAfter),
         );
-        setValue(itemDeviceField, item?.deviceId ?? "");
-        setValue(itemSchemeField, item?.schemeId === undefined ? "" : String(item.schemeId));
+        itemInfo.text = `${
+            draft
+                ? "Item ditambahkan ke akhir daftar dashboard."
+                : `Posisi: ${(selection?.itemIndex ?? 0) + 1} dari ${dashboard?.dashboardItems.length ?? 0}`
+        } · ${itemDeviceOptions.length} device · ${itemSchemeOptions.length} scheme tersedia di akun ini`;
     }
 
     function addLabel(): string {
@@ -1029,12 +1116,20 @@ export const main = Program(async () => {
         index: string,
     ): string[] {
         const interval = required(itemIntervalField, "Update interval");
-        const schemeId = required(itemSchemeField, "Scheme ID");
         if (!/^[1-9]\d*$/.test(interval)) {
             throw new Error("Update interval harus integer positif.");
         }
-        if (!/^[1-9]\d*$/.test(schemeId)) {
-            throw new Error("Scheme ID harus integer positif.");
+        const scheme = selectedItemScheme();
+        if (!scheme) {
+            throw new Error(
+                "Scheme belum tersedia untuk akun ini. Buat scheme terlebih dahulu.",
+            );
+        }
+        const device = selectedItemDevice();
+        if (!device) {
+            throw new Error(
+                "Device belum tersedia untuk akun ini. Daftarkan device terlebih dahulu.",
+            );
         }
         const args = [
             "dashboard",
@@ -1051,9 +1146,9 @@ export const main = Program(async () => {
             "--interval",
             interval,
             "--device-id",
-            required(itemDeviceField, "Device ID"),
+            device.deviceId,
             "--scheme-id",
-            schemeId,
+            String(scheme.schemeId),
         ];
         const scrollAfter = optionalNumber(itemScrollField, "Scroll after");
         if (scrollAfter !== null) args.push("--scroll-after", scrollAfter);

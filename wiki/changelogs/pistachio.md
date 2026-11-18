@@ -27,7 +27,11 @@
   `rows`, `selectedId`, `selectedNode`, dan `expandedIds`.
 - **`TForm.maximize()`:** meneruskan ke `Screen.maximize()` supaya form bisa
   dibuka penuh tanpa mengakses `form.screen`.
-- **Verifikasi:** 5 tes `TTreeView` ditambahkan; 25 tes controls lulus.
+- **`TComboBox.setItems()`:** opsi bisa diganti saat runtime (mis. lookup yang
+  bergantung pada pilihan lain); nilai terpilih dipertahankan bila masih ada,
+  selain itu jatuh ke opsi pertama atau `-1` saat daftar kosong.
+- **Verifikasi:** 29 tes controls lulus (termasuk 2 tes `setItems` dan 5 tes
+  `TTreeView`).
 - **Oleh:** Copilot
 
 ### Fase 4 DB — DB Controls

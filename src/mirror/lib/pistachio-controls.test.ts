@@ -378,6 +378,41 @@ describe("TDataGrid", () => {
   });
 });
 
+describe("TComboBox", () => {
+  it("replaces options and keeps the current value when it survives", async () => {
+    const port = createPort();
+    const combo = new TComboBox({ id: "combo", items: ["a", "b", "c"] });
+    combo.bindEventHandler(port);
+    combo.selectedIndex = 1;
+
+    await combo.setItems(["b", "c", "d"]);
+
+    expect(combo.items).toEqual(["b", "c", "d"]);
+    expect(combo.selectedIndex).toBe(0);
+    const content = port.setContent.mock.calls.at(-1);
+    expect(content?.[0]).toBe("combo");
+    expect(content?.slice(1)).toHaveLength(3);
+    expect(port.update).toHaveBeenCalledWith("combo", { value: "0" });
+    combo.dispose();
+  });
+
+  it("falls back to the first option or an empty selection", async () => {
+    const port = createPort();
+    const combo = new TComboBox({ id: "combo", items: ["a"] });
+    combo.bindEventHandler(port);
+    combo.selectedIndex = 0;
+
+    await combo.setItems(["x", "y"]);
+    expect(combo.selectedIndex).toBe(0);
+    expect(combo.items[0]).toBe("x");
+
+    await combo.setItems([]);
+    expect(combo.selectedIndex).toBe(-1);
+    expect(combo.items).toEqual([]);
+    combo.dispose();
+  });
+});
+
 describe("TTreeView", () => {
   function makeNodes() {
     return [

@@ -21,6 +21,13 @@
   → entri → item dashboard. Klik baris akun/grup membuka anaknya; klik entri
   menampilkan editornya. Sub-akun tampil sebagai anak akun induk, akun dengan
   parent hilang tetap muncul sebagai root.
+- **Lookup form item:** `Device`, `Scheme`, dan `Icon` pada item portable
+  dashboard kini berupa combobox, bukan isian ID manual. Device & scheme diambil
+  dari data akun dashboard tersebut (`Sensor A · 7f352db1`, `101 · Suhu (°C)`),
+  sedangkan icon memakai daftar aplikasi Android
+  (`src/mirror/lib/lantana/dashboard-icons.ts`: thermostat, water_drop, bolt,
+  power_settings_new, lightbulb, air, speed, sensors). Nilai lama yang tidak ada
+  di daftar tetap ditampilkan paling atas agar tidak berubah tanpa disengaja.
 - **Editing:** field langsung bisa disunting tanpa mode terpisah; tombol Simpan
   mengirim perubahan ke `lantana-ctl` (`account permissions`, `device update`,
   `scheme update`, `dashboard update`, `dashboard item-set`). Tombol Tambah

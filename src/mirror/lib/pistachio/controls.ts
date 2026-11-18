@@ -432,6 +432,21 @@ export class TComboBox extends TComponent {
     this.push({ value: String(value) });
   }
 
+  /**
+   * Ganti daftar opsi saat runtime, mis. lookup yang bergantung pada pilihan
+   * lain. Nilai yang sedang dipilih dipertahankan bila masih ada.
+   */
+  async setItems(items: string[]): Promise<void> {
+    const previous = this._items[this._selectedIndex];
+    this._items = [...items];
+    const kept = previous === undefined ? -1 : this._items.indexOf(previous);
+    this._selectedIndex = kept >= 0 ? kept : this._items.length ? 0 : -1;
+    this.push({ value: String(this._selectedIndex) });
+    const host = this.host;
+    if (!host?.setContent) return;
+    await host.setContent(this.id, ...this.build().children);
+  }
+
   bindEventHandler(host: TScreenPort): void {
     super.bindEventHandler(host);
     host.on(this.id, "input", (ev: any) => {
