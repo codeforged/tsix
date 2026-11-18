@@ -6,6 +6,23 @@
 
 ## 2026-11-18
 
+### Grid Tabulator, kontrol tambahan, dan dialog
+
+- **File:** `src/mirror/lib/pistachio/{widgets,dialogs}.ts`
+- **Grid:** `TDataGrid` dan `TTabulatorGrid` kini memakai basis `TGridBase` —
+  API identik (`setData`, `appendData`, `setColumns`, `selectedIndex`,
+  `selectedRecord`, `getRecord`, `setSelectedIndex`, `clearSelection`,
+  `onSort`, `onRowClick`, `onRowContextMenu`), dengan tambahan
+  `onSelectionChange` + opsi `selectable` untuk Tabulator.
+- **Kontrol tambahan:** `TStatusBar`, `TSlider` (clamp + nilai tampil live),
+  `TImage` (src/data URI atau `file` VFS otomatis jadi data URI).
+- **Dialog:** `TDialogs.alert/confirm/input` (trio) serta `TOpenDialog` dan
+  `TSaveDialog` yang membungkus `Screen.openFileDialog`/`saveFileDialog`.
+  Semua menerima `TForm` atau `Screen`.
+- **Demo:** grup **Dialog** (Alert, Confirm, Input, Open…, Save…).
+- **Verifikasi:** 56 tes Pistachio lulus; `tsc` bersih.
+- **Oleh:** Copilot
+
 ### Footprint seragam untuk kartu IoT
 
 - **File:** `src/mirror/lib/pistachio/widgets.ts`

@@ -10,6 +10,7 @@
 
 import {
   ConnectedDataGrid,
+  ConnectedTabulator,
   DataGridColumn,
   Screen,
   indicatorLamp,
@@ -18,14 +19,16 @@ import {
   relayCard,
   sensorCard,
   sevenSegment,
+  slider,
   toggleSwitch,
   verticalGauge,
 } from "@tsix/emerald";
+import { fs } from "@tsix/Application";
 import { TComponent, TNode, TOptions, TScreenPort, TStyle } from "./core";
 
 export type { DataGridColumn };
 
-export interface TDataGridOptions extends TOptions {
+interface TGridOptions extends TOptions {
   columns?: DataGridColumn[];
   data?: Record<string, any>[];
   /** Tinggi wrapper (number = px). Kosong = mengikuti isi. */
@@ -34,7 +37,35 @@ export interface TDataGridOptions extends TOptions {
   maxRows?: number;
 }
 
-export class TDataGrid extends TComponent {
+export interface TDataGridOptions extends TGridOptions {}
+export interface TTabulatorGridOptions extends TGridOptions {
+  /** Izinkan pemilihan baris (default true). */
+  selectable?: boolean;
+}
+
+/** Kontrak minimum yang dipakai Pistachio dari grid emerald. */
+interface TEmbeddedGrid {
+  columns: DataGridColumn[];
+  data: Record<string, any>[];
+  build(): TNode;
+  setData(rows: Record<string, any>[]): Promise<void>;
+  appendData(rows: Record<string, any>[]): Promise<void>;
+  setColumns(columns: DataGridColumn[]): Promise<void>;
+  readonly selectedIndex: number;
+  readonly selectedRecord: Record<string, any> | null;
+  getRecord(index: number): Record<string, any> | null;
+  setSelectedIndex(index: number): Promise<void>;
+  clearSelection(): Promise<void>;
+  readonly sort: { key: string; dir: "asc" | "desc" } | null;
+}
+
+const GRID_OPTIONS = ["columns", "data", "height", "maxRows"] as const;
+
+/**
+ * Basis grid data manual. Subclass hanya menentukan grid emerald yang dipakai
+ * dan cara mount-nya; seluruh API publik seragam.
+ */
+abstract class TGridBase<TG extends TEmbeddedGrid> extends TComponent {
   public onSort: ((key: string, dir: "asc" | "desc") => void) | null = null;
   /** index = row-key stabil (tahan sorting), bukan nomor baris tampil. */
   public onRowClick:
@@ -49,29 +80,26 @@ export class TDataGrid extends TComponent {
       ) => void)
     | null = null;
 
-  private readonly _grid: ConnectedDataGrid;
+  protected readonly _grid: TG;
   private _columns: DataGridColumn[];
   private _data: Record<string, any>[];
 
-  constructor(
-    idOrOpts?: string | TDataGridOptions,
-    opts?: TDataGridOptions,
+  protected constructor(
+    idOrOpts: string | TGridOptions | undefined,
+    opts: TGridOptions | undefined,
     knownProps: readonly string[] = [],
   ) {
-    super(idOrOpts, opts, ["columns", "data", "height", "maxRows", ...knownProps]);
-    const o = this.options as TDataGridOptions;
+    super(idOrOpts, opts, [...GRID_OPTIONS, ...knownProps]);
+    const o = this.options as TGridOptions;
 
     this.tag = "div";
     this._columns = o.columns ?? [];
     this._data = o.data ?? [];
-    this._grid = new ConnectedDataGrid({
-      id: this.id,
-      columns: this._columns,
-      data: this._data,
-      height: o.height,
-      maxRows: o.maxRows,
-    });
+    this._grid = this.createGrid();
   }
+
+  protected abstract createGrid(): TG;
+  protected abstract mountGrid(host: TScreenPort): void;
 
   get columns(): readonly DataGridColumn[] {
     return this._columns;
@@ -91,7 +119,6 @@ export class TDataGrid extends TComponent {
     return this._grid.sort;
   }
 
-  /** Row-key stabil baris terpilih; -1 bila tidak ada. */
   get selectedIndex(): number {
     return this._grid.selectedIndex;
   }
@@ -138,6 +165,32 @@ export class TDataGrid extends TComponent {
 
   bindEventHandler(host: TScreenPort): void {
     super.bindEventHandler(host);
+    this.mountGrid(host);
+  }
+}
+
+/** Grid data manual berbasis tabel HTML (ConnectedDataGrid). */
+export class TDataGrid extends TGridBase<ConnectedDataGrid> {
+  constructor(
+    idOrOpts?: string | TDataGridOptions,
+    opts?: TDataGridOptions,
+    knownProps: readonly string[] = [],
+  ) {
+    super(idOrOpts, opts, knownProps);
+  }
+
+  protected createGrid(): ConnectedDataGrid {
+    const o = this.options as TDataGridOptions;
+    return new ConnectedDataGrid({
+      id: this.id,
+      columns: o.columns ?? [],
+      data: o.data ?? [],
+      height: o.height,
+      maxRows: o.maxRows,
+    });
+  }
+
+  protected mountGrid(host: TScreenPort): void {
     void this._grid.mount(
       host as unknown as Screen,
       (key, dir) => this.onSort?.(key, dir),
@@ -147,6 +200,45 @@ export class TDataGrid extends TComponent {
   }
 }
 
+/**
+ * Grid data manual berbasis Tabulator (virtualized, cocok untuk banyak baris).
+ */
+export class TTabulatorGrid extends TGridBase<ConnectedTabulator> {
+  /** Dipanggil saat seleksi berubah; `record` null bila seleksi dikosongkan. */
+  public onSelectionChange:
+    | ((index: number, record: Record<string, any> | null) => void)
+    | null = null;
+
+  constructor(
+    idOrOpts?: string | TTabulatorGridOptions,
+    opts?: TTabulatorGridOptions,
+    knownProps: readonly string[] = [],
+  ) {
+    super(idOrOpts, opts, ["selectable", ...knownProps]);
+  }
+
+  protected createGrid(): ConnectedTabulator {
+    const o = this.options as TTabulatorGridOptions;
+    return new ConnectedTabulator({
+      id: this.id,
+      columns: o.columns ?? [],
+      data: o.data ?? [],
+      height: o.height,
+      maxRows: o.maxRows,
+      selectable: o.selectable,
+    });
+  }
+
+  protected mountGrid(host: TScreenPort): void {
+    void this._grid.mount(
+      host as unknown as Screen,
+      (key, dir) => this.onSort?.(key, dir),
+      (index, record) => this.onRowClick?.(index, record),
+      (index, record, x, y) => this.onRowContextMenu?.(index, record, x, y),
+      (index, record) => this.onSelectionChange?.(index, record),
+    );
+  }
+}
 
 // ================================================================
 // WIDGET IOT — pembungkus builder emerald
@@ -768,4 +860,311 @@ export class TVerticalGauge extends TViewWidget {
       h: this._height,
     });
   }
+}
+
+
+// ================================================================
+// KONTROL TAMBAHAN — status bar, slider, image
+// ================================================================
+
+export interface TStatusBarOptions extends TOptions {
+  leftText?: string;
+  rightText?: string;
+}
+
+/** Baris status dua sisi (kiri/kanan). */
+export class TStatusBar extends TComponent {
+  private _left: string;
+  private _right: string;
+
+  constructor(
+    idOrOpts?: string | TStatusBarOptions,
+    opts?: TStatusBarOptions,
+  ) {
+    super(idOrOpts, opts, ["leftText", "rightText"]);
+    const o = this.options as TStatusBarOptions;
+
+    this.tag = "div";
+    this._left = o.leftText ?? "";
+    this._right = o.rightText ?? "";
+    this.style = {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: "8px",
+      padding: "6px 10px",
+      borderTop: "1px solid var(--border, rgba(255,255,255,0.12))",
+      fontSize: "12px",
+      color: "var(--text-muted, #8fa3bf)",
+      ...this.style,
+    };
+  }
+
+  get leftText(): string {
+    return this._left;
+  }
+  set leftText(value: string) {
+    this._left = value;
+    if (this.host) void this.host.update(`${this.id}_left`, { text: value });
+  }
+
+  get rightText(): string {
+    return this._right;
+  }
+  set rightText(value: string) {
+    this._right = value;
+    if (this.host) void this.host.update(`${this.id}_right`, { text: value });
+  }
+
+  build(): TNode {
+    return {
+      id: this.id,
+      tag: this.tag,
+      props: { style: { ...this.style } },
+      children: [
+        {
+          id: `${this.id}_left`,
+          tag: "span",
+          props: { text: this._left },
+          children: [],
+        },
+        {
+          id: `${this.id}_right`,
+          tag: "span",
+          props: { text: this._right },
+          children: [],
+        },
+      ],
+    };
+  }
+}
+
+export interface TSliderOptions extends TOptions {
+  value?: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  label?: string;
+  color?: string;
+}
+
+/** Slider rentang dengan nilai tampil di bawahnya. */
+export class TSlider extends TViewWidget {
+  public onInput: ((value: number) => void) | null = null;
+
+  private _value: number;
+  private readonly _min: number;
+  private readonly _max: number;
+  private readonly _step: number;
+  private readonly _unit: string;
+  private readonly _label: string;
+  private readonly _color: string;
+
+  constructor(idOrOpts?: string | TSliderOptions, opts?: TSliderOptions) {
+    super(idOrOpts, opts, [
+      "value",
+      "min",
+      "max",
+      "step",
+      "unit",
+      "label",
+      "color",
+    ]);
+    const o = this.options as TSliderOptions;
+
+    this._min = o.min ?? 0;
+    this._max = o.max ?? 100;
+    this._step = o.step ?? 1;
+    this._unit = o.unit ?? "";
+    this._label = o.label ?? "";
+    this._color = o.color ?? "#2196f3";
+    this._value = this.clamp(o.value ?? this._min);
+  }
+
+  get value(): number {
+    return this._value;
+  }
+  set value(value: number) {
+    const next = this.clamp(value);
+    if (next === this._value) return;
+    this._value = next;
+    void this.rerender();
+  }
+
+  bindEventHandler(host: TScreenPort): void {
+    super.bindEventHandler(host);
+    host.on(`sl-input-${this.id}`, "input", (ev: any) => {
+      const parsed = Number.parseFloat(ev?.value);
+      if (Number.isNaN(parsed)) return;
+
+      this._value = this.clamp(parsed);
+      void host.update(`sl-val-${this.id}`, { text: this.displayValue() });
+      this.onInput?.(this._value);
+    });
+  }
+
+  protected buildView(): TNode {
+    return slider({
+      id: this.id,
+      min: this._min,
+      max: this._max,
+      step: this._step,
+      value: this._value,
+      unit: this._unit,
+      label: this._label,
+      color: this._color,
+    });
+  }
+
+  private clamp(value: number): number {
+    if (!Number.isFinite(value)) return this._min;
+    return Math.min(Math.max(value, this._min), this._max);
+  }
+
+  private displayValue(): string {
+    const text =
+      this._value % 1 === 0
+        ? String(Math.round(this._value))
+        : this._value.toFixed(1);
+    return text + this._unit;
+  }
+}
+
+export interface TImageOptions extends TOptions {
+  /** URL atau data URI langsung. */
+  src?: string;
+  /** Path file di VFS; dimuat otomatis saat mount. */
+  file?: string;
+  alt?: string;
+  fit?: "contain" | "cover" | "fill" | "none";
+  width?: number | string;
+  height?: number | string;
+}
+
+/** Gambar; bisa dari URL/data URI atau file VFS. */
+export class TImage extends TComponent {
+  public onClick: (() => void) | null = null;
+
+  private _src: string;
+  private _alt: string;
+  private _mime: string;
+  private _file: string;
+  private _fileLoaded: boolean = false;
+
+  constructor(idOrOpts?: string | TImageOptions, opts?: TImageOptions) {
+    super(idOrOpts, opts, [
+      "src",
+      "file",
+      "alt",
+      "fit",
+      "width",
+      "height",
+    ]);
+    const o = this.options as TImageOptions;
+
+    this.tag = "img";
+    this._alt = o.alt ?? "";
+    this._mime = mimeOfPath(o.file ?? "", "image/png");
+    this._file = o.file ?? "";
+    this._src = o.src ?? this._file;
+
+    const size = (value: number | string | undefined) =>
+      value === undefined
+        ? {}
+        : { width: typeof value === "number" ? `${value}px` : value };
+
+    this.style = {
+      display: "block",
+      maxWidth: "100%",
+      objectFit: o.fit ?? "contain",
+      ...size(o.width),
+      ...(o.height !== undefined
+        ? { height: typeof o.height === "number" ? `${o.height}px` : o.height }
+        : {}),
+      ...this.style,
+    };
+  }
+
+  get src(): string {
+    return this._src;
+  }
+  set src(value: string) {
+    this._src = value;
+    this.props.src = value;
+    this.push({ src: value });
+  }
+
+  get alt(): string {
+    return this._alt;
+  }
+  set alt(value: string) {
+    this._alt = value;
+    this.push({ alt: value });
+  }
+
+  /** Muat gambar dari file VFS sebagai data URI. */
+  async loadFile(path: string): Promise<void> {
+    if (!path) return;
+
+    this._file = path;
+    const raw = await fs.readFile(path);
+    if (!raw) {
+      throw new Error(`[TImage] cannot read ${path}`);
+    }
+
+    this._mime = mimeOfPath(path, this._mime);
+    this.src = toDataUri(String(raw), this._mime);
+  }
+
+  bindEventHandler(host: TScreenPort): void {
+    super.bindEventHandler(host);
+    host.on(this.id, "click", () => this.onClick?.());
+
+    if (this._file && !this._fileLoaded) {
+      this._fileLoaded = true;
+      void this.loadFile(this._file).catch(() => {});
+    }
+  }
+
+  build(): TNode {
+    return {
+      id: this.id,
+      tag: this.tag,
+      props: {
+        ...this.props,
+        src: this._src,
+        alt: this._alt,
+        onClickId: this.id,
+        style: { ...this.style },
+      },
+      children: [],
+    };
+  }
+}
+
+function mimeOfPath(path: string, fallback = "image/png"): string {
+  const ext = (path || "").toLowerCase().split(".").pop() || "";
+  switch (ext) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "gif":
+      return "image/gif";
+    case "bmp":
+      return "image/bmp";
+    case "webp":
+      return "image/webp";
+    case "svg":
+      return "image/svg+xml";
+    default:
+      return fallback;
+  }
+}
+
+function toDataUri(raw: string, mime: string): string {
+  const base64 = Buffer.from(String(raw), "latin1").toString("base64");
+  return `data:${mime};base64,${base64}`;
 }

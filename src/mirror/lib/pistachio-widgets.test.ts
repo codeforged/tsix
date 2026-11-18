@@ -7,6 +7,9 @@ import {
   TRelayCard,
   TSensorCard,
   TSevenSegment,
+  TSlider,
+  TStatusBar,
+  TImage,
   TToggleSwitch,
   TVerticalGauge,
 } from "@tsix/pistachio";
@@ -208,5 +211,96 @@ describe("card footprint", () => {
     expect(view.props.style.flexDirection).toBe("column");
     expect(view.props.style.justifyContent).toBe("center");
     expect(view.props.style.alignItems).toBe("stretch");
+  });
+});
+
+describe("TStatusBar", () => {
+  it("renders both sides and updates them live", () => {
+    const bar = new TStatusBar({
+      id: "sb",
+      leftText: "Siap",
+      rightText: "0 item",
+    });
+    const port = createPort();
+    bar.bindEventHandler(port);
+
+    expect(bar.build().children.map((child) => child.props.text)).toEqual([
+      "Siap",
+      "0 item",
+    ]);
+
+    bar.leftText = "Memuat";
+    bar.rightText = "5 item";
+
+    expect(port.update).toHaveBeenCalledWith("sb_left", { text: "Memuat" });
+    expect(port.update).toHaveBeenCalledWith("sb_right", { text: "5 item" });
+  });
+});
+
+describe("TSlider", () => {
+  it("clamps input, refreshes the display, and reports changes", () => {
+    const sliderWidget = new TSlider({
+      id: "sl",
+      min: 0,
+      max: 100,
+      unit: "%",
+      value: 40,
+    });
+    const port = createPort();
+    sliderWidget.build();
+    sliderWidget.bindEventHandler(port);
+    const onInput = vi.fn();
+    sliderWidget.onInput = onInput;
+
+    handlerFor(port, "sl-input-sl")({ value: "120" });
+
+    expect(sliderWidget.value).toBe(100);
+    expect(port.update).toHaveBeenCalledWith("sl-val-sl", { text: "100%" });
+    expect(onInput).toHaveBeenCalledWith(100);
+  });
+
+  it("rerenders when the value is set programmatically", async () => {
+    const sliderWidget = new TSlider({ id: "sl", value: 10 });
+    const port = createPort();
+    sliderWidget.build();
+    sliderWidget.bindEventHandler(port);
+
+    sliderWidget.value = 70;
+    await flush();
+
+    expect(sliderWidget.value).toBe(70);
+    expect(port.mount).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("TImage", () => {
+  it("renders src, alt, size, and click binding", () => {
+    const image = new TImage({
+      id: "logo",
+      src: "data:image/png;base64,AAA",
+      alt: "Logo",
+      width: 40,
+      height: "40px",
+    });
+    const port = createPort();
+    const onClick = vi.fn();
+    image.onClick = onClick;
+    image.bindEventHandler(port);
+
+    const node = image.build();
+    expect(node.tag).toBe("img");
+    expect(node.props.src).toBe("data:image/png;base64,AAA");
+    expect(node.props.alt).toBe("Logo");
+    expect(node.props.onClickId).toBe("logo");
+    expect(node.props.style.width).toBe("40px");
+    expect(node.props.style.height).toBe("40px");
+
+    handlerFor(port, "logo")();
+    expect(onClick).toHaveBeenCalledTimes(1);
+
+    image.src = "data:image/png;base64,BBB";
+    expect(port.update).toHaveBeenCalledWith("logo", {
+      src: "data:image/png;base64,BBB",
+    });
   });
 });

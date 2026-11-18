@@ -11,4 +11,5 @@ export * from "./pistachio/core";
 export * from "./pistachio/layout";
 export * from "./pistachio/controls";
 export * from "./pistachio/widgets";
+export * from "./pistachio/dialogs";
 export * from "./pistachio/form";

@@ -148,6 +148,7 @@ src/mirror/lib/pistachio/
   layout.ts                        // TPanel, THStack, TVStack, TGridPanel, TScrollBox, TSpacer, TGroupBox
   controls.ts                      // TLabel, TButton, TEdit, TMemo, TCheckBox, TRadioButton, TComboBox, TListBox
   form.ts                          // TForm (window + mount/bind/refresh/dispose)
+  dialogs.ts                       // TDialogs, TOpenDialog, TSaveDialog
   widgets.ts                       // TLineChart, TRadialGauge, TSensorCard, TChart, ...
   data.ts                          // TDBConnection, TDBQuery, TProvider, TClientDataset, TDataSource
   dbcontrols.ts                    // TDBText, TDBEdit, TDBListBox, TDBMemo, TDBGrid, TDBNavigator
@@ -430,7 +431,9 @@ database) ditunda sampai komponen UI stabil.
 - [x] Demo `src/mirror/opt/test/pistachio-demo.ts`
 - [x] Verifikasi runtime lewat DOME + `npm run vfs:bootstrap` (dikonfirmasi pemilik proyek, 2026-11-18)
 - [x] Widget IoT — `TProgressBar`, `TIndicatorLamp`, `TToggleSwitch`, `TRelayCard`, `TSensorCard`, `TLineChart`, `TRadialGauge`, `TSevenSegment`, `TVerticalGauge`
-- [ ] Widget lanjutan — `TImage`, `TSlider`, `TKeyboard`, `TStatusBar`, `TTabulatorGrid`
+- [x] Widget lanjutan — `TImage`, `TSlider`, `TStatusBar`, `TTabulatorGrid`
+- [x] Dialog — `TDialogs` (alert/confirm/input), `TOpenDialog`, `TSaveDialog`
+- [ ] `TKeyboard` (menyusul bila dibutuhkan)
 - [ ] Dokumentasi `pistachio-in-a-nutshell.md` + panduan migrasi
 
 ---

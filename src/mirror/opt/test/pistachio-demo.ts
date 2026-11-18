@@ -11,6 +11,7 @@ import {
   TCheckBox,
   TComboBox,
   TDataGrid,
+  TDialogs,
   TEdit,
   TIndicatorLamp,
   TLineChart,
@@ -26,6 +27,8 @@ import {
   TRelayCard,
   TSensorCard,
   TSevenSegment,
+  TOpenDialog,
+  TSaveDialog,
   TSpacer,
   TToggleSwitch,
   TVStack,
@@ -197,10 +200,28 @@ export const main = Program(async () => {
     ],
   });
 
+  const btnAlert = new TButton({ id: "btn-alert", caption: "Alert" });
+  const btnConfirm = new TButton({ id: "btn-confirm", caption: "Confirm" });
+  const btnInput = new TButton({ id: "btn-input", caption: "Input" });
+  const btnOpenFile = new TButton({ id: "btn-open-file", caption: "Open…" });
+  const btnSaveFile = new TButton({ id: "btn-save-file", caption: "Save…" });
+
+  const dialogGroup = new TGroupBox({
+    id: "grp-dialog",
+    caption: "Dialog",
+    children: [
+      new THStack({
+        id: "row-dialog",
+        children: [btnAlert, btnConfirm, btnInput, btnOpenFile, btnSaveFile],
+      }),
+    ],
+  });
+
   form.add(toolbar);
   form.add(formGroup);
   form.add(dataGroup);
   form.add(iotGroup);
+  form.add(dialogGroup);
   form.add(
     new THStack({
       id: "row",
@@ -254,6 +275,33 @@ export const main = Program(async () => {
 
   relay.onToggle = (active) => {
     status.text = `Relay FAN: ${active ? "ON" : "OFF"}`;
+  };
+
+  btnAlert.onClick = () => {
+    void TDialogs.alert(form, "Info", "Halo dari Pistachio!");
+  };
+
+  btnConfirm.onClick = async () => {
+    const answer = await TDialogs.confirm(form, "Hapus data?", "Tidak bisa dibatalkan.", ["Ya", "Batal"]);
+    status.text = `Confirm: ${answer}`;
+  };
+
+  btnInput.onClick = async () => {
+    const value = await TDialogs.input(form, "Nama baru", "Masukkan nama:", edtName.text);
+    if (value !== null) {
+      edtName.text = value;
+      status.text = `Input: ${value}`;
+    }
+  };
+
+  btnOpenFile.onClick = async () => {
+    const result = await new TOpenDialog({ title: "Pilih file", filter: ["txt", "md"] }).execute(form);
+    status.text = result ? `Open: ${result.path}` : "Open dibatalkan";
+  };
+
+  btnSaveFile.onClick = async () => {
+    const result = await new TSaveDialog({ title: "Simpan file", defaultName: "catatan.txt" }).execute(form);
+    status.text = result ? `Save: ${result.path}` : "Save dibatalkan";
   };
 
   sensor.value = 28.1;

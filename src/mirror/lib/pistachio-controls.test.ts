@@ -14,6 +14,7 @@ import {
   TMemo,
   TPanel,
   TDataGrid,
+  TTabulatorGrid,
   TRadioButton,
   TScrollBox,
   TSpacer,
@@ -308,6 +309,20 @@ describe("TDataGrid", () => {
 
     await grid.appendData([{ no: 3 }]);
     expect(grid.data).toHaveLength(3);
+  });
+
+  it("TTabulatorGrid exposes the same API surface", async () => {
+    const { port } = createGridPort();
+    const grid = new TTabulatorGrid({
+      id: "tbg",
+      columns: [{ key: "no", label: "No" }],
+      data: [{ no: 1 }],
+    });
+    grid.bindEventHandler(port);
+
+    await grid.appendData([{ no: 2 }]);
+
+    expect(grid.data).toHaveLength(2);
   });
 
   it("routes header clicks to onSort", () => {
