@@ -18,7 +18,7 @@ function createKeyboardPort() {
     off: vi.fn((_targetId: string) => {}),
     unmount: vi.fn(async (_targetId: string) => {}),
     keyboard: {
-      onKey: (cb: Handler) => {
+      on: (cb: Handler) => {
         handler = cb;
         return unsubscribe;
       },

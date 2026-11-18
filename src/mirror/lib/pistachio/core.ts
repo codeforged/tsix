@@ -40,9 +40,9 @@ export interface TKeyEvent {
   alt: boolean;
 }
 
-/** Capture keyboard milik satu window. */
+/** Capture keyboard milik satu window (emerald `Keyboard`). */
 export interface TKeyboardPort {
-  onKey(cb: (ev: TKeyEvent) => void): () => void;
+  on(cb: (ev: TKeyEvent) => void): () => void;
 }
 
 /**

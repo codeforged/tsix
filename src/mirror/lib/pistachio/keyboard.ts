@@ -116,7 +116,7 @@ export class TKeyboard extends TComponent {
     if (!keyboard) return;
 
     this._unbind?.();
-    this._unbind = keyboard.onKey((ev) => this.handle(ev));
+    this._unbind = keyboard.on((ev) => this.handle(ev));
   }
 
   dispose(): void {

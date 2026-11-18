@@ -123,7 +123,7 @@ export class TForm extends TComponent {
     await keyboard.attach();
     screen.keyboard = keyboard;
 
-    this.bindTree(this, screen as TScreenPort);
+    this.bindTree(this, screen);
     await this.refreshTree(this);
 
     if (this.onSetup) await this.onSetup(this);
@@ -144,7 +144,7 @@ export class TForm extends TComponent {
     if (!screen) return;
 
     if (child.isVisual) void screen.mount(child.build(), parent.id);
-    this.bindTree(child, screen as TScreenPort);
+    this.bindTree(child, screen);
     void this.refreshTree(child);
   }
 
