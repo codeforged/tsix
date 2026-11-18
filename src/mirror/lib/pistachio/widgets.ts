@@ -173,13 +173,18 @@ abstract class TViewWidget extends TComponent {
 
   protected abstract buildView(): TNode;
 
+  /** Penyesuaian node view sebelum dipasang (mis. ukuran kartu seragam). */
+  protected decorate(view: TNode): TNode {
+    return view;
+  }
+
   /** Id node view (root yang dikembalikan builder emerald). */
   protected get viewId(): string | null {
     return this._viewId;
   }
 
   build(): TNode {
-    const view = this.buildView();
+    const view = this.decorate(this.buildView());
     this._viewId = view.id;
     return {
       id: this.id,
@@ -193,10 +198,51 @@ abstract class TViewWidget extends TComponent {
     const host = this.host;
     if (!host) return;
 
-    const view = this.buildView();
+    const view = this.decorate(this.buildView());
     if (this._viewId) await host.unmount?.(this._viewId);
     await host.mount(view, this.id);
     this._viewId = view.id;
+  }
+}
+
+/** Footprint seragam untuk kartu IoT (lampu, switch, relay, sensor, gauge). */
+const CARD_WIDTH = 132;
+const CARD_HEIGHT = 156;
+
+/**
+ * Kartu berukuran tetap supaya rapi saat ditempatkan di TGroupBox maupun
+ * TGridPanel. Ukuran bisa di-override lewat `style` komponen.
+ */
+abstract class TCardWidget extends TViewWidget {
+  protected constructor(
+    idOrOpts: string | TOptions | undefined,
+    opts: TOptions | undefined,
+    knownProps: readonly string[],
+  ) {
+    super(idOrOpts, opts, knownProps);
+    this.style = {
+      width: `${CARD_WIDTH}px`,
+      minWidth: `${CARD_WIDTH}px`,
+      height: `${CARD_HEIGHT}px`,
+      flex: "0 0 auto",
+      display: "flex",
+      alignItems: "stretch",
+      boxSizing: "border-box",
+      ...this.style,
+    };
+  }
+
+  protected decorate(view: TNode): TNode {
+    view.props.style = {
+      ...(view.props.style || {}),
+      flex: "1 1 auto",
+      width: "100%",
+      height: "100%",
+      minWidth: "0",
+      boxSizing: "border-box",
+      overflow: "hidden",
+    };
+    return view;
   }
 }
 
@@ -284,7 +330,7 @@ export interface TIndicatorLampOptions extends TOptions {
   size?: number;
 }
 
-export class TIndicatorLamp extends TViewWidget {
+export class TIndicatorLamp extends TCardWidget {
   private _on: boolean;
   private readonly _color: string;
   private readonly _label: string;
@@ -329,7 +375,7 @@ export interface TToggleSwitchOptions extends TOptions {
   size?: number;
 }
 
-export class TToggleSwitch extends TViewWidget {
+export class TToggleSwitch extends TCardWidget {
   public onClick: ((on: boolean) => void) | null = null;
   private _on: boolean;
   private readonly _color: string;
@@ -385,7 +431,7 @@ export interface TRelayCardOptions extends TOptions {
   icon?: string;
 }
 
-export class TRelayCard extends TViewWidget {
+export class TRelayCard extends TCardWidget {
   public onToggle: ((active: boolean) => void) | null = null;
   private _active: boolean;
   private readonly _color: string;
@@ -446,7 +492,7 @@ export interface TSensorCardOptions extends TOptions {
   max?: number;
 }
 
-export class TSensorCard extends TViewWidget {
+export class TSensorCard extends TCardWidget {
   private _value: number;
   private readonly _label: string;
   private readonly _unit: string;
@@ -559,7 +605,7 @@ export interface TRadialGaugeOptions extends TOptions {
   unit?: string;
 }
 
-export class TRadialGauge extends TViewWidget {
+export class TRadialGauge extends TCardWidget {
   private _value: number;
   private readonly _min: number;
   private readonly _max: number;
@@ -578,7 +624,7 @@ export class TRadialGauge extends TViewWidget {
     this._min = o.min ?? 0;
     this._max = o.max ?? 100;
     this._color = o.color ?? "var(--accent, #4caf50)";
-    this._size = o.size ?? 120;
+    this._size = o.size ?? 92;
     this._label = o.label ?? "";
     this._unit = o.unit ?? "";
   }

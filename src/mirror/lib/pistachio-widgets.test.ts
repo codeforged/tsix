@@ -151,3 +151,41 @@ describe("TViewWidget", () => {
     expect(vertical.value).toBe(0);
   });
 });
+
+describe("card footprint", () => {
+  it("gives lamp, switch, relay, sensor, and gauge the same size", () => {
+    const cards = [
+      new TIndicatorLamp("lamp"),
+      new TToggleSwitch("tgl"),
+      new TRelayCard("relay"),
+      new TSensorCard("sensor"),
+      new TRadialGauge("gauge"),
+    ];
+
+    const sizes = cards.map(
+      (card) => `${card.style.width}x${card.style.height}`,
+    );
+    expect(new Set(sizes).size).toBe(1);
+    expect(cards[0].style.width).toBe("132px");
+    expect(cards[0].style.height).toBe("156px");
+  });
+
+  it("stretches the emerald view to fill the card", () => {
+    const lamp = new TIndicatorLamp("lamp");
+    const view = lamp.build().children[0];
+
+    expect(view.props.style.width).toBe("100%");
+    expect(view.props.style.height).toBe("100%");
+    expect(view.props.style.minWidth).toBe("0");
+  });
+
+  it("lets apps override the card size through style", () => {
+    const lamp = new TIndicatorLamp({
+      id: "lamp",
+      style: { width: "200px", height: "90px" },
+    });
+
+    expect(lamp.style.width).toBe("200px");
+    expect(lamp.style.height).toBe("90px");
+  });
+});

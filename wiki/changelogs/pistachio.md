@@ -6,6 +6,20 @@
 
 ## 2026-11-18
 
+### Footprint seragam untuk kartu IoT
+
+- **File:** `src/mirror/lib/pistachio/widgets.ts`
+- **Latar:** lampu, switch, relay, sensor card, dan radial gauge mengikuti lebar
+  isi masing-masing sehingga tampak tidak rapi di `TGroupBox`/grid.
+- **Perubahan:** basis `TCardWidget` memberi seluruh kartu ukuran tetap
+  **132×156 px** dengan `boxSizing: border-box` dan `flex: 0 0 auto`. View dari
+  builder emerald di-stretch `width/height: 100%` + `minWidth: 0` agar mengisi
+  kartu. Default `size` radial gauge diturunkan ke 92 agar proporsional.
+- **Override:** ukuran tetap bisa diubah per komponen lewat `style`
+  (`{ width: "200px", height: "90px" }`).
+- **Verifikasi:** 11 tes widget lulus (termasuk keseragaman ukuran); `tsc` bersih.
+- **Oleh:** Copilot
+
 ### Widget IoT Pistachio
 
 - **File:** `src/mirror/lib/pistachio/widgets.ts`

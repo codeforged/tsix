@@ -172,7 +172,11 @@ export const main = Program(async () => {
     width: 280,
     height: 150,
   });
-  const progress = new TProgressBar({ id: "progress", value: 62 });
+  const progress = new TProgressBar({
+    id: "progress",
+    value: 62,
+    style: { flex: "1", width: "auto" },
+  });
   const segment = new TSevenSegment({ id: "seg", value: 1234, digits: 4 });
 
   const iotGroup = new TGroupBox({
@@ -182,7 +186,12 @@ export const main = Program(async () => {
       new THStack({
         id: "row-iot",
         style: { alignItems: "stretch" },
-        children: [lamp, tglLamp, relay, sensor, gauge, progress, segment],
+        children: [lamp, tglLamp, relay, sensor, gauge],
+      }),
+      new THStack({
+        id: "row-iot-2",
+        style: { alignItems: "center" },
+        children: [progress, new TSpacer({ size: 8 }), segment],
       }),
       chart,
     ],
