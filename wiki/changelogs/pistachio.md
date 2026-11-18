@@ -16,7 +16,10 @@
   builder emerald di-stretch `width/height: 100%` + `minWidth: 0` agar mengisi
   kartu. Default `size` radial gauge diturunkan ke 92 agar proporsional.
 - **Override:** ukuran tetap bisa diubah per komponen lewat `style`
-  (`{ width: "200px", height: "90px" }`).
+  (`{ width: "200px", height: "90px" }`). Bila `width` diubah tanpa `minWidth`,
+  `minWidth` otomatis mengikuti lebar baru.
+- **Alignment:** isi kartu kini di-flex kolom dengan `justify-content: center`,
+  jadi konten selalu berada di tengah secara vertikal berapa pun tingginya.
 - **Verifikasi:** 11 tes widget lulus (termasuk keseragaman ukuran); `tsc` bersih.
 - **Oleh:** Copilot
 

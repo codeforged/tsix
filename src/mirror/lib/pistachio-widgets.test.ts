@@ -187,5 +187,26 @@ describe("card footprint", () => {
 
     expect(lamp.style.width).toBe("200px");
     expect(lamp.style.height).toBe("90px");
+    expect(lamp.style.minWidth).toBe("200px");
+  });
+
+  it("keeps a smaller custom width from being overridden by minWidth", () => {
+    const lamp = new TIndicatorLamp({
+      id: "lamp",
+      style: { width: "100px" },
+    });
+
+    expect(lamp.style.width).toBe("100px");
+    expect(lamp.style.minWidth).toBe("100px");
+  });
+
+  it("centers card content vertically", () => {
+    const lamp = new TIndicatorLamp("lamp");
+    const view = lamp.build().children[0];
+
+    expect(view.props.style.display).toBe("flex");
+    expect(view.props.style.flexDirection).toBe("column");
+    expect(view.props.style.justifyContent).toBe("center");
+    expect(view.props.style.alignItems).toBe("stretch");
   });
 });

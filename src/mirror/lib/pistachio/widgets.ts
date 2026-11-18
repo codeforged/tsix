@@ -206,8 +206,8 @@ abstract class TViewWidget extends TComponent {
 }
 
 /** Footprint seragam untuk kartu IoT (lampu, switch, relay, sensor, gauge). */
-const CARD_WIDTH = 132;
-const CARD_HEIGHT = 156;
+export const CARD_WIDTH = 132;
+export const CARD_HEIGHT = 156;
 
 /**
  * Kartu berukuran tetap supaya rapi saat ditempatkan di TGroupBox maupun
@@ -220,6 +220,8 @@ abstract class TCardWidget extends TViewWidget {
     knownProps: readonly string[],
   ) {
     super(idOrOpts, opts, knownProps);
+    const userStyle = this.style;
+
     this.style = {
       width: `${CARD_WIDTH}px`,
       minWidth: `${CARD_WIDTH}px`,
@@ -228,8 +230,13 @@ abstract class TCardWidget extends TViewWidget {
       display: "flex",
       alignItems: "stretch",
       boxSizing: "border-box",
-      ...this.style,
+      ...userStyle,
     };
+
+    // Ikuti lebar pilihan app supaya tidak terkunci oleh minWidth default.
+    if (userStyle.width !== undefined && userStyle.minWidth === undefined) {
+      this.style.minWidth = userStyle.width;
+    }
   }
 
   protected decorate(view: TNode): TNode {
@@ -241,6 +248,10 @@ abstract class TCardWidget extends TViewWidget {
       minWidth: "0",
       boxSizing: "border-box",
       overflow: "hidden",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "stretch",
+      justifyContent: "center",
     };
     return view;
   }
