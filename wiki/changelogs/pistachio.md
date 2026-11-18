@@ -6,6 +6,27 @@
 
 ## 2026-11-18
 
+### `TKeyboard` — shortcut hanya saat window fokus
+
+- **File:** `src/mirror/lib/pistachio/{keyboard,form,core}.ts`,
+  `src/mirror/lib/emerald.ts`
+- **Model:** satu capture keyboard per window. `TForm` membuat `Keyboard`
+  emerald, attach setelah window ter-mount, menyimpannya di `Screen.keyboard`,
+  dan detach saat `close()`. Komponen `TKeyboard` (non-visual) hanya
+  berlangganan, jadi beberapa set shortcut bisa hidup berdampingan.
+- **API:** `new TKeyboard({ shortcuts: { "Ctrl+S": fn, "F2": fn } })`, plus
+  `bind()`, `unbind()`, dan `onKey` untuk event mentah.
+- **Normalisasi:** `"ctrl+shift+s"` setara `"Ctrl+Shift+S"`; `"space"` setara
+  `"Space"`. Keyup dan auto-repeat diabaikan.
+- **Fokus:** DOME hanya merutekan `kb_key` ke window yang sedang fokus dan
+  me-refokus capture saat window diklik, sehingga shortcut mati saat aplikasi
+  tidak aktif. Ketikan di `input`/`textarea`/`select` sengaja tidak dianggap
+  shortcut oleh DOME.
+- **Demo:** `Ctrl+S`, `F2`, `Ctrl+Q` (konfirmasi keluar), serta `Escape` lewat
+  `onKey`.
+- **Verifikasi:** 64 tes Pistachio lulus; `tsc` bersih.
+- **Oleh:** Copilot
+
 ### Grid Tabulator, kontrol tambahan, dan dialog
 
 - **File:** `src/mirror/lib/pistachio/{widgets,dialogs}.ts`

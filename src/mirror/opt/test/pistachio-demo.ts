@@ -18,6 +18,7 @@ import {
   TForm,
   TGroupBox,
   THStack,
+  TKeyboard,
   TLabel,
   TListBox,
   TMemo,
@@ -312,6 +313,33 @@ export const main = Program(async () => {
   edtName.onInput = (value) => {
     status.text = `Mengetik: ${value}`;
   };
+
+  const keyboard = new TKeyboard({
+    id: "kbd",
+    shortcuts: {
+      "Ctrl+S": () => {
+        status.text = "Shortcut: Ctrl+S (simpan)";
+      },
+      F2: () => {
+        edtName.text = "Nama dari F2";
+        status.text = "Shortcut: F2";
+      },
+      "Ctrl+Q": () => {
+        void TDialogs.confirm(form, "Keluar?", "Tutup aplikasi?", [
+          "Ya",
+          "Batal",
+        ]).then((answer) => {
+          if (answer === "Ya") void form.close();
+        });
+      },
+    },
+  });
+
+  keyboard.onKey = (ev) => {
+    if (ev.key === "Escape") status.text = "Escape ditekan";
+  };
+
+  form.add(keyboard);
 
   await form.run();
 });

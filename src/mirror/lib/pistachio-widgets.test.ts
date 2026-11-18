@@ -29,7 +29,7 @@ function createPort() {
 function handlerFor(port: ReturnType<typeof createPort>, id: string) {
   const call = port.on.mock.calls.find(([target]) => target === id);
   if (!call) throw new Error(`no handler for ${id}`);
-  return call[2] as () => void;
+  return call[2] as (ev?: any) => void;
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));

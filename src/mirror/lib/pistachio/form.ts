@@ -7,7 +7,7 @@
  * (c) 2026 TSIX Project
  */
 
-import { Screen } from "@tsix/emerald";
+import { Keyboard, Screen } from "@tsix/emerald";
 import { theme } from "@tsix/theme";
 import { shell } from "@tsix/Application";
 import { TComponent, TOptions, TScreenPort } from "./core";
@@ -116,6 +116,13 @@ export class TForm extends TComponent {
 
     await applyTheme(screen);
     await screen.mount(this.build());
+
+    const keyboard = new Keyboard(screen.win, {
+      targetId: `${this.id}_kb`,
+    });
+    await keyboard.attach();
+    screen.keyboard = keyboard;
+
     this.bindTree(this, screen as TScreenPort);
     await this.refreshTree(this);
 
@@ -127,6 +134,7 @@ export class TForm extends TComponent {
   async close(): Promise<void> {
     this.onClose?.();
     for (const child of [...this.children]) child.dispose();
+    await this._screen?.keyboard?.detach();
     await this._screen?.close();
   }
 

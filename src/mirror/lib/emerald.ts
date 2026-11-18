@@ -4657,6 +4657,12 @@ export interface ScreenOptions {
 
 export class Screen {
   public readonly win: Window;
+  /**
+   * Keyboard capture milik window ini. Diisi lapisan GUI (mis. Pistachio
+   * `TForm`) setelah window siap; gunanya agar satu window hanya punya satu
+   * capture keyboard meskipun ada beberapa komponen shortcut.
+   */
+  public keyboard: Keyboard | null = null;
   public running: boolean = true;
   private _state: Record<string, any> = {};
   private _timers: ReturnType<typeof setInterval>[] = [];

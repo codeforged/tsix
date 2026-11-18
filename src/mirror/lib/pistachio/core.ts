@@ -29,6 +29,22 @@ export interface TNode {
 
 export type TEventName = "click" | "input" | "keydown" | "close";
 
+/** Event tombol keyboard dari lapisan UI. */
+export interface TKeyEvent {
+  key: string;
+  code: string;
+  down: boolean;
+  repeat: boolean;
+  ctrl: boolean;
+  shift: boolean;
+  alt: boolean;
+}
+
+/** Capture keyboard milik satu window. */
+export interface TKeyboardPort {
+  onKey(cb: (ev: TKeyEvent) => void): () => void;
+}
+
 /**
  * Port ke lapisan UI (emerald/Screen). Core tidak mengimpor emerald supaya
  * tetap bisa diuji tanpa DOM dan tidak menciptakan ketergantungan melingkar.
@@ -50,6 +66,8 @@ export interface TScreenPort {
     containerId: string,
     ...children: TNode[]
   ): Promise<unknown> | unknown;
+  /** Ada bila window mendukung shortcut keyboard. */
+  keyboard?: TKeyboardPort | null;
 }
 
 export type TComponentErrorCode =

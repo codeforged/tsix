@@ -149,6 +149,7 @@ src/mirror/lib/pistachio/
   controls.ts                      // TLabel, TButton, TEdit, TMemo, TCheckBox, TRadioButton, TComboBox, TListBox
   form.ts                          // TForm (window + mount/bind/refresh/dispose)
   dialogs.ts                       // TDialogs, TOpenDialog, TSaveDialog
+  keyboard.ts                      // TKeyboard (shortcut per window)
   widgets.ts                       // TLineChart, TRadialGauge, TSensorCard, TChart, ...
   data.ts                          // TDBConnection, TDBQuery, TProvider, TClientDataset, TDataSource
   dbcontrols.ts                    // TDBText, TDBEdit, TDBListBox, TDBMemo, TDBGrid, TDBNavigator
@@ -433,7 +434,7 @@ database) ditunda sampai komponen UI stabil.
 - [x] Widget IoT — `TProgressBar`, `TIndicatorLamp`, `TToggleSwitch`, `TRelayCard`, `TSensorCard`, `TLineChart`, `TRadialGauge`, `TSevenSegment`, `TVerticalGauge`
 - [x] Widget lanjutan — `TImage`, `TSlider`, `TStatusBar`, `TTabulatorGrid`
 - [x] Dialog — `TDialogs` (alert/confirm/input), `TOpenDialog`, `TSaveDialog`
-- [ ] `TKeyboard` (menyusul bila dibutuhkan)
+- [x] `TKeyboard` — shortcut hanya aktif saat window fokus
 - [ ] Dokumentasi `pistachio-in-a-nutshell.md` + panduan migrasi
 
 ---
