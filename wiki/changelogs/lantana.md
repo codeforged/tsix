@@ -29,6 +29,10 @@
 - **Konsistensi:** setelah memuat ulang data, entri terpilih disegarkan dari
   registry supaya editor tidak menampilkan record lama; item baru langsung
   terpilih setelah disimpan.
+- **Bug "kadang form tidak muncul":** pemilihan baris tidak lagi melewati guard
+  `busy` milik aksi Simpan/Muat ulang, dan panel mencatat versi pilihan sehingga
+  hasil muat ulang yang datang terlambat tidak menimpa baris yang baru diklik
+  user.
 - **Testabilitas:** model pohon dipisah ke `control-panel-tree.ts`
   (`buildControlTree`, `findPayload`, `nodeIdOf`) sehingga bisa diuji tanpa
   menjalankan window.

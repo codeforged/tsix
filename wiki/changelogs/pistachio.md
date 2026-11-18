@@ -17,6 +17,11 @@
   `onToggle` melaporkan buka/tutup; `select()` ikut membuka rantai induknya.
 - **Interaksi:** klik baris memilih simpul (dan membuka anaknya bila tertutup),
   sedangkan klik chevron hanya membuka/menutup agar pemilihan tidak berubah.
+- **Ketahanan klik:** id baris diturunkan dari id simpul (bukan indeks), jadi
+  klik yang datang setelah render berikutnya tetap mengenai simpul yang benar.
+  Pemilihan memakai `onSelect` sinkron dan hanya memperbarui style baris
+  (`applySelection`), sehingga form pemakai langsung tampil tanpa menunggu
+  `setContent`; render ulang penuh hanya terjadi saat cabang dibuka/ditutup.
 - **API:** `setNodes()` mengganti isi pohon sambil mempertahankan id yang masih
   ada, `expand()/collapse()/toggle()/expandAll()/collapseAll()`, serta getter
   `rows`, `selectedId`, `selectedNode`, dan `expandedIds`.

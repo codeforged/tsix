@@ -401,6 +401,23 @@ describe("TTreeView", () => {
     ];
   }
 
+  /** Id baris mengikuti id simpul (bukan indeks) — lihat build(). */
+  function rowIdOf(tree: TTreeView, nodeId: string): string {
+    const key = encodeURIComponent(nodeId);
+    const row = tree.build().children.find((child) => child.id === `${tree.id}_r_${key}`);
+    if (!row) throw new Error(`no row for ${nodeId}`);
+    return row.id;
+  }
+
+  function toggleIdOf(tree: TTreeView, nodeId: string): string {
+    const row = tree.build().children.find(
+      (child) => child.id === rowIdOf(tree, nodeId),
+    );
+    const toggle = row?.children[0];
+    if (!toggle) throw new Error(`no toggle for ${nodeId}`);
+    return toggle.id;
+  }
+
   it("renders only open branches and toggles them from the chevron", async () => {
     const port = createPort();
     const tree = new TTreeView({ nodes: makeNodes() });
@@ -408,7 +425,7 @@ describe("TTreeView", () => {
 
     expect(tree.rows.map((row) => row.node.id)).toEqual(["acc"]);
 
-    lastClickHandler(port, `${tree.id}_tog_0`)();
+    lastClickHandler(port, toggleIdOf(tree, "acc"))();
     await vi.waitFor(() =>
       expect(tree.rows.map((row) => row.node.id)).toEqual([
         "acc",
@@ -418,7 +435,7 @@ describe("TTreeView", () => {
     );
     expect(tree.rows[1].depth).toBe(1);
 
-    lastClickHandler(port, `${tree.id}_tog_0`)();
+    lastClickHandler(port, toggleIdOf(tree, "acc"))();
     await vi.waitFor(() => expect(tree.rows).toHaveLength(1));
     tree.dispose();
   });
@@ -430,11 +447,11 @@ describe("TTreeView", () => {
     const onSelect = vi.fn();
     tree.onSelect = onSelect;
 
-    lastClickHandler(port, `${tree.id}_row_0`)();
-    await vi.waitFor(() =>
-      expect(onSelect).toHaveBeenCalledWith(
-        expect.objectContaining({ id: "acc" }),
-      ),
+    lastClickHandler(port, rowIdOf(tree, "acc"))();
+
+    // Pemberitahuan pemilihan sinkron: tidak menunggu render ulang pohon.
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "acc" }),
     );
     expect(tree.selectedId).toBe("acc");
     expect(tree.isExpanded("acc")).toBe(true);
@@ -443,6 +460,43 @@ describe("TTreeView", () => {
     expect(tree.selectedNode?.label).toBe("Suhu Ruangan");
     expect(tree.isExpanded("dash")).toBe(true);
     expect(tree.rows.map((row) => row.node.id)).toContain("item-1");
+    tree.dispose();
+  });
+
+  it("keeps row ids stable when branches open", async () => {
+    const port = createPort();
+    const tree = new TTreeView({ nodes: makeNodes() });
+    tree.bindEventHandler(port);
+
+    const before = rowIdOf(tree, "acc");
+    await tree.expand("acc");
+    await tree.expand("dash");
+
+    expect(rowIdOf(tree, "acc")).toBe(before);
+    expect(rowIdOf(tree, "dash")).toContain(encodeURIComponent("dash"));
+    tree.dispose();
+  });
+
+  it("reports a leaf selection without waiting for setContent", () => {
+    const port = createPort();
+    // Render ulang yang lambat tidak boleh menahan pemberitahuan pemilihan.
+    port.setContent.mockImplementation(() => new Promise<void>(() => {}));
+    const nodes = makeNodes().map((node) => ({
+      ...node,
+      expanded: true,
+      children: node.children?.map((child) => ({ ...child, expanded: true })),
+    }));
+    const tree = new TTreeView({ nodes });
+    tree.bindEventHandler(port);
+    const onSelect = vi.fn();
+    tree.onSelect = onSelect;
+
+    lastClickHandler(port, rowIdOf(tree, "item-1"))();
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "item-1" }),
+    );
+    expect(tree.selectedId).toBe("item-1");
     tree.dispose();
   });
 

@@ -91,6 +91,8 @@ export const main = Program(async () => {
     let selection: NavPayload | null = null;
     let draft: Draft | null = null;
     let busy = false;
+    /** Naik setiap user memilih baris lain; mencegah aksi async menimpa pilihan. */
+    let selectionVersion = 0;
 
     const title = new TLabel({
         text: "Lantana Control Panel",
@@ -545,6 +547,18 @@ export const main = Program(async () => {
         };
     }
 
+    /**
+     * Muat ulang data lalu pilih `preferred`. Bila user sudah memilih baris lain
+     * selama operasi berjalan, pilihan user yang dipertahankan.
+     */
+    async function reloadAndSelect(
+        version: number,
+        preferred: string | null,
+    ): Promise<void> {
+        await loadAll();
+        await syncSelection(selectionVersion === version ? preferred : undefined);
+    }
+
     async function loadAll(): Promise<void> {
         status.text = "Memuat...";
         accounts = await runLantanaCtl<AccountView[]>("account", "list");
@@ -592,8 +606,16 @@ export const main = Program(async () => {
     }
 
     /** Segarkan entri terpilih dari data baru setelah `loadAll()`. */
-    async function syncSelection(preferredId?: string | null): Promise<void> {
-        const id = preferredId ?? (selection ? nodeIdOf(selection) : null);
+    async function syncSelection(
+        preferredId: string | null | undefined = undefined,
+    ): Promise<void> {
+        // undefined = pertahankan pilihan saat ini, null = kosongkan.
+        const id =
+            preferredId === undefined
+                ? selection
+                    ? nodeIdOf(selection)
+                    : null
+                : preferredId;
         const payload = id ? findPayload(id) : null;
         selection = payload;
         await tree.select(payload ? id : null, false);
@@ -825,17 +847,19 @@ export const main = Program(async () => {
         addButton.caption = addLabel();
     }
 
-    async function selectPayload(payload: NavPayload | null): Promise<void> {
+    function selectPayload(payload: NavPayload | null): void {
+        selectionVersion += 1;
         selection = payload;
         draft = null;
         renderEditor();
         updateToolbar();
     }
 
+    // Pemilihan baris bukan operasi data, jadi tidak ikut guard `busy`
+    // (Simpan/Muat ulang yang sedang berjalan tidak boleh menelan klik user).
     tree.onSelect = (node) => {
         const payload = findPayload(node.id);
-        if (!payload) return;
-        void run(() => selectPayload(payload));
+        if (payload) selectPayload(payload);
     };
 
     function startCreate(): void {
@@ -1054,6 +1078,7 @@ export const main = Program(async () => {
         if (!kind || kind === "server" || kind === "group") {
             throw new Error("Tidak ada entri yang bisa disimpan.");
         }
+        const version = selectionVersion;
         const pending = draft;
         const target =
             kind === "account"
@@ -1080,7 +1105,7 @@ export const main = Program(async () => {
                 resolved = `item:${fresh.accountId}:${fresh.dashboardId}:${fresh.dashboardItems.length - 1}`;
             }
         }
-        await syncSelection(resolved);
+        await reloadAndSelect(version, resolved);
         status.text = pending ? "Data dibuat" : "Perubahan tersimpan";
     }
 
@@ -1144,9 +1169,9 @@ export const main = Program(async () => {
                 String(entry.itemIndex ?? 0),
             );
         }
+        const version = selectionVersion;
         selection = null;
-        await loadAll();
-        await syncSelection(null);
+        await reloadAndSelect(version, null);
         status.text = "Data dihapus";
     }
 
@@ -1181,8 +1206,9 @@ export const main = Program(async () => {
                 `Simpan key ini sekarang; setelah dialog ditutup key tidak dapat dibaca lagi:\n${result.dashboardAccessKey}`,
             );
         }
-        await loadAll();
-        await syncSelection();
+        const version = selectionVersion;
+        const preferred = selection ? nodeIdOf(selection) : null;
+        await reloadAndSelect(version, preferred);
         status.text = "Key diperbarui";
     }
 
@@ -1206,8 +1232,9 @@ export const main = Program(async () => {
                 String(entry.dashboard!.dashboardId),
             );
         }
-        await loadAll();
-        await syncSelection();
+        const version = selectionVersion;
+        const preferred = selection ? nodeIdOf(selection) : null;
+        await reloadAndSelect(version, preferred);
         status.text = "Key dicabut";
     }
 
@@ -1234,7 +1261,7 @@ export const main = Program(async () => {
             const first = tree.nodes.find((node) => node.id !== "server");
             const payload = first ? findPayload(first.id) : null;
             if (first) await tree.select(first.id, false);
-            await selectPayload(payload);
+            selectPayload(payload);
         });
     };
 

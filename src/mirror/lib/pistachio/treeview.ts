@@ -112,17 +112,22 @@ export class TTreeView extends TComponent {
   async select(id: string | null, notify = true): Promise<void> {
     if (id === null) {
       this._selectedId = null;
-      await this.rerender();
+      this.applySelection();
       return;
     }
     const node = this.findNode(id);
     if (!node) return;
 
+    let openedAncestor = false;
     for (const ancestor of this.ancestorsOf(id)) {
-      this._expanded.add(ancestor.id);
+      if (!this._expanded.has(ancestor.id)) {
+        this._expanded.add(ancestor.id);
+        openedAncestor = true;
+      }
     }
     this._selectedId = id;
-    await this.rerender();
+    if (openedAncestor) await this.rerender();
+    else this.applySelection();
     if (notify) this.onSelect?.(node);
   }
 
@@ -171,7 +176,7 @@ export class TTreeView extends TComponent {
       id: this.id,
       tag: this.tag,
       props: { ...this.props, style: { ...this.style } },
-      children: rows.map((row, index) => this.rowNode(row, index)),
+      children: rows.map((row) => this.rowNode(row)),
     };
   }
 
@@ -180,8 +185,8 @@ export class TTreeView extends TComponent {
     this.bindRows();
   }
 
-  private rowNode(row: TreeRow, index: number): TNode {
-    const rowId = `${this.id}_row_${index}`;
+  private rowNode(row: TreeRow): TNode {
+    const rowId = this.rowIdOf(row.node);
     const node = row.node;
     const hasChildren = Boolean(node.children?.length);
     const open = hasChildren && this._expanded.has(node.id);
@@ -193,10 +198,10 @@ export class TTreeView extends TComponent {
       props: { onClickId: rowId, style: this.rowStyle(row, selected) },
       children: [
         {
-          id: `${this.id}_tog_${index}`,
+          id: this.toggleIdOf(node),
           tag: "span",
           props: {
-            ...(hasChildren ? { onClickId: `${this.id}_tog_${index}` } : {}),
+            ...(hasChildren ? { onClickId: this.toggleIdOf(node) } : {}),
             text: hasChildren ? (open ? "▾" : "▸") : "",
             style: this.chevronStyle(hasChildren),
           },
@@ -205,7 +210,7 @@ export class TTreeView extends TComponent {
         ...(node.icon
           ? [
               {
-                id: `${this.id}_ico_${index}`,
+                id: this.iconIdOf(node),
                 tag: "span",
                 props: { text: node.icon, style: this.iconStyle() },
                 children: [],
@@ -213,7 +218,7 @@ export class TTreeView extends TComponent {
             ]
           : []),
         {
-          id: `${this.id}_lab_${index}`,
+          id: this.labelIdOf(node),
           tag: "span",
           props: { text: node.label, style: this.labelStyle() },
           children: [],
@@ -221,7 +226,7 @@ export class TTreeView extends TComponent {
         ...(node.hint
           ? [
               {
-                id: `${this.id}_hint_${index}`,
+                id: this.hintIdOf(node),
                 tag: "span",
                 props: { text: node.hint, style: this.hintStyle() },
                 children: [],
@@ -230,6 +235,31 @@ export class TTreeView extends TComponent {
           : []),
       ],
     };
+  }
+
+  /** Id DOM stabil per simpul (bukan per indeks) supaya klik tidak salah baris. */
+  private keyOf(node: TTreeNode): string {
+    return encodeURIComponent(node.id);
+  }
+
+  private rowIdOf(node: TTreeNode): string {
+    return `${this.id}_r_${this.keyOf(node)}`;
+  }
+
+  private toggleIdOf(node: TTreeNode): string {
+    return `${this.id}_t_${this.keyOf(node)}`;
+  }
+
+  private iconIdOf(node: TTreeNode): string {
+    return `${this.id}_i_${this.keyOf(node)}`;
+  }
+
+  private labelIdOf(node: TTreeNode): string {
+    return `${this.id}_l_${this.keyOf(node)}`;
+  }
+
+  private hintIdOf(node: TTreeNode): string {
+    return `${this.id}_h_${this.keyOf(node)}`;
   }
 
   private rowStyle(row: TreeRow, selected: boolean): TStyle {
@@ -298,6 +328,17 @@ export class TTreeView extends TComponent {
     return out;
   }
 
+  /** Perbarui highlight tanpa membangun ulang baris. */
+  private applySelection(): void {
+    const host = this.host;
+    if (!host) return;
+    for (const row of this.flatten()) {
+      void host.update(this.rowIdOf(row.node), {
+        style: this.rowStyle(row, row.node.id === this._selectedId),
+      });
+    }
+  }
+
   private async rerender(): Promise<void> {
     const host = this.host;
     if (!host?.setContent) return;
@@ -308,26 +349,31 @@ export class TTreeView extends TComponent {
   private bindRows(): void {
     const host = this.host;
     if (!host) return;
-    this.flatten().forEach((row, index) => {
-      host.on(`${this.id}_row_${index}`, "click", () =>
-        void this.handleRowClick(row.node),
+    for (const row of this.flatten()) {
+      host.on(this.rowIdOf(row.node), "click", () =>
+        this.handleRowClick(row.node),
       );
       if (row.node.children?.length) {
-        host.on(`${this.id}_tog_${index}`, "click", () =>
+        host.on(this.toggleIdOf(row.node), "click", () =>
           void this.toggle(row.node.id),
         );
       }
-    });
+    }
   }
 
-  private async handleRowClick(node: TTreeNode): Promise<void> {
+  private handleRowClick(node: TTreeNode): void {
     // Klik simpul beranak langsung membuka anak-anaknya; klik item memilihnya.
-    if (node.children?.length && !this._expanded.has(node.id)) {
-      this._expanded.add(node.id);
-    }
+    const openNow =
+      Boolean(node.children?.length) && !this._expanded.has(node.id);
+    if (openNow) this._expanded.add(node.id);
     this._selectedId = node.id;
-    await this.rerender();
+
+    // Pemberitahuan pemilihan tidak menunggu render ulang pohon, sehingga
+    // panel langsung menampilkan form walaupun DOM sedang di-update.
     this.onSelect?.(node);
+
+    if (openNow) void this.rerender();
+    else this.applySelection();
   }
 
   private seedExpanded(node: TTreeNode): void {
