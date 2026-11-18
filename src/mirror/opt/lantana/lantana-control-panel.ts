@@ -731,9 +731,9 @@ export const main = Program(async () => {
         const stamp = monitorLastAt
             ? new Date(monitorLastAt).toLocaleTimeString()
             : "-";
-        monitorStatus.text = `Akun ${account} · ${
+        monitorStatus.text = `Target: ${monitorTarget} | Akun ${account} | ${
             monitorConnected ? "🟢 Connected" : "🔴 Menunggu daemon"
-        } · snapshot ${stamp}`;
+        } | snapshot ${stamp}`;
     }
 
     function renderMonitor(): void {
