@@ -168,13 +168,15 @@ export const main = Program(async (args: string[]) => {
                         user: c.user,
                         password: c.password,
                         database: c.database,
+                        ...(c.port ? { port: c.port } : {}),
+                        namedPlaceholders: true,
                         connectTimeout: 5000,
                     });
                     conn.on("error", (err: any) => {
                         console.error(`[mysqld] Connection error (PID ${pid}): ${err.message}`);
                     });
                     connections.set(pid, conn);
-                    configs.set(pid, c);
+                    configs.set(pid, { host: c.host, database: c.database });
                     result = true;
                     break;
                 }
@@ -182,8 +184,51 @@ export const main = Program(async (args: string[]) => {
                     const conn = pid ? connections.get(pid) : undefined;
                     if (!conn) result = { error: "MySQL: not connected" };
                     else {
-                        const [rows] = await conn.execute(String(reqArgs || ""));
-                        result = rows;
+                        const query =
+                            typeof reqArgs === "string"
+                                ? { sql: reqArgs }
+                                : reqArgs;
+                        const sql =
+                            typeof query?.sql === "string" ? query.sql.trim() : "";
+                        if (!sql) {
+                            result = { error: "MySQL: empty query" };
+                            break;
+                        }
+                        const [rows, fields] =
+                            query.params === undefined
+                                ? await conn.execute(sql)
+                                : await conn.execute(sql, query.params);
+                        if (query.includeFields) {
+                            const header = Array.isArray(rows) ? null : rows;
+                            result = {
+                                rows,
+                                fields: (fields ?? []).map((field: any) => ({
+                                    name: field.name,
+                                    ...(field.schema
+                                        ? { schema: field.schema }
+                                        : {}),
+                                    table: field.table,
+                                    ...(field.orgName
+                                        ? { orgName: field.orgName }
+                                        : {}),
+                                    ...(field.orgTable
+                                        ? { orgTable: field.orgTable }
+                                        : {}),
+                                    columnType: field.columnType,
+                                    flags: field.flags,
+                                    decimals: field.decimals,
+                                    columnLength: field.columnLength,
+                                })),
+                                ...(typeof header?.affectedRows === "number"
+                                    ? { affectedRows: header.affectedRows }
+                                    : {}),
+                                ...(typeof header?.insertId === "number"
+                                    ? { insertId: header.insertId }
+                                    : {}),
+                            };
+                        } else {
+                            result = rows;
+                        }
                     }
                     break;
                 }

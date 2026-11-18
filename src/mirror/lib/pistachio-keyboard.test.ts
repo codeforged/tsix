@@ -1,7 +1,29 @@
 import { describe, expect, it, vi } from "vitest";
-import { TKeyboard, TLabel, TForm, type TKeyEvent } from "@tsix/pistachio";
+import {
+  TComponent,
+  TKeyboard,
+  TLabel,
+  TForm,
+  type TKeyEvent,
+} from "@tsix/pistachio";
 
 type Handler = (ev: TKeyEvent) => void;
+
+class TKeyProbe extends TComponent {
+  public readonly events: TKeyEvent[] = [];
+
+  constructor(
+    id: string,
+    private readonly consumesEvent: boolean,
+  ) {
+    super(id);
+  }
+
+  override handleKeyEvent(event: TKeyEvent): boolean {
+    this.events.push(event);
+    return this.consumesEvent;
+  }
+}
 
 function createKeyboardPort() {
   let handler: Handler | null = null;
@@ -142,5 +164,25 @@ describe("TKeyboard", () => {
     form.add(new TKeyboard("kbd"));
 
     expect(form.build().children.map((child) => child.id)).toEqual(["lbl"]);
+  });
+
+  it("forwards captured window keys to the first component that handles them", () => {
+    const { port, emit, unsubscribe } = createKeyboardPort();
+    const form = new TForm("Form");
+    const first = new TKeyProbe("first", true);
+    const second = new TKeyProbe("second", true);
+    form.add(first);
+    form.add(second);
+    form.bindEventHandler(port);
+
+    emit({ key: "ArrowDown" });
+    emit({ key: "ArrowDown", repeat: true });
+    emit({ key: "ArrowDown", down: false });
+
+    expect(first.events).toHaveLength(1);
+    expect(second.events).toHaveLength(0);
+
+    form.dispose();
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 });

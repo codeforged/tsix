@@ -55,6 +55,7 @@ interface TEmbeddedGrid {
   readonly selectedRecord: Record<string, any> | null;
   getRecord(index: number): Record<string, any> | null;
   setSelectedIndex(index: number): Promise<void>;
+  setSelectedRecord(record: Record<string, any> | null): Promise<void>;
   clearSelection(): Promise<void>;
   readonly sort: { key: string; dir: "asc" | "desc" } | null;
 }
@@ -135,6 +136,10 @@ abstract class TGridBase<TG extends TEmbeddedGrid> extends TComponent {
     await this._grid.setSelectedIndex(index);
   }
 
+  async setSelectedRecord(record: Record<string, any> | null): Promise<void> {
+    await this._grid.setSelectedRecord(record);
+  }
+
   async clearSelection(): Promise<void> {
     await this._grid.clearSelection();
   }
@@ -204,6 +209,10 @@ export class TDataGrid extends TGridBase<ConnectedDataGrid> {
  * Grid data manual berbasis Tabulator (virtualized, cocok untuk banyak baris).
  */
 export class TTabulatorGrid extends TGridBase<ConnectedTabulator> {
+  public onRowDoubleClick:
+    | ((index: number, record: Record<string, any>) => void)
+    | null = null;
+
   /** Dipanggil saat seleksi berubah; `record` null bila seleksi dikosongkan. */
   public onSelectionChange:
     | ((index: number, record: Record<string, any> | null) => void)
@@ -236,6 +245,7 @@ export class TTabulatorGrid extends TGridBase<ConnectedTabulator> {
       (index, record) => this.onRowClick?.(index, record),
       (index, record, x, y) => this.onRowContextMenu?.(index, record, x, y),
       (index, record) => this.onSelectionChange?.(index, record),
+      (index, record) => this.onRowDoubleClick?.(index, record),
     );
   }
 }

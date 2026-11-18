@@ -152,6 +152,41 @@ describe("TComponent tree", () => {
     panel.dispose();
     expect(codeOf(() => root.add(panel))).toBe("DISPOSED");
   });
+
+  it("disposes each subtree component without unmounting during window teardown", () => {
+    const root = new TComponent("root");
+    class TTrackedComponent extends TComponent {
+      public disposeCount = 0;
+
+      override dispose(): void {
+        this.disposeCount++;
+        super.dispose();
+      }
+    }
+    const child = new TTrackedComponent("child");
+    root.add(child);
+    const detached: string[] = [];
+    const unmounted: string[] = [];
+    const host = {
+      mount: () => {},
+      update: () => {},
+      on: () => {},
+      off: (id: string) => detached.push(id),
+      unmount: async (id: string) => {
+        unmounted.push(id);
+      },
+    };
+    root.bindEventHandler(host);
+    child.bindEventHandler(host);
+
+    root.disposeTree({ unmount: false });
+
+    expect(root.disposed).toBe(true);
+    expect(child.disposed).toBe(true);
+    expect(child.disposeCount).toBe(1);
+    expect(detached).toEqual(["child", "root"]);
+    expect(unmounted).toEqual([]);
+  });
 });
 
 describe("TComponent.build", () => {

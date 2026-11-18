@@ -10,7 +10,7 @@
 import { Keyboard, Screen } from "@tsix/emerald";
 import { theme } from "@tsix/theme";
 import { shell } from "@tsix/Application";
-import { TComponent, TOptions, TScreenPort } from "./core";
+import { TComponent, TKeyEvent, TOptions, TScreenPort } from "./core";
 
 const FORM_OPTIONS = [
   "title",
@@ -45,6 +45,7 @@ export class TForm extends TComponent {
   public onClose: (() => void) | null = null;
 
   private _screen: Screen | null = null;
+  private _keyboardUnbind: (() => void) | null = null;
   private readonly _title: string;
   private readonly _icon?: string;
   private readonly _width: number;
@@ -95,6 +96,15 @@ export class TForm extends TComponent {
     return this._title;
   }
 
+  override bindEventHandler(host: TScreenPort): void {
+    super.bindEventHandler(host);
+    this.unbindKeyboard();
+    this._keyboardUnbind =
+      host.keyboard?.on((event) => {
+        if (event.down && !event.repeat) this.handleKeyEvent(event);
+      }) ?? null;
+  }
+
   /** Mount window, bind event, jalankan setup, lalu tunggu sampai ditutup. */
   async run(): Promise<void> {
     const screen = new Screen({
@@ -126,16 +136,27 @@ export class TForm extends TComponent {
     this.bindTree(this, screen);
     await this.refreshTree(this);
 
-    if (this.onSetup) await this.onSetup(this);
-    await screen.loopUntilClose();
+    try {
+      if (this.onSetup) await this.onSetup(this);
+      await screen.loopUntilClose();
+    } finally {
+      this.unbindKeyboard();
+      this.disposeTree({ unmount: false });
+    }
   }
 
   /** Tutup window dan hancurkan seluruh subtree. */
   async close(): Promise<void> {
     this.onClose?.();
-    for (const child of [...this.children]) child.dispose();
+    this.unbindKeyboard();
+    this.disposeTree({ unmount: false });
     await this._screen?.keyboard?.detach();
     await this._screen?.close();
+  }
+
+  override dispose(): void {
+    this.unbindKeyboard();
+    super.dispose();
   }
 
   /** Komponen yang ditambahkan setelah `run()` langsung tampil. */
@@ -156,6 +177,11 @@ export class TForm extends TComponent {
   private async refreshTree(component: TComponent): Promise<void> {
     await component.refresh();
     for (const child of component.children) await this.refreshTree(child);
+  }
+
+  private unbindKeyboard(): void {
+    this._keyboardUnbind?.();
+    this._keyboardUnbind = null;
   }
 }
 

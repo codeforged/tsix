@@ -229,6 +229,16 @@
               value: e.target.value,
             });
           });
+        } else if (key === "onChangeId") {
+          // "change" = nilai final saat field kehilangan fokus (onExit).
+          ensureListener(el, "change", (e) => {
+            TSIX.send({
+              wid: wid,
+              targetId: node.id,
+              eventType: "change",
+              value: e.target.value,
+            });
+          });
         } else if (key === "onKeydownId") {
           ensureListener(el, "keydown", (e) => {
             // Prevent Tab from moving focus — apps handle Tab themselves
@@ -556,6 +566,15 @@
             wid: wid,
             targetId: targetId,
             eventType: "input",
+            value: e.target.value,
+          });
+        });
+      } else if (key === "onChangeId") {
+        ensureListener(el, "change", (e) => {
+          TSIX.send({
+            wid: wid,
+            targetId: targetId,
+            eventType: "change",
             value: e.target.value,
           });
         });

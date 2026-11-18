@@ -1,6 +1,12 @@
 import { IDevice } from "../IDevice";
 import * as mysql from "mysql2/promise";
 
+interface MySQLQueryRequest {
+    sql: string;
+    params?: any[] | Record<string, any>;
+    includeFields?: boolean;
+}
+
 /**
  * MYSQL DEVICE (/dev/mysql) - Real Integration
  * 
@@ -66,6 +72,7 @@ export class MySQLDevice implements IDevice {
                 if (!host || !user || !database) return false;
                 // Jalur raw ioctl tanpa pid → slot anonim (legacy).
                 const pid = arg?.pid ?? MySQLDevice.ANON_PID;
+                const port = arg?.port;
 
                 // Tutup koneksi lama milik PID ini (jika ada) sebelum buat baru
                 const old = this.connections.get(pid);
@@ -78,6 +85,8 @@ export class MySQLDevice implements IDevice {
                     user,
                     password,
                     database,
+                    ...(port ? { port } : {}),
+                    namedPlaceholders: true,
                     connectTimeout: 5000
                 });
 
@@ -88,7 +97,7 @@ export class MySQLDevice implements IDevice {
                 });
 
                 this.connections.set(pid, conn);
-                this.dbConfigs.set(pid, { host, user, password, database });
+                this.dbConfigs.set(pid, { host, database });
                 return true;
             } catch (err: any) {
                 console.error(`[MySQL Connection Error] ${err.message}`);
@@ -141,13 +150,45 @@ export class MySQLDevice implements IDevice {
      * - INSERT/UPDATE/DELETE → ResultSetHeader (insertId, affectedRows, dll)
      * - Error → { error: message } (tidak throw, agar tidak crash proses)
      */
-    public async query(sql: string, pid: number): Promise<any> {
+    public async query(
+        input: string | MySQLQueryRequest,
+        pid: number,
+    ): Promise<any> {
         const conn = this.connections.get(pid);
         if (!conn) return { error: "MySQL: not connected" };
-        const trimmed = (sql || "").trim();
+        const request: MySQLQueryRequest =
+            typeof input === "string" ? { sql: input } : input;
+        const trimmed = (request?.sql || "").trim();
         if (!trimmed) return { error: "MySQL: empty query" };
         try {
-            const [rows] = await conn.execute(trimmed);
+            const [rows, fields] =
+                request.params === undefined
+                    ? await conn.execute(trimmed)
+                    : await conn.execute(trimmed, request.params);
+            if (request.includeFields) {
+                const metadata = (fields ?? []).map((field) => ({
+                    name: field.name,
+                    ...(field.schema ? { schema: field.schema } : {}),
+                    table: field.table,
+                    ...(field.orgName ? { orgName: field.orgName } : {}),
+                    ...(field.orgTable ? { orgTable: field.orgTable } : {}),
+                    columnType: field.columnType,
+                    flags: field.flags,
+                    decimals: field.decimals,
+                    columnLength: field.columnLength,
+                }));
+                const header = Array.isArray(rows) ? null : rows;
+                return {
+                    rows,
+                    fields: metadata,
+                    ...(typeof header?.affectedRows === "number"
+                        ? { affectedRows: header.affectedRows }
+                        : {}),
+                    ...(typeof header?.insertId === "number"
+                        ? { insertId: header.insertId }
+                        : {}),
+                };
+            }
             return rows;
         } catch (err: any) {
             console.error(`[MySQLDevice] Query error: ${err.message}`);

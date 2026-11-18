@@ -1909,5 +1909,35 @@ describe("SyscallDispatcher (A1)", () => {
       expect(pcb).toBeDefined();
       // ppid unchanged or set to self (both fine for a no-op)
     });
+
+    it("forwards a parameterized DB_QUERY request to the MySQL device", async () => {
+      const proc = createTestProcess();
+      const query = {
+        sql: "SELECT id FROM sensor_data WHERE id = ?",
+        params: [7],
+      };
+      const queryDevice = vi.fn().mockResolvedValue([{ id: 7 }]);
+      kernel.devices.mysql = { query: queryDevice };
+
+      const result = await dispatcher.dispatch(
+        proc.pid,
+        SyscallCode.DB_QUERY,
+        query,
+      );
+
+      expect(queryDevice).toHaveBeenCalledWith(query, proc.pid);
+      expect(result).toEqual([{ id: 7 }]);
+    });
+
+    it("rejects malformed DB_QUERY requests", async () => {
+      const proc = createTestProcess();
+
+      await expect(
+        dispatcher.dispatch(proc.pid, SyscallCode.DB_QUERY, {
+          sql: "SELECT 1",
+          params: "not-an-object-or-array",
+        }),
+      ).rejects.toThrow("params must be an array or named parameter object");
+    });
   });
 });

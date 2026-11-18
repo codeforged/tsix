@@ -201,7 +201,7 @@ lapisan bawah. Yang wajib dinormalisasi:
 | Gaya placeholder (`?`, `$1`, `:name`) | `TDBQuery` (named params → gaya driver) | SQL harus beda per driver |
 | Quoting identifier | `TDBConnection`/driver | nama tabel/kolom rawan error |
 | Pemetaan tipe native → tipe kanonik | driver | `TDBGrid`/`TDBEdit` butuh cabang per driver |
-| Metadata kolom (`fieldDefs`) | `TDBQuery.meta()` | kolom grid tidak bisa otomatis |
+| Metadata kolom (`fieldDefs`) | hasil `TDBQuery`/driver | kolom grid tidak bisa otomatis |
 | Deteksi PK / auto-increment | driver | `applyUpdates` tidak tahu kunci baris |
 | Kode error | driver → `EDatabaseError` | app harus parsing pesan |
 | Kapabilitas (baca/tulis/transaksi/params) | capability flags | kontrol harus menebak |
@@ -220,13 +220,17 @@ interface TDBDriver {
     canTransact: boolean;
     canParam: boolean;
   };
-  connect(cfg: TDBConfig, pid: number): Promise<void>;
-  disconnect(pid: number): Promise<void>;
-  execute(sql: string, params: unknown[], pid: number): Promise<TDBResult>;
-  meta(sql: string, params: unknown[], pid: number): Promise<TFieldDef[]>;
+  connect(cfg: TDBConfig): Promise<void>;
+  disconnect(): Promise<void>;
+  execute(sql: string, params: TDBParams): Promise<TDBResult>;
   quoteIdent(name: string): string;
 }
 ```
+
+Hasil `execute` membawa baris, metadata kolom, dan ringkasan hasil tulis dalam
+satu respons. Dengan begitu, metadata query tidak perlu memicu eksekusi kedua.
+Transport DB internal tetap menyimpan koneksi per-PID; `TDBConnection` hanya
+membuka satu koneksi MySQL per proses pada fase ini.
 
 ### 6.4 Matriks kemampuan
 
@@ -284,7 +288,7 @@ Temuan ini menentukan batas v1 — jangan menjanjikan melebihi ini.
 
 | # | Temuan | Bukti | Dampak |
 | :-- | :-- | :-- | :-- |
-| D1 | `query()` hanya menerima string SQL, tanpa params | [DbLib.ts](../src/mirror/lib/DbLib.ts) | `TProvider` butuh jalur params |
+| D1 | `query()` awalnya hanya menerima string SQL; Fase 1 menambahkan parameter opsional | [DbLib.ts](../src/mirror/lib/DbLib.ts) | ✅ jalur params tersedia |
 | D2 | Device sudah memakai prepared statement (`conn.execute`) | [MySQLDevice.ts](../src/kernel/devices/aux-devices/MySQLDevice.ts) | params **hampir gratis**: teruskan `{ sql, params }` |
 | D3 | Tidak ada transaksi (`BEGIN/COMMIT/ROLLBACK`) | [Syscalls.ts](../src/kernel/Syscalls.ts) DB_* | v1: `applyUpdates` per baris; transaksi v1.1 |
 | D4 | Koneksi disimpan per-PID | MySQLDevice `connections` | v1: satu `TDBConnection` aktif per proses |
@@ -338,9 +342,11 @@ Referensi perilaku: [gui-db-test-csh.ts](../src/mirror/opt/test/gui-db-test-csh.
 Fase 0–4 menghasilkan slice MySQL yang bisa dipakai. Fase 5 membuktikan
 driver-agnostic. Fase 6–7 melengkapi cakupan.
 
-**Status eksekusi (2026-11-18):** Fase 0 selesai. Atas keputusan pemilik
-proyek, Fase 6 (kontrol dasar & layout) dikerjakan lebih dulu; Fase 1–5 (stack
-database) ditunda sampai komponen UI stabil.
+**Status eksekusi (2026-11-18):** Fase 0 dan kontrol GUI selesai. Fase 1
+menyediakan transport query ber-parameter serta `TDBConnection`/`TDBQuery`
+MySQL. Fase 2 menambahkan fetch dan apply per baris melalui `TProvider`. Fase 3
+menyediakan buffer/cursor `TClientDataset` dan binding notifikasi
+`TDataSource`. DB controls dan driver CSV menjadi tahap berikutnya.
 
 ---
 
@@ -389,32 +395,36 @@ database) ditunda sampai komponen UI stabil.
 
 ### Fase 1 — Driver, Connection & Query
 
-- [ ] `DB_QUERY` menerima `{ sql, params }` (kernel + device + `DbLib`)
-- [ ] Kontrak `TDBDriver` + capability flags + tipe kanonik `TFieldType`
-- [ ] `TDBConnection` (`driver`, `open/close/execute`, `EDatabaseError`)
-- [ ] `TDBQuery` (named params → gaya driver, `open/close/fetch/meta`)
-- [ ] Tes: params, normalisasi error, capability
+- [x] `DB_QUERY` menerima `{ sql, params }` (kernel + device + daemon + `DbLib`), string lama tetap didukung
+- [x] Kontrak `TDBDriver` + capability flags + tipe kanonik `TFieldType`
+- [x] `TDBConnection` (`driver`, `open/close/execute`, `EDatabaseError`)
+- [x] `TDBQuery` (`open/close/fetch`) + metadata dari hasil query
+- [x] Tes: parameter positional/named, forwarding, normalisasi error, capability
+- [x] Demo koneksi/query terpisah: `pistachio-dbdemo.ts`; konfigurasi dibaca dari environment, bukan disimpan di source
 
 ### Fase 2 — Provider
-
-- [ ] `TProvider` fetch dari `TDBQuery` (metadata + baris)
-- [ ] `applyUpdates` per baris dengan laporan per baris
-- [ ] Tolak tulis rapi saat `canWrite === false`
-- [ ] Tes provider (mock driver)
+- [x] `TProvider` fetch dari `TDBQuery` (metadata + baris)
+- [x] `applyUpdates` per baris dengan laporan per baris
+- [x] Tolak tulis rapi saat `canWrite === false`
+- [x] Tes provider (mock driver)
 
 ### Fase 3 — Dataset & DataSource
 
-- [ ] `TClientDataset`: buffer, cursor, `first/next/prior/last`, `edit/post/cancel`
-- [ ] `sort`/`filter`, dirty tracking, state machine
-- [ ] `TDataSource`: binding + notifikasi perubahan
-- [ ] Tes state machine
+- [x] `TClientDataset`: buffer, cursor, `first/next/prior/last`, `edit/post/cancel`
+- [x] `sort`/`filter`, dirty tracking, state machine
+- [x] `TDataSource`: binding + notifikasi perubahan
+- [x] Tes state machine
 
 ### Fase 4 — DB Controls
 
-- [ ] `TDBGrid` (kolom auto dari metadata) + `TDBNavigator`
-- [ ] `TDBEdit`, `TDBText`, `TDBMemo`, `TDBListBox`
-- [ ] Demo **DB Browser Pistachio**
-- [ ] Tes binding: edit → post → apply
+- [x] `TDBGrid` (kolom auto dari metadata) + `TDBNavigator`
+- [x] `TDBEdit`, `TDBText`, `TDBMemo`, `TDBListBox`
+- [x] `TDBPager`: paging sisi server (`COUNT` + `LIMIT/OFFSET`) untuk tabel besar
+- [x] Demo GUI DB Browser dengan editor record + DDL dan data contoh
+- [x] Tes binding: edit → post → apply, sinkronisasi cursor/grid, navigator,
+  dan pelaporan error
+- [x] Tes paging: total record, offset halaman, clamp halaman terakhir, dan
+  blokir saat edit/dirty
 
 ### Fase 5 — Independensi Driver
 
@@ -447,7 +457,7 @@ database) ditunda sampai komponen UI stabil.
 | Q2 | Transaksi di v1 atau v1.1? | v1.1 |
 | Q3 | `applyUpdates` per baris atau batch? | per baris, dengan laporan per baris |
 | Q4 | Grid: render virtual atau seluruh baris? | virtual (mengikuti pola Tabulator) |
-| Q5 | Perilaku `connect()` kedua dalam satu proses | lempar error sampai multi-koneksi didukung |
+| Q5 | Perilaku koneksi MySQL kedua dalam satu proses | **Diputuskan:** `TDBConnection.open()` melempar error sampai multi-koneksi Pistachio didukung |
 | Q6 | Apakah `TDataSource` boleh melayani >1 kontrol? | ya (satu cursor, banyak view) |
 | Q7 | Driver mana yang masuk v1? | **Diputuskan:** MySQL + CSV (CSV read-only sebagai uji independensi) |
 | Q8 | Multi-driver lewat daemon userland atau device per driver? | **Ditunda:** default daemon userland; device hanya bila spike `better-sqlite3` gagal |

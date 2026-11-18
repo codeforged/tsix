@@ -23,6 +23,36 @@ export interface DbConfig {
   user: string;
   password: string;
   database: string;
+  port?: number;
+}
+
+export type DbQueryParameters =
+  | readonly unknown[]
+  | Readonly<Record<string, unknown>>;
+
+export interface DbQueryRequest {
+  sql: string;
+  params?: DbQueryParameters;
+  includeFields?: boolean;
+}
+
+export interface DbQueryField {
+  name: string;
+  schema?: string;
+  table?: string;
+  orgName?: string;
+  orgTable?: string;
+  columnType?: number;
+  flags?: number;
+  decimals?: number;
+  columnLength?: number;
+}
+
+export interface DbQueryResult {
+  rows: unknown;
+  fields: DbQueryField[];
+  affectedRows?: number;
+  insertId?: number | string;
 }
 
 export class DbLib {
@@ -40,12 +70,29 @@ export class DbLib {
   }
 
   /**
-   * query(): Eksekusi SQL.
+   * query(): Eksekusi SQL, dengan parameter opsional untuk prepared statement.
    * @param sql SELECT → array of rows; INSERT/UPDATE/DELETE → ResultSetHeader
+   * @param params positional (`?`) atau named (`:name`) parameters
    * @returns rows/ResultSetHeader, atau { error: message } jika gagal
    */
-  public async query(sql: string): Promise<any> {
-    return await this.dispatch(SyscallCode.DB_QUERY, sql);
+  public async query(
+    sql: string,
+    params?: DbQueryParameters,
+  ): Promise<any> {
+    const request = params === undefined ? sql : { sql, params };
+    return await this.dispatch(SyscallCode.DB_QUERY, request);
+  }
+
+  /** Eksekusi SQL dan kembalikan metadata kolom bersama hasilnya. */
+  public async queryWithFields(
+    sql: string,
+    params: DbQueryParameters = [],
+  ): Promise<DbQueryResult | { error: string }> {
+    return await this.dispatch(SyscallCode.DB_QUERY, {
+      sql,
+      params,
+      includeFields: true,
+    });
   }
 
   /** disconnect(): Tutup koneksi database. */

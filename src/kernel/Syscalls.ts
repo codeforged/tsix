@@ -2061,6 +2061,30 @@ export class SyscallDispatcher {
             }
 
             case SyscallCode.DB_QUERY: {
+                const request =
+                    typeof args === "string" ? { sql: args } : args;
+                if (!request || typeof request.sql !== "string") {
+                    throw new Error(
+                        "DB_QUERY: expected SQL string or {sql, params}",
+                    );
+                }
+                if (
+                    request.params !== undefined &&
+                    !Array.isArray(request.params) &&
+                    (typeof request.params !== "object" ||
+                        request.params === null)
+                ) {
+                    throw new Error(
+                        "DB_QUERY: params must be an array or named parameter object",
+                    );
+                }
+                if (
+                    request.includeFields !== undefined &&
+                    typeof request.includeFields !== "boolean"
+                ) {
+                    throw new Error("DB_QUERY: includeFields must be boolean");
+                }
+
                 // Transport alternatif: service daemon (jika terdaftar)
                 if (this.dbServicePid !== null) {
                     return await this.forwardDbRequest(pid, "query", args);
@@ -2068,9 +2092,6 @@ export class SyscallDispatcher {
                 // Transport default: /dev/mysql device
                 const device = this.kernel.devices?.mysql as any;
                 if (!device) throw new Error("DB_QUERY: /dev/mysql is not available");
-                if (!args || typeof args !== "string") {
-                    throw new Error("DB_QUERY: sql must be a string");
-                }
                 const result = await device.query(args, pid);
                 return result;
             }

@@ -2896,6 +2896,20 @@ export class ConnectedDataGrid {
     await this.applySelectionVisual(prevKey, this.selectedRowKey);
   }
 
+  /** Select a record from the current data set by object identity. */
+  async setSelectedRecord(
+    record: Record<string, any> | null,
+  ): Promise<void> {
+    if (record === null) {
+      await this.clearSelection();
+      return;
+    }
+    if (!this.data.includes(record)) {
+      throw new Error("Cannot select a record that is not in the grid data");
+    }
+    await this.setSelectedIndex(this.getRowKey(record));
+  }
+
   /** Hapus seleksi */
   async clearSelection(): Promise<void> {
     if (this.selectedRowKey === null) return;
@@ -3126,6 +3140,9 @@ export class ConnectedTabulator {
   private onSelChangeCb:
     | ((index: number, record: Record<string, any> | null) => void)
     | null = null;
+  private onRowDoubleClickCb:
+    | ((index: number, record: Record<string, any>) => void)
+    | null = null;
   // SELECTION — index = kunci stabil per datarow (INDEX ≠ ROW NUMBER).
   // Di-generate app-side via WeakMap, ditandai ke browser lewat field
   // `_tsixKey` (objek user tidak pernah dimutasi).
@@ -3187,12 +3204,17 @@ export class ConnectedTabulator {
       index: number,
       record: Record<string, any> | null,
     ) => void,
+    onRowDoubleClick?: (
+      index: number,
+      record: Record<string, any>,
+    ) => void,
   ): Promise<void> {
     this.screen = screen;
     this.onSortCb = onSort || null;
     this.onRowClickCb = onRowClick || null;
     this.onRowCtxCb = onRowContextMenu || null;
     this.onSelChangeCb = onSelectionChange || null;
+    this.onRowDoubleClickCb = onRowDoubleClick || null;
     this.lib = (global as any)._tsixLib;
     const w = screen.win;
 
@@ -3219,6 +3241,17 @@ export class ConnectedTabulator {
         if (v.key != null && this.onRowClickCb) {
           const rec = this.getRecord(Number(v.key));
           if (rec) this.onRowClickCb(Number(v.key), rec);
+        }
+      } catch (_) {
+        /* parse gagal — abaikan */
+      }
+    });
+    w.bindHandler(this.wrapId, "tb_rowdblclick", (ev: any) => {
+      try {
+        const v = JSON.parse(ev?.value || "{}");
+        if (v.key != null && this.onRowDoubleClickCb) {
+          const rec = this.getRecord(Number(v.key));
+          if (rec) this.onRowDoubleClickCb(Number(v.key), rec);
         }
       } catch (_) {
         /* parse gagal — abaikan */
@@ -3419,6 +3452,21 @@ export class ConnectedTabulator {
   /** Programmatic select berdasarkan row-key. index = -1 → clear. */
   async setSelectedIndex(index: number): Promise<void> {
     this.selectedRowKey = this.findByKey(index) ? index : null;
+    await this.sendToDome("TB_SELECT", { key: this.selectedRowKey });
+  }
+
+  /** Select a record from the current data set by object identity. */
+  async setSelectedRecord(
+    record: Record<string, any> | null,
+  ): Promise<void> {
+    if (record === null) {
+      await this.clearSelection();
+      return;
+    }
+    if (!this.data.includes(record)) {
+      throw new Error("Cannot select a record that is not in the grid data");
+    }
+    this.selectedRowKey = this.getRowKey(record);
     await this.sendToDome("TB_SELECT", { key: this.selectedRowKey });
   }
 

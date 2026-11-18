@@ -198,6 +198,15 @@
       });
     });
 
+    table.on("rowDblClick", (e, row) => {
+      TSIX.send({
+        wid,
+        targetId,
+        eventType: "tb_rowdblclick",
+        value: JSON.stringify({ key: row.getData()._tsixKey }),
+      });
+    });
+
     // Event klik-kanan Tabulator v6 = "rowContext" (BUKAN "rowContextMenu" —
     // itu nama option contextMenu, bukan event). preventDefault() agar menu
     // konteks native browser tidak ikut muncul.
@@ -269,7 +278,15 @@
   function selectRowByKey(t, key) {
     const rows = t.getRows();
     const target = rows.find((r) => r.getData()._tsixKey === key);
-    if (target) t.selectRow(target);
+    if (!target) {
+      t.deselectRow();
+      return;
+    }
+
+    const selected = t.getSelectedRows();
+    if (selected.length === 1 && selected[0] === target) return;
+    t.deselectRow();
+    t.selectRow(target);
   }
 
   function handleSelect(msg) {

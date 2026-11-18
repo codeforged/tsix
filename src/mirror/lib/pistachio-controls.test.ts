@@ -325,6 +325,27 @@ describe("TDataGrid", () => {
     expect(grid.data).toHaveLength(2);
   });
 
+  it("routes Tabulator row double-clicks to the public callback", async () => {
+    const { port, bindHandler } = createGridPort();
+    const grid = new TTabulatorGrid({
+      id: "tbg-double-click",
+      columns: [{ key: "no", label: "No" }],
+      data: [{ no: 1 }],
+    });
+    const onRowDoubleClick = vi.fn();
+    grid.onRowDoubleClick = onRowDoubleClick;
+    grid.bindEventHandler(port);
+
+    const call = bindHandler.mock.calls.find(
+      ([target, event]) =>
+        target === "tb-tbg-double-click" && event === "tb_rowdblclick",
+    );
+    if (!call) throw new Error("row double-click handler not bound");
+    call[2]({ value: JSON.stringify({ key: 1 }) });
+
+    expect(onRowDoubleClick).toHaveBeenCalledWith(1, { no: 1 });
+  });
+
   it("routes header clicks to onSort", () => {
     const { port, bindHandler } = createGridPort();
     const grid = new TDataGrid({

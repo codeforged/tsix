@@ -22,6 +22,7 @@ import {
   TLabel,
   TListBox,
   TMemo,
+  TImage,
   TProgressBar,
   TRadialGauge,
   TRadioButton,
@@ -172,7 +173,7 @@ export const main = Program(async () => {
     id: "chart-suhu",
     data: [24, 25, 25.5, 26, 27, 26.5, 27.4],
     spline: true,
-    fill: true,
+    fill: false,
     width: 280,
     height: 150,
   });
@@ -206,6 +207,18 @@ export const main = Program(async () => {
   const btnInput = new TButton({ id: "btn-input", caption: "Input" });
   const btnOpenFile = new TButton({ id: "btn-open-file", caption: "Open…" });
   const btnSaveFile = new TButton({ id: "btn-save-file", caption: "Save…" });
+  const btnOpenImage = new TButton({
+    id: "btn-open-image",
+    caption: "Pilih gambar…",
+  });
+  const imagePreview = new TImage({
+    id: "image-preview",
+    alt: "Pratinjau gambar",
+    width: 520,
+    height: 260,
+    fit: "contain",
+    style: { background: "#f5f5f5", border: "1px solid #ccc" },
+  });
 
   const dialogGroup = new TGroupBox({
     id: "grp-dialog",
@@ -217,12 +230,18 @@ export const main = Program(async () => {
       }),
     ],
   });
+  const imageGroup = new TGroupBox({
+    id: "grp-image",
+    caption: "Pratinjau Gambar",
+    children: [btnOpenImage, imagePreview],
+  });
 
   form.add(toolbar);
   form.add(formGroup);
   form.add(dataGroup);
   form.add(iotGroup);
   form.add(dialogGroup);
+  form.add(imageGroup);
   form.add(
     new THStack({
       id: "row",
@@ -296,8 +315,28 @@ export const main = Program(async () => {
   };
 
   btnOpenFile.onClick = async () => {
-    const result = await new TOpenDialog({ title: "Pilih file", filter: ["txt", "md"] }).execute(form);
+    const result = await new TOpenDialog({ title: "Pilih file", filter: ["*", "txt", "md"] }).execute(form);
     status.text = result ? `Open: ${result.path}` : "Open dibatalkan";
+  };
+
+  btnOpenImage.onClick = async () => {
+    const result = await new TOpenDialog({
+      title: "Pilih gambar",
+      filter: [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg"],
+    }).execute(form);
+    if (!result) {
+      status.text = "Pilih gambar dibatalkan";
+      return;
+    }
+
+    try {
+      await imagePreview.loadFile(result.path);
+      status.text = `Gambar dimuat: ${result.filename}`;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      status.text = `Gagal memuat gambar: ${message}`;
+      await TDialogs.alert(form, "Gagal membuka gambar", message);
+    }
   };
 
   btnSaveFile.onClick = async () => {

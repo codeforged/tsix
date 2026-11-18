@@ -98,4 +98,55 @@ describe("MySQLDevice (C10.10-C10.12)", () => {
         const result = await dev.ioctl(0x2002, null);
         expect(result).toBe(false);
     });
+
+    it("supports parameterized queries and returns column metadata on request", async () => {
+        const dev = new MySQLDevice();
+        const execute = vi.fn().mockResolvedValue([
+            [{ id: 7 }],
+            [
+                {
+                    name: "id",
+                    schema: "antigonon_iot",
+                    table: "sensor_data",
+                    orgName: "sensor_id",
+                    orgTable: "sensor_data",
+                    columnType: 3,
+                    flags: 3,
+                    decimals: 0,
+                    columnLength: 11,
+                },
+            ],
+        ]);
+        (dev as any).connections.set(23, { execute });
+
+        const result = await dev.query(
+            {
+                sql: "SELECT id FROM sensor_data WHERE id = ?",
+                params: [7],
+                includeFields: true,
+            },
+            23,
+        );
+
+        expect(execute).toHaveBeenCalledWith(
+            "SELECT id FROM sensor_data WHERE id = ?",
+            [7],
+        );
+        expect(result).toEqual({
+            rows: [{ id: 7 }],
+            fields: [
+                {
+                    name: "id",
+                    schema: "antigonon_iot",
+                    table: "sensor_data",
+                    orgName: "sensor_id",
+                    orgTable: "sensor_data",
+                    columnType: 3,
+                    flags: 3,
+                    decimals: 0,
+                    columnLength: 11,
+                },
+            ],
+        });
+    });
 });

@@ -27,7 +27,12 @@ export interface TNode {
   children: TNode[];
 }
 
-export type TEventName = "click" | "input" | "keydown" | "close";
+export type TEventName =
+  | "click"
+  | "input"
+  | "keydown"
+  | "change"
+  | "close";
 
 /** Event tombol keyboard dari lapisan UI. */
 export interface TKeyEvent {
@@ -43,6 +48,8 @@ export interface TKeyEvent {
 /** Capture keyboard milik satu window (emerald `Keyboard`). */
 export interface TKeyboardPort {
   on(cb: (ev: TKeyEvent) => void): () => void;
+  /** Kembalikan fokus ke penangkap window (mis. setelah input selesai). */
+  focus?(): Promise<unknown> | unknown;
 }
 
 /**
@@ -169,6 +176,7 @@ export class TComponent {
   private _registry: Map<string, TComponent> | null = null;
   private _host: TScreenPort | null = null;
   private _disposed: boolean = false;
+  private _skipUnmountOnDispose = false;
 
   /** Opsi hasil normalisasi; subclass membaca props tambahannya dari sini. */
   protected readonly options: TOptions;
@@ -219,6 +227,14 @@ export class TComponent {
 
   get children(): readonly TComponent[] {
     return this._children;
+  }
+
+  /** Forward a keyboard event to children until one component handles it. */
+  handleKeyEvent(event: TKeyEvent): boolean {
+    for (const child of this._children) {
+      if (child.handleKeyEvent(event)) return true;
+    }
+    return false;
   }
 
   get disposed(): boolean {
@@ -350,6 +366,20 @@ export class TComponent {
     this._parent = null;
   }
 
+  /**
+   * Dispose each node in the subtree, optionally leaving DOM teardown to the
+   * window.
+   */
+  disposeTree(options: { unmount?: boolean } = {}): void {
+    const subtree = collectTree(this);
+    if (options.unmount === false) {
+      for (const component of subtree) {
+        component._skipUnmountOnDispose = true;
+      }
+    }
+    for (const component of subtree.reverse()) component.dispose();
+  }
+
   /** Tree netral (belum DOM). Komponen non-visual tidak ikut. */
   build(): TNode {
     const props: Record<string, any> = { ...this.props };
@@ -391,7 +421,9 @@ export class TComponent {
     if (!host) return;
 
     host.off?.(this.id);
-    if (this.isVisual) void host.unmount?.(this.id);
+    if (this.isVisual && !this._skipUnmountOnDispose) {
+      void host.unmount?.(this.id);
+    }
     this._host = null;
   }
 

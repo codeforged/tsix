@@ -6,6 +6,114 @@
 
 ## 2026-11-18
 
+### Fase 4 DB — DB Controls
+
+- **File:** `src/mirror/lib/pistachio/dbcontrols.ts`,
+  `src/mirror/lib/pistachio-dbcontrols.test.ts`, dan
+  `src/mirror/opt/test/pistachio-dbcontrols-demo.ts`.
+- **Binding:** `TDBText`, `TDBEdit`, `TDBMemo`, dan `TDBListBox` diturunkan
+  dari kontrol dasar Pistachio dan terikat ke `TDataSource`. Edit mengikuti
+  capability dataset; field numerik, boolean, tanggal, dan JSON diparse dengan
+  validasi tipe.
+- **Grid/navigator:** `TDBGrid` memakai Tabulator, membuat kolom dari metadata,
+  menyinkronkan pilihan baris dengan cursor dataset tanpa meninggalkan highlight
+  pada baris lama, dan mendukung sort serta double-click ke record terpilih.
+  `TForm` meneruskan keydown yang ditangkap ke tree komponen; event berhenti
+  pada komponen pertama yang menanganinya. `TDBGrid` mengurus navigasi panah
+  saat browser aktif, sedangkan `TDBNavigator` menjadi fallback jika grid tidak
+  ada, sehingga satu penekanan tombol tidak menggerakkan cursor dua kali.
+  Form editor juga memiliki navigator record;
+  permintaan pindah record otomatis mem-Post edit aktif ke buffer tanpa
+  mengirimnya ke MySQL. Cancel tetap tersedia untuk membatalkan edit sebelum
+  berpindah; perubahan yang sudah di-Post perlu Apply.
+  `TDBNavigator` menyediakan navigasi, edit, post, cancel, delete, dan apply;
+  kegagalan apply per baris dilaporkan melalui callback atau console serta
+  status navigator.
+- **Lifecycle GUI:** penutupan form melepas seluruh handler/subscription tanpa
+  mengirim unmount per-node ke window yang sedang dihancurkan.
+- **Demo:** aplikasi GUI DB Browser terpisah membaca tabel database aktif.
+  Konfigurasi koneksi hanya dari environment, tanpa kredensial di source.
+- **DB Browser:** demo menampilkan tabel database aktif dan maksimal 200 baris
+  per halaman. `TDBPager` menghitung total record dan menjalankan query
+  `LIMIT/OFFSET`; query aplikasi cukup menyediakan `SELECT` tanpa paging manual.
+  Tombol pindah halaman diblokir saat edit aktif atau perubahan lokal belum
+  di-Apply, dan cursor diposisikan ke record pertama di halaman baru.
+  Pager tampil `[ 2 ] of 10`: nomor halaman berupa `TEdit` yang bisa diketik
+  lalu di-commit dengan Enter atau saat field ditinggalkan (`change`), dan
+  fokus keyboard dikembalikan ke window setelah Enter supaya panah langsung
+  menggerakkan record. Input di luar jangkauan atau bukan angka ditolak dengan
+  pesan di samping tombol, dan nomor halaman dipulihkan.
+  DOME kini meneruskan event `change` (`onChangeId`) sebagai sinyal onExit.
+  `TDBNavigator` menyediakan navigasi, insert, edit, delete, serta
+  apply; edit/double-click membuka form berisi DB controls berdasarkan metadata.
+  Pemilih tabel tetap aktif; permintaan Refresh/pindah tabel saat editor terbuka,
+  edit aktif, atau perubahan belum di-Apply ditolak dengan status yang jelas.
+  Update/delete hanya aktif saat metadata driver mendukungnya dan delete
+  meminta konfirmasi. DDL + seed data idempotent tersedia di
+  `pistachio-dbcontrols-demo.sql`.
+- **Verifikasi:** 76 tes fokus lulus mencakup DB Controls, grid, keyboard,
+  paging, input nomor halaman, dan lifecycle komponen. Smoke test pager dengan driver palsu
+  1.000.000 baris hanya memuat 100 baris per halaman (200 baris untuk dua kali
+  fetch), total 10.000 halaman, dan halaman terakhir berhenti tepat di record
+  terakhir. Typecheck proyek masih gagal pada sejumlah error yang sudah ada.
+- **Oleh:** Copilot
+
+### Fase 3 DB — `TClientDataset` dan `TDataSource`
+
+- **File:** `src/mirror/lib/pistachio/data.ts`,
+  `src/mirror/lib/pistachio-data.test.ts`, dan `pistachio-dbdemo.ts`.
+- **Dataset:** buffer baris, cursor (`first/next/prior/last`), filter/sort
+  callback, state `dsBrowse/dsEdit/dsInsert`, serta `edit/insert/post/cancel/delete`.
+- **Dirty tracking:** update/insert/delete dikirim lewat provider; hasil sukses
+  disinkronkan ke buffer, sementara baris gagal tetap dirty untuk dicoba ulang.
+  Refresh/close menolak perubahan yang belum diterapkan.
+- **Binding:** `TDataSource` meneruskan field, record aktif, navigasi, operasi
+  edit, dan notifikasi ke banyak subscriber.
+- **Demo:** `pistachio-dbdemo.ts` kini menguji rantai connection → query →
+  provider → dataset → data source menggunakan query probe yang sama.
+- **Verifikasi:** tes cursor, sort/filter, state machine, CRUD apply,
+  notifikasi, dan retry state.
+- **Oleh:** Copilot
+
+### Fase 2 DB — `TProvider`
+
+- **File:** `src/mirror/lib/pistachio/data.ts`, `DbLib.ts`, `MySQLDevice.ts`,
+  dan `mysqld.ts`.
+- **Fetch:** provider membuka atau menjalankan ulang `TDBQuery` dan meneruskan
+  baris beserta metadata field ke lapisan dataset.
+- **Apply:** perubahan insert/update/delete dieksekusi berurutan memakai
+  parameter named. Hasil melaporkan sukses/gagal per baris; kegagalan satu
+  baris tidak menghilangkan laporan atau menghentikan percobaan berikutnya.
+- **Keamanan pemetaan:** table, primary key, dan nama kolom sumber diambil dari
+  metadata MySQL. Query multi-tabel atau tanpa primary key tidak dianggap dapat
+  di-update otomatis; `tableName`/`primaryKey` dapat diberikan eksplisit.
+- **Kapabilitas:** operasi tulis ditolak saat driver read-only atau tidak
+  mendukung parameter. Tidak ada transaksi; setiap baris berdiri sendiri.
+- **Verifikasi:** tes provider memakai mock driver mencakup fetch, SQL
+  berparameter, laporan kegagalan per baris, read-only, dan primary key.
+- **Oleh:** Copilot
+
+### Fase 1 DB — `TDBConnection`, `TDBQuery`, dan parameterized query
+
+- **File:** `src/mirror/lib/pistachio/data.ts`, `DbLib.ts`, `Syscalls.ts`,
+  `MySQLDevice.ts`, `mysqld.ts`, dan barrel `pistachio.ts`.
+- **Transport:** `DB_QUERY` kini menerima query dengan parameter positional
+  (`?`) atau named (`:name`) di jalur device dan daemon. Pemanggilan lama
+  `db.query(sql)` tetap mengirim bentuk string.
+- **API:** `TDBConnection` membuka/menutup koneksi MySQL, menyediakan
+  `execute()` dan capability flags; `TDBQuery` menjalankan SQL ber-parameter
+  dan membawa metadata field dari hasil query. Error dibungkus sebagai
+  `EDatabaseError`.
+- **Driver:** built-in MySQL memakai `DbLib`; driver kustom dapat diinjeksi.
+  Driver bernama selain `mysql` belum tersedia. Satu koneksi MySQL Pistachio
+  per proses untuk sementara.
+- **Demo:** `pistachio-dbdemo.ts` terpisah dari demo GUI; memakai
+  `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, dan `DB_PORT` opsional dari
+  environment, lalu menguji named parameter dengan `SELECT`.
+- **Batas saat fase ini ditutup:** `TProvider`, `TClientDataset`,
+  `TDataSource`, DB controls, dan driver CSV masih menunggu fase lanjutan.
+- **Oleh:** Copilot
+
 ### `TKeyboard` — shortcut hanya saat window fokus
 
 - **File:** `src/mirror/lib/pistachio/{keyboard,form,core}.ts`,
