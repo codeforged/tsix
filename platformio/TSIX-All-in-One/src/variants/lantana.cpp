@@ -23,6 +23,12 @@
 #ifndef TSIX_DEVICE_ID
 #define TSIX_DEVICE_ID "0e8ab4d8-f242-4f26-af35-a9a56cd3cced"
 #endif
+#ifndef TSIX_RELAY1_SCHEME_ID
+#define TSIX_RELAY1_SCHEME_ID 105
+#endif
+#ifndef TSIX_RELAY2_SCHEME_ID
+#define TSIX_RELAY2_SCHEME_ID 106
+#endif
 #ifndef TSIX_ACCESS_KEY
 #define TSIX_ACCESS_KEY "0000000000000000000000000000000000000000000000000000000000000000"
 #endif
@@ -35,6 +41,7 @@
 // ── Lantana / MQTNL ──
 #define NODE_PORT     101
 #define LANTANA_HOST  "tsix"
+// #define LANTANA_HOST  "jatitsix_3"
 #define LANTANA_PORT  1000
 #define SEND_INTERVAL_MS 5000
 
@@ -52,6 +59,8 @@ TSIX tsix(TSIX_DEVICE_ID, NODE_PORT, nullptr, TSIX_MQTT_SERVER, TSIX_MQTT_PORT);
 LantanaAuth auth(tsix, LANTANA_HOST, LANTANA_PORT, TSIX_ACCOUNT_ID,
                  TSIX_DEVICE_ID, TSIX_ACCESS_KEY, TSIX_LANTANA_FINGERPRINT);
 uint32_t lastSend = 0;
+uint32_t lastRelayStatusAttempt = 0;
+bool relayStatusPending = false;
 
 const uint16_t SCHEME_IDS[4] = {101, 102, 103, 104};
 int schemeVals[4] = {27, 60, 1013, 60};
@@ -73,20 +82,43 @@ void onEncrypted(const char *srcAddress, int srcPort, const char *payload)
 {
   if (auth.onEncryptedMessage(payload))
   {
-    if (auth.isOnline()) lastSend = 0;
+    if (auth.isOnline())
+    {
+      lastSend = 0;
+      relayStatusPending = true;
+    }
     return;
   }
 
   if (strncmp(payload, "RELAY_1:", 8) == 0)
   {
-    relay1State = (strcmp(payload + 8, "ON") == 0);
+    relay1State = (strcmp(payload + 8, "1") == 0);
     digitalWrite(RELAY1_PIN, relay1State ? HIGH : LOW);
+    relayStatusPending = true;
+    Serial.printf("[RX] RELAY_1: %s\n", relay1State ? "1" : "0");
   }
   else if (strncmp(payload, "RELAY_2:", 8) == 0)
   {
-    relay2State = (strcmp(payload + 8, "ON") == 0);
+    relay2State = (strcmp(payload + 8, "1") == 0);
     digitalWrite(RELAY2_PIN, relay2State ? HIGH : LOW);
+    relayStatusPending = true;
+    Serial.printf("[RX] RELAY_2: %s\n", relay2State ? "1" : "0");
   }
+}
+
+void sendRelayStatus()
+{
+  char data[112];
+  snprintf(data, sizeof(data),
+           "LANTANA|%s|%u:%s;%u:%s",
+           TSIX_DEVICE_ID,
+           TSIX_RELAY1_SCHEME_ID, relay1State ? "true" : "false",
+           TSIX_RELAY2_SCHEME_ID, relay2State ? "true" : "false");
+
+  bool ok = tsix.sendEncrypted(LANTANA_HOST, LANTANA_PORT, data);
+  auth.noteSendResult(ok);
+  Serial.printf("[TX] %s (%s)\n", data, ok ? "OK" : "FAILED");
+  if (ok) relayStatusPending = false;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -120,6 +152,13 @@ void loop()
   tsix.loop();
   auth.loop();
 
+  if (auth.isOnline() && relayStatusPending &&
+      (lastRelayStatusAttempt == 0 || millis() - lastRelayStatusAttempt >= 500))
+  {
+    lastRelayStatusAttempt = millis();
+    sendRelayStatus();
+  }
+
   if (auth.isOnline() && millis() - lastSend >= SEND_INTERVAL_MS)
   {
     lastSend = millis();
@@ -131,7 +170,8 @@ void loop()
     }
 
     char data[128];
-    snprintf(data, sizeof(data), "LANTANA|%s|%u:%d;%u:%d;%u:%d;%u:%d",
+    snprintf(data, sizeof(data),
+             "LANTANA|%s|%u:%d;%u:%d;%u:%d;%u:%d",
              TSIX_DEVICE_ID,
              SCHEME_IDS[0], schemeVals[0],
              SCHEME_IDS[1], schemeVals[1],

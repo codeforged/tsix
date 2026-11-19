@@ -67,7 +67,7 @@ interface Draft {
     dashboard?: DashboardView;
 }
 
-const ITEM_TYPES = ["text", "radialGauge", "lineChart", "switchIndicator"];
+const ITEM_TYPES = ["text", "radialGauge", "lineChart", "switchIndicator", "switch"];
 const SCHEME_TYPES = ["number", "boolean", "string"];
 
 const FIELD_LABEL_STYLE = {
@@ -327,7 +327,16 @@ export const main = Program(async () => {
     const itemIntervalField = textInput("lcp-item-interval", "5", "Update interval (detik)");
     const itemScrollField = textInput("lcp-item-scroll", "opsional", "Scroll after");
     const itemDeviceField = comboInput("lcp-item-device", [], "Device");
-    const itemSchemeField = comboInput("lcp-item-scheme", [], "Scheme");
+    const itemSchemeField = comboInput(
+        "lcp-item-scheme",
+        [],
+        "Scheme (opsional; boolean untuk status switch)",
+    );
+    const itemCommandField = textInput(
+        "lcp-item-command-prefix",
+        "contoh: RELAY_1",
+        "Prefix command switch",
+    );
     const itemGroup = group("lcp-group-item", "Item dashboard", [
         itemInfo,
         fieldGrid("lcp-item-grid", [
@@ -338,6 +347,7 @@ export const main = Program(async () => {
             itemScrollField,
             itemDeviceField,
             itemSchemeField,
+            itemCommandField,
         ]),
     ]);
 
@@ -635,10 +645,22 @@ export const main = Program(async () => {
             });
         }
         itemSchemeOptions = accountSchemes;
+        const schemeLabels = [
+            "(tanpa scheme)",
+            ...accountSchemes.map(schemeOptionLabel),
+        ];
+        const selectedSchemeIndex =
+            item?.schemeId !== undefined
+                ? accountSchemes.findIndex(
+                      (scheme) => scheme.schemeId === item.schemeId,
+                  ) + 1
+                : readValue(itemTypeField) === "switch" || accountSchemes.length === 0
+                  ? 0
+                  : 1;
         applyCombo(
             itemSchemeCombo,
-            accountSchemes.map(schemeOptionLabel),
-            accountSchemes.findIndex((scheme) => scheme.schemeId === item?.schemeId),
+            schemeLabels,
+            selectedSchemeIndex,
         );
 
         const accountDevices = devices
@@ -666,8 +688,20 @@ export const main = Program(async () => {
     }
 
     function selectedItemScheme(): SchemeView | null {
-        return itemSchemeOptions[itemSchemeCombo.selectedIndex] ?? null;
+        const index = itemSchemeCombo.selectedIndex;
+        return index > 0 ? itemSchemeOptions[index - 1] ?? null : null;
     }
+
+    const itemTypeCombo = itemTypeField.input as TComboBox;
+    itemTypeCombo.onChange = () => {
+        const type = readValue(itemTypeField);
+        const scheme = selectedItemScheme();
+        if (type === "switch" && scheme && scheme.type !== "boolean") {
+            itemSchemeCombo.selectedIndex = 0;
+        } else if (type !== "switch" && !scheme && itemSchemeOptions.length > 0) {
+            itemSchemeCombo.selectedIndex = 1;
+        }
+    };
 
     function selectedItemDevice(): DeviceView | null {
         return itemDeviceOptions[itemDeviceCombo.selectedIndex] ?? null;
@@ -1262,16 +1296,17 @@ export const main = Program(async () => {
             ? "Item dashboard baru"
             : `Item · ${item?.title ?? "-"}`;
         editorHint.text = dashboard
-            ? `Dashboard ${dashboard.title} · akun ${dashboard.accountId} — Device, Scheme, dan Icon dipilih dari daftar akun ini.`
+            ? `Dashboard ${dashboard.title} · akun ${dashboard.accountId} — Switch perlu Device dan prefix seperti RELAY_1; Scheme opsional, pilih boolean jika ingin status relay tampil.`
             : "Item harus terkait pada sebuah dashboard.";
-        fillItemLookups(dashboard?.accountId ?? "-", item ?? null);
         setValue(itemTypeField, item?.type ?? "text");
+        fillItemLookups(dashboard?.accountId ?? "-", item ?? null);
         setValue(itemTitleField, item?.title ?? "");
         setValue(itemIntervalField, String(item?.updateInterval ?? 5));
         setValue(
             itemScrollField,
             item?.scrollAfter === undefined ? "" : String(item.scrollAfter),
         );
+        setValue(itemCommandField, item?.commandPrefix ?? "");
         itemInfo.text = `${
             draft
                 ? "Item ditambahkan ke akhir daftar dashboard."
@@ -1536,8 +1571,9 @@ export const main = Program(async () => {
         if (!/^[1-9]\d*$/.test(interval)) {
             throw new Error("Update interval harus integer positif.");
         }
+        const type = readValue(itemTypeField) || "text";
         const scheme = selectedItemScheme();
-        if (!scheme) {
+        if (type !== "switch" && !scheme) {
             throw new Error(
                 "Scheme belum tersedia untuk akun ini. Buat scheme terlebih dahulu.",
             );
@@ -1548,6 +1584,9 @@ export const main = Program(async () => {
                 "Device belum tersedia untuk akun ini. Daftarkan device terlebih dahulu.",
             );
         }
+        if (type === "switch" && scheme && scheme.type !== "boolean") {
+            throw new Error("Scheme untuk card switch harus bertipe boolean.");
+        }
         const args = [
             "dashboard",
             "item-set",
@@ -1555,7 +1594,7 @@ export const main = Program(async () => {
             String(dashboardId),
             index,
             "--type",
-            readValue(itemTypeField) || "text",
+            type,
             "--title",
             required(itemTitleField, "Judul item"),
             "--icon",
@@ -1564,9 +1603,15 @@ export const main = Program(async () => {
             interval,
             "--device-id",
             device.deviceId,
-            "--scheme-id",
-            String(scheme.schemeId),
         ];
+        if (scheme) args.push("--scheme-id", String(scheme.schemeId));
+        if (type === "switch") {
+            const commandPrefix = required(itemCommandField, "Prefix command switch");
+            if (!/^[A-Z][A-Z0-9_]*$/.test(commandPrefix)) {
+                throw new Error("Prefix command switch harus uppercase, misalnya RELAY_1.");
+            }
+            args.push("--command-prefix", commandPrefix);
+        }
         const scrollAfter = optionalNumber(itemScrollField, "Scroll after");
         if (scrollAfter !== null) args.push("--scroll-after", scrollAfter);
         return args;

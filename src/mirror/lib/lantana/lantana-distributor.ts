@@ -35,7 +35,7 @@ export type CommandSender = (
 
 interface ConsumerInfo {
     name: string;
-    accountId?: string;
+    accountIds: Set<string>;
 }
 
 export class LantanaDistributor {
@@ -65,15 +65,43 @@ export class LantanaDistributor {
             );
             return;
         }
-        this.consumers.set(pid, { name, accountId });
+        this.consumers.set(pid, { name, accountIds: new Set([accountId]) });
         std.log(
             `[${TAG}] Consumer registered: ${name} (PID ${pid}, akun: ${accountId})`,
             TAG,
         );
     }
 
-    unregisterConsumer(pid: number): void {
-        this.consumers.delete(pid);
+    subscribeConsumer(pid: number, name: string, accountId?: string): void {
+        if (!accountId) {
+            std.log(
+                `[${TAG}] Consumer ${name} (PID ${pid}) ditolak: accountId wajib diisi`,
+                TAG,
+            );
+            return;
+        }
+        const consumer = this.consumers.get(pid) ?? {
+            name,
+            accountIds: new Set<string>(),
+        };
+        consumer.name = name;
+        consumer.accountIds.add(accountId);
+        this.consumers.set(pid, consumer);
+        std.log(
+            `[${TAG}] Consumer subscribed: ${name} (PID ${pid}, akun: ${accountId})`,
+            TAG,
+        );
+    }
+
+    unregisterConsumer(pid: number, accountId?: string): void {
+        if (!accountId) {
+            this.consumers.delete(pid);
+            return;
+        }
+        const consumer = this.consumers.get(pid);
+        if (!consumer) return;
+        consumer.accountIds.delete(accountId);
+        if (consumer.accountIds.size === 0) this.consumers.delete(pid);
     }
 
     getConsumerPids(): number[] {
@@ -87,7 +115,7 @@ export class LantanaDistributor {
     /** Siarkan satu batch bacaan tervalidasi (hanya ke consumer akun yang sama). */
     async broadcastBatch(batch: NormalizedReadingBatch): Promise<void> {
         for (const [pid, info] of this.consumers.entries()) {
-            if (info.accountId !== batch.accountId) continue;
+            if (!info.accountIds.has(batch.accountId)) continue;
             try {
                 await shell.send(pid, { type: EVT_READING, data: batch });
             } catch {
@@ -99,11 +127,14 @@ export class LantanaDistributor {
     /** Status device berkala (heartbeat). */
     async broadcastStatus(now: number = Date.now()): Promise<void> {
         for (const [pid, info] of this.consumers.entries()) {
-            const devices = this.bank.listDevices(now, info.accountId);
-            try {
-                await shell.send(pid, { type: EVT_DEVICE_STATUS, data: devices });
-            } catch {
-                this.consumers.delete(pid);
+            for (const accountId of info.accountIds) {
+                const devices = this.bank.listDevices(now, accountId);
+                try {
+                    await shell.send(pid, { type: EVT_DEVICE_STATUS, data: devices });
+                } catch {
+                    this.consumers.delete(pid);
+                    break;
+                }
             }
         }
     }
@@ -149,8 +180,14 @@ export class LantanaDistributor {
             case "LANTANA_REGISTER":
                 this.registerConsumer(fromPid, payload.name || "unknown", payload.accountId);
                 return;
+            case "LANTANA_SUBSCRIBE":
+                this.subscribeConsumer(fromPid, payload.name || "unknown", payload.accountId);
+                return;
             case "LANTANA_UNREGISTER":
                 this.unregisterConsumer(fromPid);
+                return;
+            case "LANTANA_UNSUBSCRIBE":
+                this.unregisterConsumer(fromPid, payload.accountId);
                 return;
             case "LANTANA_SNAPSHOT":
                 await this.sendSnapshot(fromPid, payload.accountId, payload.requestId);

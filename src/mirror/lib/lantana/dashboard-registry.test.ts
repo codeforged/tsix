@@ -187,6 +187,67 @@ describe("key dashboard", () => {
         expect(dashboards.listByAccount("root")).toEqual([]);
         expect(dashboards.find(issued.dashboardId)).toBeUndefined();
     });
+
+    it("menerima switch dengan prefix command dan menolak prefix yang tidak aman", () => {
+        const dashboards = new DashboardRegistry();
+        const issued = dashboards.issueAccessKey("root");
+        const switchItem = {
+            type: "switch" as const,
+            title: "Lampu",
+            icon: "lightbulb",
+            updateInterval: 5,
+            deviceId: "device-1",
+            schemeId: 101,
+            commandPrefix: "RELAY_1",
+        };
+
+        dashboards.update("root", issued.dashboardId, {
+            dashboardItems: [switchItem],
+        });
+        expect(
+            dashboards.get("root", issued.dashboardId)?.dashboardItems[0],
+        ).toMatchObject({ type: "switch", commandPrefix: "RELAY_1" });
+
+        dashboards.update("root", issued.dashboardId, {
+            dashboardItems: [
+                {
+                    type: "switch",
+                    title: "Lampu",
+                    icon: "lightbulb",
+                    updateInterval: 5,
+                    deviceId: "device-1",
+                    commandPrefix: "RELAY_1",
+                },
+            ],
+        });
+        expect(
+            dashboards.get("root", issued.dashboardId)?.dashboardItems[0],
+        ).not.toHaveProperty("schemeId");
+
+        expect(() =>
+            dashboards.update("root", issued.dashboardId, {
+                dashboardItems: [
+                    {
+                        type: "text",
+                        title: "Suhu",
+                        icon: "thermostat",
+                        updateInterval: 5,
+                        deviceId: "device-1",
+                    } as any,
+                ],
+            }),
+        ).toThrow(/schemeId wajib/);
+        expect(() =>
+            dashboards.update("root", issued.dashboardId, {
+                dashboardItems: [{ ...switchItem, commandPrefix: "RELAY_1:OFF" }],
+            }),
+        ).toThrow(/commandPrefix/);
+        expect(() =>
+            dashboards.update("root", issued.dashboardId, {
+                dashboardItems: [{ ...switchItem, commandPrefix: "" }],
+            }),
+        ).toThrow(/commandPrefix/);
+    });
 });
 
 describe("serialisasi", () => {

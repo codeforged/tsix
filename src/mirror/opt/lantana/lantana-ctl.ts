@@ -527,8 +527,18 @@ function validateDashboardItemReferences(
     if (!state.devices.belongsTo(accountId, item.deviceId)) {
         throw new Error(`device ${item.deviceId} tidak terdaftar pada akun ${accountId}`);
     }
-    if (!state.schemes.has(item.schemeId)) {
+    if (item.schemeId === undefined) {
+        if (item.type !== "switch") {
+            throw new Error(`scheme wajib diisi untuk item ${item.type}`);
+        }
+        return;
+    }
+    const scheme = state.schemes.get(item.schemeId);
+    if (!scheme) {
         throw new Error(`scheme tidak ditemukan: ${item.schemeId}`);
+    }
+    if (item.type === "switch" && scheme.type !== "boolean") {
+        throw new Error(`scheme ${item.schemeId} untuk switch harus bertipe boolean`);
     }
 }
 
@@ -576,12 +586,26 @@ function parseDashboardItem(args: string[]): PortableDashboardItem {
         "radialGauge",
         "lineChart",
         "switchIndicator",
+        "switch",
     ];
     if (!itemTypes.includes(rawType as PortableDashboardItemType)) {
         throw new Error(`type dashboard tidak valid: ${rawType}`);
     }
 
     const scrollAfter = numberFlag(args, "--scroll-after");
+    const commandPrefix = flag(args, "--command-prefix");
+    const schemeId = flag(args, "--scheme-id");
+    if (
+        rawType === "switch" &&
+        (!commandPrefix || !/^[A-Z][A-Z0-9_]*$/.test(commandPrefix))
+    ) {
+        throw new Error(
+            "--command-prefix wajib untuk tipe switch dan harus uppercase, misalnya RELAY_1",
+        );
+    }
+    if (rawType !== "switch" && !schemeId) {
+        throw new Error("--scheme-id wajib untuk tipe item ini");
+    }
     return {
         type: rawType as PortableDashboardItemType,
         title: requireArg(flag(args, "--title"), "--title"),
@@ -589,10 +613,10 @@ function parseDashboardItem(args: string[]): PortableDashboardItem {
         updateInterval: parsePositiveInteger(flag(args, "--interval") ?? "5", "--interval"),
         ...(scrollAfter !== undefined ? { scrollAfter } : {}),
         deviceId: requireArg(flag(args, "--device-id"), "--device-id"),
-        schemeId: parsePositiveInteger(
-            requireArg(flag(args, "--scheme-id"), "--scheme-id"),
-            "--scheme-id",
-        ),
+        ...(schemeId
+            ? { schemeId: parsePositiveInteger(schemeId, "--scheme-id") }
+            : {}),
+        ...(commandPrefix ? { commandPrefix } : {}),
     };
 }
 
@@ -685,7 +709,7 @@ function usage(): string {
         "  dashboard show <accountId> [dashboardId]",
         "  dashboard update <accountId> <dashboardId> --title T",
         "  dashboard delete <accountId> <dashboardId>",
-        "  dashboard item-set <accountId> <dashboardId> <index|new> --type T --title T --icon I --device-id D --scheme-id N [--interval N] [--scroll-after N]",
+        "  dashboard item-set <accountId> <dashboardId> <index|new> --type T --title T --icon I --device-id D [--scheme-id N] [--interval N] [--scroll-after N] [--command-prefix RELAY_1]",
         "  dashboard item-remove <accountId> <dashboardId> <index>",
         "  server fingerprint",
         "  server status",

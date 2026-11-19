@@ -141,6 +141,51 @@ describe("registrasi consumer", () => {
         distributor.registerConsumer(88, "dengan-akun", "acc");
         expect(distributor.consumerCount).toBe(1);
     });
+
+    it("membolehkan satu consumer berlangganan ke beberapa akun", async () => {
+        outbox.length = 0;
+        const { distributor } = setup();
+        distributor.subscribeConsumer(88, "dashboard", "acc");
+        distributor.subscribeConsumer(88, "dashboard", "lain");
+
+        await distributor.broadcastBatch({
+            type: "LANTANA_READING",
+            accountId: "acc",
+            deviceId: "dev-1",
+            name: "Satu",
+            category: "generic",
+            receivedAt: 1000,
+            dataAgeMs: 0,
+            deviceStatus: "ONLINE",
+            readings: [],
+        });
+
+        expect(outbox).toHaveLength(1);
+        expect(outbox[0].pid).toBe(88);
+    });
+
+    it("dapat menghapus langganan satu akun tanpa menghapus akun lain", async () => {
+        outbox.length = 0;
+        const { distributor } = setup();
+        distributor.subscribeConsumer(88, "dashboard", "acc");
+        distributor.subscribeConsumer(88, "dashboard", "lain");
+        distributor.unregisterConsumer(88, "acc");
+
+        await distributor.broadcastBatch({
+            type: "LANTANA_READING",
+            accountId: "acc",
+            deviceId: "dev-1",
+            name: "Satu",
+            category: "generic",
+            receivedAt: 1000,
+            dataAgeMs: 0,
+            deviceStatus: "ONLINE",
+            readings: [],
+        });
+
+        expect(outbox).toHaveLength(0);
+        expect(distributor.consumerCount).toBe(1);
+    });
 });
 
 describe("snapshot", () => {

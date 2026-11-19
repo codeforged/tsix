@@ -41,6 +41,7 @@ const DASHBOARD_ITEM_TYPES = new Set<PortableDashboardItemType>([
     "radialGauge",
     "lineChart",
     "switchIndicator",
+    "switch",
 ]);
 
 function normalizePortableDashboards(value: unknown): PortableDashboard[] {
@@ -118,7 +119,20 @@ function normalizePortableDashboards(value: unknown): PortableDashboard[] {
             if (typeof item.deviceId !== "string" || !item.deviceId.trim()) {
                 throw new DashboardRegistryError(`dashboardItems[${index}].deviceId wajib diisi`);
             }
-            if (!Number.isInteger(item.schemeId) || item.schemeId < 1 || item.schemeId > 0xffff) {
+            if (
+                item.schemeId === undefined &&
+                item.type !== "switch"
+            ) {
+                throw new DashboardRegistryError(
+                    `dashboardItems[${index}].schemeId wajib diisi`,
+                );
+            }
+            if (
+                item.schemeId !== undefined &&
+                (!Number.isInteger(item.schemeId) ||
+                    item.schemeId < 1 ||
+                    item.schemeId > 0xffff)
+            ) {
                 throw new DashboardRegistryError(`dashboardItems[${index}].schemeId harus 1..65535`);
             }
             if (
@@ -127,6 +141,15 @@ function normalizePortableDashboards(value: unknown): PortableDashboard[] {
                 !(typeof item.id === "number" && Number.isSafeInteger(item.id))
             ) {
                 throw new DashboardRegistryError(`dashboardItems[${index}].id harus string atau integer`);
+            }
+            if (
+                item.type === "switch" &&
+                (typeof item.commandPrefix !== "string" ||
+                    !/^[A-Z][A-Z0-9_]*$/.test(item.commandPrefix))
+            ) {
+                throw new DashboardRegistryError(
+                    `dashboardItems[${index}].commandPrefix wajib berupa nama command uppercase, misalnya RELAY_1`,
+                );
             }
 
             return {
@@ -137,7 +160,10 @@ function normalizePortableDashboards(value: unknown): PortableDashboard[] {
                 updateInterval: item.updateInterval,
                 ...(item.scrollAfter !== undefined ? { scrollAfter: item.scrollAfter } : {}),
                 deviceId: item.deviceId.trim(),
-                schemeId: item.schemeId,
+                ...(item.schemeId !== undefined ? { schemeId: item.schemeId } : {}),
+                ...(item.commandPrefix !== undefined
+                    ? { commandPrefix: item.commandPrefix }
+                    : {}),
             } satisfies PortableDashboardItem;
         });
 

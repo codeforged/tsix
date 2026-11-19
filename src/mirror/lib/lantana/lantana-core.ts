@@ -26,6 +26,7 @@ export const EVT_SNAPSHOT = "LANTANA_SNAPSHOT";
 export const EVT_SNAPSHOT_REPLY = "LANTANA_SNAPSHOT_REPLY";
 export const EVT_COMMAND = "LANTANA_COMMAND";
 export const EVT_COMMAND_RESULT = "LANTANA_COMMAND_RESULT";
+export const MSG_DASH_SWITCH_STATUS = "LANTANA_DASH_SWITCH_STATUS";
 
 // ─── Pesan handshake sesi ─────────────────────────────────────────────────
 export const MSG_HELLO = "LANTANA_HELLO";
@@ -93,7 +94,8 @@ export type PortableDashboardItemType =
     | "text"
     | "radialGauge"
     | "lineChart"
-    | "switchIndicator";
+    | "switchIndicator"
+    | "switch";
 
 export interface PortableDashboardItem {
     id?: number | string;
@@ -103,7 +105,9 @@ export interface PortableDashboardItem {
     updateInterval: number;
     scrollAfter?: number;
     deviceId: string;
-    schemeId: number;
+    schemeId?: number;
+    /** Prefix command switch, misalnya `RELAY_1` untuk RELAY_1:1/0. */
+    commandPrefix?: string;
 }
 
 export interface PortableDashboard {

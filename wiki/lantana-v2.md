@@ -303,7 +303,7 @@ esp32-demo --account=juragan --device=<deviceId> --key=<accessKey>
 # 4. Consumer dan command
 lantana-dashboard <daemonPid> juragan
 lantana-file-logger juragan
-lantana-cmd juragan <deviceId> "RELAY_1:ON"
+lantana-cmd juragan <deviceId> "RELAY_1:1"
 ```
 
 ### Lantana Control Panel
@@ -378,7 +378,19 @@ lantana-ctl dashboard update juragan 1000 --title "Sensor Rumah"
 lantana-ctl dashboard item-set juragan 1000 new \
   --type text --title "Suhu Ruangan" --icon thermostat \
   --interval 5 --device-id <deviceId> --scheme-id 101
+lantana-ctl scheme add juragan 105 --label "Relay 1" --type boolean
+lantana-ctl scheme add juragan 106 --label "Relay 2" --type boolean
+lantana-ctl dashboard item-set juragan 1000 new \
+  --type switch --title "Lampu" --icon lightbulb \
+  --interval 60 --device-id <deviceId> --scheme-id 105 \
+  --command-prefix RELAY_1
 ```
+
+Variant firmware `lantana.cpp` melaporkan state relay sebagai scheme 105 dan
+106 secara default (`TSIX_RELAY1_SCHEME_ID` / `TSIX_RELAY2_SCHEME_ID` dapat
+diubah saat build). Pastikan ID tersebut belum dipakai; daftarkan scheme dengan
+ID yang sama seperti macro firmware. Jika hanya perlu mengirim command, scheme
+boleh dihilangkan.
 
 Jangan menulis key mentah di `dashboard.json`; file tersebut hanya menyimpan
 `accessKeyHash`. Contoh:
@@ -418,11 +430,21 @@ Jangan menulis key mentah di `dashboard.json`; file tersebut hanya menyimpan
 ]
 ```
 
-`type` yang didukung: `text`, `radialGauge`, `lineChart`, dan
-`switchIndicator`. `scrollAfter` adalah jumlah sampel chart yang ditampilkan
-(default 7); sampel dikumpulkan di aplikasi berdasarkan `updateInterval` dan
-bersifat sementara selama aplikasi berjalan. Bacaan yang tidak lolos izin query
-tidak disertakan server.
+`type` yang didukung: `text`, `radialGauge`, `lineChart`, `switchIndicator`,
+dan `switch`. Card `switch` memerlukan `--command-prefix` seperti `RELAY_1`;
+scheme tidak wajib. Jika ingin card juga menampilkan status aktual (termasuk
+perubahan dari perangkat/pengguna lain), tambahkan scheme bertipe `boolean`
+yang nilainya dilaporkan oleh device. Firmware contoh mengirim status switch
+segera setelah menerima command dan saat sesi device online; Lantana meneruskan
+perubahan itu sebagai event ke semua sesi dashboard yang cocok. Status switch
+tidak menunggu `updateInterval`; interval snapshot hanya mengatur item sensor.
+Snapshot tetap dipakai saat dashboard dibuka/disambungkan kembali. Tanpa scheme,
+card tetap bisa mengirim command tetapi statusnya "belum diketahui". Command
+yang dikirim adalah `RELAY_1:1` atau `RELAY_1:0`; device harus tercantum pada izin
+command akun (`allowedCommandDevices`). `scrollAfter` adalah jumlah sampel chart yang
+ditampilkan (default 7); sampel dikumpulkan di aplikasi berdasarkan
+`updateInterval` dan bersifat sementara selama aplikasi berjalan. Bacaan yang
+tidak lolos izin query tidak disertakan server.
 
 Pada Android, isi alamat/port MQTT broker, alamat/port server MQTNL, dashboard
 ID, dan key yang dicetak CLI. App hanya menyimpan hash key di Android secure

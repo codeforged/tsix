@@ -52,13 +52,14 @@ export interface SchemeView {
 
 export interface DashboardItemView {
     id?: number | string;
-    type: "text" | "radialGauge" | "lineChart" | "switchIndicator";
+    type: "text" | "radialGauge" | "lineChart" | "switchIndicator" | "switch";
     title: string;
     icon: string;
     updateInterval: number;
     scrollAfter?: number;
     deviceId: string;
-    schemeId: number;
+    schemeId?: number;
+    commandPrefix?: string;
 }
 
 export interface DashboardView {

@@ -15,10 +15,16 @@ import {
 } from "@tsix/Application";
 import { SecurityAgent } from "@common/SecurityAgent";
 import { loadState } from "@tsix/lantana/lantana-store";
+import { PermissionPolicy } from "@tsix/lantana/permission-policy";
 import {
+    EVT_COMMAND,
+    EVT_COMMAND_RESULT,
+    EVT_READING,
     EVT_SNAPSHOT_REPLY,
     LANTANA_UUID,
+    MSG_DASH_SWITCH_STATUS,
 } from "@tsix/lantana/lantana-core";
+import { dashboardSwitchStatusUpdates } from "@tsix/lantana/dashboard-switch-status";
 import {
     dashboardClientProof,
     dashboardPsk,
@@ -35,6 +41,7 @@ const MAX_SESSIONS = 128;
 const SESSION_IDLE_MS = 48 * 60 * 60 * 1000;
 const HANDSHAKE_IDLE_MS = 30_000;
 const SNAPSHOT_TIMEOUT_MS = 15_000;
+const SWITCH_COMMAND_TIMEOUT_MS = 3_000;
 /** Key dashboard hanya 6 digit: batasi percobaan auth gagal per sumber. */
 const AUTH_FAILURE_LIMIT = 5;
 const AUTH_FAILURE_WINDOW_MS = 60_000;
@@ -68,6 +75,14 @@ interface PendingSnapshot {
     expiresAt: number;
 }
 
+interface PendingSwitchCommand {
+    accountId: string;
+    deviceId: string;
+    command: string;
+    timer: ReturnType<typeof setTimeout>;
+    resolve: (result: { ok: boolean; error?: string }) => void;
+}
+
 /** Riwayat auth gagal per alamat sumber (dipakai untuk throttle). */
 interface AuthFailureState {
     attempts: number[];
@@ -92,15 +107,19 @@ export const main = Program(async (args: string[]) => {
     });
     const sessions = new Map<string, DashboardSession>();
     const pending = new Map<string, PendingSnapshot>();
+    const pendingSwitchCommands = new Map<string, PendingSwitchCommand>();
     const authFailures = new Map<string, AuthFailureState>();
+    const subscribedAccounts = new Set<string>();
     const lib = (global as any)._tsixLib;
     const selfPid = shell.getPid();
 
     lib.onEvent("ipc_message", async (msg: any) => {
         try {
             await handleSnapshotReply(socket, msg, sessions, pending);
+            await handleSwitchCommandReply(msg, pendingSwitchCommands);
+            await handleDashboardReading(socket, msg, sessions);
         } catch (error: any) {
-            await std.log(`[${TAG}] gagal menangani snapshot IPC: ${error?.message || error}`, TAG);
+            await std.log(`[${TAG}] gagal menangani IPC: ${error?.message || error}`, TAG);
         }
     });
 
@@ -113,7 +132,9 @@ export const main = Program(async (args: string[]) => {
             selfPid,
             sessions,
             pending,
+            pendingSwitchCommands,
             authFailures,
+            subscribedAccounts,
         ).catch(async (error: any) => {
             await std.log(
                 `[${TAG}] paket dari ${packet.src}:${packet.port} ditolak: ${error?.message || error}`,
@@ -140,7 +161,14 @@ export const main = Program(async (args: string[]) => {
     );
 
     setInterval(() => {
-        cleanupExpired(socket, sessions, pending, authFailures).catch(
+        cleanupExpired(
+            socket,
+            sessions,
+            pending,
+            authFailures,
+            selfPid,
+            subscribedAccounts,
+        ).catch(
             async (error: any) => {
                 await std.log(
                     `[${TAG}] cleanup gagal: ${error?.message || error}`,
@@ -159,6 +187,8 @@ async function cleanupExpired(
     sessions: Map<string, DashboardSession>,
     pending: Map<string, PendingSnapshot>,
     authFailures: Map<string, AuthFailureState>,
+    selfPid: number,
+    subscribedAccounts: Set<string>,
 ): Promise<void> {
     const now = Date.now();
     for (const [src, state] of authFailures) {
@@ -187,6 +217,40 @@ async function cleanupExpired(
             });
         }
     }
+    for (const accountId of subscribedAccounts) {
+        if (Array.from(sessions.values()).some((session) => session.accountId === accountId)) {
+            continue;
+        }
+        const sent = await shell.send(LANTANA_UUID, {
+            type: "LANTANA_UNSUBSCRIBE",
+            accountId,
+            fromPid: selfPid,
+        });
+        if (sent) {
+            subscribedAccounts.delete(accountId);
+        } else {
+            await std.log(`[${TAG}] gagal melepas subscription akun ${accountId}`, TAG);
+            subscribedAccounts.delete(accountId);
+        }
+    }
+}
+
+async function subscribeDashboardAccount(
+    accountId: string,
+    selfPid: number,
+    subscribedAccounts: Set<string>,
+): Promise<void> {
+    const sent = await shell.send(LANTANA_UUID, {
+        type: "LANTANA_SUBSCRIBE",
+        name: TAG,
+        accountId,
+        fromPid: selfPid,
+    });
+    if (sent) {
+        subscribedAccounts.add(accountId);
+    } else {
+        await std.log(`[${TAG}] gagal berlangganan event akun ${accountId}`, TAG);
+    }
 }
 
 async function handlePacket(
@@ -195,7 +259,9 @@ async function handlePacket(
     selfPid: number,
     sessions: Map<string, DashboardSession>,
     pending: Map<string, PendingSnapshot>,
+    pendingSwitchCommands: Map<string, PendingSwitchCommand>,
     authFailures: Map<string, AuthFailureState>,
+    subscribedAccounts: Set<string>,
 ): Promise<void> {
     const src = typeof packet.src === "string" ? packet.src : "";
     const srcPort = Number(packet.port) || 0;
@@ -225,6 +291,8 @@ async function handlePacket(
             srcPort,
             sessions,
             authFailures,
+            selfPid,
+            subscribedAccounts,
         );
         return;
     }
@@ -240,7 +308,29 @@ async function handlePacket(
     session.lastSeen = Date.now();
 
     const decoded = tryJson(session.agent.securePacketIn(text));
+    if (
+        decoded?.type === "LANTANA_DASH_SNAPSHOT_REQ" ||
+        decoded?.type === "LANTANA_DASH_SWITCH_REQ" ||
+        decoded?.type === "LANTANA_DASH_KEEPALIVE"
+    ) {
+        await subscribeDashboardAccount(
+            session.accountId,
+            selfPid,
+            subscribedAccounts,
+        );
+    }
+    if (decoded?.type === "LANTANA_DASH_KEEPALIVE") return;
     if (decoded?.type !== "LANTANA_DASH_SNAPSHOT_REQ") {
+        if (decoded?.type === "LANTANA_DASH_SWITCH_REQ") {
+            await handleSwitchCommand(
+                socket,
+                decoded,
+                session,
+                selfPid,
+                pendingSwitchCommands,
+            );
+            return;
+        }
         await sendEncrypted(socket, session, {
             type: "LANTANA_DASH_ERROR",
             message: "Permintaan tidak dikenal",
@@ -271,9 +361,10 @@ async function handlePacket(
         return;
     }
 
-    const minInterval = dashboard.dashboardItems.length
-        ? Math.min(...dashboard.dashboardItems.map((item) => item.updateInterval))
-        : 60;
+    const sensorItems = dashboard.dashboardItems.filter((item) => item.type !== "switch");
+    const minInterval = sensorItems.length
+        ? Math.min(...sensorItems.map((item) => item.updateInterval))
+        : 1;
     if (Date.now() - session.lastSnapshotAt < Math.max(1000, minInterval * 1000)) {
         await sendEncrypted(socket, session, {
             type: "LANTANA_DASH_ERROR",
@@ -314,6 +405,8 @@ async function handleControl(
     srcPort: number,
     sessions: Map<string, DashboardSession>,
     authFailures: Map<string, AuthFailureState>,
+    selfPid: number,
+    subscribedAccounts: Set<string>,
 ): Promise<void> {
     if (message.type === "LANTANA_DASH_HELLO") {
         if (message.mode !== undefined && message.mode !== "psk") {
@@ -440,6 +533,7 @@ async function handleControl(
     session.accessKeyHash = pending.accessKeyHash;
     session.dashboardId = String(pending.dashboardId);
     session.psk = undefined;
+    await subscribeDashboardAccount(session.accountId, selfPid, subscribedAccounts);
     await sendEncrypted(socket, session, {
         type: "LANTANA_DASH_AUTH_OK",
         dashboardId: session.dashboardId,
@@ -447,6 +541,238 @@ async function handleControl(
         itemCount: pending.itemCount,
     });
     await std.log(`[${TAG}] dashboard ${session.dashboardId} authenticated (psk)`, TAG);
+}
+
+async function handleSwitchCommand(
+    socket: NetSocket,
+    message: any,
+    session: DashboardSession,
+    selfPid: number,
+    pending: Map<string, PendingSwitchCommand>,
+): Promise<void> {
+    const requestId =
+        typeof message.requestId === "string" ? message.requestId : "";
+    if (!/^[0-9a-f]{32}$/i.test(requestId)) {
+        await sendEncrypted(socket, session, {
+            type: "LANTANA_DASH_SWITCH_RESULT",
+            requestId,
+            ok: false,
+            message: "ID permintaan switch tidak valid",
+        });
+        return;
+    }
+    if (
+        typeof message.itemId !== "string" ||
+        !Number.isInteger(message.itemIndex) ||
+        typeof message.value !== "boolean"
+    ) {
+        await sendEncrypted(socket, session, {
+            type: "LANTANA_DASH_SWITCH_RESULT",
+            requestId,
+            ok: false,
+            message: "Item dan status switch tidak valid",
+        });
+        return;
+    }
+    if (!session.accountId || session.pendingRequestId) {
+        await sendEncrypted(socket, session, {
+            type: "LANTANA_DASH_SWITCH_RESULT",
+            requestId,
+            ok: false,
+            message: "Sesi dashboard belum siap untuk command",
+        });
+        return;
+    }
+
+    const state = await loadState();
+    const dashboard = state.dashboards.get(session.accountId, session.dashboardId);
+    if (
+        !dashboard?.accessKeyHash ||
+        dashboard.accessKeyHash !== session.accessKeyHash ||
+        String(dashboard.dashboardId) !== session.dashboardId
+    ) {
+        session.accountId = undefined;
+        session.accessKeyHash = undefined;
+        await sendEncrypted(socket, session, {
+            type: "LANTANA_DASH_AUTH_REVOKED",
+            message: "Dashboard key sudah dicabut atau dirotasi",
+        });
+        return;
+    }
+
+    const itemIndex = message.itemIndex as number;
+    const candidate = dashboard.dashboardItems[itemIndex];
+    const itemId = candidate
+        ? String(
+              candidate.id ??
+                  `${itemIndex}:${candidate.deviceId}:${candidate.schemeId ?? "switch"}`,
+          )
+        : "";
+    if (
+        !candidate ||
+        candidate.type !== "switch" ||
+        itemId !== message.itemId ||
+        !candidate.commandPrefix
+    ) {
+        await sendEncrypted(socket, session, {
+            type: "LANTANA_DASH_SWITCH_RESULT",
+            requestId,
+            ok: false,
+            message: "Item switch tidak ditemukan atau belum dikonfigurasi",
+        });
+        return;
+    }
+
+    const command = `${candidate.commandPrefix}:${message.value ? "1" : "0"}`;
+    const commandId = crypto.randomBytes(16).toString("hex");
+    const result = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+        const timer = setTimeout(() => {
+            pending.delete(commandId);
+            resolve({ ok: false, error: "Timeout menunggu balasan daemon" });
+        }, SWITCH_COMMAND_TIMEOUT_MS);
+        pending.set(commandId, {
+            accountId: session.accountId!,
+            deviceId: candidate.deviceId,
+            command,
+            timer,
+            resolve,
+        });
+        void shell
+            .send(LANTANA_UUID, {
+                type: EVT_COMMAND,
+                accountId: session.accountId,
+                deviceId: candidate.deviceId,
+                command,
+                requestId: commandId,
+                from: TAG,
+                fromPid: selfPid,
+            })
+            .then((sent) => {
+                if (sent) return;
+                const pendingCommand = pending.get(commandId);
+                if (!pendingCommand) return;
+                pending.delete(commandId);
+                clearTimeout(pendingCommand.timer);
+                pendingCommand.resolve({
+                    ok: false,
+                    error: "Gagal mengirim command ke daemon Lantana",
+                });
+            })
+            .catch((error: unknown) => {
+                const pendingCommand = pending.get(commandId);
+                if (!pendingCommand) return;
+                pending.delete(commandId);
+                clearTimeout(pendingCommand.timer);
+                pendingCommand.resolve({
+                    ok: false,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            });
+    });
+
+    await sendEncrypted(socket, session, {
+        type: "LANTANA_DASH_SWITCH_RESULT",
+        requestId,
+        ok: result.ok,
+        ...(result.error ? { message: result.error } : {}),
+    });
+}
+
+async function handleSwitchCommandReply(
+    msg: any,
+    pending: Map<string, PendingSwitchCommand>,
+): Promise<void> {
+    const event = msg?.data?.type ? msg.data : msg;
+    if (event?.type !== EVT_COMMAND_RESULT) return;
+    const data = event.data || {};
+    if (typeof data.requestId !== "string") return;
+    const command = pending.get(data.requestId);
+    if (
+        !command ||
+        data.accountId !== command.accountId ||
+        data.deviceId !== command.deviceId ||
+        data.command !== command.command
+    ) {
+        return;
+    }
+    pending.delete(data.requestId);
+    clearTimeout(command.timer);
+    command.resolve({
+        ok: data.ok === true,
+        ...(data.ok === true ? {} : { error: data.error || "Command gagal dikirim" }),
+    });
+}
+
+async function handleDashboardReading(
+    socket: NetSocket,
+    msg: any,
+    sessions: Map<string, DashboardSession>,
+): Promise<void> {
+    const event = msg?.data?.type ? msg.data : msg;
+    if (event?.type !== EVT_READING) return;
+    const data = event.data || {};
+    if (
+        typeof data.accountId !== "string" ||
+        typeof data.deviceId !== "string" ||
+        !Array.isArray(data.readings)
+    ) {
+        return;
+    }
+
+    const relevantSessions = Array.from(sessions.values()).filter(
+        (session) =>
+            session.accountId === data.accountId &&
+            session.agent &&
+            session.dashboardId,
+    );
+    if (relevantSessions.length === 0) return;
+
+    const state = await loadState();
+    const policy = new PermissionPolicy(state.accounts, state.schemes);
+    for (const session of relevantSessions) {
+        const dashboard = state.dashboards.get(session.accountId!, session.dashboardId);
+        if (
+            !dashboard?.accessKeyHash ||
+            dashboard.accessKeyHash !== session.accessKeyHash ||
+            String(dashboard.dashboardId) !== session.dashboardId
+        ) {
+            session.accountId = undefined;
+            session.accessKeyHash = undefined;
+            await sendEncrypted(socket, session, {
+                type: "LANTANA_DASH_AUTH_REVOKED",
+                message: "Dashboard key sudah dicabut atau dirotasi",
+            });
+            continue;
+        }
+
+        const readings = data.readings.filter(
+            (reading: any) =>
+                reading &&
+                Number.isInteger(reading.schemeId) &&
+                (typeof reading.value === "boolean" ||
+                    typeof reading.value === "number") &&
+                Number.isFinite(reading.ts),
+        );
+        const receivedAt = Number.isFinite(data.receivedAt)
+            ? data.receivedAt
+            : Date.now();
+        const updates = dashboardSwitchStatusUpdates(
+            dashboard,
+            data.deviceId,
+            readings,
+            receivedAt,
+            (schemeId) => policy.canQuery(session.accountId!, schemeId).ok,
+        );
+        if (updates.length === 0) continue;
+
+        session.lastSeen = Date.now();
+        await sendEncrypted(socket, session, {
+            type: MSG_DASH_SWITCH_STATUS,
+            dashboardId: session.dashboardId,
+            updates,
+            timestamp: receivedAt,
+        });
+    }
 }
 
 async function handleSnapshotReply(
@@ -492,13 +818,22 @@ async function handleSnapshotReply(
                 candidate.device?.accountId === session.accountId &&
                 candidate.device?.deviceId === item.deviceId,
         );
-        const reading = entry?.readings?.find(
-            (candidate: any) => candidate.schemeId === item.schemeId,
-        );
-        const scheme = reading ? state.schemes.get(item.schemeId) : undefined;
+        const reading =
+            item.schemeId === undefined
+                ? undefined
+                : entry?.readings?.find(
+                      (candidate: any) => candidate.schemeId === item.schemeId,
+                  );
+        const scheme =
+            reading && item.schemeId !== undefined
+                ? state.schemes.get(item.schemeId)
+                : undefined;
         return {
             ...item,
-            id: item.id ?? `${index}:${item.deviceId}:${item.schemeId}`,
+            id:
+                item.id ??
+                `${index}:${item.deviceId}:${item.schemeId ?? "switch"}`,
+            itemIndex: index,
             value: reading?.value ?? null,
             label: reading?.label ?? scheme?.label ?? item.title,
             unit: reading?.unit ?? scheme?.unit ?? "",
