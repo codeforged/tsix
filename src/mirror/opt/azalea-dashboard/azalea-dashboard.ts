@@ -1,5 +1,5 @@
 /**
- * azalea-dashboard.ts — Remote Lantana dashboard client berbasis Pistachio.
+ * azalea-dashboard.ts Ã¢ÂÂ Remote Lantana dashboard client berbasis Pistachio.
  *
  * Azalea berkomunikasi dengan lantana-dashboard-server lewat NetSocket.
  * Usage: azalea-dashboard
@@ -122,7 +122,7 @@ function parseRemoteItem(value: any): RemoteDashboardItem {
     itemIndex: value.itemIndex,
     type: value.type,
     title: value.title,
-    icon: typeof value.icon === "string" ? value.icon : "",
+    icon: typeof value.icon === "string" ? "" : "",
     updateInterval: value.updateInterval,
     ...(value.scrollAfter !== undefined
       ? { scrollAfter: value.scrollAfter }
@@ -144,7 +144,7 @@ function parseRemoteItem(value: any): RemoteDashboardItem {
 }
 
 function formatValue(value: ReadingValue | null): string {
-  if (value === null) return "—";
+  if (value === null) return "Ã¢ÂÂ";
   if (typeof value === "boolean") return value ? "1" : "0";
   return String(value);
 }
@@ -180,16 +180,16 @@ export const appMode = "gui";
 const CARD_STYLE = {
   width: "100%",
   minWidth: "0",
-  height: "156px",
+  height: "200px",
   flex: "1 1 auto",
 };
 
 export const main = Program(async () => {
   const form = new TForm({
     title: "Azalea Dashboard",
-    icon: "🌸",
-    width: 1080,
-    height: 760,
+    icon: "",
+    width: 800,
+    height: 680,
     style: { padding: "14px", gap: "12px" },
   });
   const hostEdit = new TEdit({
@@ -433,7 +433,7 @@ export const main = Program(async () => {
       timer,
     });
     setStatus(
-      `Mengirim command ke ${binding.item.deviceId}…`,
+      `Mengirim command ke ${binding.item.deviceId}Ã¢ÂÂ¦`,
       "var(--text-dim, #999)",
     );
     try {
@@ -489,7 +489,7 @@ export const main = Program(async () => {
           style: {
             width: "100%",
             minWidth: "0",
-            minHeight: "156px",
+            minHeight: "200px",
             display: "flex",
             flexDirection: "column",
             justifyContent: "center",
@@ -527,9 +527,9 @@ export const main = Program(async () => {
         id: `${id}-chart`,
         data: initialChartValues,
         width: 240,
-        height: 82,
+        height: 135,
         fill: true,
-        spline: true,
+        spline: false,
         color: "#218c55",
         viewStyle: { padding: "6px", minWidth: "0" },
         showXAxisLabels: false,
@@ -559,10 +559,11 @@ export const main = Program(async () => {
           style: {
             width: "100%",
             minWidth: "0",
-            height: "156px",
-            minHeight: "156px",
-            maxHeight: "156px",
+            height: "200px",
+            minHeight: "200px",
+            maxHeight: "200px",
             padding: "6px",
+            background: "#ffffff",
             display: "flex",
             flexDirection: "column",
             gap: "4px",
@@ -705,7 +706,7 @@ export const main = Program(async () => {
     if (snapshotTimeout) clearTimeout(snapshotTimeout);
     snapshotTimeout = null;
     setStatus(
-      `Terhubung · ${items.length} widget · ${dashboardTitle || dashboardId}`,
+      `Terhubung ÃÂ· ${items.length} widget ÃÂ· ${dashboardTitle || dashboardId}`,
       "#4caf50",
     );
 
@@ -771,7 +772,7 @@ export const main = Program(async () => {
         typeof message.title === "string" ? message.title : "Lantana Dashboard";
       titleLabel.text = dashboardTitle;
       refreshButton.enabled = true;
-      setStatus(`Terautentikasi · ${dashboardTitle}`, "#4caf50");
+      setStatus(`Terautentikasi ÃÂ· ${dashboardTitle}`, "#4caf50");
       void requestSnapshot();
       if (keepAliveTimer) clearInterval(keepAliveTimer);
       keepAliveTimer = setInterval(() => {
@@ -862,7 +863,7 @@ export const main = Program(async () => {
             plainMessage.serverNonce,
           ),
         });
-        setStatus("Mengautentikasi dashboard…");
+        setStatus("Mengautentikasi dashboardÃ¢ÂÂ¦");
         return;
       }
       if (
@@ -920,7 +921,7 @@ export const main = Program(async () => {
       }
     };
 
-    setStatus(`Membuka NetSocket ke ${host}:${port}…`);
+    setStatus(`Membuka NetSocket ke ${host}:${port}Ã¢ÂÂ¦`);
     try {
       await client.open();
       handshakeTimeout = setTimeout(() => {
@@ -934,7 +935,7 @@ export const main = Program(async () => {
         keyTag: dashboardKeyTag(pinHash),
         clientNonce,
       });
-      setStatus(`Menghubungi ${host}:${port}…`);
+      setStatus(`Menghubungi ${host}:${port}Ã¢ÂÂ¦`);
     } catch (error) {
       await closeConnection();
       throw error;
