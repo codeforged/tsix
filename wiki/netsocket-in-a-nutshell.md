@@ -7,7 +7,9 @@
 
 ```
 NetworkLib (syscall: socket/bind/sendto/recv/ioctl)
-   └── NetSocket (high-level: open/onData/upgradeSecurity/sendTo/reply/close)
+   ├── NetSocket       (1 socket: open/onData/onJson/autoSecure/request/ping/stats)
+   ├── PskSocket       (handshake PSK: nonce + HMAC + HKDF, tanpa RSA)
+   └── NetSocketServer (banyak peer di satu port, key/PSK per-peer)
 ```
 
 ---
@@ -187,6 +189,87 @@ await sock.waitClosed();
 > Port boleh TETAP maupun `0` (ephemeral). Kalau `port: 0`, `sock.port` berisi port
 > ASLI hasil pilihan kernel dan `upgradeSecurity()` otomatis memasang key ke port
 > asli itu — jadi enkripsi tetap bekerja tanpa harus memilih port sendiri.
+
+### 6.1 PSK — satu pre-shared key, tanpa RSA/handshake
+
+Kalau TX dan RX sudah berbagi rahasia, cukup pakai `psk` + `upgradePsk()`.
+Session key ChaCha20-Poly1305 diturunkan dengan HKDF-SHA256
+(info `TSIX-NETSOCKET-PSK-v1`), jadi tidak ada pertukaran key:
+
+```ts
+const PSK = "rahasia-bersama"; // passphrase bebas, atau 64 karakter hex
+
+const sock = new NetSocket({ port: 2700, psk: PSK });
+await sock.open();
+await sock.upgradePsk();      // isPsk === true
+```
+
+Contoh lengkap: `netsocket-rx-psk.ts` dan `netsocket-tx-psk.ts`.
+
+> PSK memakai kunci statis (tanpa forward secrecy). Untuk jaringan tepercaya;
+> kalau butuh session key acak per koneksi, tetap pakai `upgradeSecurity()`
+> dengan hasil handshake (lihat contoh RSA di bawah).
+
+### 6.2 autoSecure + helper JSON + request
+
+```ts
+const sock = new NetSocket({ port: 0, psk: PSK, autoSecure: true });
+sock.onJson = (value, pkt) => std.println(JSON.stringify(value));
+await sock.open(); // langsung terenkripsi (pakai `psk` atau `key`)
+
+await sock.sendJson(addr, port, { hello: "world" });
+const reply = await sock.request(addr, port, "ping", { timeoutMs: 2000 });
+if (reply) std.println(String(reply.data));
+```
+
+- `autoSecure: true` memakai `psk` (upgradePsk) atau `key` (upgradeSecurity).
+- `onJson`/`sendJson`/`replyJson` menghilangkan `JSON.stringify`/`parse` manual.
+- `request()` menunggu balasan yang cocok (default: dari address:port tujuan)
+  dan mengembalikan `null` saat timeout.
+
+### 6.3 PskSocket — handshake PSK per-sesi
+
+`upgradePsk()` memakai kunci statis. Kalau butuh session key unik per koneksi +
+mutual auth tanpa RSA, pakai `PskSocket`:
+
+```ts
+const server = new PskSocket({ role: "server", port: 2720, psk: PSK });
+server.onMessage = (msg, pkt) => server.reply(pkt, `echo: ${msg}`);
+await server.open();
+
+const client = new PskSocket({
+  role: "client", port: 0, psk: PSK,
+  peer: { address: "localhost", port: 2720 },
+});
+await client.open(); // tunggu handshake selesai
+await client.send("hello");
+```
+
+Contoh: `netsocket-psk-server.ts` / `netsocket-psk-client.ts`.
+
+### 6.4 NetSocketServer — banyak peer, key per-peer
+
+`NetSocket`/`upgradeSecurity` hanya mendukung satu key per port lokal. Untuk
+server multi-client (mis. dashboard portable), pakai `NetSocketServer`:
+
+```ts
+const server = new NetSocketServer({ port: 2721 });
+server.onSession = (peer) => {
+  peer.enablePsk(PSK); // atau peer.enableSecurity(keyHex)
+  peer.onJson = (value, pkt) => peer.replyJson(pkt, { echo: value });
+};
+await server.listen();
+```
+
+Contoh: `netsocket-server-multipeer.ts` (pair dengan `netsocket-tx-psk localhost 2721`).
+
+### 6.5 Ergonomi lain
+
+- `stats` — jumlah paket/byte/error, `openedAt`, `lastActivityAt`.
+- `onOpen` / `onClose(reason)` / `close(reason)` — lifecycle lebih jelas.
+- `ping(address)` / `discover()` — FLAG_PING_REQUEST / BROADCAST_PING.
+- `setProtocol("Binfeo")` / `setBinary(true)` setelah open.
+- `listAgents()` — daftar agent enkripsi kernel.
 
 ---
 

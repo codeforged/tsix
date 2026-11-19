@@ -309,6 +309,7 @@ export const main = Program(async () => {
     ]);
 
     const dashboardInfo = new TLabel({ text: "", style: { fontSize: "11px" } });
+    const dashboardIdField = textInput("lcp-dashboard-id", "contoh: 1001", "Dashboard ID");
     const dashboardTitleField = textInput(
         "lcp-dashboard-title",
         "Sensor Rumah",
@@ -316,7 +317,7 @@ export const main = Program(async () => {
     );
     const dashboardGroup = group("lcp-group-dashboard", "Portable dashboard", [
         dashboardInfo,
-        fieldGrid("lcp-dashboard-grid", [dashboardTitleField]),
+        fieldGrid("lcp-dashboard-grid", [dashboardIdField, dashboardTitleField]),
     ]);
 
     const itemInfo = new TLabel({ text: "", style: { fontSize: "11px" } });
@@ -1233,17 +1234,23 @@ export const main = Program(async () => {
 
         if (kind === "dashboard") {
             showGroup(dashboardGroup);
-            const dashboard = draft ? null : selection?.dashboard;
+            const creating = draft !== null;
+            const dashboard = creating ? null : selection?.dashboard;
             const accountId = draft?.accountId ?? selection?.account?.accountId ?? "-";
-            editorTitle.text = draft
+            editorTitle.text = creating
                 ? "Portable dashboard baru"
                 : `Dashboard · ${dashboard?.title ?? "-"}`;
-            editorHint.text = draft
-                ? `Dibuat untuk akun ${accountId}. AccessKey ditampilkan sekali setelah disimpan.`
-                : `Akun ${accountId} · ${dashboard?.dashboardItems.length ?? 0} item · ${dashboard?.hasAccessKey ? "AccessKey aktif" : "Belum ada AccessKey"}`;
-            dashboardInfo.text = draft
-                ? "Dashboard ID dibuat otomatis."
+            editorHint.text = creating
+                ? `Dibuat untuk akun ${accountId}. PIN 6 digit ditampilkan sekali setelah disimpan.`
+                : `Akun ${accountId} · ${dashboard?.dashboardItems.length ?? 0} item · ${dashboard?.hasAccessKey ? "PIN aktif" : "Belum ada PIN"}`;
+            dashboardInfo.text = creating
+                ? "Isi Dashboard ID manual (integer positif dan belum dipakai dashboard lain)."
                 : `Dashboard ID: ${dashboard?.dashboardId ?? "-"}`;
+            setValue(
+                dashboardIdField,
+                dashboard ? String(dashboard.dashboardId) : "",
+                !creating,
+            );
             setValue(dashboardTitleField, dashboard?.title ?? "");
             return;
         }
@@ -1311,9 +1318,17 @@ export const main = Program(async () => {
         saveButton.enabled = draft !== null || editable;
         cancelButton.enabled = draft !== null;
         removeButton.enabled = editable && draft === null;
+        const dashboardKey = selection?.kind === "dashboard";
         keyButton.enabled = keyTarget && draft === null;
-        keyButton.caption = hasKey ? "Rotasi key" : "Terbitkan key";
+        keyButton.caption = dashboardKey
+            ? hasKey
+                ? "Rotasi PIN"
+                : "Terbitkan PIN"
+            : hasKey
+              ? "Rotasi key"
+              : "Terbitkan key";
         revokeButton.enabled = keyTarget && hasKey && draft === null;
+        revokeButton.caption = dashboardKey ? "Cabut PIN" : "Cabut key";
         addButton.caption = addLabel();
     }
 
@@ -1475,6 +1490,10 @@ export const main = Program(async () => {
 
     async function saveDashboard(): Promise<string> {
         if (draft) {
+            const dashboardId = required(dashboardIdField, "Dashboard ID");
+            if (!/^[1-9]\d*$/.test(dashboardId)) {
+                throw new Error("Dashboard ID harus integer positif.");
+            }
             const result = await runLantanaCtl<{
                 dashboardId: number;
                 dashboardAccessKey: string;
@@ -1482,13 +1501,16 @@ export const main = Program(async () => {
                 "dashboard",
                 "key-issue",
                 draft.accountId,
+                "--id",
+                dashboardId,
                 "--title",
                 required(dashboardTitleField, "Judul dashboard"),
             );
             await TDialogs.alert(
                 form,
                 "Dashboard dibuat",
-                `Dashboard ID: ${result.dashboardId}\nAccessKey (hanya tampil sekali):\n${result.dashboardAccessKey}`,
+                `Dashboard ID: ${result.dashboardId}\nSampaikan PIN 6 digit ini ke pengguna dashboard (hanya tampil sekali):\n${result.dashboardAccessKey}`,
+                { width: "auto" },
             );
             return `dash:${draft.accountId}:${result.dashboardId}`;
         }
@@ -1692,9 +1714,9 @@ export const main = Program(async () => {
             await TDialogs.alert(
                 form,
                 entry.dashboard?.hasAccessKey
-                    ? "Dashboard key dirotasi"
-                    : "Dashboard key diterbitkan",
-                `Simpan key ini sekarang; setelah dialog ditutup key tidak dapat dibaca lagi:\n${result.dashboardAccessKey}`,
+                    ? "PIN dashboard dirotasi"
+                    : "PIN dashboard diterbitkan",
+                `Dashboard ID: ${entry.dashboard?.dashboardId ?? "-"}\nSampaikan PIN 6 digit ini ke pengguna dashboard; setelah dialog ditutup PIN tidak dapat dibaca lagi:\n${result.dashboardAccessKey}`,
                 { width: "auto" },
             );
         }

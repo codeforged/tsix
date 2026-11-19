@@ -16,9 +16,19 @@ import {
     PortableDashboardItemType,
 } from "@tsix/lantana/lantana-core";
 
-const KEY_BYTES = 32;
+/** Panjang key dashboard (angka). 6 digit memudahkan input di perangkat non-programmer. */
+const DASHBOARD_KEY_MIN = 100_000;
+const DASHBOARD_KEY_MAX = 1_000_000;
 
 export class DashboardRegistryError extends Error {}
+
+/**
+ * Key dashboard berupa 6 digit angka (100000–999999). Ruang kuncinya sengaja
+ * kecil demi kemudahan pemakaian, jadi hanya cocok untuk jaringan tepercaya.
+ */
+function generateDashboardKey(): string {
+    return String(crypto.randomInt(DASHBOARD_KEY_MIN, DASHBOARD_KEY_MAX));
+}
 
 /** Cetakan dashboard beserta pemiliknya. */
 export interface DashboardMatch {
@@ -211,17 +221,78 @@ export class DashboardRegistry {
         return undefined;
     }
 
-    issueAccessKey(accountId: string): { dashboardId: number; accessKey: string } {
+    /**
+     * Cari dashboard hanya dari access key (mode key-only tanpa dashboardId).
+     * Key selalu dipilih unik global saat diterbitkan/dirotasi, jadi hasilnya
+     * deterministik.
+     */
+    findByAccessKey(accessKey: string): DashboardMatch | undefined {
+        if (!accessKey) return undefined;
+        return this.findByHash(hashAccessKey(accessKey));
+    }
+
+    /** Cari dashboard dari prefix accessKeyHash (keyTag handshake PSK). */
+    findByKeyTag(tag: string): DashboardMatch | undefined {
+        const needle = tag.trim().toLowerCase();
+        if (!needle) return undefined;
+        for (const record of this.records.values()) {
+            for (const dashboard of record.portableDashboard) {
+                if (dashboard.accessKeyHash?.toLowerCase().startsWith(needle)) {
+                    return { accountId: record.accountId, dashboard };
+                }
+            }
+        }
+        return undefined;
+    }
+
+    private findByHash(
+        hash: string,
+        exclude?: { accountId: string; dashboardId: number },
+    ): DashboardMatch | undefined {
+        const needle = hash.toLowerCase();
+        for (const record of this.records.values()) {
+            for (const dashboard of record.portableDashboard) {
+                if (dashboard.accessKeyHash?.toLowerCase() !== needle) continue;
+                const sameAsExcluded =
+                    exclude !== undefined &&
+                    record.accountId === exclude.accountId &&
+                    dashboard.dashboardId === exclude.dashboardId;
+                if (!sameAsExcluded) return { accountId: record.accountId, dashboard };
+            }
+        }
+        return undefined;
+    }
+
+    /** Buat key 6 digit yang belum dipakai dashboard mana pun. */
+    private uniqueDashboardKey(exclude?: {
+        accountId: string;
+        dashboardId: number;
+    }): { accessKey: string; hash: string } {
+        for (let attempt = 0; attempt < 100; attempt++) {
+            const accessKey = generateDashboardKey();
+            const hash = hashAccessKey(accessKey);
+            if (!this.findByHash(hash, exclude)) return { accessKey, hash };
+        }
+        throw new DashboardRegistryError("gagal membuat key dashboard yang unik");
+    }
+
+    issueAccessKey(
+        accountId: string,
+        dashboardId?: number | string,
+    ): { dashboardId: number; accessKey: string } {
         if (!accountId) throw new DashboardRegistryError("accountId wajib diisi");
+        const id =
+            dashboardId === undefined
+                ? this.newDashboardId()
+                : this.explicitDashboardId(dashboardId);
         const record = this.recordFor(accountId);
-        const dashboardId = this.newDashboardId();
         const dashboard: PortableDashboard = {
-            dashboardId,
-            title: `Dashboard ${dashboardId}`,
+            dashboardId: id,
+            title: `Dashboard ${id}`,
             dashboardItems: [],
         };
-        const accessKey = crypto.randomBytes(KEY_BYTES).toString("hex");
-        dashboard.accessKeyHash = hashAccessKey(accessKey);
+        const { accessKey, hash } = this.uniqueDashboardKey();
+        dashboard.accessKeyHash = hash;
         record.portableDashboard.push(dashboard);
         return { dashboardId: dashboard.dashboardId, accessKey };
     }
@@ -231,8 +302,11 @@ export class DashboardRegistry {
         dashboardId: number | string,
     ): { dashboardId: number; accessKey: string } {
         const dashboard = this.require(accountId, dashboardId);
-        const accessKey = crypto.randomBytes(KEY_BYTES).toString("hex");
-        dashboard.accessKeyHash = hashAccessKey(accessKey);
+        const { accessKey, hash } = this.uniqueDashboardKey({
+            accountId: accountId,
+            dashboardId: dashboard.dashboardId,
+        });
+        dashboard.accessKeyHash = hash;
         return { dashboardId: dashboard.dashboardId, accessKey };
     }
 
@@ -287,6 +361,18 @@ export class DashboardRegistry {
             this.records.set(accountId, record);
         }
         return record;
+    }
+
+    /** Validasi dashboardId pilihan pemanggil: positif dan belum dipakai akun mana pun. */
+    private explicitDashboardId(value: number | string): number {
+        const id = Number(value);
+        if (!Number.isSafeInteger(id) || id <= 0) {
+            throw new DashboardRegistryError("dashboardId harus integer positif");
+        }
+        if (this.find(id)) {
+            throw new DashboardRegistryError(`dashboardId sudah dipakai: ${id}`);
+        }
+        return id;
     }
 
     private newDashboardId(): number {

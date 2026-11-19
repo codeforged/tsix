@@ -25,13 +25,67 @@ describe("key dashboard", () => {
         expect(dashboards.get("root", issued.dashboardId)?.title).toBe(
             `Dashboard ${issued.dashboardId}`,
         );
-        expect(issued.accessKey).toMatch(/^[0-9a-f]{64}$/);
+        expect(issued.accessKey).toMatch(/^\d{6}$/);
         const proof = dashboardProof(issued.accessKey, issued.dashboardId, "nonce-1");
         expect(dashboards.verifyProof(issued.dashboardId, "nonce-1", proof)?.accountId).toBe("root");
         expect(dashboards.verifyProof(issued.dashboardId, "nonce-2", proof)).toBeNull();
         expect(saved).not.toContain(issued.accessKey);
         expect(saved).toContain("accessKeyHash");
         expect(dashboards.toJSON()[0].accountId).toBe("root");
+    });
+
+    it("memakai dashboardId yang ditentukan pemanggil", () => {
+        const dashboards = new DashboardRegistry();
+
+        const issued = dashboards.issueAccessKey("root", 4242);
+
+        expect(issued.dashboardId).toBe(4242);
+        expect(dashboards.get("root", 4242)?.title).toBe("Dashboard 4242");
+    });
+
+    it("mencari dashboard dari access key (mode key-only)", () => {
+        const dashboards = new DashboardRegistry();
+        const issued = dashboards.issueAccessKey("root", 4242);
+
+        expect(dashboards.findByAccessKey(issued.accessKey)?.dashboard.dashboardId).toBe(4242);
+        expect(dashboards.findByAccessKey("000000")).toBeUndefined();
+    });
+
+    it("mencari dashboard dari keyTag PSK", () => {
+        const dashboards = new DashboardRegistry();
+        const issued = dashboards.issueAccessKey("root", 4242);
+        const tag = crypto
+            .createHash("sha256")
+            .update(issued.accessKey, "utf8")
+            .digest("hex")
+            .slice(0, 16);
+
+        expect(dashboards.findByKeyTag(tag)?.dashboard.dashboardId).toBe(4242);
+        expect(dashboards.findByKeyTag("0".repeat(16))).toBeUndefined();
+    });
+
+    it("rotasi key mengganti key lama dan tetap bisa dicari", () => {
+        const dashboards = new DashboardRegistry();
+        const first = dashboards.issueAccessKey("root");
+
+        const rotated = dashboards.rotateAccessKey("root", first.dashboardId);
+
+        expect(rotated.accessKey).not.toBe(first.accessKey);
+        expect(dashboards.findByAccessKey(first.accessKey)).toBeUndefined();
+        expect(dashboards.findByAccessKey(rotated.accessKey)?.dashboard.dashboardId).toBe(
+            first.dashboardId,
+        );
+    });
+
+    it("menolak dashboardId duplikat atau tidak valid", () => {
+        const dashboards = new DashboardRegistry();
+        dashboards.issueAccessKey("root", 4242);
+
+        expect(() => dashboards.issueAccessKey("anak", "4242")).toThrow(/sudah dipakai/);
+        expect(() => dashboards.issueAccessKey("root", 0)).toThrow(/integer positif/);
+        expect(() => dashboards.issueAccessKey("root", -1)).toThrow(/integer positif/);
+        expect(() => dashboards.issueAccessKey("root", 1.5)).toThrow(/integer positif/);
+        expect(() => dashboards.issueAccessKey("root", "abc")).toThrow(/integer positif/);
     });
 
     it("menambahkan beberapa dashboard dan mengelola key secara terpisah", () => {

@@ -10,7 +10,7 @@
  *   lantana-ctl account key-revoke <accountId>
  *   lantana-ctl account permissions <accountId> [--inject 100,201-205]
  *                                   [--query 100-103] [--command dev1,dev2]
- *   lantana-ctl dashboard key-issue <accountId>
+ *   lantana-ctl dashboard key-issue <accountId> [--id N] [--title T]
  *   lantana-ctl dashboard key-rotate <accountId> <dashboardId>
  *   lantana-ctl dashboard key-revoke <accountId> <dashboardId>
  *   lantana-ctl dashboard show <accountId> [dashboardId]
@@ -201,7 +201,10 @@ export const main = Program(async (args: string[]) => {
                 if (!state.accounts.has(id)) throw new Error(`akun tidak ditemukan: ${id}`);
                 const issued =
                     action === "key-issue"
-                        ? state.dashboards.issueAccessKey(id)
+                        ? state.dashboards.issueAccessKey(
+                              id,
+                              numberFlag(rest, "--id"),
+                          )
                         : state.dashboards.rotateAccessKey(
                               id,
                               requireArg(rest[1], "dashboardId"),
@@ -220,9 +223,11 @@ export const main = Program(async (args: string[]) => {
                 await print(`Dashboard untuk akun ${id}:\n`);
                 await print(`  dashboardId: ${issued.dashboardId}\n`);
                 await print(`  title: ${dashboard?.title ?? `Dashboard ${issued.dashboardId}`}\n`);
-                await print("  dashboardAccessKey (simpan; hanya ditampilkan sekali):\n");
+                await print(
+                    "  PIN dashboard 6 digit (sampaikan ke pengguna; hanya ditampilkan sekali):\n",
+                );
                 await print(`  ${issued.accessKey}\n`);
-                await print("  alamat server MQTNL: tsix:1001 (default)\n");
+                await print("  alamat server MQTNL: tsix:1515 (default)\n");
                 return;
             }
 
@@ -233,7 +238,7 @@ export const main = Program(async (args: string[]) => {
                 state.dashboards.revokeAccessKey(id, dashboardId);
                 jsonData = { accountId: id, dashboardId: Number(dashboardId), hasAccessKey: false };
                 await commit(state);
-                await print(`Dashboard key ${dashboardId} akun ${id} dicabut.\n`);
+                await print(`PIN dashboard ${dashboardId} akun ${id} dicabut.\n`);
                 return;
             }
 
@@ -252,7 +257,7 @@ export const main = Program(async (args: string[]) => {
                 for (const dashboard of selected) {
                     await print(
                         `dashboardId=${dashboard.dashboardId}  title="${dashboard.title}"  ` +
-                            `key=${dashboard.accessKeyHash ? "ada" : "tidak"}  ` +
+                            `pin=${dashboard.accessKeyHash ? "ada" : "tidak"}  ` +
                             `items=${dashboard.dashboardItems.length}\n`,
                     );
                 }

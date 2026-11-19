@@ -194,7 +194,7 @@ src/mirror/opt/lantana/
   lantana-control-panel.ts # GUI admin Cashew (Lantana Control Panel)
   lantana-cmd.ts           # kirim command ke device
   lantana-dashboard.ts     # GUI monitoring
-  lantana-dashboard-server.ts # consumer dashboard portable (default MQTNL 1001)
+  lantana-dashboard-server.ts # consumer dashboard portable (default MQTNL 1515)
   lantana-db-injector.ts   # consumer DB
   lantana-file-logger.ts   # consumer log
 ```
@@ -325,21 +325,43 @@ Izin query/inject bersifat eksplisit dan tidak diwariskan dari parent.
 ### Portable dashboard Android
 
 Dashboard portable memakai credential terpisah dari AccessKey sensor. Terbitkan
-key dashboard; key mentah dicetak satu kali, sedangkan
-`/etc/lantana/dashboard.json` hanya menyimpan SHA-256 verifier:
+**PIN dashboard 6 digit**; PIN dicetak satu kali untuk disampaikan ke pengguna
+dashboard, sedangkan `/etc/lantana/dashboard.json` hanya menyimpan SHA-256
+verifier:
 
 ```sh
-lantana-ctl dashboard key-issue juragan
+lantana-ctl dashboard key-issue juragan --id 1000 --title "Sensor Rumah"
 lantana-ctl dashboard show juragan
 lantana-ctl dashboard key-rotate juragan 1000
 lantana-ctl dashboard key-revoke juragan 1000
-lantana-dashboard-server 1001
+lantana-dashboard-server
 ```
 
 `key-issue` menambahkan dashboard baru ke array akun di `dashboard.json`.
-`key-rotate` mengganti key untuk `dashboardId` yang dipilih tanpa menghapus item;
-`key-revoke` mencabut key dashboard tersebut tanpa menghapus konfigurasinya.
-Default endpoint MQTNL adalah `tsix:1001`. Port ini berbeda dari port listener
+`--id` menentukan `dashboardId` secara manual (harus integer positif dan belum
+dipakai dashboard lain); tanpa `--id` registry memilih ID acak.
+PIN dashboard berupa **6 digit angka** (mis. `483920`) agar mudah dimasukkan di
+perangkat non-programmer. Ruang kuncinya kecil (~20 bit), jadi pakai hanya di
+jaringan tepercaya dan rotasi bila port dashboard terekspos.
+
+Client dashboard (mis. app Android) **tidak perlu `dashboardId` dan tidak memakai
+RSA**. Handshake sepenuhnya simetris (PSK):
+
+1. `LANTANA_DASH_HELLO { mode: "psk", keyTag, clientNonce }` — `keyTag` = 16 hex
+   pertama `SHA-256(PIN)`, `clientNonce` = 32 hex acak.
+2. Server mencari dashboard dari prefix `accessKeyHash`, lalu membalas
+   `LANTANA_DASH_CHALLENGE { serverNonce, serverProof }`.
+3. Client memverifikasi `serverProof` (mutual auth), lalu mengirim
+   `LANTANA_DASH_AUTH { proof }` dengan HMAC label `LANTANA-DASH-CLIENT`.
+4. Setelah cocok, kedua sisi menurunkan session key
+   `HKDF-SHA256(psk, salt=nonceC|nonceS, info="LANTANA-DASH-SESSION")` dan
+   memakai ChaCha20-Poly1305 untuk snapshot berikutnya.
+
+PIN dashboard dibuat unik global agar lookup `keyTag` deterministik. Auth gagal
+dibatasi 5 percobaan per menit untuk setiap alamat sumber.
+`key-rotate` mengganti PIN untuk `dashboardId` yang dipilih tanpa menghapus item;
+`key-revoke` mencabut PIN dashboard tersebut tanpa menghapus konfigurasinya.
+Default endpoint MQTNL adalah `tsix:1515`. Port ini berbeda dari port listener
 sensor (default `1000`).
 
 Item dashboard dapat dikelola melalui Lantana Control Panel atau CLI. Mode
@@ -369,7 +391,7 @@ Jangan menulis key mentah di `dashboard.json`; file tersebut hanya menyimpan
       {
         "dashboardId": 1000,
         "title": "Sensor Rumah",
-        "accessKeyHash": "<SHA-256 dashboard key, 64 karakter hex>",
+        "accessKeyHash": "<SHA-256 PIN dashboard, 64 karakter hex>",
         "dashboardItems": [
           {
             "type": "radialGauge",

@@ -1,9 +1,33 @@
 export { IProgram, OSContext } from "./IProgram";
 import { IProgram, OSContext } from "./IProgram";
-import { NetworkLib, NetSocket, RsaChaSocket } from "./NetworkLib";
+import {
+  NetworkLib,
+  NetSocket,
+  RsaChaSocket,
+  PskSocket,
+  NetSocketServer,
+  NetPeerSession,
+} from "./NetworkLib";
 import { UserLib, StdLib, FsLib, ShellLib, KeyboardLib } from "./UserLib";
-export { NetworkLib, NetSocket, RsaChaSocket } from "./NetworkLib";
-export type { NetPacket } from "./NetworkLib";
+export {
+  NetworkLib,
+  NetSocket,
+  RsaChaSocket,
+  PskSocket,
+  NetSocketServer,
+  NetPeerSession,
+} from "./NetworkLib";
+export type {
+  NetPacket,
+  NetSocketOptions,
+  NetSocketSecurityOptions,
+  NetSocketStats,
+  RsaChaSocketOptions,
+  RsaChaRole,
+  PskSocketOptions,
+  PskRole,
+  NetSocketServerOptions,
+} from "./NetworkLib";
 export type { KeyEvent } from "./UserLib";
 import { DbLib } from "./DbLib";
 import { RandomLib } from "./RandomLib";
