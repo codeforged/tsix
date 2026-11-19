@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-11-19
+
+### Rendering ulang widget IoT dan chart dashboard
+
+- **File:** `src/mirror/lib/pistachio/widgets.ts`,
+  `src/mirror/lib/pistachio/widgets.test.ts`,
+  `src/mirror/opt/azalea-dashboard/azalea-dashboard.ts`.
+- **Rendering:** `TViewWidget` menggunakan ID terpisah untuk view di dalam kartu
+  dan mengantrekan render ulang secara berurutan. Ini mencegah pembaruan sensor
+  atau chart melepas kartu induk maupun menghilangkan binding klik switch.
+- **Switch:** `TToggleSwitch` mendukung mode `controlled`; klik hanya
+  mengirimkan permintaan perubahan, sedangkan tampilan menunggu status aktual
+  dari pemilik data.
+- **`TLineChart`:** mendukung style view dan penyembunyian label sumbu X/Y;
+  data identik tidak memicu render ulang.
+- **Verifikasi:** 10 tes widget dan dashboard terkait lulus.
+- **Oleh:** Copilot
+
 ## 2026-11-18
 
 ### `TTreeView` dan `TForm.maximize()`

@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-11-19
+
+### Azalea — client dashboard remote berbasis Pistachio
+
+- **File:** `src/mirror/opt/azalea-dashboard/azalea-dashboard.ts`.
+- **Koneksi:** aplikasi TSIX memakai NetSocket ke `lantana-dashboard-server`
+  dan autentikasi PIN/PSK; dashboard dapat membaca beberapa device dari node
+  server yang sama.
+- **Widget:** item dikelompokkan per device; mendukung sensor, gauge, line
+  chart, indikator switch, dan command switch dengan status aktual.
+- **Grafik:** sampel diambil mengikuti `updateInterval`; jumlah sampel yang
+  ditampilkan mengikuti `scrollAfter` (default 7) dan bergeser saat jendela
+  penuh.
+- **Verifikasi:** tes Pistachio dan protokol dashboard terkait lulus.
+- **Oleh:** Copilot
+
 ## 2026-11-18
 
 ### Control Panel dipindah ke Pistachio dengan navigasi pohon

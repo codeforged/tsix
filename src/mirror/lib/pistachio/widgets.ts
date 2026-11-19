@@ -263,6 +263,7 @@ export class TTabulatorGrid extends TGridBase<ConnectedTabulator> {
  */
 abstract class TViewWidget extends TComponent {
   private _viewId: string | null = null;
+  private _renderQueue: Promise<void> = Promise.resolve();
 
   protected constructor(
     idOrOpts: string | TOptions | undefined,
@@ -285,8 +286,14 @@ abstract class TViewWidget extends TComponent {
     return this._viewId;
   }
 
-  build(): TNode {
+  private createView(): TNode {
     const view = this.decorate(this.buildView());
+    if (view.id === this.id) view.id = `${this.id}__view`;
+    return view;
+  }
+
+  build(): TNode {
+    const view = this.createView();
     this._viewId = view.id;
     return {
       id: this.id,
@@ -300,10 +307,18 @@ abstract class TViewWidget extends TComponent {
     const host = this.host;
     if (!host) return;
 
-    const view = this.decorate(this.buildView());
-    if (this._viewId) await host.unmount?.(this._viewId);
-    await host.mount(view, this.id);
-    this._viewId = view.id;
+    const render = async () => {
+      if (this.host !== host || this.disposed) return;
+      const view = this.createView();
+      if (this._viewId) await host.unmount?.(this._viewId);
+      if (this.host !== host || this.disposed) return;
+      await host.mount(view, this.id);
+      this._viewId = view.id;
+    };
+
+    const pending = this._renderQueue.then(render, render);
+    this._renderQueue = pending;
+    await pending;
   }
 }
 
@@ -483,6 +498,8 @@ export class TIndicatorLamp extends TCardWidget {
 
 export interface TToggleSwitchOptions extends TOptions {
   on?: boolean;
+  /** Jangan ubah indikator saat diklik; tunggu state dari pemilik data. */
+  controlled?: boolean;
   color?: string;
   label?: string;
   size?: number;
@@ -494,14 +511,16 @@ export class TToggleSwitch extends TCardWidget {
   private readonly _color: string;
   private readonly _label: string;
   private readonly _size: number;
+  private readonly _controlled: boolean;
 
   constructor(
     idOrOpts?: string | TToggleSwitchOptions,
     opts?: TToggleSwitchOptions,
   ) {
-    super(idOrOpts, opts, ["on", "color", "label", "size"]);
+    super(idOrOpts, opts, ["on", "controlled", "color", "label", "size"]);
     const o = this.options as TToggleSwitchOptions;
     this._on = Boolean(o.on);
+    this._controlled = Boolean(o.controlled);
     this._color = o.color ?? "var(--accent, #4caf50)";
     this._label = o.label ?? "";
     this._size = o.size ?? 48;
@@ -530,8 +549,13 @@ export class TToggleSwitch extends TCardWidget {
   bindEventHandler(host: TScreenPort): void {
     super.bindEventHandler(host);
     host.on(`ts-${this.id}`, "click", () => {
-      this._on = !this._on;
-      this.onClick?.(this._on);
+      const requestedState = !this._on;
+      if (this._controlled) {
+        this.onClick?.(requestedState);
+        return;
+      }
+      this._on = requestedState;
+      this.onClick?.(requestedState);
       void this.rerender();
     });
   }
@@ -659,6 +683,9 @@ export interface TLineChartOptions extends TOptions {
   fill?: boolean;
   width?: number;
   height?: number;
+  viewStyle?: Record<string, any>;
+  showXAxisLabels?: boolean;
+  showYAxisLabels?: boolean;
 }
 
 export class TLineChart extends TViewWidget {
@@ -668,12 +695,25 @@ export class TLineChart extends TViewWidget {
   private readonly _fill: boolean;
   private readonly _width: number;
   private readonly _height: number;
+  private readonly _viewStyle: Record<string, any>;
+  private readonly _showXAxisLabels: boolean;
+  private readonly _showYAxisLabels: boolean;
 
   constructor(
     idOrOpts?: string | TLineChartOptions,
     opts?: TLineChartOptions,
   ) {
-    super(idOrOpts, opts, ["data", "color", "spline", "fill", "width", "height"]);
+    super(idOrOpts, opts, [
+      "data",
+      "color",
+      "spline",
+      "fill",
+      "width",
+      "height",
+      "viewStyle",
+      "showXAxisLabels",
+      "showYAxisLabels",
+    ]);
     const o = this.options as TLineChartOptions;
     this._data = [...(o.data ?? [])];
     this._color = o.color ?? "var(--accent, #4caf50)";
@@ -681,6 +721,9 @@ export class TLineChart extends TViewWidget {
     this._fill = Boolean(o.fill);
     this._width = o.width ?? 280;
     this._height = o.height ?? 180;
+    this._viewStyle = { ...(o.viewStyle ?? {}) };
+    this._showXAxisLabels = o.showXAxisLabels ?? true;
+    this._showYAxisLabels = o.showYAxisLabels ?? true;
   }
 
   get data(): readonly number[] {
@@ -691,6 +734,10 @@ export class TLineChart extends TViewWidget {
   }
 
   async setData(values: number[]): Promise<void> {
+    if (
+      values.length === this._data.length &&
+      values.every((value, index) => value === this._data[index])
+    ) return;
     this._data = [...values];
     await this.rerender();
   }
@@ -704,6 +751,9 @@ export class TLineChart extends TViewWidget {
       fill: this._fill,
       width: this._width,
       height: this._height,
+      style: this._viewStyle,
+      showXAxisLabels: this._showXAxisLabels,
+      showYAxisLabels: this._showYAxisLabels,
     });
   }
 }

@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-11-19
+
+### Opsi label sumbu dan padding `lineChart`
+
+- **File:** `src/mirror/lib/emerald.ts`.
+- **Perubahan:** `lineChart()` menerima `showXAxisLabels` dan
+  `showYAxisLabels` (keduanya aktif secara default). Saat label disembunyikan,
+  padding plot menyesuaikan agar ruang grafik tidak terbuang.
+- **Dampak:** chart ringkas seperti Azalea dapat menyembunyikan angka sumbu
+  tanpa membuat area garis terlalu sempit; chart lain tetap memakai tampilan
+  default.
+- **Oleh:** Copilot
+
 ## 2026-09-16
 
 ### ⚠️ Update batched (`updateProps` → `flushNow`) bisa HILANG di ekor rentetan panjang — status: **belum diperbaiki**

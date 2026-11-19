@@ -867,6 +867,8 @@ function splinePath(pts: number[][], tension = 0.5): string {
  *   - min/max: rentang Y (auto dari data jika tidak di-set)
  *   - title:  judul chart
  *   - style:  style tambahan kartu luar (di-merge di atas default)
+ *   - showXAxisLabels: tampilkan label sumbu X (default true)
+ *   - showYAxisLabels: tampilkan label sumbu Y (default true)
  */
 export function lineChart(props: Record<string, any> = {}): IDOMNode {
   const id = props.id || uuidv4();
@@ -876,7 +878,14 @@ export function lineChart(props: Record<string, any> = {}): IDOMNode {
   const fill = !!props.fill;
   const W = props.width || 280;
   const H = props.height || 180;
-  const pad = { t: 20, r: 12, b: 28, l: 38 };
+  const showXAxisLabels = props.showXAxisLabels !== false;
+  const showYAxisLabels = props.showYAxisLabels !== false;
+  const pad = {
+    t: 20,
+    r: 12,
+    b: showXAxisLabels ? 28 : 10,
+    l: showYAxisLabels ? 38 : 12,
+  };
   const pw = W - pad.l - pad.r;
   const ph = H - pad.t - pad.b;
 
@@ -923,14 +932,18 @@ export function lineChart(props: Record<string, any> = {}): IDOMNode {
     const y = pad.t + (i / 3) * ph;
     html += `<line x1="${pad.l}" y1="${y}" x2="${W - pad.r}" y2="${y}" stroke="${lcGrid}" stroke-width="1"/>`;
     const val = yMin + ((3 - i) / 3) * yRange;
-    html += `<text x="${pad.l - 4}" y="${y + 4}" fill="#888" font-size="9" text-anchor="end">${val % 1 === 0 ? Math.round(val) : val.toFixed(1)}</text>`;
+    if (showYAxisLabels) {
+      html += `<text x="${pad.l - 4}" y="${y + 4}" fill="#888" font-size="9" text-anchor="end">${val % 1 === 0 ? Math.round(val) : val.toFixed(1)}</text>`;
+    }
   }
-  for (
-    let i = 0;
-    i < points.length;
-    i += Math.max(1, Math.floor(points.length / 6))
-  ) {
-    html += `<text x="${toX(i).toFixed(1)}" y="${H - 4}" fill="#888" font-size="8" text-anchor="middle">${points[i].label || String(i + 1)}</text>`;
+  if (showXAxisLabels) {
+    for (
+      let i = 0;
+      i < points.length;
+      i += Math.max(1, Math.floor(points.length / 6))
+    ) {
+      html += `<text x="${toX(i).toFixed(1)}" y="${H - 4}" fill="#888" font-size="8" text-anchor="middle">${points[i].label || String(i + 1)}</text>`;
+    }
   }
   html += `<clipPath id="lc-clip-${id}"><rect x="${pad.l}" y="${pad.t}" width="${pw}" height="${ph}"/></clipPath>`;
   html += `<g clip-path="url(#lc-clip-${id})">`;
