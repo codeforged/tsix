@@ -15,7 +15,10 @@
 
 import { UserLib } from "@tsix/UserLib";
 import { SecurityAgent } from "@common/SecurityAgent";
-import { LANTANA_BINARY_MAGIC } from "@tsix/lantana/lantana-core";
+import {
+    encodeBinaryPayload,
+    encodePlainPayload,
+} from "@tsix/lantana/lantana-core";
 
 interface Challenge {
     type: string;
@@ -162,8 +165,8 @@ export default class Esp32Demo {
             }
 
             const payload = usePlain
-                ? encodePlain(deviceId, readings)
-                : encodeBinary(deviceId, readings);
+                ? encodePlainPayload(deviceId, readings)
+                : encodeBinaryPayload(deviceId, readings);
 
             const encrypted = agent.securePacketOut(payload);
             const ok = await lib.net.sendto(
@@ -226,25 +229,4 @@ function tryJson(raw: string): any | null {
     } catch {
         return null;
     }
-}
-
-function encodePlain(deviceId: string, readings: { schemeId: number; value: number }[]): string {
-    return `LANTANA|${deviceId}|${readings.map((r) => `${r.schemeId}:${r.value}`).join(";")}`;
-}
-
-function encodeBinary(deviceId: string, readings: { schemeId: number; value: number }[]): Buffer {
-    const dev = Buffer.from(deviceId, "utf8");
-    const parts: Buffer[] = [Buffer.from([LANTANA_BINARY_MAGIC, 0x02, dev.length])];
-    parts.push(dev);
-    parts.push(Buffer.from([readings.length]));
-    for (const r of readings) {
-        const id = Buffer.alloc(2);
-        id.writeUInt16LE(r.schemeId, 0);
-        const value = Buffer.alloc(4);
-        value.writeFloatLE(r.value, 0);
-        parts.push(id);
-        parts.push(Buffer.from([0x00]));
-        parts.push(value);
-    }
-    return Buffer.concat(parts);
 }

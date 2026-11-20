@@ -19,9 +19,11 @@
   numerik terhadap threshold dan mengirim alert saat melewati ambang. Alert
   dikirim sekali per sensor sampai nilainya turun lagi; token dan chat ID
   dibaca dari environment.
+- **Format paket:** `esp32-demo.ts` memakai `encodePlainPayload()` dan
+  `encodeBinaryPayload()` dari `lantana-core.ts`, bukan encoder lokal.
 - **Verifikasi:** kedua consumer berhasil dikompilasi dengan esbuild dan tidak
-  menambah error typecheck pada file terkait. Pengiriman Telegram memakai
-  HTTPS `fetch` bawaan Node.js.
+  menambah error typecheck pada file terkait; 16 tes codec Lantana lulus.
+  Pengiriman Telegram memakai HTTPS `fetch` bawaan Node.js.
 - **Oleh:** Copilot
 
 ## 2026-11-19
