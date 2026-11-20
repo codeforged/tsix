@@ -1,0 +1,17 @@
+{
+  "name": "tsixlib",
+  "version": "0.1.0",
+  "description": "TSIX MQTNL client library terpadu untuk ESP8266/ESP32 — kanal JSON terenkripsi (v1.0) + kanal biner OTA (v1.1), WiFi + MQTT, auto PING/SCAN.",
+  "keywords": "tsix, mqtnl, mqtt, iot, ota, chacha20, encryption",
+  "authors": [
+    {
+      "name": "TSIX Project"
+    }
+  ],
+  "frameworks": "arduino",
+  "platforms": ["espressif8266", "espressif32"],
+  "dependencies": [
+    { "name": "Crypto", "version": "*" },
+    { "name": "PubSubClient", "version": "*" }
+  ]
+}

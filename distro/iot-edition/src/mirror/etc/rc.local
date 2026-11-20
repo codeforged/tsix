@@ -1,0 +1,36 @@
+#!/bin/tsh
+# /etc/rc.local — startup services (dibaca oleh init PID 1 saat boot)
+#
+# Catatan penting:
+#   - Jalankan sebagai SKRIP: wajib bit x (`chmod +x /etc/rc.local`) + shebang ini.
+#   - Interpreter: /bin/tsh (mode non-interaktif).
+#   - Daemon TSIX men-daemonize SENDIRI (detach), jadi TIDAK perlu '&'.
+#   - JANGAN taruh perintah interaktif di sini (mis. /bin/login.js) — init sudah
+#     men-spawn login per TTY. Perintah interaktif akan menggantung di sini dan
+#     semua baris sesudahnya tidak pernah dijalankan.
+#   - Baris panjang boleh disambung dengan '\'.
+#   - Node-spesifik boleh ditambahkan di akhir file, mis.:
+#       netfsd --export /mnt/sbak/ --label databank --port 7777 --key <64hex>
+
+# --- Secure Shell & file transfer ---
+/opt/tssh/tsshd.js
+/sbin/scpd.js
+
+# --- Scheduled tasks ---
+/sbin/crond.js
+
+# --- Database service ---
+/opt/mysqld/mysqld.js
+
+# --- IoT stack (listener + device-bank + distributor) ---
+/opt/lantana/lantana.js
+
+# --- Display server lalu Window Manager ---
+# PENTING: hapus dulu marker basi SEBELUM DOME start. `/var/run` ada di VFS
+# persisten, jadi marker dari boot sebelumnya masih ada → `waitfile` akan lolos
+# seketika dan Asteracea start sebelum DOME siap (gejalanya: Asteracea jalan tapi
+# instans DOME belum ada → CREATE_WINDOW ditolak).
+rm -f /var/run/dome.ready
+/opt/dome/dome.js
+waitfile /var/run/dome.ready 10000
+/opt/asteracea/asteracea.js

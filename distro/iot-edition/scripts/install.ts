@@ -1,0 +1,734 @@
+import { BKFS } from "../src/vfs/BKFS";
+import { createUserAccount } from "./lib/user-account";
+import { FRESH_FSTAB_INI } from "./lib/fresh-fstab";
+import { ensureFreshAccountFiles } from "./lib/fresh-accounts";
+import { applyBinaryMode, needsBinaryMode } from "./lib/binary-mode";
+import { peekBom, readBinaryFile, readTextFile, utf8ToVfsBytes, vfsBytesToUtf8 } from "./lib/text-file";
+import * as fs from "fs";
+import * as path from "path";
+import * as esbuild from "esbuild";
+import * as readline from "readline/promises";
+import * as bcrypt from "bcryptjs";
+import type { SysConfig } from "../src/common/Config";
+import { createDefaultSysConfig, formatSysConfigIni, parseSysConfigIni } from "../src/common/SysConfigIni";
+
+/**
+ * INSTALL AGENT (Fresh Install TSIX)
+ *
+ * Membuat image sistem baru dari nol:
+ *   1. Tanya konfigurasi ke user secara interaktif (hostname, distro, broker MQTT, dll).
+ *   2. Tulis hasil konfigurasi ke src/sysconfig.conf (format key-value, gaya
+ *      /etc/fstab.conf — lihat src/common/SysConfigIni.ts).
+ *   3. Buat file database .db yang BENAR-BENAR BARU (file lama otomatis di-backup).
+ *   4. Sinkronkan seluruh src/mirror (rootfs) ke database baru (transpile TS -> JS + SetUID).
+ *   5. (Opsional) Buat akun user biasa (username + password + konfirmasi) + home directory.
+ *   6. (Opsional) set password root ke /etc/shadow.
+ *
+ * Cara pakai (dari root project):
+ *   npm run install                     -> interaktif dari checkout repo
+ *   npm run tsix:install                -> interaktif dari paket distro
+ *   npm run tsix:install -- --defaults  -> non-interaktif (root tetap terkunci jika baru)
+ *   npm run tsix:install -- --no-config -> lewati penulisan src/sysconfig.conf
+ */
+
+interface InstallOptions {
+  dbPath: string;
+  force: boolean;
+  interactive: boolean;
+  writeConfig: boolean;
+}
+
+const MIRROR_ROOT = path.resolve(__dirname, "../src/mirror");
+const CONFIG_PATH = path.resolve(__dirname, "../src/sysconfig.conf");
+
+/** Konfigurasi lama (JSON) — dimigrasi otomatis sekali, lalu tidak dipakai lagi. */
+const LEGACY_CONFIG_PATH = path.resolve(__dirname, "../src/sysconfig.json");
+const PROJECT_ROOT = path.resolve(__dirname, "..");
+
+/**
+ * Mode executable (bit `x`, `/sbin` 0o744, SetUID login/passwd/sudo) diatur oleh
+ * helper BERSAMA `scripts/lib/binary-mode.ts` — lihat berkas itu untuk alasannya.
+ */
+
+function parseArgs(argv: string[]): InstallOptions {
+  const opts: InstallOptions = {
+    dbPath: "",
+    force: false,
+    interactive: true,
+    writeConfig: true,
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--path") opts.dbPath = argv[++i] || "";
+    else if (a === "--force") opts.force = true;
+    else if (a === "--defaults") opts.interactive = false;
+    else if (a === "--no-config") opts.writeConfig = false;
+    else if (a === "--help" || a === "-h") {
+      console.log(`Usage: npm run install -- [options]
+
+  --path <db>    Path database baru (default: dari sysconfig.conf)
+  --force        Timpa database lama (otomatis di-backup)
+  --defaults     Non-interaktif: pakai semua nilai default
+  --no-config    Lewati penulisan src/sysconfig.conf`);
+      process.exit(0);
+    }
+  }
+  return opts;
+}
+
+/** Sync rekursif src/mirror -> VFS (sama seperti vfs-bootstrap). */
+function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string): void {
+  if (!bkfs.exists(vfsDir)) {
+    // Sync generik: semua direktori 0o755. Setup permission khusus aplikasi
+    // (mis. /etc/air-type → 0o777) dilakukan oleh configure.ts aplikasi tsb.
+    bkfs.mkdir(vfsDir, 0, 0, 0o755);
+    console.log(`[INSTALL] mkdir ${vfsDir}`);
+  }
+
+  const items = fs.readdirSync(hostDir);
+  for (const item of items) {
+    const fullHostPath = path.join(hostDir, item);
+    const fullVfsPath = path.join(vfsDir, item).replace(/\\/g, "/");
+    const stats = fs.statSync(fullHostPath);
+
+    if (stats.isDirectory()) {
+      syncDir(bkfs, fullHostPath, fullVfsPath);
+      continue;
+    }
+
+    // Unit test (vitest) BUKAN bagian dari image sistem: tidak dieksekusi
+    // runtime, tapi kalau ikut disalin dia masuk ke cache pre-compile `/lib`
+    // yang dikirim ke SETIAP worker. Jadi lebih baik dilewati di sini.
+    if (item.endsWith(".test.ts") || item.endsWith(".spec.ts")) continue;
+
+    const isTarget =
+      item.endsWith(".ts") ||
+      item.endsWith(".js") ||
+      item.endsWith(".json") ||
+      // `/etc/fstab.conf`, `/etc/dome/dome.conf`, `/etc/test.conf` — tanpa ini
+      // berkas `.conf` di mirror DIAM-DIAM tidak ikut ter-sync ke image baru
+      // (jebakan yang sama pernah terjadi di `vfs-bootstrap`).
+      item.endsWith(".conf") ||
+      item.endsWith(".html") ||
+      item.endsWith(".css") ||
+      item.endsWith(".menu") ||
+      item.endsWith(".mp3") ||
+      item.endsWith(".wav") ||
+      item.endsWith(".jpg") ||
+      item.endsWith(".jpeg") ||
+      item.endsWith(".png") ||
+      item.endsWith(".gif") ||
+      item.endsWith(".bmp") ||
+      item.endsWith(".b64") ||
+      item.endsWith(".svg") ||
+      item.endsWith(".webp") ||
+      item.endsWith(".ico") ||
+      // Font bitmap (mis. /opt/retroterm/fonts/*.woff2)
+      item.endsWith(".woff2") ||
+      item.endsWith(".woff") ||
+      item.endsWith(".ttf") ||
+      item.endsWith(".otf") ||
+      item.endsWith(".eot");
+    if (!isTarget) continue;
+
+    // Binary assets (audio/gambar raster/font) disimpan sebagai latin1 string
+    // (1 byte = 1 char) — cocok dengan Buffer.from(raw,"latin1") di sisi app.
+    const isBinary =
+      item.endsWith(".mp3") ||
+      item.endsWith(".wav") ||
+      item.endsWith(".jpg") ||
+      item.endsWith(".jpeg") ||
+      item.endsWith(".png") ||
+      item.endsWith(".gif") ||
+      item.endsWith(".bmp") ||
+      item.endsWith(".b64") ||
+      item.endsWith(".webp") ||
+      item.endsWith(".ico") ||
+      item.endsWith(".woff2") ||
+      item.endsWith(".woff") ||
+      item.endsWith(".ttf") ||
+      item.endsWith(".otf") ||
+      item.endsWith(".eot");
+    const content = isBinary
+      ? readBinaryFile(fullHostPath)
+      : readTextFile(fullHostPath);
+
+    // BOM UTF-8 → `U+FEFF` → byte `0xFF` di VFS (latin1). Berkas JS yang diawali
+    // 0xFF ditolak browser, jadi BOM dibuang oleh `readTextFile()` dan dicatat.
+    const bom = isBinary ? null : peekBom(fullHostPath);
+    if (bom === "utf8") {
+      console.log(`[INSTALL]   -> BOM UTF-8 dibuang: ${fullVfsPath}`);
+    } else if (bom) {
+      console.warn(
+        `[INSTALL]   -> PERINGATAN: ${fullVfsPath} ber-BOM ${bom} — perbaiki berkas sumbernya.`,
+      );
+    }
+
+    bkfs.touch(fullVfsPath, content);
+
+    // Transpile TS -> JS sidecar (yang dieksekusi runtime)
+    if (fullVfsPath.endsWith(".ts")) {
+      try {
+        // `content` = BYTE berkas; esbuild butuh TEKS (lihat `VfsText.ts`).
+        const result = esbuild.transformSync(vfsBytesToUtf8(content), {
+          loader: "ts",
+          format: "cjs",
+          target: "node18",
+          sourcemap: "inline",
+        });
+        if (result.code) {
+          const jsPath =
+            fullVfsPath.substring(0, fullVfsPath.length - 3) + ".js";
+          // Hasil esbuild adalah TEKS → ubah ke byte sebelum masuk VFS.
+          bkfs.touch(jsPath, utf8ToVfsBytes(result.code));
+
+          if (needsBinaryMode(jsPath)) {
+            applyBinaryMode(bkfs, jsPath, "INSTALL");
+          }
+        }
+      } catch (e: any) {
+        console.error(
+          `[INSTALL] Warning: compile gagal ${fullVfsPath}: ${e.message}`,
+        );
+      }
+    }
+
+    // Auto-executable untuk file di direktori eksekusi (/bin, /sbin, dll)
+    if (
+      needsBinaryMode(fullVfsPath) &&
+      (fullVfsPath.endsWith(".ts") || fullVfsPath.endsWith(".js"))
+    ) {
+      applyBinaryMode(bkfs, fullVfsPath, "INSTALL");
+    }
+  }
+}
+
+/**
+ * Ambil versi kernel langsung dari src/kernel/Kernel.ts (field `version`),
+ * agar default sysconfig selalu sinkron dengan versi kernel sebenarnya.
+ * Fallback dipakai hanya kalau file tidak terbaca / pola tidak ketemu.
+ */
+function getKernelVersion(): string {
+  const kernelPath = path.resolve(__dirname, "../src/kernel/Kernel.ts");
+  try {
+    const src = fs.readFileSync(kernelPath, "utf8");
+    const m = src.match(/private\s+version:\s*string\s*=\s*"([^"]+)"/);
+    if (m && m[1]) return m[1];
+  } catch (_) {
+    /* abaikan */
+  }
+  return "0.0.1-alpha";
+}
+
+/**
+ * Konfigurasi default — dipakai kalau sysconfig.conf belum ada (mis. sebelum
+ * instalasi pertama). install.ts TIDAK boleh bergantung pada berkas itu; ia
+ * yang membuatnya.
+ *
+ * Nilainya diambil dari `createDefaultSysConfig()` (src/common/SysConfigIni.ts)
+ * supaya default installer dan default kernel tidak pernah berbeda; installer
+ * hanya menimpa VERSI kernel (dibaca langsung dari `Kernel.ts`) dan broker dari
+ * pertanyaan interaktif.
+ */
+function createDefaultConfig(): SysConfig {
+  const cfg = createDefaultSysConfig();
+  cfg.kernel.version = getKernelVersion();
+  return cfg;
+}
+
+function loadConfig(): SysConfig {
+  // Konfigurasi AKTIF: format key-value (`sysconfig.conf`).
+  if (fs.existsSync(CONFIG_PATH)) {
+    try {
+      const { config, warnings } = parseSysConfigIni(fs.readFileSync(CONFIG_PATH, "utf8"));
+      for (const message of warnings) console.log(`[INSTALL] src/sysconfig.conf: ${message}`);
+      return config;
+    } catch (e: any) {
+      console.log(
+        `[INSTALL] src/sysconfig.conf tidak valid (${e.message}) — memakai konfigurasi default.`,
+      );
+      return createDefaultConfig();
+    }
+  }
+
+  // MIGRASI sekali-jalan dari format lama (JSON) — sama seperti kernel
+  // (`Config.load()`), supaya node lama tidak kehilangan konfigurasinya.
+  if (fs.existsSync(LEGACY_CONFIG_PATH)) {
+    try {
+      const legacy = JSON.parse(fs.readFileSync(LEGACY_CONFIG_PATH, "utf8")) as SysConfig;
+      console.log("[INSTALL] src/sysconfig.json lama ditemukan — dimigrasi ke sysconfig.conf.");
+      return legacy;
+    } catch (e: any) {
+      console.log(
+        `[INSTALL] src/sysconfig.json tidak valid (${e.message}) — memakai konfigurasi default.`,
+      );
+      return createDefaultConfig();
+    }
+  }
+
+  console.log("[INSTALL] src/sysconfig.conf belum ada — memakai konfigurasi default.");
+  return createDefaultConfig();
+}
+
+/**
+ * saveConfig(): Tulis konfigurasi sebagai key-value (gaya `/etc/fstab.conf`).
+ * Berkas `.json` lama (kalau ada) SENGAJA dibiarkan: ia berhenti dipakai, tapi
+ * tetap milik admin sampai dihapus sendiri.
+ */
+function saveConfig(cfg: SysConfig): void {
+  // Pastikan folder src/ ada (bisa saja belum ada sebelum instalasi pertama)
+  fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+  const header =
+    "src/sysconfig.conf — konfigurasi node TSIX (key-value, gaya /etc/fstab.conf).\n" +
+    "Aturan nilai: \"teks\" = string, a, b = array, true/false = boolean, 0o755 = oktal.\n" +
+    "Pemilih backend root: kernel.rootType = bkfs | host (lihat wiki/Virtual-File-System.md).";
+  fs.writeFileSync(CONFIG_PATH, formatSysConfigIni(cfg, header), "utf8");
+  console.log(`[INSTALL] Konfigurasi ditulis ke: ${CONFIG_PATH}`);
+}
+
+/**
+ * applyEtcMode(): Paksa mode berkas `CRITICAL_ETC` tepat seperti di tabel.
+ *
+ * `BKFS.touch()` menghormati `mode` hanya saat berkas BARU dibuat (semantik `touch`
+ * Unix). Berkas yang SUDAH ADA di DB — kasus umum saat `--force` dipakai untuk
+ * membuat image baru dari database lama — tidak ikut berubah, jadi mode di sini
+ * ditegakkan terpisah supaya tidak bergantung pada riwayat DB.
+ *
+ * KENAPA PENTING: `/etc/rc.local` tanpa bit `x` dilewati init (boot berjalan tapi
+ * tanpa daemon sama sekali), dan `/etc/shadow` harus tetap 0o640.
+ */
+function applyEtcMode(bkfs: BKFS, name: string, mode?: number): void {
+  if (mode === undefined) return;
+  const vfsPath = `/etc/${name}`;
+  const st = bkfs.stat(vfsPath);
+  if (!st || st.mode === mode) return;
+  bkfs.chmod(vfsPath, mode);
+  console.log(
+    `[INSTALL] chmod ${mode.toString(8)} ${vfsPath} (mode lama ${(st.mode as number).toString(8)})`,
+  );
+}
+
+async function prompt(
+  rl: readline.Interface,
+  question: string,
+  def?: string,
+): Promise<string> {
+  const suffix = def !== undefined && def !== "" ? ` [${def}]` : "";
+  const answer = (await rl.question(`${question}${suffix} `)).trim();
+  return answer === "" ? (def ?? "") : answer;
+}
+
+async function promptYesNo(
+  rl: readline.Interface,
+  question: string,
+  def: boolean,
+): Promise<boolean> {
+  const ans = (await prompt(rl, question, def ? "y" : "n")).toLowerCase();
+  return ans === "y" || ans === "yes" || ans === "true" || ans === "1";
+}
+
+/**
+ * PROMPT PASSWORD DENGAN MASKING (input tidak ditampilkan, diganti '*') —
+ * ala prompt password di Ubuntu/Unix.
+ *
+ * readline/promises tidak punya mode silent, jadi: detach listener readline
+ * sementara (agar readline tidak ikut meng-echo plaintext), baca stdin dalam
+ * raw-mode (echo terminal mati), tampilkan '*' per karakter, lalu pulihkan
+ * state readline semula. Handle: Enter/Ctrl+D submit, Backspace hapus,
+ * Ctrl+C batal (exit 130), escape sequence (panah) diabaikan.
+ * Non-TTY (pipe/redirect): fallback ke prompt biasa tanpa masking.
+ */
+async function promptPassword(
+  rl: readline.Interface,
+  question: string,
+): Promise<string> {
+  const stdin = process.stdin as any;
+  const stdout = process.stdout;
+  const isTTY = !!stdin.isTTY && typeof stdin.setRawMode === "function";
+
+  if (!isTTY) {
+    return prompt(rl, question); // tidak bisa masking di non-TTY
+  }
+
+  // Detach listener readline sementara agar tidak meng-echo plaintext.
+  const dataListeners = stdin.listeners("data");
+  const keyListeners = stdin.listeners("keypress");
+  stdin.removeAllListeners("data");
+  stdin.removeAllListeners("keypress");
+
+  const prevRaw = stdin.isRaw;
+  stdin.setEncoding("utf8");
+  try {
+    stdin.setRawMode(true);
+  } catch (_) {
+    // Gagal masuk raw-mode — pulihkan & fallback ke prompt biasa.
+    for (const l of dataListeners) stdin.on("data", l);
+    for (const l of keyListeners) stdin.on("keypress", l);
+    return prompt(rl, question);
+  }
+  stdin.resume();
+  stdout.write(`${question} `);
+
+  return new Promise<string>((resolve) => {
+    let pw = "";
+    let skipEscape = 0; // sisa karakter escape (mis. panah) yang diabaikan
+
+    const cleanup = () => {
+      stdin.removeListener("data", onData);
+      stdin.setRawMode(prevRaw);
+      stdin.pause();
+      for (const l of dataListeners) stdin.on("data", l);
+      for (const l of keyListeners) stdin.on("keypress", l);
+      stdin.resume();
+    };
+
+    const finish = (value: string, exitCode?: number) => {
+      cleanup();
+      stdout.write("\n");
+      if (exitCode !== undefined) process.exit(exitCode);
+      resolve(value);
+    };
+
+    const onData = (chunk: string) => {
+      for (const ch of chunk) {
+        if (skipEscape > 0) {
+          skipEscape--;
+          continue;
+        }
+        if (ch === "\u001b") {
+          skipEscape = 2; // sequence ESC [ x
+          continue;
+        }
+        if (ch === "\r" || ch === "\n" || ch === "\u0004") {
+          finish(pw); // Enter / Ctrl+D
+          return;
+        }
+        if (ch === "\u0003") {
+          finish("", 130); // Ctrl+C → batal
+          return;
+        }
+        if (ch === "\u007f" || ch === "\b") {
+          if (pw.length > 0) {
+            pw = pw.slice(0, -1);
+            stdout.write("\b \b");
+          }
+          continue;
+        }
+        pw += ch;
+        stdout.write("*");
+      }
+    };
+
+    stdin.on("data", onData);
+  });
+}
+
+async function main() {
+  const opts = parseArgs(process.argv.slice(2));
+  const cfg = loadConfig();
+  const rootPasswordRequired = !fs.existsSync(path.join(MIRROR_ROOT, "etc", "shadow"));
+  const defaultDbRel = opts.dbPath || cfg.kernel.database || "system.db";
+
+  let dbRel = defaultDbRel;
+  let rootPassword = "";
+  let newUser = ""; // akun user biasa (opsional, ala installer Ubuntu)
+  let newPass = "";
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    // ============ 1. KONFIGURASI INTERAKTIF ============
+    if (opts.interactive) {
+      console.log("\n== TSIX Fresh Install — Konfigurasi ==");
+
+      cfg.shell.defaultHostname = await prompt(
+        rl,
+        "Hostname",
+        cfg.shell.defaultHostname,
+      );
+
+      // Akun user biasa (root sudah pasti dibuat otomatis dari src/mirror).
+      // Alur ala installer Ubuntu: username → password → konfirmasi password.
+      // Kosongkan username untuk melewati (cukup akun root saja).
+      while (true) {
+        newUser = (await prompt(rl, "Username (empty to skip)", "")).trim();
+        if (!newUser) break; // skip — hanya root
+        if (!/^[a-z_][a-z0-9_-]*$/.test(newUser)) {
+          console.log(
+            "[INSTALL] Username tidak valid — pakai huruf kecil, angka, '_' atau '-'.",
+          );
+          continue;
+        }
+        newPass = await promptPassword(rl, `Password for '${newUser}'`);
+        const confirm = await promptPassword(rl, "Confirm password");
+        if (!newPass) {
+          console.log("[INSTALL] Password tidak boleh kosong.");
+          continue;
+        }
+        if (newPass !== confirm) {
+          console.log("[INSTALL] Password tidak cocok — ulangi.");
+          continue;
+        }
+        break;
+      }
+
+      const broker = await prompt(
+        rl,
+        "Broker MQTT (mqtt://host:port)",
+        cfg.network.interfaces[0]?.broker,
+      );
+      if (broker) {
+        cfg.network.interfaces.forEach((i) => (i.broker = broker));
+      }
+      if (broker.includes("localhost") || broker.includes("127.0.0.1")) {
+        console.log("[INSTALL] Note: this requires a local MQTT broker (e.g. Mosquitto) to be running.");
+        console.log("          Install guide: https://mosquitto.org/download/");
+      }
+
+      const portStr = await prompt(
+        rl,
+        "Port MQTT default",
+        String(cfg.network.interfaces[0]?.defaultPort ?? 1883),
+      );
+      const port = parseInt(portStr, 10);
+      if (!isNaN(port)) {
+        cfg.network.interfaces.forEach((i) => (i.defaultPort = port));
+      }
+
+      cfg.kernel.verbose = await promptYesNo(
+        rl,
+        "Verbose kernel",
+        cfg.kernel.verbose ?? true,
+      );
+
+      dbRel = await prompt(rl, "New database filename (e.g. system.db)", dbRel);
+
+      // Root password: KOSONG = pertahankan default dari image (tidak diubah).
+      // Kalau diisi, WAJIB konfirmasi — sama seperti akun user biasa. Root tidak
+      // bisa di-reset dari luar tanpa mengubah /etc/shadow manual, jadi salah
+      // ketik di sini berarti kehilangan akses admin ke image baru.
+      while (true) {
+        rootPassword = await promptPassword(
+          rl,
+          "Root password (required for a fresh distro image)",
+        );
+        if (!rootPassword) {
+          if (rootPasswordRequired) {
+            console.log("[INSTALL] Password root wajib diatur untuk akun awal yang terkunci.");
+            continue;
+          }
+          break;
+        }
+
+        const confirmRoot = await promptPassword(rl, "Confirm root password");
+        if (rootPassword !== confirmRoot) {
+          console.log("[INSTALL] Password tidak cocok — ulangi.");
+          continue;
+        }
+        break;
+      }
+    }
+
+    // Address interface otomatis mengikuti hostname (di semua mode):
+    //   interface[0] = <hostname>, interface[1..n] = <hostname>_2, _3, ...
+    // Terlalu teknis untuk ditanyakan ke user — cukup derive dari hostname.
+    const host = cfg.shell.defaultHostname || "tsix";
+    cfg.network.interfaces.forEach((iface, i) => {
+      iface.address = i === 0 ? host : `${host}_${i + 1}`;
+    });
+
+    const dbPath = path.resolve(PROJECT_ROOT, dbRel);
+
+    // ============ 2. TULIS SYS CONFIG ============
+    if (opts.writeConfig) {
+      cfg.kernel.database = path.relative(PROJECT_ROOT, dbPath).replace(/\\/g, "/");
+      saveConfig(cfg);
+    }
+
+    // ============ 3. BUAT DB BARU ============
+    if (fs.existsSync(dbPath)) {
+      if (!opts.force) {
+        console.error(`[INSTALL] Database sudah ada: ${dbPath}`);
+        console.error(
+          `          Pakai --force untuk menimpa (lama di-backup otomatis).`,
+        );
+        process.exit(1);
+      }
+      const bak = `${dbPath}.bak-${Date.now()}`;
+      fs.renameSync(dbPath, bak);
+      console.log(`[INSTALL] Database lama di-backup ke: ${bak}`);
+    }
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const bkfs = new BKFS(dbPath);
+    console.log(`[INSTALL] Database baru dibuat: ${dbPath}`);
+
+    // ============ 4. SYNC ROOTFS ============
+    //
+    // SATU TRANSAKSI untuk seluruh image sistem. Dua alasan:
+    //   - Kehandalan: kalau proses mati di tengah, hasilnya "tidak ada" — bukan
+    //     image setengah jadi yang kelihatan normal (mis. `/bin` terisi separuh),
+    //     yang justru paling sulit didiagnosis di lapangan.
+    //   - Kecepatan: ribuan `touch()` tanpa transaksi = ribuan fsync.
+    console.log(`[INSTALL] Menyalin rootfs dari ${MIRROR_ROOT} ...`);
+    bkfs.batch(() => {
+      syncDir(bkfs, MIRROR_ROOT, "/");
+
+      // Framework @common/* (SyscallCode, IPCTypes, dll) dipakai WorkerEntry via
+      // /lib/common. Sync src/common -> /lib/common (sama seperti vfs-bootstrap).
+      const COMMON_ROOT = path.resolve(__dirname, "../src/common");
+      if (fs.existsSync(COMMON_ROOT)) {
+        console.log(`[INSTALL] Menyalin framework common dari ${COMMON_ROOT} ...`);
+        syncDir(bkfs, COMMON_ROOT, "/lib/common");
+      }
+    });
+    console.log("[INSTALL] Rootfs berhasil disinkronkan.");
+
+    // File /etc tanpa ekstensi tidak ikut filter ekstensi syncDir.
+    // Sync eksplisit agar image fresh lengkap & konsisten (passwd/group/shadow, dll).
+    const CRITICAL_ETC: Array<{
+      name: string;
+      mode?: number;
+      /** Jangan timpa file yang sudah ada — isinya milik admin (per-node). */
+      preserveExisting?: boolean;
+    }> = [
+      { name: "crontab" },
+      { name: "fstab.md" },
+      { name: "group" },
+      { name: "motd" },
+      { name: "passwd" },
+      { name: "pkg-demo.conf" },
+      { name: "profile" },
+      // Skrip boot gaya Unix (shebang `#!/bin/tsh`). Mode 0o755 penting: tanpa
+      // bit x, init akan MELEWATI-nya (dan melaporkan alasannya saat boot).
+      // TIDAK ditimpa kalau sudah ada: isinya khas node ini (daemon + export).
+      { name: "rc.local", mode: 0o755, preserveExisting: true },
+      { name: "shadow", mode: 0o640 },
+    ];
+    for (const entry of CRITICAL_ETC) {
+      const hostFile = path.join(MIRROR_ROOT, "etc", entry.name);
+      if (!fs.existsSync(hostFile)) continue;
+
+      if (entry.preserveExisting && bkfs.exists(`/etc/${entry.name}`)) {
+        console.log(
+          `[INSTALL] /etc/${entry.name} sudah ada — dibiarkan (milik admin)`,
+        );
+        // Isinya tidak disentuh, tapi MODE tetap dirapikan: image lama bisa saja
+        // dibuat sebelum `touch()` menghormati mode (semua berkas baru dulu 0o644),
+        // dan `/etc/rc.local` tanpa bit `x` akan DILEWATI init — boot berjalan
+        // "normal" tapi tanpa daemon sama sekali.
+        applyEtcMode(bkfs, entry.name, entry.mode);
+        continue;
+      }
+
+      // `readTextFile()` membuang BOM UTF-8 — BOM akan menjadi byte 0xFF di VFS
+      // (latin1) dan berkas skrip yang diawali 0xFF ditolak browser.
+      const content = readTextFile(hostFile);
+      bkfs.touch(`/etc/${entry.name}`, content, 0, 0, entry.mode ?? 0o644);
+      applyEtcMode(bkfs, entry.name, entry.mode);
+      console.log(`[INSTALL] sync /etc/${entry.name}`);
+    }
+
+    const rootPasswordSeeded = ensureFreshAccountFiles(bkfs);
+    if (rootPasswordSeeded !== rootPasswordRequired) {
+      throw new Error("Installer root-account bootstrap did not match the source shadow file.");
+    }
+    if (rootPasswordSeeded && !opts.interactive) {
+      console.warn(
+        "[INSTALL] Akun root awal tetap terkunci; jalankan installer interaktif untuk menetapkan password.",
+      );
+    }
+
+    // Image fresh: fstab hanya berisi mount esensial.
+    //
+    // Isinya ada di `scripts/lib/fresh-fstab.ts` (bisa diuji: `FstabParser.test.ts`
+    // A4.09 memvalidasi templatnya diurai TANPA peringatan). Format INI
+    // (`/etc/fstab.conf`) adalah SATU-SATUNYA sumber kebenaran mount.
+    bkfs.touch("/etc/fstab.conf", FRESH_FSTAB_INI, 0, 0, 0o644);
+    console.log(
+      "[INSTALL] /etc/fstab.conf: /tmp + /var/run (ramfs); mount dev dihapus",
+    );
+
+    // `.json` dari image lama (kalau ada) dibuang: sudah bukan sumber konfigurasi
+    // (kernel hanya membaca `.conf`) — kalau dibiarkan hanya jadi decoy yang
+    // membingungkan admin (dua sumber kebenaran).
+    if (bkfs.exists("/etc/fstab.json")) {
+      bkfs.unlink("/etc/fstab.json");
+      console.log("[INSTALL] /etc/fstab.json lama dihapus (pindah ke .conf)");
+    }
+    // Crontab dikosongkan (tidak membawa jadwal bawaan developer).
+    bkfs.touch(
+      "/etc/crontab",
+      "# /etc/crontab — kosong untuk instalasi baru.\n" +
+      "# Isi jadwal dengan: crontab -e\n",
+      0,
+      0,
+      0o644,
+    );
+    console.log("[INSTALL] /etc/crontab dikosongkan");
+
+    // ============ 4.5 AKUN USER BARU (OPSIONAL) ============
+    // Root dibuat otomatis dari src/mirror. Bagian ini menambah akun user
+    // biasa + home directory-nya, sama seperti useradd (UID >= 1000, gid users).
+    if (newUser) {
+      createUserAccount(bkfs, newUser, newPass);
+    }
+
+    // ============ 5. PASSWORD ROOT (OPSIONAL) ============
+    if (rootPassword) {
+      const hash = bcrypt.hashSync(rootPassword, bcrypt.genSaltSync(10));
+      const shadow = bkfs.read("/etc/shadow") || "";
+      const lines = shadow.split("\n").filter((l) => l.trim().length > 0);
+      const idx = lines.findIndex((l) => l.startsWith("root:"));
+      if (idx >= 0) {
+        const parts = lines[idx].split(":");
+        parts[1] = hash;
+        lines[idx] = parts.join(":");
+        bkfs.touch("/etc/shadow", lines.join("\n") + "\n", 0, 0, 0o640);
+        console.log("[INSTALL] Password root diperbarui di /etc/shadow.");
+      }
+    }
+
+    // ============ VERIFIKASI ============
+    try {
+      const db = (bkfs as any).db;
+      const count = db?.prepare("SELECT COUNT(*) AS c FROM vnodes").get();
+      const passwd = (bkfs.read("/etc/passwd") || "").trim();
+      const groups = (bkfs.read("/etc/group") || "").trim();
+      const shadow = bkfs.read("/etc/shadow");
+      console.log(`[INSTALL] Verifikasi: total node=${count?.c ?? "?"}`);
+      console.log(
+        `[INSTALL] /etc/passwd: ${passwd ? passwd.split("\n").length : 0} akun`,
+      );
+      console.log(
+        `[INSTALL] Group tersedia: ${groups ? groups.split("\n").map((l) => l.split(":")[0]).join(", ") : "(tidak ada)"
+        }`,
+      );
+      console.log(
+        `[INSTALL] /etc/shadow: ${shadow ? shadow.split("\n").length : 0} entri (mode aman)`,
+      );
+    } catch (_) {
+      /* abaikan error verifikasi */
+    }
+
+    // Tutup koneksi DB biar file ter-flush rapi.
+    //
+    // `close()` (bukan akses langsung ke `db`) sengaja dipakai: dia menjalankan
+    // checkpoint WAL dulu, sehingga `system.db` kembali utuh sebagai SATU file —
+    // penting karena image ini yang disalin ke node lain / di-backup.
+    bkfs.close();
+
+    console.log("\n[INSTALL] Selesai! Image sistem siap.");
+    console.log(`           DB       : ${dbPath}`);
+    console.log(
+      `           Hostname : ${cfg.shell.defaultHostname}  (lihat src/sysconfig.conf)`,
+    );
+    console.log("           Jalankan dengan: npm start");
+  } finally {
+    rl.close();
+  }
+}
+
+main();

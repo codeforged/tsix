@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "distro": {
+    "id": "iot-edition",
+    "name": "TSIX IoT Edition",
+    "version": "0.1.0-draft",
+    "status": "draft",
+    "description": "Distro TSIX untuk pengembangan dan operasi IoT, dengan Lantana serta seluruh komponen inti TSIX Desktop Environment.",
+    "purpose": [
+      "Menjalankan aplikasi dan layanan IoT di atas kernel, runtime, dan VFS TSIX.",
+      "Menerima, mengelola, dan menampilkan data perangkat melalui Lantana.",
+      "Menyediakan sumber firmware TSIX untuk board ESP32 dan ESP8266.",
+      "Menyediakan PixelSpace, DOME, Asteracea, Emerald, Cashew, dan Pistachio sebagai TSIX Desktop Environment."
+    ],
+    "features": [
+      "Kernel, runtime, command, shared runtime, library, dan trust anchor TSIX.",
+      "Aplikasi Lantana dan dashboard IoT yang dikenali inventaris.",
+      "Firmware IoT dan dependensi PlatformIO yang dikenali inventaris.",
+      "PixelSpace Protocol serta komponen DOME, Asteracea, Emerald, Cashew, dan Pistachio.",
+      "Konfigurasi boot, Tpkg, DOME, dan Asteracea yang dipilih secara eksplisit."
+    ]
+  },
+  "sourceInventory": "../tsix-files.json",
+  "outputDirectory": "../iot-edition",
+  "layout": "preserve-source-path",
+  "installation": {
+    "entrypoint": "scripts/install.ts",
+    "npmScriptName": "tsix:install",
+    "rootAccountBootstrap": "locked-until-password-set"
+  },
+  "selection": {
+    "match": "any",
+    "exactPathsOverrideCategoryExclusions": true,
+    "include": {
+      "categories": [
+        "command",
+        "kernel",
+        "library",
+        "runtime",
+        "shared-runtime",
+        "trust-anchor"
+      ],
+      "tags": [
+        "iot",
+        "tde"
+      ],
+      "paths": [
+        "LICENSE",
+        "package-lock.json",
+        "package.json",
+        "platformio/TSIX-All-in-One/lib/PubSubClient/LICENSE.txt",
+        "platformio/TSIX-All-in-One/platformio.ini",
+        "scripts/install.ts",
+        "scripts/lib/binary-mode.ts",
+        "scripts/lib/fresh-accounts.ts",
+        "scripts/lib/fresh-fstab.ts",
+        "scripts/lib/text-file.ts",
+        "scripts/lib/user-account.ts",
+        "src/mirror/etc/motd",
+        "src/mirror/etc/motd.json",
+        "src/mirror/etc/profile",
+        "src/mirror/etc/rc.local",
+        "src/mirror/etc/tpkg/config.json",
+        "src/mirror/etc/tpkg/packages.json",
+        "tsconfig.json"
+      ]
+    },
+    "exclude": {
+      "categories": [
+        "build-config",
+        "documentation",
+        "inventory",
+        "node-local",
+        "other",
+        "sensitive",
+        "test",
+        "tooling"
+      ],
+      "protectedCategories": [
+        "node-local",
+        "sensitive",
+        "test"
+      ],
+      "classificationStates": [
+        "needs-review"
+      ],
+      "tags": [
+        "example"
+      ],
+      "pathPrefixes": [
+        "src/mirror/opt/test"
+      ]
+    }
+  },
+  "releaseNotes": [
+    "Manifest ini masih draft; jangan gunakan sebagai image rilis tanpa review dependensi dan konfigurasi node.",
+    "Entri menu Asteracea dapat merujuk aplikasi opsional yang tidak termasuk scope IoT + TDE; audit referensi menu sebelum rilis.",
+    "platformio.ini menyertakan upload_port khusus perangkat pengembang dan mungkin perlu penyesuaian untuk board pengguna."
+  ]
+}

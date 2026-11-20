@@ -1,0 +1,4 @@
+name=PLCD Emulator (/dev/plcd)
+icon=🖥️
+command=/opt/plcd/plcd-emulator.js
+group=System

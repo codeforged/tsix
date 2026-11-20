@@ -1,6 +1,7 @@
 import { BKFS } from "../src/vfs/BKFS";
 import { createUserAccount } from "./lib/user-account";
 import { FRESH_FSTAB_INI } from "./lib/fresh-fstab";
+import { ensureFreshAccountFiles } from "./lib/fresh-accounts";
 import { applyBinaryMode, needsBinaryMode } from "./lib/binary-mode";
 import { peekBom, readBinaryFile, readTextFile, utf8ToVfsBytes, vfsBytesToUtf8 } from "./lib/text-file";
 import * as fs from "fs";
@@ -24,10 +25,10 @@ import { createDefaultSysConfig, formatSysConfigIni, parseSysConfigIni } from ".
  *   6. (Opsional) set password root ke /etc/shadow.
  *
  * Cara pakai (dari root project):
- *   npm run install                     -> interaktif, db default dari sysconfig.conf
- *   npm run install -- --path data/tsix.db --force
- *   npm run install -- --defaults       -> non-interaktif (pakai semua nilai default)
- *   npm run install -- --no-config      -> lewati penulisan src/sysconfig.conf
+ *   npm run install                     -> interaktif dari checkout repo
+ *   npm run tsix:install                -> interaktif dari paket distro
+ *   npm run tsix:install -- --defaults  -> non-interaktif (root tetap terkunci jika baru)
+ *   npm run tsix:install -- --no-config -> lewati penulisan src/sysconfig.conf
  */
 
 interface InstallOptions {
@@ -425,6 +426,7 @@ async function promptPassword(
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const cfg = loadConfig();
+  const rootPasswordRequired = !fs.existsSync(path.join(MIRROR_ROOT, "etc", "shadow"));
   const defaultDbRel = opts.dbPath || cfg.kernel.database || "system.db";
 
   let dbRel = defaultDbRel;
@@ -511,9 +513,15 @@ async function main() {
       while (true) {
         rootPassword = await promptPassword(
           rl,
-          "Root password (leave empty to keep default)",
+          "Root password (required for a fresh distro image)",
         );
-        if (!rootPassword) break; // kosong → pakai default, tidak perlu konfirmasi
+        if (!rootPassword) {
+          if (rootPasswordRequired) {
+            console.log("[INSTALL] Password root wajib diatur untuk akun awal yang terkunci.");
+            continue;
+          }
+          break;
+        }
 
         const confirmRoot = await promptPassword(rl, "Confirm root password");
         if (rootPassword !== confirmRoot) {
@@ -621,6 +629,16 @@ async function main() {
       bkfs.touch(`/etc/${entry.name}`, content, 0, 0, entry.mode ?? 0o644);
       applyEtcMode(bkfs, entry.name, entry.mode);
       console.log(`[INSTALL] sync /etc/${entry.name}`);
+    }
+
+    const rootPasswordSeeded = ensureFreshAccountFiles(bkfs);
+    if (rootPasswordSeeded !== rootPasswordRequired) {
+      throw new Error("Installer root-account bootstrap did not match the source shadow file.");
+    }
+    if (rootPasswordSeeded && !opts.interactive) {
+      console.warn(
+        "[INSTALL] Akun root awal tetap terkunci; jalankan installer interaktif untuk menetapkan password.",
+      );
     }
 
     // Image fresh: fstab hanya berisi mount esensial.

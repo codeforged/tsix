@@ -14,6 +14,8 @@
         "course:serve": "node -r esbuild-register -r tsconfig-paths/register wiki/course/course-server.ts",
         "typecheck": "tsc --noEmit",
         "tpkg:manifest": "node -r esbuild-register scripts/gen-tpkg-manifest.ts",
+        "distro:inventory": "node -r esbuild-register scripts/inventory-tsix-files.ts",
+        "distro:generate": "node -r esbuild-register scripts/distro-generator.ts",
         "test": "vitest run",
         "test:watch": "vitest",
         "test:coverage": "vitest run --coverage"

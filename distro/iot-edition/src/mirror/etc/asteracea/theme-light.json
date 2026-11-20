@@ -1,0 +1,63 @@
+{
+  "name": "Solarized Light",
+  "version": 1,
+  "author": "TSIX Project",
+
+  "colors": {
+    "bg": "#fdf6e3",
+    "bgAlt": "#eee8d5",
+    "card": "#ffffff",
+    "surface": "#f5f0e0",
+    "buttonBg": "#eee8d5",
+
+    "windowTitlebar": "#f5f0e0",
+    "windowBorder": "#268bd2",
+    "windowShadow": "0 8px 32px rgba(0,0,0,0.15)",
+
+    "accent": "#268bd2",
+    "accentBg": "rgba(38,139,210,0.1)",
+    "accentBorder": "rgba(38,139,210,0.25)",
+
+    "danger": "#dc322f",
+    "dangerBg": "rgba(220,50,47,0.08)",
+    "dangerBorder": "rgba(220,50,47,0.25)",
+
+    "warning": "#cb4b16",
+    "info": "#2aa198",
+
+    "text": "#073642",
+    "textDim": "#586e75",
+    "textMuted": "#93a1a1",
+    "textDark": "#657b83",
+
+    "border": "rgba(0,0,0,0.1)",
+    "borderLight": "rgba(0,0,0,0.05)",
+
+    "overlay": "rgba(253,246,227,0.85)",
+
+    "scrollbar": "rgba(0,0,0,0.08)",
+    "scrollbarHover": "rgba(0,0,0,0.15)",
+
+    "inputBg": "#eee8d5",
+    "inputBorder": "rgba(0,0,0,0.15)",
+
+    "success": "#859900",
+    "error": "#dc322f"
+  },
+
+  "sizes": {
+    "borderRadius": "8px",
+    "borderRadiusSm": "4px",
+    "borderRadiusLg": "12px",
+    "padding": "14px",
+    "paddingSm": "8px",
+    "fontSize": "13px",
+    "fontSizeSm": "11px",
+    "fontSizeLg": "16px"
+  },
+
+  "fonts": {
+    "sans": "'Segoe UI', sans-serif",
+    "mono": "monospace"
+  }
+}
