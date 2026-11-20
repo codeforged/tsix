@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-11-20
+
+### Modul komunikasi Azalea dan contoh consumer Lantana
+
+- **Azalea:** logika NetSocket, autentikasi PSK, enkripsi, keepalive, dan
+  lifecycle koneksi dipisah ke `src/mirror/lib/lantana/azalea-dashboard-communication.ts`.
+  Dashboard mengimpor class melalui alias VFS
+  `@tsix/lantana/azalea-dashboard-communication`.
+- **Consumer console:** `consumer-test.ts` menampilkan bacaan snapshot dan live,
+  dengan filter `schemeId` dan `deviceId`; `*` memilih semua yang diizinkan
+  untuk akun tersebut.
+- **Consumer Telegram:** `consumer-analize-telegram.ts` mengevaluasi bacaan
+  numerik terhadap threshold dan mengirim alert saat melewati ambang. Alert
+  dikirim sekali per sensor sampai nilainya turun lagi; token dan chat ID
+  dibaca dari environment.
+- **Verifikasi:** kedua consumer berhasil dikompilasi dengan esbuild dan tidak
+  menambah error typecheck pada file terkait. Pengiriman Telegram memakai
+  HTTPS `fetch` bawaan Node.js.
+- **Oleh:** Copilot
+
 ## 2026-11-19
 
 ### Azalea — client dashboard remote berbasis Pistachio

@@ -1,13 +1,12 @@
 /**
- * azalea-dashboard.ts Ã¢ÂÂ Remote Lantana dashboard client berbasis Pistachio.
+ * azalea-dashboard.ts ÃÂ¢ÃÂÃÂ Remote Lantana dashboard client berbasis Pistachio.
  *
  * Azalea berkomunikasi dengan lantana-dashboard-server lewat NetSocket.
  * Usage: azalea-dashboard
  */
 
 import * as crypto from "crypto";
-import { Program, NetSocket, std, type NetPacket } from "@tsix/Application";
-import { SecurityAgent } from "@common/SecurityAgent";
+import { Program, std } from "@tsix/Application";
 import {
   TButton,
   TEdit,
@@ -32,17 +31,7 @@ import type {
   ReadingValue,
 } from "@tsix/lantana/lantana-core";
 import type { DashboardSwitchStatusUpdate } from "@tsix/lantana/dashboard-switch-status";
-import {
-  dashboardClientProof,
-  dashboardKeyTag,
-  dashboardPsk,
-  dashboardServerProof,
-  deriveDashboardSessionKey,
-  isDashboardNonce,
-} from "@tsix/lantana/lantana-dashboard-psk";
-import { safeEqualHex } from "@tsix/lantana/lantana-psk";
-
-type ConnectionPhase = "disconnected" | "connecting" | "authenticating" | "authenticated";
+import { DashboardCommunication } from "@tsix/lantana/azalea-dashboard-communication";
 
 interface RemoteDashboardItem {
   id: string;
@@ -144,7 +133,7 @@ function parseRemoteItem(value: any): RemoteDashboardItem {
 }
 
 function formatValue(value: ReadingValue | null): string {
-  if (value === null) return "Ã¢ÂÂ";
+  if (value === null) return "ÃÂ¢ÃÂÃÂ";
   if (typeof value === "boolean") return value ? "1" : "0";
   return String(value);
 }
@@ -169,12 +158,6 @@ function asBoolean(value: ReadingValue | null): boolean | undefined {
   return undefined;
 }
 
-function packetText(packet: NetPacket): string {
-  return Buffer.isBuffer(packet.data)
-    ? packet.data.toString("utf8")
-    : String(packet.data ?? "");
-}
-
 export const appMode = "gui";
 
 const CARD_STYLE = {
@@ -195,7 +178,7 @@ export const main = Program(async () => {
   const hostEdit = new TEdit({
     id: "azalea-host",
     placeholder: "Alamat node TSIX",
-    text: "localhost",
+    text: "jatitsix_3",
     style: { minWidth: "190px" },
   });
   const portEdit = new TEdit({
@@ -207,6 +190,7 @@ export const main = Program(async () => {
   const pinEdit = new TEdit({
     id: "azalea-pin",
     placeholder: "PIN dashboard (6 digit)",
+    text: "335773",
     style: { width: "170px" },
   });
   const connectButton = new TButton({
@@ -266,20 +250,11 @@ export const main = Program(async () => {
   form.add(statusRow);
   form.add(scroll);
 
-  let socket: NetSocket | null = null;
-  let cipher: SecurityAgent | null = null;
-  let phase: ConnectionPhase = "disconnected";
-  let serverHost = "";
-  let serverPort = 0;
-  let pinHash = "";
-  let clientNonce = "";
   let dashboardId = "";
   let dashboardTitle = "";
   let snapshotPending = false;
   let snapshotTimeout: ReturnType<typeof setTimeout> | null = null;
-  let handshakeTimeout: ReturnType<typeof setTimeout> | null = null;
   let snapshotTimer: ReturnType<typeof setInterval> | null = null;
-  let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
   let remoteItems: RemoteDashboardItem[] = [];
   let dashboardRendered = false;
   const bindings = new Map<number, CardBinding>();
@@ -301,52 +276,22 @@ export const main = Program(async () => {
 
   const stopTimers = () => {
     if (snapshotTimer) clearInterval(snapshotTimer);
-    if (keepAliveTimer) clearInterval(keepAliveTimer);
     if (snapshotTimeout) clearTimeout(snapshotTimeout);
-    if (handshakeTimeout) clearTimeout(handshakeTimeout);
     snapshotTimer = null;
-    keepAliveTimer = null;
     snapshotTimeout = null;
-    handshakeTimeout = null;
   };
 
   const closeConnection = async () => {
     stopTimers();
     for (const pending of pendingCommands.values()) clearTimeout(pending.timer);
     pendingCommands.clear();
-    const oldSocket = socket;
-    socket = null;
-    cipher = null;
-    phase = "disconnected";
     snapshotPending = false;
     remoteItems = [];
     dashboardId = "";
     dashboardTitle = "";
     clearCards();
     refreshButton.enabled = false;
-    if (oldSocket) await oldSocket.close("Azalea disconnected");
-  };
-
-  const sendPlain = async (value: Record<string, unknown>) => {
-    if (!socket?.isOpen) throw new Error("Socket belum terhubung.");
-    const sent = await socket.sendTo(
-      serverHost,
-      serverPort,
-      JSON.stringify(value),
-    );
-    if (!sent) throw new Error("Paket tidak terkirim ke server.");
-  };
-
-  const sendEncrypted = async (value: Record<string, unknown>) => {
-    if (!socket?.isOpen || !cipher || phase !== "authenticated") {
-      throw new Error("Sesi dashboard belum terautentikasi.");
-    }
-    const sent = await socket.sendTo(
-      serverHost,
-      serverPort,
-      cipher.securePacketOut(JSON.stringify(value)),
-    );
-    if (!sent) throw new Error("Paket terenkripsi tidak terkirim.");
+    await communication.close("Azalea disconnected");
   };
 
   const applyValue = (binding: CardBinding, appendChart = false) => {
@@ -433,11 +378,11 @@ export const main = Program(async () => {
       timer,
     });
     setStatus(
-      `Mengirim command ke ${binding.item.deviceId}Ã¢ÂÂ¦`,
+      `Mengirim command ke ${binding.item.deviceId}ÃÂ¢ÃÂÃÂ¦`,
       "var(--text-dim, #999)",
     );
     try {
-      await sendEncrypted({
+      await communication.sendEncrypted({
         type: "LANTANA_DASH_SWITCH_REQ",
         requestId,
         itemId: binding.item.id,
@@ -635,7 +580,7 @@ export const main = Program(async () => {
         groups.push(
           new TGroupBox({
             id: `azalea-device-group-${groupIndex}`,
-            caption: item.deviceId,
+            caption: "",//item.deviceId,
             children: [grid],
             style: { width: "100%", boxSizing: "border-box" },
           }),
@@ -706,7 +651,7 @@ export const main = Program(async () => {
     if (snapshotTimeout) clearTimeout(snapshotTimeout);
     snapshotTimeout = null;
     setStatus(
-      `Terhubung ÃÂ· ${items.length} widget ÃÂ· ${dashboardTitle || dashboardId}`,
+      `Terhubung ÃÂÃÂ· ${items.length} widget ÃÂÃÂ· ${dashboardTitle || dashboardId}`,
       "#4caf50",
     );
 
@@ -724,7 +669,7 @@ export const main = Program(async () => {
   };
 
   const requestSnapshot = async () => {
-    if (phase !== "authenticated" || snapshotPending) return;
+    if (!communication.isAuthenticated || snapshotPending) return;
     snapshotPending = true;
     snapshotTimeout = setTimeout(() => {
       snapshotPending = false;
@@ -732,7 +677,7 @@ export const main = Program(async () => {
       setStatus("Timeout menunggu snapshot dashboard.", "#ff9800");
     }, 17_000);
     try {
-      await sendEncrypted({ type: "LANTANA_DASH_SNAPSHOT_REQ" });
+      await communication.sendEncrypted({ type: "LANTANA_DASH_SNAPSHOT_REQ" });
     } catch (error) {
       snapshotPending = false;
       if (snapshotTimeout) clearTimeout(snapshotTimeout);
@@ -764,25 +709,13 @@ export const main = Program(async () => {
       throw new Error("Pesan terenkripsi dari server tidak valid.");
     }
     if (message.type === "LANTANA_DASH_AUTH_OK") {
-      if (handshakeTimeout) clearTimeout(handshakeTimeout);
-      handshakeTimeout = null;
-      phase = "authenticated";
       dashboardId = String(message.dashboardId ?? "");
       dashboardTitle =
         typeof message.title === "string" ? message.title : "Lantana Dashboard";
       titleLabel.text = dashboardTitle;
       refreshButton.enabled = true;
-      setStatus(`Terautentikasi ÃÂ· ${dashboardTitle}`, "#4caf50");
+      setStatus(`Terautentikasi ÃÂÃÂ· ${dashboardTitle}`, "#4caf50");
       void requestSnapshot();
-      if (keepAliveTimer) clearInterval(keepAliveTimer);
-      keepAliveTimer = setInterval(() => {
-        void sendEncrypted({ type: "LANTANA_DASH_KEEPALIVE" }).catch((error) =>
-          setStatus(
-            `Keepalive gagal: ${error instanceof Error ? error.message : String(error)}`,
-            "#f44336",
-          ),
-        );
-      }, 10 * 60 * 1000);
       return;
     }
     if (message.type === "LANTANA_DASH_SNAPSHOT") {
@@ -820,126 +753,24 @@ export const main = Program(async () => {
     }
   };
 
-  const handlePacket = async (packet: NetPacket) => {
-    const text = packetText(packet);
-    if (!text) return;
-
-    let plainMessage: any = null;
-    try {
-      plainMessage = JSON.parse(text);
-    } catch {
-      plainMessage = null;
-    }
-    if (plainMessage && typeof plainMessage.type === "string") {
-      if (plainMessage.type === "LANTANA_DASH_CHALLENGE") {
-        if (
-          plainMessage.mode !== "psk" ||
-          !isDashboardNonce(plainMessage.serverNonce) ||
-          typeof plainMessage.serverProof !== "string"
-        ) {
-          throw new Error("Challenge server tidak valid.");
-        }
-        const psk = dashboardPsk(pinHash);
-        const expected = dashboardServerProof(
-          psk,
-          clientNonce,
-          plainMessage.serverNonce,
-        );
-        if (!safeEqualHex(plainMessage.serverProof, expected)) {
-          throw new Error("Server gagal membuktikan identitasnya; periksa PIN.");
-        }
-
-        cipher = new SecurityAgent();
-        cipher.setSessionKey(
-          deriveDashboardSessionKey(psk, clientNonce, plainMessage.serverNonce),
-        );
-        phase = "authenticating";
-        await sendPlain({
-          type: "LANTANA_DASH_AUTH",
-          mode: "psk",
-          proof: dashboardClientProof(
-            psk,
-            clientNonce,
-            plainMessage.serverNonce,
-          ),
-        });
-        setStatus("Mengautentikasi dashboardÃ¢ÂÂ¦");
-        return;
-      }
-      if (
-        plainMessage.type === "LANTANA_DASH_NACK" ||
-        plainMessage.type === "LANTANA_DASH_AUTH_FAILED"
-      ) {
-        throw new Error(plainMessage.message || "Autentikasi dashboard ditolak.");
-      }
-    }
-
-    if (!cipher) throw new Error("Server mengirim data sebelum sesi aman siap.");
-    const decoded = cipher.securePacketIn(text);
-    handleSecureMessage(JSON.parse(decoded));
-  };
+  const communication = new DashboardCommunication({
+    onStatus: setStatus,
+    onSecureMessage: (message) => handleSecureMessage(message),
+    onClose: (reason) => {
+      refreshButton.enabled = false;
+      setStatus(
+        `Koneksi NetSocket ditutup${reason ? `: ${reason}` : ""}.`,
+        "#f44336",
+      );
+    },
+  });
 
   const connect = async () => {
     await closeConnection();
     const host = hostEdit.text.trim();
     const port = Number.parseInt(portEdit.text.trim(), 10);
     const pin = pinEdit.text.trim();
-    if (!host) throw new Error("Alamat node TSIX wajib diisi.");
-    if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      throw new Error("Port dashboard tidak valid.");
-    }
-    if (!/^\d{6}$/.test(pin)) {
-      throw new Error("PIN dashboard harus terdiri dari 6 digit.");
-    }
-
-    serverHost = host;
-    serverPort = port;
-    pinHash = crypto.createHash("sha256").update(pin, "utf8").digest("hex");
-    clientNonce = crypto.randomBytes(16).toString("hex");
-    phase = "connecting";
-
-    const client = new NetSocket({
-      port: 0,
-      protocol: "JSON",
-      autoCleanup: false,
-    });
-    socket = client;
-    client.onData = (packet) =>
-      handlePacket(packet).catch(async (error) => {
-        await closeConnection();
-        setStatus(
-          error instanceof Error ? error.message : String(error),
-          "#f44336",
-        );
-      });
-    client.onError = (error) => setStatus(`NetSocket: ${error.message}`, "#f44336");
-    client.onClose = (reason) => {
-      if (socket === client && phase !== "disconnected") {
-        phase = "disconnected";
-        refreshButton.enabled = false;
-        setStatus(`Koneksi NetSocket ditutup${reason ? `: ${reason}` : ""}.`, "#f44336");
-      }
-    };
-
-    setStatus(`Membuka NetSocket ke ${host}:${port}Ã¢ÂÂ¦`);
-    try {
-      await client.open();
-      handshakeTimeout = setTimeout(() => {
-        void closeConnection().finally(() => {
-          setStatus("Timeout saat handshake dashboard.", "#f44336");
-        });
-      }, 10_000);
-      await sendPlain({
-        type: "LANTANA_DASH_HELLO",
-        mode: "psk",
-        keyTag: dashboardKeyTag(pinHash),
-        clientNonce,
-      });
-      setStatus(`Menghubungi ${host}:${port}Ã¢ÂÂ¦`);
-    } catch (error) {
-      await closeConnection();
-      throw error;
-    }
+    await communication.connect(host, port, pin);
   };
 
   connectButton.onClick = () => {
