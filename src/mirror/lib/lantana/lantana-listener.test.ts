@@ -58,7 +58,7 @@ const SERVICE_PORT = 1000;
 const DEVICE_ADDR = "10.0.0.9";
 const DEVICE_PORT = 41000;
 
-function setup() {
+function setup(dataBankCapacity = 4096) {
     sent.length = 0;
 
     const accounts = new AccountManager();
@@ -77,7 +77,7 @@ function setup() {
     const ingest = new IngestPipeline({ accounts, devices, schemes, policy, sessions });
     const bank = new DeviceBank();
     const distributor = new LantanaDistributor(bank, policy);
-    const dataBank = new DataBankQueue(new MemoryDataBank());
+    const dataBank = new DataBankQueue(new MemoryDataBank(), { capacity: dataBankCapacity });
 
     const pair = SecurityAgent.generateKeyPair();
     const serverKey: ServerKeyPair = {
@@ -227,6 +227,51 @@ describe("listener handshake + ingest", () => {
         expect(ctx.dataBank.pending).toBe(1);
         // Data sensor tidak di-ACK; balasan hanya 3 pesan handshake.
         expect(sent).toHaveLength(3);
+    });
+
+    it("membalas NACK dan tidak mengubah DeviceBank jika antrean DataBank penuh", async () => {
+        ctx = setup(1);
+        await ctx.send(JSON.stringify({ type: "LANTANA_HELLO" }));
+        const challenge = JSON.parse(lastSent());
+        const client = new SecurityAgent();
+        const sessionKey = SecurityAgent.generateSessionKey();
+        await ctx.send(
+            JSON.stringify({
+                type: "LANTANA_KEYSET",
+                encryptedKey: SecurityAgent.encryptWithPublicKey(challenge.publicKey, sessionKey),
+            }),
+        );
+        client.setSessionKey(sessionKey);
+        await ctx.send(
+            JSON.stringify({
+                type: "LANTANA_AUTH",
+                payload: client.securePacketOut(
+                    JSON.stringify({
+                        accountId: "juragan",
+                        deviceId: ctx.device.deviceId,
+                        accessKey: ctx.accessKey,
+                        nonce: challenge.nonce,
+                    }),
+                ),
+            }),
+        );
+        sent.length = 0;
+
+        await ctx.send(
+            client.securePacketOut(
+                encodeBinaryPayload(ctx.device.deviceId, [
+                    { schemeId: 101, value: 30 },
+                    { schemeId: 102, value: 60 },
+                ]),
+            ),
+        );
+
+        expect(JSON.parse(client.securePacketIn(lastSent()))).toMatchObject({
+            type: "LANTANA_NACK",
+            name: "DATABANK_UNAVAILABLE",
+        });
+        expect(ctx.dataBank.pending).toBe(0);
+        expect(ctx.bank.size).toBe(0);
     });
 
     it("menerima frame biner terenkripsi tanpa merusak byte >= 0x80", async () => {

@@ -95,6 +95,9 @@ export const main = Program(async (args: string[]) => {
         if (!payload || typeof payload !== "object") return;
 
         if (payload.type === "LANTANA_RELOAD") {
+            const fromPid = payload.fromPid || msg?.fromPid;
+            const requestId = payload.requestId;
+            let reloadError: string | undefined;
             try {
                 state = await loadState();
                 policy = new PermissionPolicy(state.accounts, state.schemes);
@@ -111,8 +114,18 @@ export const main = Program(async (args: string[]) => {
                 distributor.setPolicy(policy);
 
                 await std.log("State akun/device/scheme dimuat ulang.", TAG);
-            } catch (e: any) {
-                await std.log(`Gagal reload state: ${e?.message || e}`, TAG);
+            } catch (error) {
+                reloadError = error instanceof Error ? error.message : String(error);
+                await std.log(`Gagal reload state: ${reloadError}`, TAG);
+            }
+            if (typeof fromPid === "number" && typeof requestId === "string") {
+                const replied = await shell.send(fromPid, {
+                    type: "LANTANA_RELOAD_RESULT",
+                    requestId,
+                    ok: !reloadError,
+                    message: reloadError,
+                });
+                if (!replied) await std.log(`Gagal mengirim hasil reload ke PID ${fromPid}.`, TAG);
             }
             return;
         }

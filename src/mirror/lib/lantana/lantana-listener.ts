@@ -426,6 +426,23 @@ export class LantanaListener {
             return;
         }
 
+        const queued = await this.deps.dataBank.submit(result.readings);
+        if (!queued.ok) {
+            await std.log(
+                `[${TAG}] DataBank menolak ${result.readings.length} bacaan (${queued.error}) — antrean ${this.deps.dataBank.pending}`,
+                TAG,
+            );
+            await this.sendNack(
+                fd,
+                port,
+                endpoint,
+                agent,
+                LantanaError.DATABANK_UNAVAILABLE,
+                "DataBank tidak dapat menerima bacaan saat ini",
+            );
+            return;
+        }
+
         const device = this.deps.devices.get(result.accountId, result.deviceId);
         const meta = device?.meta || {};
         const entry = this.deps.bank.upsert(
@@ -435,14 +452,6 @@ export class LantanaListener {
             result.readings,
             endpoint,
         );
-
-        const queued = await this.deps.dataBank.submit(result.readings);
-        if (!queued.ok) {
-            await std.log(
-                `[${TAG}] DataBank menolak ${result.readings.length} bacaan (${queued.error}) — antrean ${this.deps.dataBank.pending}`,
-                TAG,
-            );
-        }
 
         const batch: NormalizedReadingBatch = {
             type: EVT_READING,

@@ -6,6 +6,57 @@
 
 ## 2026-11-20
 
+### Monitor mempertahankan DOM dan posisi scroll
+
+- **File:** `src/mirror/opt/lantana/lantana-control-panel.ts`,
+  `src/mirror/lib/lantana/monitor-view.ts`, `monitor-view.test.ts`.
+- **Perubahan:** kartu Monitor sekarang dipasang ulang hanya saat susunan grup/device
+  berubah. Saat bacaan atau status berubah, teks dan warna diperbarui pada node yang
+  sudah ada melalui `screen.update`, sehingga daftar panjang tidak mereset scroll.
+  Render juga dikoaleskan hingga 20 kali per detik agar burst bacaan tidak menumpuk.
+- **Verifikasi:** tes `monitor-view` mencakup identitas layout yang tetap sama saat
+  nilai sensor/status berubah dan berubah saat susunan device berubah.
+- **Oleh:** Copilot
+
+### Stress test virtual device Lantana
+
+- **File:** `src/mirror/opt/lantana/lantana-stress.ts`,
+  `src/mirror/lib/lantana/lantana-stress-manifest.ts` (baru),
+  `lantana-stress-manifest.test.ts` (baru), `lantana-stress-report.ts` (baru),
+  `lantana-stress-report.test.ts` (baru), `src/mirror/opt/lantana/lantana.ts`,
+  `src/mirror/lib/lantana/lantana-listener.ts`.
+- **Setup:** membuat maksimal 1.000 device virtual dalam maksimal 10 group
+  dan 0–32 scheme numerik (default 5) untuk akun yang sudah ada. Jumlah scheme
+  dapat diatur dengan `--scheme-count`; ID dan metadata setiap resource dicatat
+  dalam manifest sebelum daemon diminta reload.
+- **Run:** tiap device memakai socket/source port unik dan handshake RSA Lantana;
+  fingerprint server wajib cocok. Jika `--schemes` tidak diberikan, run memakai
+  scheme yang tercatat di manifest; scheme lain tetap bisa dipilih eksplisit.
+  Durasi dibatasi 5 menit. Batas handshake default 120 detik dapat diubah lewat
+  `--handshake-timeout-sec` (maksimal 300 detik); concurrency juga dibatasi.
+  Target non-loopback memerlukan `--confirm-target`. Setelah load, stress client
+  melakukan drain sampai event berhenti/seluruh paket terhitung atau batas
+  `--drain-timeout-sec` (default 30, maksimal 120 detik) tercapai. Polling NACK
+  memakai jeda agar 1.000 receiver tidak sibuk spin.
+- **Report:** progress membedakan fase load/drain; final menampilkan batch yang
+  terkirim, event ingest yang teramati, NACK, perkiraan belum terkonfirmasi, dan
+  error. Tiap eksekusi menyimpan JSON report unik di samping manifest.
+  `accepted` di report berarti event `LANTANA_READING` diterima consumer, bukan
+  commit database. Sink daemon saat ini `MemoryDataBank` (RAM); persistensi
+  eksternal tidak diuji. `cleanup <manifest> --report=<report-json> ...` dapat
+  menghapus satu atau beberapa report yang cocok dengan manifest.
+- **Cleanup:** hanya menghapus device yang tercatat di manifest dan masih cocok
+  dengan account, nama, group, serta kategori stress-test; scheme hanya dihapus
+  jika metadata dan owner masih cocok serta tidak direferensikan dashboard. File
+  manifest dihapus setelah daemon membalas reload sukses. Antrean DataBank penuh
+  kini menghasilkan NACK `DATABANK_UNAVAILABLE` dan tidak membroadcast batch.
+- **Credential:** `LANTANA_STRESS_ACCESS_KEY` dibaca dari environment, tidak dari
+  argumen command line.
+- **Verifikasi:** seluruh 161 tes library Lantana lulus. `npm run typecheck` masih
+  melaporkan diagnostik pada file lain di repository; tidak ada error dari file
+  stress test/listener setelah perbaikan.
+- **Oleh:** Copilot
+
 ### Modul komunikasi Azalea dan contoh consumer Lantana
 
 - **Azalea:** logika NetSocket, autentikasi PSK, enkripsi, keepalive, dan

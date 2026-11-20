@@ -52,7 +52,10 @@ import {
     deviceKey,
     groupMonitorDevices,
     mergeReadings,
+    monitorLayoutKey,
     type MonitorDevice,
+    type MonitorDeviceView,
+    type MonitorGroupView,
     type MonitorReading,
 } from "@tsix/lantana/monitor-view";
 import { runLantanaCtl } from "@tsix/lantana/lantana-ctl-client";
@@ -79,6 +82,15 @@ const FIELD_LABEL_STYLE = {
 interface Field {
     label: string;
     input: TEdit | TComboBox;
+}
+
+interface MonitorDomRefs {
+    cardId: string;
+    titleId: string;
+    metaId: string;
+    sensorsId: string;
+    statusId: string;
+    ageId: string;
 }
 
 export const main = Program(async () => {
@@ -121,6 +133,14 @@ export const main = Program(async () => {
     let monitorTimer: ReturnType<typeof setInterval> | null = null;
     let monitorPolling = false;
     let monitorRenderChain: Promise<void> = Promise.resolve();
+    let monitorRenderTimer: ReturnType<typeof setTimeout> | null = null;
+    let monitorRenderInFlight = false;
+    let monitorRenderDirty = false;
+    let monitorLayoutSignature: string | null = null;
+    let monitorGroupHeaderIds: string[] = [];
+    let monitorGroupLabels: string[] = [];
+    let monitorDomRefs = new Map<string, MonitorDomRefs>();
+    let monitorRenderedDevices = new Map<string, MonitorDeviceView>();
 
     const title = new TLabel({
         text: "Lantana Control Panel",
@@ -721,9 +741,15 @@ export const main = Program(async () => {
     }
 
     function stopMonitorTimer(): void {
-        if (monitorTimer === null) return;
-        clearInterval(monitorTimer);
-        monitorTimer = null;
+        if (monitorTimer !== null) {
+            clearInterval(monitorTimer);
+            monitorTimer = null;
+        }
+        if (monitorRenderTimer !== null) {
+            clearTimeout(monitorRenderTimer);
+            monitorRenderTimer = null;
+        }
+        monitorRenderDirty = false;
     }
 
     function syncMonitorTimer(): void {
@@ -766,168 +792,279 @@ export const main = Program(async () => {
         const stamp = monitorLastAt
             ? new Date(monitorLastAt).toLocaleTimeString()
             : "-";
-        monitorStatus.text = `Target: ${monitorTarget} | Akun ${account} | ${
+        const text = `Target: ${monitorTarget} | Akun ${account} | ${
             monitorConnected ? "🟢 Connected" : "🔴 Menunggu daemon"
         } | snapshot ${stamp}`;
+        if (monitorStatus.text !== text) monitorStatus.text = text;
     }
 
     function renderMonitor(): void {
-        const accountId = monitorAccountId();
-        const run = monitorRenderChain.then(async () => {
-            const screen = form.screen;
-            if (!screen || !monitorActive()) return;
-            updateMonitorStatus();
+        monitorRenderDirty = true;
+        if (monitorRenderTimer !== null || monitorRenderInFlight) return;
 
-            const groups = groupMonitorDevices(
-                [...monitorDevices.values()].filter(
-                    (device) => device.accountId === accountId,
-                ),
-                monitorReadings,
-            );
-            if (groups.length === 0) {
-                await screen.setContent(
-                    monitorBody.id,
-                    monitorNode("lcp-monitor-empty", "span", {
-                        text: MONITOR_EMPTY,
-                        style: {
-                            fontSize: "12px",
-                            color: "var(--text-muted, #94a3b8)",
-                        },
-                    }),
-                );
+        monitorRenderTimer = setTimeout(() => {
+            monitorRenderTimer = null;
+            if (!monitorRenderDirty || !monitorActive()) {
+                monitorRenderDirty = false;
                 return;
             }
 
-            const rows: TNode[] = [];
-            let index = 0;
-            for (const groupView of groups) {
+            monitorRenderDirty = false;
+            monitorRenderInFlight = true;
+            const run = monitorRenderChain.then(renderMonitorNow);
+            monitorRenderChain = run
+                .catch((error: unknown) => {
+                    const detail =
+                        error instanceof Error ? error.message : String(error);
+                    monitorStatus.text = `Monitor gagal diperbarui: ${detail}`;
+                })
+                .finally(() => {
+                    monitorRenderInFlight = false;
+                    if (monitorRenderDirty && monitorActive()) renderMonitor();
+                });
+        }, 50);
+    }
+
+    async function renderMonitorNow(): Promise<void> {
+        const screen = form.screen;
+        if (!screen || !monitorActive()) return;
+        updateMonitorStatus();
+
+        const groups = groupMonitorDevices(
+            [...monitorDevices.values()].filter(
+                (device) => device.accountId === monitorAccountId(),
+            ),
+            monitorReadings,
+        );
+        const layoutKey = monitorLayoutKey(groups);
+        if (layoutKey !== monitorLayoutSignature) {
+            await mountMonitorLayout(screen, groups, layoutKey);
+            return;
+        }
+        await updateMonitorLayout(screen, groups);
+    }
+
+    async function mountMonitorLayout(
+        screen: NonNullable<typeof form.screen>,
+        groups: MonitorGroupView[],
+        layoutKey: string,
+    ): Promise<void> {
+        const rows: TNode[] = [];
+        const groupHeaderIds: string[] = [];
+        const groupLabels: string[] = [];
+        const domRefs = new Map<string, MonitorDomRefs>();
+        const renderedDevices = new Map<string, MonitorDeviceView>();
+        let deviceIndex = 0;
+
+        for (const [groupIndex, groupView] of groups.entries()) {
+            const headerId = `lcp-monitor-g-${groupIndex}`;
+            const groupLabel = `▸ ${groupView.group}  (${groupView.devices.length} device)`;
+            groupHeaderIds.push(headerId);
+            groupLabels.push(groupLabel);
+            rows.push(
+                monitorNode(headerId, "div", {
+                    text: groupLabel,
+                    style: {
+                        fontWeight: "700",
+                        fontSize: "12px",
+                        color: "var(--accent, #4caf50)",
+                        marginTop: groupIndex ? "6px" : "0",
+                    },
+                }),
+            );
+
+            for (const device of groupView.devices) {
+                const index = deviceIndex++;
+                const refs: MonitorDomRefs = {
+                    cardId: `lcp-monitor-card-${index}`,
+                    titleId: `lcp-monitor-title-${index}`,
+                    metaId: `lcp-monitor-meta-${index}`,
+                    sensorsId: `lcp-monitor-sensors-${index}`,
+                    statusId: `lcp-monitor-state-${index}`,
+                    ageId: `lcp-monitor-age-${index}`,
+                };
+                domRefs.set(device.key, refs);
+                renderedDevices.set(device.key, device);
                 rows.push(
-                    monitorNode(`lcp-monitor-g-${index}`, "div", {
-                        text: `▸ ${groupView.group}  (${groupView.devices.length} device)`,
-                        style: {
-                            fontWeight: "700",
-                            fontSize: "12px",
-                            color: "var(--accent, #4caf50)",
-                            marginTop: index ? "6px" : "0",
-                        },
-                    }),
-                );
-                index += 1;
-                for (const device of groupView.devices) {
-                    rows.push(
-                        monitorNode(
-                            `lcp-monitor-card-${index}`,
-                            "div",
-                            {
-                                style: {
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    alignItems: "center",
-                                    gap: "10px",
-                                    padding: "10px 14px",
-                                    borderRadius: "8px",
-                                    border: `1px solid ${device.statusColor}44`,
-                                    background:
-                                        "var(--surface, rgba(0,0,0,0.25))",
-                                },
+                    monitorNode(
+                        refs.cardId,
+                        "div",
+                        {
+                            style: {
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                gap: "10px",
+                                padding: "10px 14px",
+                                borderRadius: "8px",
+                                border: `1px solid ${device.statusColor}44`,
+                                background:
+                                    "var(--surface, rgba(0,0,0,0.25))",
                             },
-                            [
-                                monitorNode(
-                                    `lcp-monitor-main-${index}`,
-                                    "div",
-                                    {
-                                        style: {
-                                            display: "flex",
-                                            flexDirection: "column",
-                                            gap: "2px",
-                                            minWidth: "0",
-                                        },
+                        },
+                        [
+                            monitorNode(
+                                `lcp-monitor-main-${index}`,
+                                "div",
+                                {
+                                    style: {
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        gap: "2px",
+                                        minWidth: "0",
                                     },
-                                    [
-                                        monitorNode(
-                                            `lcp-monitor-title-${index}`,
-                                            "span",
-                                            {
-                                                text: device.title,
-                                                style: {
-                                                    fontWeight: "600",
-                                                    fontSize: "13px",
-                                                    overflow: "hidden",
-                                                    textOverflow: "ellipsis",
-                                                },
-                                            },
-                                        ),
-                                        monitorNode(
-                                            `lcp-monitor-meta-${index}`,
-                                            "span",
-                                            {
-                                                text: device.meta,
-                                                style: {
-                                                    fontSize: "11px",
-                                                    color: "var(--text-muted, #94a3b8)",
-                                                },
-                                            },
-                                        ),
-                                        monitorNode(
-                                            `lcp-monitor-sensors-${index}`,
-                                            "span",
-                                            {
-                                                text: device.sensors,
-                                                style: {
-                                                    fontSize: "11px",
-                                                    color: "var(--text-dim, #ccc)",
-                                                },
-                                            },
-                                        ),
-                                    ],
-                                ),
-                                monitorNode(
-                                    `lcp-monitor-side-${index}`,
-                                    "div",
-                                    {
+                                },
+                                [
+                                    monitorNode(refs.titleId, "span", {
+                                        text: device.title,
                                         style: {
-                                            display: "flex",
-                                            flexDirection: "column",
-                                            alignItems: "flex-end",
-                                            gap: "2px",
+                                            fontWeight: "600",
+                                            fontSize: "13px",
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis",
                                         },
+                                    }),
+                                    monitorNode(refs.metaId, "span", {
+                                        text: device.meta,
+                                        style: {
+                                            fontSize: "11px",
+                                            color: "var(--text-muted, #94a3b8)",
+                                        },
+                                    }),
+                                    monitorNode(refs.sensorsId, "span", {
+                                        text: device.sensors,
+                                        style: {
+                                            fontSize: "11px",
+                                            color: "var(--text-dim, #ccc)",
+                                        },
+                                    }),
+                                ],
+                            ),
+                            monitorNode(
+                                `lcp-monitor-side-${index}`,
+                                "div",
+                                {
+                                    style: {
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        alignItems: "flex-end",
+                                        gap: "2px",
                                     },
-                                    [
-                                        monitorNode(
-                                            `lcp-monitor-state-${index}`,
-                                            "span",
-                                            {
-                                                text: device.status,
-                                                style: {
-                                                    color: device.statusColor,
-                                                    fontWeight: "700",
-                                                    fontSize: "12px",
-                                                },
-                                            },
-                                        ),
-                                        monitorNode(
-                                            `lcp-monitor-age-${index}`,
-                                            "span",
-                                            {
-                                                text: device.age,
-                                                style: {
-                                                    fontSize: "11px",
-                                                    color: "var(--text-muted, #94a3b8)",
-                                                },
-                                            },
-                                        ),
-                                    ],
-                                ),
-                            ],
-                        ),
-                    );
-                    index += 1;
-                }
+                                },
+                                [
+                                    monitorNode(refs.statusId, "span", {
+                                        text: device.status,
+                                        style: {
+                                            color: device.statusColor,
+                                            fontWeight: "700",
+                                            fontSize: "12px",
+                                        },
+                                    }),
+                                    monitorNode(refs.ageId, "span", {
+                                        text: device.age,
+                                        style: {
+                                            fontSize: "11px",
+                                            color: "var(--text-muted, #94a3b8)",
+                                        },
+                                    }),
+                                ],
+                            ),
+                        ],
+                    ),
+                );
+            }
+        }
+
+        if (groups.length === 0) {
+            rows.push(
+                monitorNode("lcp-monitor-empty", "span", {
+                    text: MONITOR_EMPTY,
+                    style: {
+                        fontSize: "12px",
+                        color: "var(--text-muted, #94a3b8)",
+                    },
+                }),
+            );
+        }
+
+        await screen.setContent(monitorBody.id, ...rows);
+        monitorLayoutSignature = layoutKey;
+        monitorGroupHeaderIds = groupHeaderIds;
+        monitorGroupLabels = groupLabels;
+        monitorDomRefs = domRefs;
+        monitorRenderedDevices = renderedDevices;
+    }
+
+    async function updateMonitorLayout(
+        screen: NonNullable<typeof form.screen>,
+        groups: MonitorGroupView[],
+    ): Promise<void> {
+        const updates: Promise<unknown>[] = [];
+        const groupLabels: string[] = [];
+        const renderedDevices = new Map<string, MonitorDeviceView>();
+        const updateText = (id: string, text: string): void => {
+            updates.push(Promise.resolve(screen.update(id, { text })));
+        };
+
+        for (const [groupIndex, groupView] of groups.entries()) {
+            const groupLabel = `▸ ${groupView.group}  (${groupView.devices.length} device)`;
+            groupLabels.push(groupLabel);
+            if (monitorGroupLabels[groupIndex] !== groupLabel) {
+                const headerId = monitorGroupHeaderIds[groupIndex];
+                if (headerId) updateText(headerId, groupLabel);
             }
 
-            await screen.setContent(monitorBody.id, ...rows);
-        });
-        monitorRenderChain = run.catch(() => {});
+            for (const device of groupView.devices) {
+                const refs = monitorDomRefs.get(device.key);
+                const previous = monitorRenderedDevices.get(device.key);
+                if (!refs || !previous) {
+                    monitorLayoutSignature = null;
+                    await mountMonitorLayout(
+                        screen,
+                        groups,
+                        monitorLayoutKey(groups),
+                    );
+                    return;
+                }
+
+                if (device.title !== previous.title) {
+                    updateText(refs.titleId, device.title);
+                }
+                if (device.meta !== previous.meta) {
+                    updateText(refs.metaId, device.meta);
+                }
+                if (device.sensors !== previous.sensors) {
+                    updateText(refs.sensorsId, device.sensors);
+                }
+                if (device.status !== previous.status) {
+                    updateText(refs.statusId, device.status);
+                }
+                if (device.age !== previous.age) {
+                    updateText(refs.ageId, device.age);
+                }
+                if (device.statusColor !== previous.statusColor) {
+                    updates.push(
+                        Promise.resolve(
+                            screen.update(refs.cardId, {
+                                style: {
+                                    border: `1px solid ${device.statusColor}44`,
+                                },
+                            }),
+                        ),
+                        Promise.resolve(
+                            screen.update(refs.statusId, {
+                                style: { color: device.statusColor },
+                            }),
+                        ),
+                    );
+                }
+                renderedDevices.set(device.key, device);
+            }
+        }
+
+        await Promise.all(updates);
+        monitorGroupLabels = groupLabels;
+        monitorRenderedDevices = renderedDevices;
     }
 
     function upsertMonitorDevice(device: MonitorDevice | undefined): void {

@@ -186,6 +186,41 @@ lantana-cmd juragan <deviceId> "RELAY_1:1"
 (`{ version, ok, data }` / `{ version, ok, error }`) dan dipakai GUI.
 AccessKey/PIN mentah hanya tampil sekali saat diterbitkan/dirotasi.
 
+### Uji beban virtual
+
+`lantana-stress setup` membuat device, group, scheme, dan manifest uji. `run`
+memakai satu socket dan sesi MQTNL terautentikasi per device; fingerprint server
+wajib cocok. Contoh:
+
+```sh
+lantana-stress setup juragan --count=1000 --groups=10 --scheme-count=5
+export LANTANA_STRESS_ACCESS_KEY="<AccessKey akun manifest>"
+lantana-stress run /etc/lantana/stress-run-<runId>.json \
+  --host=<host-uji> --fingerprint=<16-hex> --confirm-target \
+  --duration-sec=60 --interval-ms=5000 --drain-timeout-sec=30
+```
+
+- Hasil periodik memisahkan fase `load` dan `drain`. Rekap final dan JSON report
+  per eksekusi memuat handshake, batch terkirim, bacaan terkirim, event ingest
+  teramati, NACK, perkiraan batch belum terkonfirmasi, dan error. Drain default
+  30 detik (maksimal 120); nilai 0 menonaktifkannya.
+- `ingest-observed` menghitung event `LANTANA_READING` yang diterima consumer,
+  **bukan** ACK unik per paket atau bukti commit database. Batch belum
+  terkonfirmasi adalah estimasi; event dicocokkan berdasarkan device dalam
+  manifest. Sink daemon saat ini `MemoryDataBank` (RAM), jadi persistensi
+  database eksternal tidak diuji.
+- Contoh run 1.000 device / 5 scheme: handshake 1.000/1.000; 11.968 batch
+  (59.840 bacaan) terkirim pada 199,5 batch/detik. Saat load, ingest tertinggal
+  sekitar 20%; setelah sender berhenti, seluruh 11.968 batch teramati dalam
+  drain 15,8 detik, tanpa NACK atau send failure. Ini menunjukkan backlog saat
+  beban 200 batch/detik, bukan bukti kehilangan data permanen.
+- Listener memproses paket berurutan dan menunggu 5 ms setelah setiap paket;
+  ini salah satu batas throughput yang perlu diperhitungkan saat menguji beban
+  mendekati 200 batch/detik.
+- Manifest dan scheme/device dibersihkan dengan
+  `lantana-stress cleanup <manifest>`. Report dapat ikut dihapus dengan
+  `--report=<report-json>`; opsi tersebut dapat diulang untuk beberapa report.
+
 ---
 
 ## 6. Firmware V2 (`tsixlib`)

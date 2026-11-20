@@ -123,6 +123,16 @@ export async function loadState(): Promise<LantanaState> {
 export async function saveState(state: LantanaState): Promise<void> {
     await writeJson(LANTANA_ACCOUNTS_PATH, state.accounts.toJSON());
     await writeJson(LANTANA_DASHBOARDS_PATH, state.dashboards.toJSON());
-    await writeJson(LANTANA_DEVICES_PATH, state.devices.toJSON());
-    await writeJson(LANTANA_SCHEMES_PATH, state.schemes.toJSON());
+    await saveDevices(state.devices);
+    await saveSchemes(state.schemes);
+}
+
+/** Simpan registry device saja, tanpa menulis ulang file state Lantana lain. */
+export async function saveDevices(devices: DeviceRegistry): Promise<void> {
+    await writeJson(LANTANA_DEVICES_PATH, devices.toJSON());
+}
+
+/** Simpan registry scheme saja, tanpa menulis ulang file state Lantana lain. */
+export async function saveSchemes(schemes: SchemeRegistry): Promise<void> {
+    await writeJson(LANTANA_SCHEMES_PATH, schemes.toJSON());
 }

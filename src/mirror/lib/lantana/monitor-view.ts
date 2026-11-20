@@ -44,6 +44,15 @@ export interface MonitorGroupView {
 
 export const MONITOR_EMPTY = "Menunggu data dari daemon Lantana...";
 
+export function monitorLayoutKey(groups: readonly MonitorGroupView[]): string {
+    return JSON.stringify(
+        groups.map((group) => [
+            group.group,
+            group.devices.map((device) => device.key),
+        ]),
+    );
+}
+
 export function deviceKey(accountId: string, deviceId: string): string {
     return `${accountId}::${deviceId}`;
 }

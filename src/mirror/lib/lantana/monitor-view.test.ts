@@ -4,6 +4,7 @@ import {
     formatSensors,
     groupMonitorDevices,
     mergeReadings,
+    monitorLayoutKey,
     statusColor,
     type MonitorDevice,
 } from "./monitor-view";
@@ -93,6 +94,28 @@ describe("groupMonitorDevices", () => {
         expect(groups[0].devices[0].title).toBe("dev-9 (dev-9)");
         expect(groups[0].devices[0].status).toBe("OFFLINE");
         expect(groups[0].devices[0].sensors).toBe("scheme: 101");
+    });
+});
+
+describe("monitorLayoutKey", () => {
+    it("tetap sama saat nilai device berubah, tetapi berubah saat layout berubah", () => {
+        const groups = groupMonitorDevices([device()], new Map());
+        const updatedValues = groups.map((group) => ({
+            ...group,
+            devices: group.devices.map((entry) => ({
+                ...entry,
+                sensors: "101=25 °C",
+                status: "STALE",
+                age: "1.0s ago",
+            })),
+        }));
+        const changedDevices = groupMonitorDevices(
+            [device({ deviceId: "another-device" })],
+            new Map(),
+        );
+
+        expect(monitorLayoutKey(updatedValues)).toBe(monitorLayoutKey(groups));
+        expect(monitorLayoutKey(changedDevices)).not.toBe(monitorLayoutKey(groups));
     });
 });
 
