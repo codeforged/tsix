@@ -40,8 +40,8 @@
 
 // ── Lantana / MQTNL ──
 #define NODE_PORT     101
-#define LANTANA_HOST  "tsix"
-// #define LANTANA_HOST  "jatitsix_3"
+// #define LANTANA_HOST  "tsix"
+#define LANTANA_HOST  "jatitsix_3"
 #define LANTANA_PORT  1000
 #define SEND_INTERVAL_MS 5000
 

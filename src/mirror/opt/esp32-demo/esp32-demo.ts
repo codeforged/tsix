@@ -40,7 +40,7 @@ export default class Esp32Demo {
             return hit ? hit.split("=").slice(1).join("=") : fallback;
         };
 
-        const TARGET_HOST = opt("host", "tsix")!;
+        const TARGET_HOST = opt("host", "jatitsix_3")!;
         const TARGET_PORT = parseInt(opt("port", "1000")!, 10);
         const MY_PORT = parseInt(opt("my-port", "1001")!, 10);
         const accountId = opt("account");
