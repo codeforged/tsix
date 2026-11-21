@@ -28,5 +28,5 @@ For a non-interactive image, run `npm run tsix:install -- --defaults`; the root 
 ## Release notes
 
 - Manifest ini masih draft; jangan gunakan sebagai image rilis tanpa review dependensi dan konfigurasi node.
-- Entri menu Asteracea dapat merujuk aplikasi opsional yang tidak termasuk scope IoT + TDE; audit referensi menu sebelum rilis.
+- Menu Asteracea untuk aplikasi di luar scope tidak disertakan; semua menu yang dikemas telah diaudit terhadap file programnya.
 - platformio.ini menyertakan upload_port khusus perangkat pengembang dan mungkin perlu penyesuaian untuk board pengguna.

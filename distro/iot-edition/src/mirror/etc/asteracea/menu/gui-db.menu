@@ -1,5 +1,0 @@
-name=DB Access Demo
-icon=📋
-command=/opt/test/gui-db-test-csh.js
-pinned_launcher=false 
-group=GUI Demo

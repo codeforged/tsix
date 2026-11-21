@@ -66,7 +66,13 @@ export class SyscallDispatcher {
         SyscallCode.WHOAMI,
     ]);
 
-    constructor(rootFs: IVFS, mountManager: MountManager, scheduler: Scheduler, kernel: any, satpam: PermissionManager) {
+    constructor(
+        rootFs: IVFS,
+        mountManager: MountManager,
+        scheduler: Scheduler,
+        kernel: any,
+        satpam: PermissionManager,
+    ) {
         this.logger = new Logger("SyscallHandler");
         this.rootFs = rootFs;
         this.mountManager = mountManager;
@@ -1726,7 +1732,13 @@ export class SyscallDispatcher {
                     fs.mkdirSync(parentDir, { recursive: true });
                 }
 
-                fs.writeFileSync(absoluteHostPath, content);
+                // Isi VFS adalah BYTE (string latin1, 1 char = 1 byte). Tulis MENTAH.
+                // Tanpa ini `writeFileSync(string)` memakai UTF-8 dan setiap byte
+                // >= 0x80 menggelembung jadi 2 byte (`â`/`—`/`é` di file kernel
+                // berubah jadi mojibake). Kebalikan dari `SYNC_FROM_HOST` yang sudah
+                // membaca latin1 — sehingga paket ber-`hostDst` (base-system)
+                // merusak file host-nya sendiri saat menulis balik.
+                fs.writeFileSync(absoluteHostPath, Buffer.from(content, "latin1"));
                 this.logger.info(`[SYNC] Applied VFS:${vfsPath} -> HOST:${hostPath}`);
                 return true;
             }
@@ -1775,7 +1787,8 @@ export class SyscallDispatcher {
 
                 // Robust normalization of VFS target path
                 const cleanVfsPath = PathResolver.resolve("/", vfsPath);
-                const content = fs.readFileSync(absoluteHostPath, "utf8");
+                // VFS stores bytes in a latin1 string; preserve the host bytes exactly.
+                const content = fs.readFileSync(absoluteHostPath).toString("latin1");
 
                 const { vfs, relativePath } = this.mountManager.resolve(cleanVfsPath);
 
@@ -2061,27 +2074,18 @@ export class SyscallDispatcher {
             }
 
             case SyscallCode.DB_QUERY: {
-                const request =
-                    typeof args === "string" ? { sql: args } : args;
+                const request = typeof args === "string" ? { sql: args } : args;
                 if (!request || typeof request.sql !== "string") {
-                    throw new Error(
-                        "DB_QUERY: expected SQL string or {sql, params}",
-                    );
+                    throw new Error("DB_QUERY: expected SQL string or {sql, params}");
                 }
                 if (
                     request.params !== undefined &&
                     !Array.isArray(request.params) &&
-                    (typeof request.params !== "object" ||
-                        request.params === null)
+                    (typeof request.params !== "object" || request.params === null)
                 ) {
-                    throw new Error(
-                        "DB_QUERY: params must be an array or named parameter object",
-                    );
+                    throw new Error("DB_QUERY: params must be an array or named parameter object");
                 }
-                if (
-                    request.includeFields !== undefined &&
-                    typeof request.includeFields !== "boolean"
-                ) {
+                if (request.includeFields !== undefined && typeof request.includeFields !== "boolean") {
                     throw new Error("DB_QUERY: includeFields must be boolean");
                 }
 

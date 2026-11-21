@@ -1,0 +1,3 @@
+# TSIX Imut lab profile
+# Keep PATH limited to commands present in the base image and test packages.
+export PATH=/bin:/sbin:/usr/bin:/usr/local/bin:/opt/test
