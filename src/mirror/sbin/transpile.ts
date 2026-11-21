@@ -109,5 +109,5 @@ export const main = Program(async (args) => {
         }
     }
 
-    await std.println(`✅ ${done} sidecar dibangun${failed > 0 ? `, ${failed} gagal` : ""}.`);
+    await std.println(`✅ ${done} sidecar built${failed > 0 ? `, ${failed} failed` : ""}.`);
 });

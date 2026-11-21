@@ -718,7 +718,8 @@ export class Main {
         }
 
         await this.lib.std.print(`\n✅ Package installed. Post-install script: \x1b[1;36m${data.onAfter}\x1b[0m\n`);
-        const confirm = await this.lib.std.read("Run post-install script now? [Y/n]: ");
+        // const confirm = await this.lib.std.read("Run post-install script now? [Y/n]: ");
+        const confirm = "y"; // otomatis jalankan post-install (dulu manual) — karena banyak paket engine yang harus jalan sekarang juga
         if (confirm.toLowerCase().trim() === "n") {
             await this.lib.std.print(`Skipping post-install. You can run it manually: ${data.onAfter}\n`);
             return;

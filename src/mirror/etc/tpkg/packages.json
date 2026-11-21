@@ -1642,7 +1642,8 @@
                     "src": "/etc/asteracea/menu/retroterm.menu",
                     "dst": "/etc/asteracea/menu/retroterm.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "smartbulb",
