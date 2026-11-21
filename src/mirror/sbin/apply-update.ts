@@ -1,4 +1,5 @@
 import { Program, std, fs, shell } from "@tsix/Application";
+import { utf8ToVfsBytes, vfsBytesToUtf8 } from "@common/VfsText";
 
 /**
  * APPLY-UPDATE — hook pasca-instalasi paket engine (`system-update`)
@@ -84,9 +85,11 @@ export const main = Program(async () => {
             const tsPath = `${dir}/${entry.name}`;
             const jsPath = tsPath.replace(/\.ts$/, ".js");
             try {
-                const code = await fs.readFile(tsPath);
-                if (code === null) continue;
-                const out = esbuild.transformSync(code, {
+                // Isi VFS = BYTE (latin1, 1 char/byte). esbuild butuh TEKS UTF-8 yang
+                // sudah didekode; kalau tidak, karakter non-ASCII jadi mojibake.
+                const raw = await fs.readFile(tsPath);
+                if (raw === null) continue;
+                const out = esbuild.transformSync(vfsBytesToUtf8(raw), {
                     loader: "ts",
                     format: "cjs",
                     target: "node18",
@@ -94,7 +97,8 @@ export const main = Program(async () => {
                     sourcefile: entry.name,
                 });
                 if (!out?.code) throw new Error("esbuild tidak menghasilkan kode");
-                await fs.writeFile(jsPath, out.code);
+                // Kembalikan ke byte sebelum ditulis ke VFS (kebalikan latin1).
+                await fs.writeFile(jsPath, utf8ToVfsBytes(out.code));
                 compiled++;
             } catch (e: any) {
                 failed++;
@@ -108,11 +112,11 @@ export const main = Program(async () => {
     // ----------------------------------------------------------------- HOST
     for (const src of HOST_SIDECAR_SOURCES) {
         try {
-            const code = await fs.readFile(src.ts);
-            if (code === null) continue; // file tidak ikut paket ini → lewati
+            const raw = await fs.readFile(src.ts);
+            if (raw === null) continue; // file tidak ikut paket ini → lewati
 
             const baseName = src.ts.split("/").pop() as string;
-            const out = esbuild.transformSync(code, {
+            const out = esbuild.transformSync(vfsBytesToUtf8(raw), {
                 loader: "ts",
                 format: "cjs",
                 target: "node18",
@@ -122,9 +126,15 @@ export const main = Program(async () => {
             if (!out?.code) throw new Error("esbuild tidak menghasilkan kode");
 
             // syncToHost membaca isi dari VFS → tulis dulu ke staging, baru salin keluar.
-            const stage = `/tmp/tpkg-host-sidecar/${baseName.replace(/\.ts$/, ".js")}`;
-            await fs.writeFile(stage, out.code);
+            // Direktori staging WAJIB dibuat dulu: writeFile ke folder yang tidak ada
+            // gagal diam-diam (return false) dan syncToHost lalu melapor "not found".
+            const stageDir = "/tmp/tpkg-host-sidecar";
+            await fs.mkdir(stageDir);
+            const stage = `${stageDir}/${baseName.replace(/\.ts$/, ".js")}`;
+            const wrote = await fs.writeFile(stage, utf8ToVfsBytes(out.code));
+            if (!wrote) throw new Error(`gagal menulis staging ${stage}`);
             const ok = await fs.syncToHost(stage, src.hostDst);
+            await fs.unlink(stage).catch(() => false);
             if (!ok) throw new Error("syncToHost gagal");
             await std.println(`   ✅ host: ${src.hostDst} (dimuat langsung oleh Node)`);
         } catch (e: any) {

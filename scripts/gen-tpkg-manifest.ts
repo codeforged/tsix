@@ -2,93 +2,39 @@ import * as fs from "fs";
 import * as path from "path";
 
 /**
- * GENERATOR MANIFEST TPKG — paket `system-update` (engine update)
+ * GENERATOR MANIFEST TPKG — host infrastructure for `base-system`
  *
  * KENAPA GENERATOR, BUKAN DITULIS TANGAN:
- * daftar file sistem TSIX berubah terus (pernah 17 item padahal sistemnya 128
- * file, dan kernel 37 file sama sekali tidak ikut). Manifest yang ditulis tangan
- * pasti drift; manifest yang di-generate dari inventaris nyata tidak bisa.
+ * Kernel dan shared runtime hidup di HOST FS, bukan di VFS. Daftar item host
+ * `base-system` dibuat dari pohon kernel/common agar tidak tertinggal saat berubah.
  *
  * CARA PAKAI:
  *   npm run tpkg:manifest            -> tulis manifest
  *   npm run tpkg:manifest -- --dry   -> cuma tampilkan ringkasan (tanpa menulis)
  *
  * APA YANG DI-GENERATE:
- *   1. File VFS sistem  : src/mirror/{bin,sbin,usr/bin,lib,lib/common,etc}
- *      src (dibaca server) = path VFS;  dst = path VFS yang sama di klien.
- *   2. Kerangka engine  : src/kernel/**.ts + src/userland/WorkerEntry.ts
+ * Paket ini hanya menambahkan lapisan infrastruktur HOST dan shared runtime ke
+ * paket base-system yang VFS intinya dikurasi di packages.json.
+ *   1. Kernel           : src/kernel/**.ts
+ *   2. Bootloader       : WorkerEntry.ts + VfsModuleResolver.ts
+ *   3. Shared runtime   : semua TypeScript di src/common → /lib/common + hostDst
+ *
+ * File-file host-only:
  *      File-file ini HANYA ada di host (tidak pernah masuk VFS), jadi:
  *      src = /hostsrc/<rel>   (mount read-only dari fstab: hostPath "src")
  *      dst = /tmp/tpkg-stage/<rel>  (staging; SYNC_TO_HOST membaca isi dari VFS)
  *      hostDst = <rel>        (tujuan sebenarnya, relatif root proyek)
- *   3. hostDst untuk SEMUA item: paket engine menulis ke HOST juga, supaya repo di
- *      node tidak tertinggal dari BKFS. Kalau tertinggal, `npm run vfs:bootstrap`
- *      berikutnya akan menurunkan versi sistem secara diam-diam.
- *
- * MODE: tidak ditulis di manifest kalau sudah bisa diturunkan dari path —
- * `resolveMode()` di TpkgProtocol.ts memakai aturan yang sama dengan
- * `scripts/vfs-bootstrap.ts` (EXEC_DIRS + SetUID login/passwd/sudo). Yang tetap
- * ditulis eksplisit hanya SetUID, karena salah di situ = `sudo` tidak bisa baca
- * /etc/shadow.
- *
- * FILE YANG SENGAJA DILEWATI:
- *   - `*.test.ts` / `*.spec.ts` — bukan bagian image sistem (juga dilewati
- *     `install.ts` & `vfs-bootstrap.ts`);
- *   - sidecar `*.js` — selalu di-regenerate dari `.ts` (saat bootstrap, dan oleh
- *     `/sbin/apply-update.ts` setelah paket ini dipasang);
- *   - `.DS_Store` dan file non-.ts/.json (aset gambar/audio milik aplikasi /opt).
  */
 
 const ROOT = path.resolve(__dirname, "..");
 const MIRROR = path.join(ROOT, "src/mirror");
 const MANIFEST = path.join(MIRROR, "etc/tpkg/packages.json");
-/** Nama paket engine yang di-generate. */
-const ENGINE_PKG = "system-update";
-/** Direktori VFS yang isinya masuk paket engine (relatif src/mirror). */
-const VFS_DIRS = ["bin", "sbin", "usr/bin", "lib", "lib/common", "etc"];
-/** Ekstensi yang dianggap isi sistem. */
-const EXT = [".ts", ".json"];
+/** Paket infrastruktur yang menerima daftar host/common hasil generator. */
+const BASE_PKG = "base-system";
 /** Mount host read-only di node (lihat src/mirror/etc/fstab.conf). */
 const HOSTSRC_MOUNT = "/hostsrc";
 /** Staging VFS untuk file host (ramfs /tmp). */
 const HOST_STAGE = "/tmp/tpkg-stage";
-
-/**
- * YANG TIDAK BOLEH IKUT — data milik NODE, bukan milik engine.
- *
- * Ini kategori paling berbahaya kalau salah: mengirim `/etc/shadow` ke node lain
- * berarti akun server menggantikan akun node itu, dan mengirim `trusted_repos`
- * menyuntikkan kepercayaan ke repo asing. `fstab.conf`/`crontab` mengubah cara node
- * itu boot & menjadwalkan tugas. Semua ini sengaja TIDAK PERNAH di-update oleh paket
- * engine.
- */
-const NODE_LOCAL_PATTERNS: RegExp[] = [
-    /^\/etc\/(passwd|shadow|group)$/,
-    // fstab: `.conf` adalah sumber kebenaran sekarang, `.json` nama lama yang masih
-    // dipakai node pra-migrasi. Keduanya dilarang — `EXT` belum memuat `.conf`,
-    // jadi pola ini penjaga kalau nanti `EXT`/whitelist ikut berubah.
-    /^\/etc\/fstab\.(conf|json)$/,
-    /^\/etc\/crontab$/,
-    /^\/etc\/tpkg\/trusted_repos$/,
-    /^\/etc\/tpkg\/keys\//,
-    /^\/etc\/tsd\//, // trust + manifest milik tsd (legacy, per node)
-    // ACL bridge (`/etc/packetforwarder/firewalltables.conf`) hanya dibaca oleh
-    // node yang MENJALANKAN `forward`. Isinya kebijakan operator untuk bridge
-    // itu, bukan default sistem → paket engine tidak boleh menyebarkannya ke
-    // node lain (yang mungkin tidak menjalankan bridge sama sekali).
-    /^\/etc\/packetforwarder\//,
-];
-
-/**
- * `/etc` WHITELIST: hanya config tingkat sistem yang aman ditimpa.
- *
- * Sisanya (config aplikasi seperti /etc/lantana/*, /etc/telechat/*) adalah
- * pengaturan operator — engine update tidak boleh mengembalikannya ke default.
- * Paket manager di distro nyata menyelesaikan ini dengan "conffile": kalau user
- * sudah mengubah, file tidak ditimpa. TSIX belum punya mekanisme itu, jadi untuk
- * sekarang: lebih baik tidak mengirim sama sekali.
- */
-const SYSTEM_ETC = ["profile", "rc.local", "motd", "motd.json", "fstab.md", "tpkg/packages.json"];
 
 interface Item {
     src?: string;
@@ -98,32 +44,31 @@ interface Item {
     isExecutable?: boolean;
 }
 
-/** Binary yang wajib SetUID (salinan aturan vfs-bootstrap). */
-const SETUID_RE = /\/bin\/(login|passwd|sudo)\.ts$/;
-/** Mode SetUID — disamakan dengan `TPKG_SETUID_MODE`. */
-const SETUID_MODE = 0o4755;
-
-/**
- * walk(): daftar file yang ikut paket.
- *
- * `nameWhitelist` dipakai `/etc`: file seperti `profile`/`rc.local`/`motd` tidak
- * berekstensi, jadi filter ekstensi saja akan membuangnya padahal itu config boot
- * (rc.local dijalankan init via shebang `#!/bin/tsh`).
- */
-function walk(dir: string, base: string = "", nameWhitelist?: string[]): string[] {
+function walk(dir: string, base: string = ""): string[] {
     const out: string[] = [];
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         if (entry.name === ".DS_Store" || entry.name.startsWith(".")) continue;
         const rel = base ? `${base}/${entry.name}` : entry.name;
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) {
-            out.push(...walk(full, rel, nameWhitelist));
+            out.push(...walk(full, rel));
             continue;
         }
         if (/\.(test|spec)\.ts$/.test(entry.name)) continue;
-        const allowed = EXT.some((e) => entry.name.endsWith(e)) || !!nameWhitelist?.includes(rel);
-        if (!allowed) continue;
+        if (!entry.name.endsWith(".ts") && !entry.name.endsWith(".json")) continue;
         out.push(rel);
+    }
+    return out;
+}
+
+function walkAll(dir: string, base: string = ""): string[] {
+    const out: string[] = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === ".DS_Store" || entry.name.startsWith(".")) continue;
+        const rel = base ? `${base}/${entry.name}` : entry.name;
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) out.push(...walkAll(full, rel));
+        else if (entry.isFile()) out.push(rel);
     }
     return out;
 }
@@ -136,60 +81,25 @@ function kernelVersion(): string {
     return m[1];
 }
 
-/** Ikut dikirim ke node lain? (lihat NODE_LOCAL_PATTERNS & SYSTEM_ETC) */
-function isShippable(vfsPath: string): boolean {
-    for (const re of NODE_LOCAL_PATTERNS) if (re.test(vfsPath)) return false;
-    if (vfsPath.startsWith("/etc/")) {
-        return SYSTEM_ETC.some((f) => vfsPath === `/etc/${f}`);
-    }
-    return true;
-}
+const OPTIONAL_KERNEL_FILES = new Set([
+    "devices/aux-devices/ILI9341Device.ts",
+    "devices/aux-devices/LM6029Device.ts",
+    "devices/aux-devices/PLCDDevice.ts",
+    "devices/aux-devices/joystick.ts",
+    "devices/aux-devices/lcdFontClassic.ts",
+    "devices/aux-devices/lcdFonts.ts",
+    "devices/aux-devices/plcdFont5x7.ts",
+]);
 
-/** File sistem yang ada di VFS (src = VFS, dst = VFS, hostDst = repo). */
-function vfsItems(): Item[] {
-    const items: Item[] = [];
-    const seen = new Set<string>();
-    const skipped: string[] = [];
-    for (const dir of VFS_DIRS) {
-        const abs = path.join(MIRROR, dir);
-        if (!fs.existsSync(abs)) continue;
-        const whitelist = dir === "etc" ? SYSTEM_ETC : undefined;
-        for (const rel of walk(abs, "", whitelist)) {
-            const vfsPath = `/${dir}/${rel}`;
-            if (!isShippable(vfsPath)) {
-                skipped.push(vfsPath);
-                continue;
-            }
-            // Satu-satunya pengecualian: /lib/common di VFS di-seed dari src/common,
-            // jadi sumber repo-nya juga src/common (bukan src/mirror/lib/common).
-            const hostDst = dir === "lib/common" ? `src/common/${rel}` : `src/mirror/${dir}/${rel}`;
-            const item: Item = { src: vfsPath, dst: vfsPath, hostDst };
-            if (SETUID_RE.test(vfsPath)) item.permissions = SETUID_MODE;
-            else if (vfsPath.endsWith(".ts") && /\/(bin|usr\/bin|opt)\//.test(vfsPath)) item.isExecutable = true;
-            items.push(item);
-            seen.add(vfsPath);
-        }
-    }
-
-    if (skipped.length > 0) {
-        console.log(`[tpkg:manifest] dilewati (data per node): ${skipped.sort().join(", ")}`);
-    }
-
-    // Framework `@common/*`: HANYA 1 file ada di src/mirror/lib/common (sisanya
-    // hidup di src/common dan di-seed ke VFS saat install/bootstrap). Tanpa blok
-    // ini, komponen seperti AesGcmAgent/ISecurityAgent/Shebang tidak ikut terkirim
-    // — padahal itu bagian keamanan engine.
-    const commonDir = path.join(ROOT, "src/common");
-    if (fs.existsSync(commonDir)) {
-        for (const rel of fs.readdirSync(commonDir).sort()) {
-            if (!rel.endsWith(".ts") || /\.(test|spec)\.ts$/.test(rel)) continue;
-            const vfsPath = `/lib/common/${rel}`;
-            if (seen.has(vfsPath)) continue;
-            items.push({ src: vfsPath, dst: vfsPath, hostDst: `src/common/${rel}` });
-        }
-    }
-
-    return items;
+function commonItems(): Item[] {
+    const commonRoot = path.join(ROOT, "src/common");
+    return walk(commonRoot)
+        .filter((relative) => relative.endsWith(".ts"))
+        .map((relative) => ({
+            src: `/lib/common/${relative}`,
+            dst: `/lib/common/${relative}`,
+            hostDst: `src/common/${relative}`,
+        }));
 }
 
 /** File host-only (kernel + bootloader worker). */
@@ -211,6 +121,7 @@ function hostItems(): Item[] {
         if (!fs.existsSync(t.abs)) continue;
         for (const rel of walk(t.abs)) {
             if (t.only && !t.only.includes(rel)) continue;
+            if (t.rel === "src/kernel" && OPTIONAL_KERNEL_FILES.has(rel)) continue;
             const hostRel = `${t.rel}/${rel}`;
             items.push({
                 src: `${HOSTSRC_MOUNT}/${hostRel.substring("src/".length)}`,
@@ -222,53 +133,235 @@ function hostItems(): Item[] {
     return items;
 }
 
-function build(): { items: Item[]; vfs: number; host: number } {
-    const vfs = vfsItems();
-    const host = hostItems();
-    return { items: [...vfs, ...host], vfs: vfs.length, host: host.length };
+function vfsItems(relativePaths: string[]): Item[] {
+    return relativePaths.map((relative) => {
+        const vfsPath = `/${relative}`;
+        return { src: vfsPath, dst: vfsPath };
+    });
 }
 
-function main() {
-    const dry = process.argv.includes("--dry");
-    const { items, vfs, host } = build();
-    const version = kernelVersion();
+function directoryItems(relativeDirectory: string, include: (relative: string) => boolean = () => true): Item[] {
+    const absolute = path.join(MIRROR, relativeDirectory);
+    if (!fs.existsSync(absolute)) return [];
+    return walkAll(absolute)
+        .filter(include)
+        .map((relative) => `/${relativeDirectory}/${relative}`)
+        .map((vfsPath) => ({ src: vfsPath, dst: vfsPath }));
+}
 
-    const manifest = JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
-    const engine = {
-        name: ENGINE_PKG,
-        version,
-        description: "TSIX engine update — kernel + semua file sistem (/bin, /sbin, /usr/bin, /lib, /lib/common, /etc)",
-        author: "TSIX",
-        needReboot: true,
-        // Dijalankan setelah semua file mendarat: regenerate sidecar .js di VFS
-        // (EXEC & PATH memprioritaskan .js!) lalu tegakkan mode eksekusi.
-        onAfterDownload: "/sbin/apply-update.ts",
-        items,
-    };
+function ensurePackage(manifest: any, name: string, description: string, items: Item[] = []): any {
+    let pkg = manifest.packages.find((candidate: any) => candidate.name === name);
+    if (!pkg) {
+        pkg = { name, version: "1.0.0", description, author: "TSIX", needReboot: false, items: [] };
+        manifest.packages.push(pkg);
+    }
+    const destinations = new Set((pkg.items as Item[]).map((item) => item.dst));
+    for (const item of items) {
+        if (destinations.has(item.dst)) continue;
+        pkg.items.push(item);
+        destinations.add(item.dst);
+    }
+    return pkg;
+}
 
-    const idx = manifest.packages.findIndex((p: any) => p.name === ENGINE_PKG);
-    if (idx >= 0) manifest.packages[idx] = engine;
-    else manifest.packages.push(engine);
+function packageItems(manifest: any, name: string, items: Item[]): void {
+    const pkg = manifest.packages.find((candidate: any) => candidate.name === name);
+    if (!pkg) throw new Error(`Required package is missing: ${name}`);
+    const destinations = new Set((pkg.items as Item[]).map((item) => item.dst));
+    for (const item of items) {
+        if (destinations.has(item.dst)) continue;
+        pkg.items.push(item);
+        destinations.add(item.dst);
+    }
+}
 
-    const size = items.reduce((sum, it) => sum + fs.statSync(srcToHostPath(it)).size, 0);
+function reconcilePackages(manifest: any): void {
+    const obsolete = new Set(["system-update", "packages-list"]);
+    const otaServer = manifest.packages.find((pkg: any) => pkg.name === "ota-server");
+    if (otaServer) packageItems(manifest, "esp-ota", otaServer.items);
+    manifest.packages = manifest.packages.filter((pkg: any) => !obsolete.has(pkg.name) && pkg.name !== "ota-server");
 
-    console.log(`[tpkg:manifest] paket   : ${ENGINE_PKG} v${version}`);
-    console.log(`[tpkg:manifest] file    : ${items.length} (VFS ${vfs} + host ${host})`);
-    console.log(`[tpkg:manifest] ukuran  : ${(size / 1024).toFixed(0)} KB`);
+    const vfs = (paths: string[]) => vfsItems(paths);
+    ensurePackage(
+        manifest,
+        "coreutils",
+        "Core userland commands and small general-purpose tools.",
+        vfs([
+            "bin/awk.ts",
+            "bin/chgrp.ts",
+            "bin/df.ts",
+            "bin/echo.ts",
+            "bin/history.ts",
+            "bin/less.ts",
+            "bin/more.ts",
+            "bin/users.ts",
+            "bin/uuid-gen.ts",
+            "bin/which.ts",
+            "bin/xargs.ts",
+            "usr/bin/img2b64.ts",
+        ]),
+    );
+    ensurePackage(manifest, "procutils", "Process inspection and control tools.", vfs(["bin/kill.ts"]));
+    ensurePackage(
+        manifest,
+        "nettools",
+        "Networking utilities and daemons for TSIX.",
+        vfs(["bin/netfs.ts", "sbin/netfsd.ts", "sbin/vpns.ts"]),
+    );
+    ensurePackage(manifest, "filesystem-tools", "BKFS inspection and management utilities.", vfs(["usr/bin/bkfs.ts"]));
+    ensurePackage(
+        manifest,
+        "scheduler",
+        "Cron daemon and crontab management tools.",
+        vfs(["sbin/crond.ts", "usr/bin/crontab.ts"]),
+    );
+    ensurePackage(
+        manifest,
+        "esp-ota",
+        "ESP OTA tools and firmware repository.",
+        vfs(["usr/bin/esp-send.ts", "sbin/otad.ts", "usr/bin/ota-gen-ak.ts"]),
+    );
+    ensurePackage(
+        manifest,
+        "ipc-tools",
+        "Local process IPC diagnostic utilities.",
+        vfs(["usr/bin/ipc-listen.ts", "usr/bin/ipc-send.ts"]),
+    );
+    ensurePackage(
+        manifest,
+        "key-tools",
+        "Identity and key generation utilities.",
+        vfs(["usr/bin/keygen.ts", "usr/bin/ssh-keygen.ts"]),
+    );
+    ensurePackage(
+        manifest,
+        "dev-tools",
+        "Developer tools for maintaining the TSIX host SDK.",
+        vfs(["sbin/userlib-update.ts"]),
+    );
+    ensurePackage(manifest, "bitshark", "Graphical MQTNL packet inspector.", [
+        ...vfs(["usr/bin/bitshark.ts"]),
+        ...vfs(["etc/asteracea/menu/bitshark.menu"]),
+    ]);
 
-    if (dry) {
-        console.log("[tpkg:manifest] --dry: manifest tidak ditulis.");
-        return;
+    const apps: Array<{ name: string; description: string; directory: string; menu?: string }> = [
+        {
+            name: "craving-tracker",
+            description: "Craving tracker desktop app.",
+            directory: "opt/craving-tracker",
+            menu: "craving-tracker",
+        },
+        {
+            name: "iot-dashboard",
+            description: "Lantana IoT dashboard.",
+            directory: "opt/iot-dashboard",
+            menu: "iot-dashboard",
+        },
+        { name: "krisan", description: "Krisan desktop environment sample and assets.", directory: "opt/krisan" },
+        {
+            name: "pixelspace-traffic",
+            description: "PixelSpace traffic monitor.",
+            directory: "opt/pixelspace-traffic",
+            menu: "pixelspace-traffic",
+        },
+        {
+            name: "plcd-emulator",
+            description: "PLCD display emulator and launcher.",
+            directory: "opt/plcd",
+            menu: "lcd-emulator",
+        },
+    ];
+    for (const app of apps) {
+        const items = directoryItems(app.directory);
+        if (app.menu) items.push(...vfs([`etc/asteracea/menu/${app.menu}.menu`]));
+        ensurePackage(manifest, app.name, app.description, items);
     }
 
-    fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 4) + "\n");
-    console.log(`[tpkg:manifest] ditulis : ${path.relative(ROOT, MANIFEST)}`);
+    const owned = new Set<string>();
+    for (const pkg of manifest.packages) for (const item of pkg.items as Item[]) owned.add(item.dst);
+    const testItems = directoryItems("opt/test", (relative) => relative !== "tmp_hex.txt").filter(
+        (item) => !owned.has(item.dst),
+    );
+    const unownedMenus = directoryItems("etc/asteracea/menu", (relative) => relative.endsWith(".menu")).filter(
+        (item) => !owned.has(item.dst),
+    );
+    ensurePackage(manifest, "test-lab", "Optional TSIX test programs, examples, and their launcher menus.", [
+        ...testItems,
+        ...unownedMenus,
+    ]);
+
+    const destinationOwner = new Map<string, string>();
+    const hostOwner = new Map<string, string>();
+    for (const pkg of manifest.packages) {
+        const unique: Item[] = [];
+        for (const item of pkg.items as Item[]) {
+            const previous = destinationOwner.get(item.dst);
+            if (previous) {
+                console.log(`[tpkg:manifest] overlap removed: ${item.dst} (${pkg.name}; owned by ${previous})`);
+                continue;
+            }
+            if (item.hostDst) {
+                const previousHost = hostOwner.get(item.hostDst);
+                if (previousHost)
+                    throw new Error(`Duplicate hostDst '${item.hostDst}' in '${previousHost}' and '${pkg.name}'.`);
+                hostOwner.set(item.hostDst, pkg.name);
+            }
+            destinationOwner.set(item.dst, pkg.name);
+            unique.push(item);
+        }
+        pkg.items = unique;
+    }
 }
 
-/** srcToHostPath(): item manifest → path nyata di host (untuk hitung ukuran). */
-function srcToHostPath(item: Item): string {
-    if (item.hostDst) return path.join(ROOT, item.hostDst);
-    return path.join(MIRROR, item.src ?? "");
-}
+function main(): void {
+    const dry = process.argv.includes("--dry");
+    const manifest = JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
+    const base = manifest.packages.find((pkg: any) => pkg.name === BASE_PKG);
+    if (!base) throw new Error(`Package '${BASE_PKG}' is missing from ${MANIFEST}.`);
 
+    const vfs = (base.items as Item[])
+        .filter((item) => typeof item.src === "string")
+        .filter((item) => !item.src!.startsWith("/hostsrc/") && !item.src!.startsWith("/lib/common/"))
+        .filter((item) => !["/etc/profile", "/etc/rc.local", "/etc/tpkg/packages.json"].includes(item.src!));
+    for (const requiredPath of ["/usr/bin/tbuild.ts", "/sbin/apply-update.ts"]) {
+        if (!vfs.some((item) => item.dst === requiredPath)) vfs.push({ src: requiredPath, dst: requiredPath });
+    }
+    const vfsWithHost = vfs.map((item) => ({
+        ...item,
+        hostDst: item.hostDst ?? `src/mirror/${item.src!.slice(1)}`,
+    }));
+    const common = commonItems();
+    const host = hostItems();
+    const items = [...vfsWithHost, ...common, ...host];
+    const destinations = new Set<string>();
+    for (const item of items) {
+        if (destinations.has(item.dst)) throw new Error(`Duplicate base-system destination: ${item.dst}`);
+        destinations.add(item.dst);
+    }
+
+    base.version = kernelVersion();
+    base.description = "TSIX base system: essential VFS, shared runtime, kernel and bootloader host infrastructure.";
+    base.author = "TSIX";
+    base.needReboot = true;
+    base.onAfterDownload = "/sbin/apply-update.ts";
+    base.items = items.sort((a, b) => a.dst.localeCompare(b.dst));
+    reconcilePackages(manifest);
+
+    const packageCount = manifest.packages.length;
+    const totalItems = manifest.packages.reduce((sum: number, pkg: any) => sum + pkg.items.length, 0);
+    const baseBytes = base.items.reduce((sum: number, item: Item) => {
+        const source = item.hostDst ? path.join(ROOT, item.hostDst) : path.join(MIRROR, item.src ?? "");
+        return sum + fs.statSync(source).size;
+    }, 0);
+    console.log(`[tpkg:manifest] package: ${BASE_PKG} v${base.version}`);
+    console.log(`[tpkg:manifest] host kernel/common items: ${host.length + common.length}`);
+    console.log(`[tpkg:manifest] base items: ${base.items.length} (${(baseBytes / 1024).toFixed(0)} KB)`);
+    console.log(`[tpkg:manifest] catalog: ${packageCount} packages, ${totalItems} total items`);
+    if (dry) {
+        console.log("[tpkg:manifest] --dry: manifest not written.");
+        return;
+    }
+    fs.writeFileSync(MANIFEST, `${JSON.stringify(manifest, null, 4)}\n`);
+    console.log(`[tpkg:manifest] written: ${path.relative(ROOT, MANIFEST)}`);
+}
 main();

@@ -127,7 +127,10 @@ export class main implements IProgram {
                 if (typeof output === "string" && output) {
                     await lib.std.print(output + "\n");
                 }
-                return `Script ${firstArg} finished.`;
+                // Tidak mengembalikan "Script ... finished." — WorkerEntry mencetak
+                // nilai balik execute(), dan baris itu hanya derau saat init
+                // menjalankan /etc/rc.local. Cukup keluar dengan status sukses.
+                return;
             }
         }
 

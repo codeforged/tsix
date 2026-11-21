@@ -19,13 +19,13 @@ alasan:
 
 ```json
 {
-  "schemaVersion": 1,
-  "overrides": {
-    "src/mirror/opt/test/hello-world.ts": {
-      "category": "application",
-      "reason": "Contoh tutorial yang memang didistribusikan."
+    "schemaVersion": 1,
+    "overrides": {
+        "src/mirror/opt/test/hello-world.ts": {
+            "category": "application",
+            "reason": "Contoh tutorial yang memang didistribusikan."
+        }
     }
-  }
 }
 ```
 
@@ -55,15 +55,39 @@ catatan rilis di manifest sebelum membangun image.
 Untuk membangun paket dari aturan terbaru:
 
 ```sh
-npm run distro:inventory
-npm run distro:generate -- --check
-npm run distro:generate
+npm run distro:inventory          # (opsional) perbarui inventaris
+npm run tpkg:manifest             # pastikan katalog paket mutakhir
+npm run distro:twrapper -- --check
+npm run distro:twrapper
 ```
 
-Generator menyalin file terpilih dengan struktur path yang sama, menulis
-`manifest.json` dan README instalasi, serta menolak symlink atau perubahan manual
-pada file hasil generate. Paket menyertakan `scripts/install.ts`, helper yang
-dibutuhkannya, dan metadata npm. Di paket hasil generate, perintah `install`
-diubah menjadi `tsix:install` agar `npm install` tidak tanpa sengaja membuat
-image sistem. Jalankan `npm install`, lalu `npm run tsix:install`; pada instalasi
-baru installer meminta password root dan tidak membawa hash password dari repo.
+> Generator lama `distro:generate` (`scripts/distro-generator.ts`) sudah dihapus.
+> Komposisi distro kini dideklarasikan lewat recipe Twrapper
+> (`scripts/twrapper/*.json`) dan diambil dari paket TPKG, bukan daftar file.
+> Dokumentasi lengkap: `wiki/twrapper.md`.
+
+Twrapper menyalin berkas installer (`scripts/install.ts`, helper yang
+dibutuhkannya, dan metadata npm), menolak symlink atau perubahan manual pada file
+hasil build, serta menulis README instalasi. Di paket hasil build, perintah
+`install` diubah menjadi `tsix:install` agar `npm install` tidak tanpa sengaja
+membuat image sistem. Jalankan `npm install`, lalu `npm run tsix:install`; pada
+instalasi baru installer meminta password root dan tidak membawa hash password
+dari repo.
+
+## Twrapper: TSIX Imut
+
+Twrapper membangun image dari nama paket TPKG, bukan dari aturan kategori, tag,
+dan path file. Resep lab ada di `scripts/twrapper/imut.json`:
+`installedPackages` menentukan isi awal image, sedangkan `repositoryPackages`
+hanya ditempatkan di repository lokal untuk diuji lewat `tpkg install`.
+
+```sh
+node -r esbuild-register scripts/twrapper/build.ts --check
+node -r esbuild-register scripts/twrapper/build.ts
+```
+
+Hasilnya ada di `distro/imut/`. Profile, `rc.local`, dan konfigurasi repo TPKG
+dibuat khusus untuk lab: hanya `tpkgd` yang dijalankan saat boot, repository
+default-nya `localhost:8080`, dan paket uji belum terpasang ke image awal.
+Twrapper memakai katalog paket di `src/mirror/etc/tpkg/packages.json`; alur ini
+independen dari file-based generator IoT Edition.

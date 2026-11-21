@@ -742,8 +742,12 @@ export class Main {
                 const entry: BackupEntry = { path: file.path, existed: false };
 
                 // (a) Sisi VFS — file `dst` dicetak tiap install, host atau bukan.
-                const existing = await this.lib.fs.readFile(file.path);
-                if (existing !== null && existing !== undefined) {
+                const existingStat = await this.lib.fs.stat(file.path);
+                if (existingStat) {
+                    const existing = await this.lib.fs.readFile(file.path);
+                    if (existing === null || existing === undefined) {
+                        throw new Error(`File ada tapi tidak bisa dibaca untuk backup: ${file.path}`);
+                    }
                     seq++;
                     const name = `${String(seq).padStart(4, "0")}.bin`;
                     await this.lib.fs.writeFile(`${dir}/${name}`, existing);

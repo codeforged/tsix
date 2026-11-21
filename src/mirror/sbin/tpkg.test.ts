@@ -328,16 +328,19 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         expect(JSON.parse(catalog)[0].name).toBe("hello-world");
     });
 
-    it("P2.04 tpkg install → file ditulis, mode 755, status & backup dibuat, post-install jalan", async () => {
+    it("P2.04 first install backs up safely when readFile rejects missing destinations", async () => {
         setupServer(world);
         await boot();
+        const lib = world.makeLib(world.clientNode) as any;
+        const readFile = lib.fs.readFile;
+        lib.fs.readFile = async (path: string) => {
+            if (["/opt/test/hello-pkg.ts", "/etc/pkg-demo.conf"].includes(path)) {
+                throw new Error(`File not found: ${path}`);
+            }
+            return readFile(path);
+        };
 
-        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, [
-            "install",
-            "hello-world",
-            "--from",
-            "server",
-        ]);
+        await new TpkgClient().execute(lib, ["install", "hello-world", "--from", "server"]);
 
         const fs = world.fs(world.clientNode);
         const text = out(world);
@@ -362,7 +365,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         expect(world.execs.map((e) => e.cmd)).toContain("/opt/test/hello-pkg.ts");
 
         // 5) backup dibuat di disk sebelum menimpa
-        const backups = await world.makeLib(world.clientNode).fs.ls("/var/lib/tpkg/backup/hello-world");
+        const backups = await lib.fs.ls("/var/lib/tpkg/backup/hello-world");
         expect(backups).toHaveLength(1);
     });
 
@@ -560,6 +563,42 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         expect(world.hostSyncs.filter((s) => s.op === "from").map((s) => s.hostPath)).toContain("src/kernel/Kernel.ts");
         const backups = await world.makeLib(world.clientNode).fs.ls("/var/lib/tpkg/backup/engine");
         expect(backups).toHaveLength(1);
+    });
+
+    it("tpkgd preserves UTF-8 host package bytes without a /hostsrc VFS mount", async () => {
+        setupServer(world, {
+            name: "base-system",
+            version: "0.3.3",
+            onAfterDownload: undefined,
+            items: [
+                {
+                    src: "/hostsrc/kernel/Kernel.ts",
+                    dst: "/tmp/tpkg-stage/kernel/Kernel.ts",
+                    hostDst: "src/kernel/Kernel.ts",
+                },
+            ],
+        });
+        const hostText = "\uFEFF// kernel café — 東京\n";
+        const hostBytes = Buffer.from(hostText, "utf8");
+        const hostVfsBytes = hostBytes.toString("latin1");
+        world.hostFiles.set("src/kernel/Kernel.ts", hostVfsBytes);
+
+        await boot();
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, [
+            "install",
+            "base-system",
+            "--from",
+            "server",
+        ]);
+
+        expect(out(world)).toContain("Installation successful");
+        const clientBytes = world.fs(world.clientNode).files.get("/tmp/tpkg-stage/kernel/Kernel.ts");
+        expect(Buffer.from(clientBytes!, "latin1")).toEqual(hostBytes);
+        expect(Buffer.from(clientBytes!, "latin1").toString("utf8")).toBe(hostText);
+        expect(world.hostFiles.get("src/kernel/Kernel.ts")).toBe(hostVfsBytes);
+        expect(
+            world.hostSyncs.filter((sync) => sync.op === "from" && sync.hostPath === "src/kernel/Kernel.ts"),
+        ).toHaveLength(2);
     });
 
     it("P2.13 konfirmasi tulis-host ditolak → tidak ada yang berubah", async () => {

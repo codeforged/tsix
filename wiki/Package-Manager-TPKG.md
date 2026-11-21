@@ -2,8 +2,9 @@
 
 TPKG adalah package manager bawaan TSIX untuk menginstall, update, dan mengelola software packages.
 
-Selain paket aplikasi biasa, tpkg juga bisa **meng-upgrade engine TSIX** (kernel +
-seluruh komponen sistem) ke node lain — lihat [Paket Engine](#paket-engine-system-update).
+Selain paket aplikasi, TPKG dapat memperbarui paket fondasi `base-system`, termasuk
+kernel dan komponen host penting. Paket ini dibangun dari kepemilikan file paket,
+bukan dari paket sapu-jagat `system-update`.
 
 ---
 
@@ -48,7 +49,7 @@ Semua perintah yang **mengubah sistem** — `update`, `install`, `download`,
 `rollback` — **wajib root** (`sudo`). Yang boleh tanpa root: `list`, `info`,
 `verify`, `metrics`, `--set-repo`.
 
-Itu bukan sekadar sopan santun: paket **engine** (`system-update`) menulis ke HOST FS
+Itu bukan sekadar sopan santun: paket **base-system** menulis ke HOST FS
 (kernel & komponennya), dan syscall `SYNC_TO_HOST` di kernel sendiri juga menolak
 non-root. Jadi tanpa root, paket itu pasti gagal separuh jalan — lebih baik ditolak
 di depan dengan pesan jelas.
@@ -162,13 +163,13 @@ Packages didefinisikan dalam `packages.json` di node server:
 
 ### Field item
 
-| Field          | Deskripsi                                                                                                                                   |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src`          | Path sumber di sisi server (path VFS, atau `/hostsrc/...` untuk file host — lihat [Paket Engine](#paket-engine-system-update))              |
-| `dst`          | Path tujuan di sisi klien (absolut)                                                                                                         |
-| `hostDst`      | **Opsional.** Tujuan tambahan di HOST, relatif root proyek (mis. `src/kernel/Kernel.ts`). File ber-`hostDst` ditulis ke VFS **dan** ke host |
-| `permissions`  | Mode chmod eksplisit (mis. `493` = `0o755`). Menang atas `isExecutable`                                                                     |
-| `isExecutable` | `true` → chmod `0o755`                                                                                                                      |
+| Field          | Deskripsi                                                                                                                                     |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src`          | Path sumber di sisi server (path VFS, atau `/hostsrc/...` untuk file host — lihat [Base-System](#base-system-fondasi-dan-infrastruktur-host)) |
+| `dst`          | Path tujuan di sisi klien (absolut)                                                                                                           |
+| `hostDst`      | **Opsional.** Tujuan tambahan di HOST, relatif root proyek (mis. `src/kernel/Kernel.ts`). File ber-`hostDst` ditulis ke VFS **dan** ke host   |
+| `permissions`  | Mode chmod eksplisit (mis. `493` = `0o755`). Menang atas `isExecutable`                                                                       |
+| `isExecutable` | `true` → chmod `0o755`                                                                                                                        |
 
 Urutan penentuan mode: `permissions` → SetUID (`/bin/login|passwd|sudo` → `0o4755`)
 → `isExecutable` → direktori eksekusi (`/bin`, `/usr/bin`, `/opt` → `0o755`;
@@ -189,50 +190,53 @@ Urutan penentuan mode: `permissions` → SetUID (`/bin/login|passwd|sudo` → `0
 jelas, bukan crash/OOM. Bundle dikirim dalam satu pesan MQTNL sehingga manifest
 dengan file raksasa (ratusan MB) tidak akan tertangani — pecah paketnya atau
 gunakan `host` mount untuk file besar. Paket aplikasi TSIX pada umumnya ≤ 188 KB;
-paket engine penuh (lihat di bawah) ≈ 1,9 MB.
+paket base-system membawa infrastruktur host dan shared runtime yang diperlukan.
 
 ---
 
-## Update System
+## Memperbarui Sistem
 
 1. `tpkg update` mengambil katalog paket ke `/var/cache/tpkg/repo.json`
-2. `tpkg download <pkg>` mengambil file update ke `/var/cache/tpkg/bundles/<pkg>/<versi>/`
-3. `tpkg install <pkg>` menulis ke VFS (+ host untuk paket engine) lalu menjalankan
+2. `tpkg download <pkg>` mengambil file paket ke `/var/cache/tpkg/bundles/<pkg>/<versi>/`
+3. `tpkg install <pkg>` menulis ke VFS (+ host untuk `base-system`) lalu menjalankan
    `onAfterDownload`
 4. Reboot bila `needReboot: true`
 
 ```bash
 sudo tpkg update                 # katalog
-sudo tpkg download system-update # opsional: ambil & verifikasi lebih dulu
-sudo tpkg install system-update  # pasang
+sudo tpkg download base-system   # opsional: ambil & verifikasi lebih dulu
+sudo tpkg install base-system    # perbarui fondasi dan infrastruktur host
 reboot
 ```
 
 ---
 
-## Paket Engine (`system-update`)
+## Base-System: Fondasi dan Infrastruktur Host
 
-`system-update` adalah paket yang **meng-upgrade engine TSIX**: kernel, bootloader
-worker, seluruh userland sistem, library, dan config boot. Ini paket yang dipakai
-untuk memperbarui node TSIX jarak jauh.
+`base-system` adalah fondasi image dan jalur pembaruan infrastruktur node. Isinya
+gabungan file VFS dasar yang dikurasi di `packages.json` dengan file kernel,
+bootloader worker, shared runtime, dan VFS base yang perlu disinkronkan ke host.
+Aplikasi seperti Lantana, desktop, network tools, dan driver opsional tetap punya
+paket domain masing-masing, bukan ikut tersalin sebagai satu paket system-wide.
 
-### Isi paket
+### Batas paket
 
-| Bagian                                          | Jumlah    | Cara ditulis                            |
-| ----------------------------------------------- | --------- | --------------------------------------- |
-| `/bin`, `/sbin`, `/usr/bin`, `/lib`, `/etc`     | ~134 file | langsung ke VFS (BKFS)                  |
-| `/lib/common/*` (framework `@common`)           | 12 file   | VFS + host `src/common/*`               |
-| `src/kernel/**` + `src/userland/WorkerEntry.ts` | 38 file   | **host saja** — kernel tidak ada di VFS |
+| Bagian                                      | Tujuan                                  | Cara dipasang                           |
+| ------------------------------------------- | --------------------------------------- | --------------------------------------- |
+| VFS base yang dikurasi                      | VFS + `src/mirror/**` host mirror       | Ditulis ke VFS dan host lewat `hostDst` |
+| `src/common/**/*.ts`                        | `/lib/common/**` + host `src/common/**` | VFS seed dan host mirror                |
+| `src/kernel/**`                             | Host filesystem                         | Staging VFS lalu `syncToHost`           |
+| `WorkerEntry.ts` dan `VfsModuleResolver.ts` | Host filesystem                         | Staging VFS lalu `syncToHost`           |
 
-Total ±176 file / ±1,9 MB. Daftar ini **di-generate**, bukan ditulis tangan:
+Daftar kernel/common/bootloader dihasilkan dari source tree; file VFS base tetap
+ditentukan oleh pemilik paket masing-masing. Jalankan:
 
 ```bash
-npm run tpkg:manifest          # tulis ulang paket system-update di packages.json
-npm run tpkg:manifest -- --dry # cuma lihat ringkasan
+npm run tpkg:manifest          # rekonsiliasi base-system dan seluruh katalog
+npm run tpkg:manifest -- --dry # preview tanpa menulis
 ```
 
-Versi paket diambil dari `src/kernel/Kernel.ts`, jadi tidak pernah lagi beda dengan
-versi engine yang sebenarnya berjalan (dulu: paket `1.7.4` vs kernel `0.3.0.x`).
+Versi paket mengikuti versi kernel di `src/kernel/Kernel.ts`.
 
 ### Kenapa ada `hostDst`
 
@@ -247,12 +251,15 @@ graph LR
     C --> D["src/kernel/Kernel.ts<br/>src/common/*.ts<br/>src/mirror/**"]
 ```
 
-Tujuannya **dua**: mengubah sistem yang berjalan (VFS) **dan** menjaga repo di disk
-tetap sinkron. Kalau repo tertinggal, `npm run vfs:bootstrap` berikutnya akan
-menurunkan versi sistem secara diam-diam.
+Tujuannya **dua**: memperbarui sistem yang berjalan (VFS) **dan** menjaga source
+mirror di host tetap sinkron. Kalau repo tertinggal, `npm run vfs:bootstrap`
+berikutnya bisa mengembalikan file host yang lebih lama.
 
-Di sisi server, file host dibaca lewat mount read-only `/hostsrc` → `src`
-(lihat `src/mirror/etc/fstab.conf`, mode `0o700` — hanya root).
+Di sisi server, file host biasanya dibaca lewat mount read-only `/hostsrc` → `src`
+(lihat `src/mirror/etc/fstab.conf`, mode `0o700` — hanya root). Jika mount itu
+tidak tersedia, `tpkgd` root membaca item `/hostsrc/...` lewat `SYNC_FROM_HOST`
+dan staging sementara di `/tmp`; path sumber tetap divalidasi agar tidak bisa
+keluar dari root proyek.
 
 ### Pengaman
 
@@ -263,7 +270,7 @@ Di sisi server, file host dibaca lewat mount read-only `/hostsrc` → `src`
 - `hostDst` divalidasi di **server dan klien** (`isSafeHostDst`): harus relatif,
   tanpa `..`, tanpa path absolut. Nilai yang tidak aman → paket ditolak.
 - `hostDst` **ikut ditandatangani** (masuk `bundleDigest`), jadi pihak ketiga tidak
-  bisa membelokkan file engine ke path lain walau signature tetap valid.
+  bisa membelokkan file base/kernel ke path lain walau signature tetap valid.
 - Backup mencakup **kedua sisi**: file VFS **dan** file host. `tpkg rollback` karena
   itu bisa mengembalikan kernel yang sudah tertimpa.
 - File host yang benar-benar baru tidak bisa dihapus otomatis (VFS tidak punya
@@ -297,8 +304,8 @@ Data milik node tidak boleh disebar ke node lain:
 Yang tetap dikirim dari `/etc` hanya: `profile`, `rc.local`, `motd`, `motd.json`,
 `fstab.md`, `tpkg/packages.json`.
 
-> Kalau operator pernah mengubah `profile`/`rc.local`, paket ini akan menimpanya —
-> `sudo tpkg rollback system-update` mengembalikannya (keduanya ikut dibackup).
+> `profile`, `rc.local`, katalog TPKG, kredensial, dan konfigurasi node-local bukan
+> bagian dari payload `base-system`; paket ini tidak menimpa pengaturan operator.
 
 ---
 
@@ -353,19 +360,19 @@ Perilaku:
 
 ## Troubleshooting
 
-| Gejala                                     | Penyebab & solusi                                                                                                      |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `requires root privileges`                 | Jalankan dengan `sudo`                                                                                                 |
-| `tidak merespons handshake`                | Server mati / port salah. Cek `--from host:port` dan `tpkgd --port`                                                    |
-| `Package '<x>' not found in catalog`       | Jalankan `tpkg update` dulu, atau server belum punya paket itu                                                         |
-| Post-install error **126**                 | File tidak executable → tambahkan `isExecutable: true`                                                                 |
-| `melebihi batas` saat bundle               | Paket > `--max-bundle` → naikkan batas atau pecah paket                                                                |
-| Fingerprint berubah                        | Server di-reinstall/kunci diganti, atau MITM. Verifikasi dulu                                                          |
-| `RATE_LIMITED`                             | Terlalu banyak permintaan dari satu pengirim, tunggu 1 menit                                                           |
-| `requires root privileges`                 | Jalankan dengan `sudo` — paket engine menulis ke host FS                                                               |
-| Update engine tidak berefek setelah reboot | Sidecar `.js` belum dibangun ulang → pastikan `/sbin/apply-update.ts` jalan (dijalankan otomatis sebagai post-install) |
-| `hostDst tidak aman`                       | Manifest salah: `hostDst` harus relatif, tanpa `..`/absolut                                                            |
-| Backup host gagal                          | `syncFromHost` butuh root & file host harus bisa dibaca                                                                |
+| Gejala                                                  | Penyebab & solusi                                                                                                                                              |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `requires root privileges`                              | Jalankan dengan `sudo`                                                                                                                                         |
+| `tidak merespons handshake`                             | Server mati / port salah. Cek `--from host:port` dan `tpkgd --port`                                                                                            |
+| `Package '<x>' not found in catalog`                    | Jalankan `tpkg update` dulu, atau server belum punya paket itu                                                                                                 |
+| Post-install error **126**                              | File tidak executable → tambahkan `isExecutable: true`                                                                                                         |
+| `melebihi batas` saat bundle                            | Paket > `--max-bundle` → naikkan batas atau pecah paket                                                                                                        |
+| Fingerprint berubah                                     | Server di-reinstall/kunci diganti, atau MITM. Verifikasi dulu                                                                                                  |
+| `RATE_LIMITED`                                          | Terlalu banyak permintaan dari satu pengirim, tunggu 1 menit                                                                                                   |
+| `requires root privileges`                              | Jalankan dengan `sudo` — `base-system` dapat menulis ke host FS                                                                                                |
+| Update engine tidak berefek setelah reboot              | Sidecar `.js` belum dibangun ulang → pastikan `/sbin/apply-update.ts` jalan (dijalankan otomatis sebagai post-install)                                         |
+| `hostDst tidak aman`                                    | Manifest salah: `hostDst` harus relatif, tanpa `..`/absolut                                                                                                    |
+| Backup host gagal                                       | `syncFromHost` butuh root & file host harus bisa dibaca                                                                                                        |
 | `Local module scan failed: File not found: /common/...` | Bug loader lama (sudah dibetulkan 2026-09-22): resolver modul relatif menembus root VFS. Pastikan sidecar `src/userland/VfsModuleResolver.js` sudah di-rebuild |
 
 ---

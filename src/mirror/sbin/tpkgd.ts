@@ -46,6 +46,7 @@ export class Main {
     private sessions: Map<string, { agent: SecurityAgent; lastActivity: number }> = new Map();
     private rateLimiter: Map<string, { count: number; resetAt: number }> = new Map();
     private lastSweep: number = 0;
+    private hostSourceSequence = 0;
     private stats = { handshakes: 0, lists: 0, infos: 0, bundles: 0, denied: 0 };
 
     async execute(lib: UserLib, args: string[]) {
@@ -410,7 +411,32 @@ export class Main {
         let total = 0;
 
         for (const item of items) {
-            const content = await this.lib.fs.readFile(item.src);
+            let content: string | null = null;
+            try {
+                content = await this.lib.fs.readFile(item.src);
+            } catch (error) {
+                if (!item.src.startsWith("/hostsrc/")) throw error;
+            }
+
+            if ((content === null || content === undefined) && item.src.startsWith("/hostsrc/")) {
+                const hostRelative = item.src.slice("/hostsrc/".length);
+                if (
+                    hostRelative === "" ||
+                    hostRelative.includes("\\") ||
+                    hostRelative.split("/").some((part) => part === "" || part === "." || part === "..")
+                ) {
+                    throw new Error(`hostsrc path tidak aman: ${item.src}`);
+                }
+
+                const hostPath = `src/${hostRelative}`;
+                const stagePath = `/tmp/tpkgd-hostsrc-${process.pid}-${this.hostSourceSequence++}.tmp`;
+                try {
+                    await this.lib.fs.syncFromHost(hostPath, stagePath);
+                    content = await this.lib.fs.readFile(stagePath);
+                } finally {
+                    await this.lib.fs.unlink(stagePath).catch(() => false);
+                }
+            }
             if (content === null || content === undefined) {
                 throw new Error(`file sumber tidak ada: ${item.src}`);
             }

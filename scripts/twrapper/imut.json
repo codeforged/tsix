@@ -1,0 +1,21 @@
+{
+    "schemaVersion": 1,
+    "distro": {
+        "id": "imut",
+        "name": "TSIX Imut",
+        "version": "0.1.0-draft",
+        "status": "draft",
+        "description": "Distro minimal TSIX untuk menguji instalasi paket TPKG.",
+        "purpose": [
+            "Menyediakan sistem dasar TSIX yang dapat boot dan menjalankan klien TPKG.",
+            "Menyediakan repository lokal kecil untuk menguji alur tpkg update, download, verify, install, dan rollback."
+        ],
+        "features": [
+            "Komposisi image ditentukan dari nama paket TPKG, bukan daftar source file.",
+            "Coreutils tersedia sejak boot; procutils, nettools, hello-world, dan hardware driver tersedia di repository uji lokal."
+        ]
+    },
+    "outputDirectory": "distro/imut",
+    "installedPackages": ["base-system", "coreutils", "tpkg"],
+    "repositoryPackages": []
+}
