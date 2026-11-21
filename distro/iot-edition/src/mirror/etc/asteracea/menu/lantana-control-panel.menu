@@ -1,5 +1,0 @@
-name=Lantana Control Panel
-icon=🪴
-command=/opt/lantana/lantana-control-panel.js
-pinned_launcher=false
-group=IoT

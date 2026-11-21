@@ -1,3 +1,0 @@
-#!/bin/tsh
-# TSIX Imut lab: start only the local TPKG package repository.
-/sbin/tpkgd.js --port 8080

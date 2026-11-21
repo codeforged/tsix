@@ -98,3 +98,7 @@ src/rootfs/
 
 # --- shared/ — isi personal/dev
 shared/*
+
+# --- distro/ — image hasil build (Twrapper): produk sekunder, bukan source ---
+# Bangun ulang dengan `npm run distro:twrapper` (lihat wiki/twrapper.md).
+distro/

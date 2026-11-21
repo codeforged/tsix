@@ -1,7 +1,0 @@
-name=PixelTerm
-icon=💻
-command=/opt/pixelterm/pixelterm.js
-#tambahkan --huponexit atau -hue untuk mengirim SIGHUP ke child process saat pixelterm ditutup
-params=-hue
-pinned_launcher=true
-group=System
