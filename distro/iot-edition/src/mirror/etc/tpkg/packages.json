@@ -1,0 +1,242 @@
+{
+    "version": "1.0",
+    "packages": [
+        {
+            "name": "test-lab",
+            "version": "1.0.0",
+            "description": "Optional TSIX test programs, examples, and their launcher menus.",
+            "author": "TSIX",
+            "needReboot": false,
+            "items": [
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/TSD-Sample-Packages.md",
+                    "dst": "/opt/test/TSD-Sample-Packages.md"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/aesgcm-crypto.ts",
+                    "dst": "/opt/test/aesgcm-crypto.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/cha2poly1305-crypto.ts",
+                    "dst": "/opt/test/cha2poly1305-crypto.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/cli-read-keyboard.ts",
+                    "dst": "/opt/test/cli-read-keyboard.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/db-demo.ts",
+                    "dst": "/opt/test/db-demo.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/dg-demo.ts",
+                    "dst": "/opt/test/dg-demo.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/file-operation.ts",
+                    "dst": "/opt/test/file-operation.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/gui-chat.ts",
+                    "dst": "/opt/test/gui-chat.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/gui-db-test-csh.ts",
+                    "dst": "/opt/test/gui-db-test-csh.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/gui-db-test-emr.ts",
+                    "dst": "/opt/test/gui-db-test-emr.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/gui-demo.ts",
+                    "dst": "/opt/test/gui-demo.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/gui-hello-world.ts",
+                    "dst": "/opt/test/gui-hello-world.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/gui-read-keyboard.ts",
+                    "dst": "/opt/test/gui-read-keyboard.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/gui-test.ts",
+                    "dst": "/opt/test/gui-test.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/hello-world.ts",
+                    "dst": "/opt/test/hello-world.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/joy-sim.ts",
+                    "dst": "/opt/test/joy-sim.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/layout-demo.ts",
+                    "dst": "/opt/test/layout-demo.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/lcd-objs.ts",
+                    "dst": "/opt/test/lcd-objs.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/mqtnl-binary-demo.ts",
+                    "dst": "/opt/test/mqtnl-binary-demo.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/pistachio-dbcontrols-demo.sql",
+                    "dst": "/opt/test/pistachio-dbcontrols-demo.sql"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/pistachio-dbcontrols-demo.ts",
+                    "dst": "/opt/test/pistachio-dbcontrols-demo.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/pistachio-dbdemo.ts",
+                    "dst": "/opt/test/pistachio-dbdemo.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/pistachio-demo.ts",
+                    "dst": "/opt/test/pistachio-demo.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/pli-app.ts",
+                    "dst": "/opt/test/pli-app.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/pli-plot.js",
+                    "dst": "/opt/test/pli-plot.js"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/read-config.ts",
+                    "dst": "/opt/test/read-config.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/read-joystick.ts",
+                    "dst": "/opt/test/read-joystick.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/regression-app.ts",
+                    "dst": "/opt/test/regression-app.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/regression-plot.js",
+                    "dst": "/opt/test/regression-plot.js"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/rsa-crypto.ts",
+                    "dst": "/opt/test/rsa-crypto.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/tab-demo-csh.ts",
+                    "dst": "/opt/test/tab-demo-csh.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/tab-demo.ts",
+                    "dst": "/opt/test/tab-demo.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/table-demo.ts",
+                    "dst": "/opt/test/table-demo.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test-ILI9341.ts",
+                    "dst": "/opt/test/test-ILI9341.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test-LM6029.ts",
+                    "dst": "/opt/test/test-LM6029.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test-bkfs-create.ts",
+                    "dst": "/opt/test/test-bkfs-create.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test-bkfs-mount.ts",
+                    "dst": "/opt/test/test-bkfs-mount.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test-dynamic-ota.ts",
+                    "dst": "/opt/test/test-dynamic-ota.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test-mcp23017.ts",
+                    "dst": "/opt/test/test-mcp23017.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test-mount.ts",
+                    "dst": "/opt/test/test-mount.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test-pipe-fix.ts",
+                    "dst": "/opt/test/test-pipe-fix.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test-pwd.ts",
+                    "dst": "/opt/test/test-pwd.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test-redirection.ts",
+                    "dst": "/opt/test/test-redirection.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test-uart.ts",
+                    "dst": "/opt/test/test-uart.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test.ts",
+                    "dst": "/opt/test/test.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test_aux.ts",
+                    "dst": "/opt/test/test_aux.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test_crypto.ts",
+                    "dst": "/opt/test/test_crypto.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test_fs.ts",
+                    "dst": "/opt/test/test_fs.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/test_net_select.ts",
+                    "dst": "/opt/test/test_net_select.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/tft-objs.ts",
+                    "dst": "/opt/test/tft-objs.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/opt/test/webd-demo.ts",
+                    "dst": "/opt/test/webd-demo.ts"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/etc/asteracea/menu/form-demo.menu",
+                    "dst": "/etc/asteracea/menu/form-demo.menu"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/etc/asteracea/menu/gui-chat.menu",
+                    "dst": "/etc/asteracea/menu/gui-chat.menu"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/etc/asteracea/menu/gui-db.menu",
+                    "dst": "/etc/asteracea/menu/gui-db.menu"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/etc/asteracea/menu/gui-demo.menu",
+                    "dst": "/etc/asteracea/menu/gui-demo.menu"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/etc/asteracea/menu/gui-test.menu",
+                    "dst": "/etc/asteracea/menu/gui-test.menu"
+                },
+                {
+                    "src": "/var/lib/tpkg/repo/test-lab/etc/asteracea/menu/hello-world.menu",
+                    "dst": "/etc/asteracea/menu/hello-world.menu"
+                }
+            ]
+        }
+    ]
+}

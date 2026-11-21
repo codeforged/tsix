@@ -32,9 +32,8 @@
 - **`SYNC_TO_HOST` (kernel):** `fs.writeFileSync(path, Buffer.from(content,
 "latin1"))`. Sebelumnya string latin1 ditulis sebagai UTF-8, sehingga setiap
   byte ≥ 0x80 menggelembung ~2× (file kernel seperti `src/kernel/**` rusak saat
-  ditulis balik). Ini kebalikan dari `SYNC_FROM_HOST` yang sudah membaca latin1.
-    - Regresi baru **A1.91b**: round-trip host → VFS → host, byte identik
-      (BOM + `café` + em dash + `東京`).
+  ditulis balik). Ini kebalikan dari `SYNC_FROM_HOST` yang sudah membaca latin1. - Regresi baru **A1.91b**: round-trip host → VFS → host, byte identik
+  (BOM + `café` + em dash + `東京`).
 - **`SYNC_FROM_HOST`:** regresi **A1.91** memastikan byte host (UTF-8) masuk VFS
   sebagai latin1 apa adanya.
 - **`tpkgd`:** fallback `/hostsrc/...` lewat `syncFromHost` + staging, sehingga
@@ -69,5 +68,36 @@ tsix-file-inventory.ts`) karena dipakai untuk inventaris file TSIX.
   (A1.91, A1.91b, A1.92).
 - Type-check bersih pada file yang diubah; `npm run distro:twrapper -- --check`
   jalan.
+
+### `tpkg remove` (uninstall) + identitas distro
+
+- **`tpkg remove <pkg>`**: menghapus semua file yang pernah ditulis paket,
+  berdasarkan manifest baru `/var/lib/tpkg/installed/<pkg>.json` (dibuat saat
+  install, berisi path + sha256). Fallback ke backup index untuk paket lama.
+- **Berkas konfigurasi** (`.conf`, `.cfg`, `.cnf`, `.ini`, `.json`, `.yaml`,
+  `.yml`, `.toml`, `.env`, `.properties`, `.xml`) selalu dikonfirmasi:
+  `[r]emove` / `[a]ll` / `[c]ancel`. Bila isi sekarang berbeda dari sha256 saat
+  install, berkas ditandai `(dimodifikasi)`.
+- `cancel` menghentikan proses tanpa mengubah `status.json`; berkas yang sempat
+  dihapus tetap terhapus, sisanya dibiarkan.
+- File host (`hostDst`) tidak bisa dihapus via VFS; dilaporkan untuk dihapus
+  manual (batasan yang sama dengan rollback).
+- **Twrapper:** `src/sysconfig.conf` kini diselaraskan saat build —
+  `[kernel] version` ← `private version` dan `distroName` ← `private codename`
+  dari `src/kernel/Kernel.ts` (sumber kebenaran versi kernel).
+- **Twrapper:** baris `export PATH` di `etc/profile` dihasilkan dari paket yang
+  terpasang (direktori sistem + `isExecutable` + `/opt/<app>` yang ada saja).
+- **Recipe baru:** `scripts/twrapper/iot-edition.json`; `distro/iot-edition`
+  dibangun ulang sepenuhnya dari paket TPKG.
+- **Tool `transpile.ts`:** hook pasca-instal yang HANYA men-transpile path yang
+  diberikan (`transpile <file.ts|dir> ...`), berbeda dari `apply-update` yang
+  memindai seluruh `/bin`, `/sbin`, `/usr/bin`. `tpkg` mengirim daftar `.ts`
+  yang baru di-install sebagai argumen; `WorkerEntry` memberi izin host module
+  untuk nama aplikasi `transpile`.
+- **Paket `tpkg` v1.0.3:** memuat ulang klien `/sbin/tpkg.ts` + `/sbin/transpile.ts`
+  (irisan disengaja dengan base-system) dan `onAfterDownload: /sbin/transpile.ts`,
+  sehingga `tpkg install tpkg` cukup memperbarui klien + daemon.
+- **Tes:** `tpkg.test.ts` 21 lulus (termasuk P2.19 remove+deteksi modifikasi,
+  P2.20 cancel).
 
 **Oleh:** Copilot · **Laporan:** kakang

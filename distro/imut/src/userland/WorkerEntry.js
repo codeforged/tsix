@@ -155,10 +155,7 @@ const restrictHostAPI = (appName) => {
   const forbidden = (msg = "Security Violation: Direct Host API access is forbidden in TSIX Sandbox.") => {
     throw new Error(msg);
   };
-  const isPrivileged = appName.toLowerCase().includes("server") || appName.toLowerCase().includes("daemon") || appName.toLowerCase().includes("dome") || appName.toLowerCase().includes("tbuild") || appName.toLowerCase().includes("vfs") || appName.toLowerCase().includes("mysqld") || // `apply-update` (hook pasca-instal base-system) harus transpile TS→JS
-  // via esbuild untuk membangun ulang sidecar `.js`. Sama seperti `tbuild`,
-  // ia butuh host module sehingga wajib privileged.
-  appName.toLowerCase().includes("apply-update");
+  const isPrivileged = appName.toLowerCase().includes("server") || appName.toLowerCase().includes("daemon") || appName.toLowerCase().includes("dome") || appName.toLowerCase().includes("tbuild") || appName.toLowerCase().includes("vfs") || appName.toLowerCase().includes("mysqld") || appName.toLowerCase().includes("apply-update") || appName.toLowerCase().includes("transpile");
   const allowedModules = ["path", "fs", "url", "esbuild", "crypto", "os", "bcryptjs", "mysql2", "mysql2/promise"];
   const privilegedRequire = (mod) => {
     if (mod.startsWith("@tsix/") || mod.startsWith("@common/") || mod.includes("/lib/") || mod.includes("/common/")) {

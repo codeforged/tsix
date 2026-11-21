@@ -181,6 +181,21 @@ function reconcilePackages(manifest: any): void {
     if (otaServer) packageItems(manifest, "esp-ota", otaServer.items);
     manifest.packages = manifest.packages.filter((pkg: any) => !obsolete.has(pkg.name) && pkg.name !== "ota-server");
 
+    // Paket `tpkg` di repo adalah UPDATER SLIM: klien `tpkg` tetap tinggal di
+    // base-system sebagai "modal awal", tetapi file klien + tool `transpile`
+    // juga didaftarkan di sini supaya `tpkg install tpkg` cukup untuk memperbarui
+    // klien (irisan disengaja — lihat `allowedOverlap`). `onAfterDownload` =
+    // `transpile` hanya membangun sidecar `.js` untuk file paket ini.
+    const tpkgPkg = manifest.packages.find((pkg: any) => pkg.name === "tpkg");
+    if (tpkgPkg) {
+        tpkgPkg.onAfterDownload = "/sbin/transpile.ts";
+        for (const sharedPath of ["/sbin/tpkg.ts", "/sbin/transpile.ts"]) {
+            if (!(tpkgPkg.items as Item[]).some((item) => item.dst === sharedPath)) {
+                (tpkgPkg.items as Item[]).push({ src: sharedPath, dst: sharedPath });
+            }
+        }
+    }
+
     const vfs = (paths: string[]) => vfsItems(paths);
     ensurePackage(
         manifest,
@@ -292,11 +307,16 @@ function reconcilePackages(manifest: any): void {
 
     const destinationOwner = new Map<string, string>();
     const hostOwner = new Map<string, string>();
+    // Irisan yang DISENGAJA: paket `tpkg` (updater slim di repo) boleh memuat ulang
+    // file klien yang juga ada di base-system, supaya `tpkg install tpkg` cukup
+    // memperbarui klien tanpa perlu base-system/reboot penuh.
+    const allowedOverlap = new Map<string, Set<string>>([["tpkg", new Set(["/sbin/tpkg.ts", "/sbin/transpile.ts"])]]);
     for (const pkg of manifest.packages) {
         const unique: Item[] = [];
         for (const item of pkg.items as Item[]) {
             const previous = destinationOwner.get(item.dst);
-            if (previous) {
+            const shared = allowedOverlap.get(pkg.name)?.has(item.dst) === true;
+            if (previous && !shared) {
                 console.log(`[tpkg:manifest] overlap removed: ${item.dst} (${pkg.name}; owned by ${previous})`);
                 continue;
             }
@@ -323,7 +343,7 @@ function main(): void {
         .filter((item) => typeof item.src === "string")
         .filter((item) => !item.src!.startsWith("/hostsrc/") && !item.src!.startsWith("/lib/common/"))
         .filter((item) => !["/etc/profile", "/etc/rc.local", "/etc/tpkg/packages.json"].includes(item.src!));
-    for (const requiredPath of ["/usr/bin/tbuild.ts", "/sbin/apply-update.ts"]) {
+    for (const requiredPath of ["/usr/bin/tbuild.ts", "/sbin/apply-update.ts", "/sbin/transpile.ts"]) {
         if (!vfs.some((item) => item.dst === requiredPath)) vfs.push({ src: requiredPath, dst: requiredPath });
     }
     const vfsWithHost = vfs.map((item) => ({

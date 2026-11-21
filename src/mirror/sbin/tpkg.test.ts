@@ -99,7 +99,10 @@ class World {
                 print: async (s: string) => void world.prints.push(s),
                 log: async (s: string) => void world.logs.push(s),
                 println: async (s: string) => void world.prints.push(s + "\n"),
-                read: async () => world.answers.shift() ?? "y",
+                read: async (prompt?: string) => {
+                    if (prompt) world.prints.push(prompt);
+                    return world.answers.shift() ?? "y";
+                },
             },
             shell: {
                 whoami: async () => ({
@@ -701,7 +704,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         setupServer(world);
         await boot();
 
-        for (const cmd of ["install", "update", "download", "rollback"]) {
+        for (const cmd of ["install", "remove", "update", "download", "rollback"]) {
             world.prints.length = 0;
             await new TpkgClient().execute(world.makeLib(world.clientNode, { uid: 1000 }) as any, [
                 cmd,
@@ -722,5 +725,55 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
 
         expect(out(world)).toMatch(/tpkgd requires root privileges/);
         expect(world.ioctls).toHaveLength(0); // tidak bind, tidak pin protokol
+    });
+
+    it("P2.19 tpkg remove menghapus file & menandai konfigurasi yang dimodifikasi", async () => {
+        setupServer(world);
+        await boot();
+        const lib = world.makeLib(world.clientNode) as any;
+        const fs = world.fs(world.clientNode);
+
+        await new TpkgClient().execute(lib, ["install", "hello-world", "--from", "server"]);
+        expect(fs.files.has("/opt/test/hello-pkg.ts")).toBe(true);
+        // Manifest file terpasang dicatat (dasar `tpkg remove`).
+        expect(fs.files.has("/var/lib/tpkg/installed/hello-world.json")).toBe(true);
+
+        world.prints.length = 0;
+        // Ubah konfigurasi setelah install → hash beda → harus ditandai "(dimodifikasi)".
+        fs.files.set("/etc/pkg-demo.conf", "version=9.9\nmode=local");
+        world.answers.push("r"); // hapus konfigurasi ini
+
+        await new TpkgClient().execute(lib, ["remove", "hello-world"]);
+
+        const text = out(world);
+        expect(text).toContain("(dimodifikasi)");
+        // File biasa langsung dihapus tanpa tanya.
+        expect(fs.files.has("/opt/test/hello-pkg.ts")).toBe(false);
+        // Konfigurasi dihapus setelah konfirmasi `remove`.
+        expect(fs.files.has("/etc/pkg-demo.conf")).toBe(false);
+        // Status & manifest dibersihkan.
+        expect(JSON.parse(fs.files.get("/var/lib/tpkg/status.json")!)).toEqual({});
+        expect(fs.files.has("/var/lib/tpkg/installed/hello-world.json")).toBe(false);
+    });
+
+    it("P2.20 tpkg remove cancel → konfigurasi dibiarkan, status paket tidak diubah", async () => {
+        setupServer(world);
+        await boot();
+        const lib = world.makeLib(world.clientNode) as any;
+        const fs = world.fs(world.clientNode);
+
+        await new TpkgClient().execute(lib, ["install", "hello-world", "--from", "server"]);
+
+        world.prints.length = 0;
+        world.answers.push("c"); // cancel saat tiba di konfigurasi
+        await new TpkgClient().execute(lib, ["remove", "hello-world"]);
+
+        expect(out(world)).toMatch(/Dibatalkan/);
+        // Berkas konfigurasi tetap ada…
+        expect(fs.files.has("/etc/pkg-demo.conf")).toBe(true);
+        // …status paket tetap (belum benar-benar dilepas)…
+        expect(JSON.parse(fs.files.get("/var/lib/tpkg/status.json")!)["hello-world"]).toBe("1.0.0");
+        // …dan manifest masih ada untuk melanjutkan remove berikutnya.
+        expect(fs.files.has("/var/lib/tpkg/installed/hello-world.json")).toBe(true);
     });
 });

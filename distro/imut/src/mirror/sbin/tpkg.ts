@@ -10,6 +10,7 @@ import {
     isSafeHostDst,
     parseHostPort,
     resolveMode,
+    sha256Hex,
     verifyBundleFiles,
     type TpkgBundleFile,
     type TpkgHostPort,
@@ -44,6 +45,47 @@ interface BackupIndex {
 }
 
 /**
+ * Satu file yang DITULIS oleh sebuah paket saat instalasi.
+ *
+ * `sha256` adalah hash isi yang kita tulis (byte latin1). Dipakai `tpkg remove`
+ * untuk mendeteksi apakah file — terutama berkas konfigurasi — sudah diubah
+ * pengguna sejak dipasang. Kalau berubah, penghapusan dikonfirmasi lebih dulu.
+ */
+interface InstalledFile {
+    path: string;
+    sha256: string;
+    /** Kalau ada, file ini juga dicerminkan ke HOST FS (relatif root proyek). */
+    hostDst?: string;
+    hostSha256?: string;
+}
+
+/** Manifest file terpasang: `/var/lib/tpkg/installed/<pkg>.json`. */
+interface InstalledManifest {
+    package: string;
+    version: string;
+    installedAt: number;
+    files: InstalledFile[];
+}
+
+/**
+ * Ekstensi yang dianggap berkas konfigurasi. Untuk berkas seperti ini,
+ * `tpkg remove` SELALU meminta konfirmasi (dan menyoroti bila sudah diubah).
+ */
+const CONFIG_EXTENSIONS = [
+    ".conf",
+    ".cfg",
+    ".cnf",
+    ".ini",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".env",
+    ".properties",
+    ".xml",
+];
+
+/**
  * TPKG — TSIX Package Manager (klien)
  *
  * Ambil paket dari repository MQTNL (`tpkgd`) lalu pasang ke VFS dengan
@@ -75,6 +117,8 @@ export class Main {
     private configFile: string = "/etc/tpkg/config.json";
     private statusFile: string = "/var/lib/tpkg/status.json";
     private backupDir: string = "/var/lib/tpkg/backup";
+    /** Manifest file yang ditulis tiap paket — dasar `tpkg remove`. */
+    private installedDir: string = "/var/lib/tpkg/installed";
     /**
      * Staging VFS untuk file host. `SYNC_TO_HOST` membaca isi dari VFS, jadi
      * file kernel harus mendarat di suatu path VFS dulu — pakai /tmp (ramfs)
@@ -126,7 +170,7 @@ export class Main {
         // membiarkan perintah ini jalan sebagai user biasa hanya menghasilkan
         // kegagalan separuh jalan — lebih baik ditolak di depan dengan pesan jelas.
         const who = await this.lib.shell.whoami();
-        const rootRequired = ["install", "update", "rollback", "download"];
+        const rootRequired = ["install", "remove", "update", "rollback", "download"];
         if (rootRequired.includes(cmd) && who.uid !== 0) {
             await this.lib.std.print(
                 `❌ Error: 'tpkg ${cmd}' requires root privileges (mengubah sistem & bisa menulis host FS). Use sudo.\n`,
@@ -143,6 +187,9 @@ export class Main {
                 break;
             case "install":
                 await this.doInstall(args[1], args);
+                break;
+            case "remove":
+                await this.doRemove(args[1]);
                 break;
             case "download":
                 await this.doDownload(args[1], args);
@@ -174,13 +221,16 @@ export class Main {
         await this.lib.std.print(
             "  tpkg install <pkg> [--from <host>] - Install a package (verify + backup + rollback)\n",
         );
+        await this.lib.std.print(
+            "  tpkg remove <pkg>                  - Uninstall: hapus file paket (konfirmasi konfigurasi)\n",
+        );
         await this.lib.std.print("  tpkg download <pkg> [--from <host>] - Fetch & verify without installing\n");
         await this.lib.std.print("  tpkg verify <pkg> [--from <host>]  - Verify signature of a package\n");
         await this.lib.std.print("  tpkg rollback <pkg>                - Restore the last backup of a package\n");
         await this.lib.std.print("  tpkg metrics                       - Show statistics\n");
         await this.lib.std.print("  tpkg --set-repo <host[:port]>      - Set default repository\n");
         await this.lib.std.print(
-            "\n⚠️  update/install/download/rollback wajib root (sudo): mengubah sistem,\n" +
+            "\n⚠️  update/install/remove/download/rollback wajib root (sudo): mengubah sistem,\n" +
                 "    dan paket engine (mis. system-update) menulis ke HOST FS — kernel & lib.\n",
         );
     }
@@ -625,11 +675,15 @@ export class Main {
             return false;
         }
 
+        // Catat manifest file terpasang + hash isi yang kita tulis. Inilah dasar
+        // `tpkg remove` untuk mendeteksi berkas konfigurasi yang sudah diubah.
+        await this.saveInstalledManifest(pkgName, data.version, files);
+
         localStatus[pkgName] = data.version;
         await this.saveStatus(localStatus);
         this.metrics.installs++;
 
-        await this.runPostInstall(pkgName, data, backup);
+        await this.runPostInstall(pkgName, data, backup, files);
         await this.pruneBackups(pkgName);
         return true;
     }
@@ -657,7 +711,7 @@ export class Main {
     }
 
     /** runPostInstall(): jalankan `onAfter`, tawarkan rollback bila gagal. */
-    private async runPostInstall(pkgName: string, data: any, backup: BackupIndex) {
+    private async runPostInstall(pkgName: string, data: any, backup: BackupIndex, files: TpkgBundleFile[]) {
         if (!data.onAfter) {
             await this.lib.std.print("✅ Installation successful.\n");
             return;
@@ -670,9 +724,16 @@ export class Main {
             return;
         }
 
+        // Untuk hook transpile, kirim daftar berkas `.ts` yang baru ditulis supaya
+        // hanya sidecar paket ini yang dibangun (bukan seluruh /bin,/sbin). Hook
+        // lain (apply-update, app) tetap dipanggil tanpa argumen.
+        const hookArgs = String(data.onAfter).includes("transpile")
+            ? files.filter((f) => f.path.endsWith(".ts")).map((f) => f.path)
+            : [];
+
         await this.lib.std.print(`Running ${data.onAfter}...\n`);
         try {
-            const proc = await this.lib.shell.exec(data.onAfter, []);
+            const proc = await this.lib.shell.exec(data.onAfter, hookArgs);
             const exitCode = await this.lib.shell.waitpid(proc.pid);
             if (exitCode === 0) {
                 await this.lib.std.print("✅ Post-install finished.\n");
@@ -1118,6 +1179,182 @@ export class Main {
         } catch (e) {
             return [];
         }
+    }
+
+    // ===================== REMOVE / UNINSTALL =====================
+
+    private installedManifestPath(pkgName: string): string {
+        return `${this.installedDir}/${pkgName}.json`;
+    }
+
+    /** saveInstalledManifest(): catat tiap file yang ditulis + sha256 isinya. */
+    private async saveInstalledManifest(pkgName: string, version: string, files: TpkgBundleFile[]) {
+        const manifest: InstalledManifest = {
+            package: pkgName,
+            version,
+            installedAt: Date.now(),
+            files: files.map((f) => ({
+                path: f.path,
+                sha256: sha256Hex(f.content),
+                ...(f.hostDst ? { hostDst: f.hostDst, hostSha256: sha256Hex(f.content) } : {}),
+            })),
+        };
+        await this.mkdirRecursive(this.installedDir);
+        await this.lib.fs.writeFile(this.installedManifestPath(pkgName), JSON.stringify(manifest, null, 2));
+    }
+
+    private async loadInstalledManifest(pkgName: string): Promise<InstalledManifest | null> {
+        const content = await this.lib.fs.readFile(this.installedManifestPath(pkgName));
+        if (!content) return null;
+        try {
+            return JSON.parse(content) as InstalledManifest;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /** isConfigPath(): heuristik berkas konfigurasi berdasarkan ekstensi. */
+    private isConfigPath(path: string): boolean {
+        const dot = path.lastIndexOf(".");
+        if (dot < 0) return false;
+        return CONFIG_EXTENSIONS.includes(path.slice(dot).toLowerCase());
+    }
+
+    /** pruneEmptyParents(): hapus direktori induk yang menjadi kosong setelah unlink. */
+    private async pruneEmptyParents(path: string) {
+        let dir = path.substring(0, path.lastIndexOf("/"));
+        while (dir && dir !== "/") {
+            try {
+                const items = await this.lib.fs.ls(dir);
+                if ((items ?? []).length > 0) break;
+                await this.lib.fs.rmdir(dir);
+            } catch (e) {
+                break;
+            }
+            dir = dir.substring(0, dir.lastIndexOf("/"));
+        }
+    }
+
+    /**
+     * doRemove(): uninstall paket — hapus file yang pernah ditulis (manifest
+     * `/var/lib/tpkg/installed/<pkg>.json`).
+     *
+     * Berkas konfigurasi (`.conf`, `.json`, `.ini`, dst.) SELALU dikonfirmasi:
+     *   - `remove`     → hapus berkas ini
+     *   - `remove all` → hapus berkas ini & sisanya tanpa tanya lagi
+     *   - `cancel`     → berhenti; sisa berkas dibiarkan, status paket tidak diubah
+     *
+     * Hash sha256 dari saat install dibandingkan dengan isi sekarang; bila beda,
+     * berkas ditandai "(dimodifikasi)" agar operator sadar sebelum menghapus.
+     */
+    private async doRemove(pkgName: string | undefined) {
+        if (!pkgName) {
+            await this.lib.std.print("Usage: tpkg remove <pkg>\n");
+            return;
+        }
+
+        const status = await this.loadStatus();
+        const manifest = await this.loadInstalledManifest(pkgName);
+        let files: InstalledFile[] = manifest?.files ?? [];
+
+        // Fallback: paket lama (dipasang sebelum manifest ada) → pakai backup index.
+        if (files.length === 0) {
+            const stamps = await this.listBackups(pkgName);
+            if (stamps.length > 0) {
+                const idx = await this.loadBackupIndex(pkgName, stamps[0]);
+                if (idx) {
+                    files = idx.entries.map((e) => ({
+                        path: e.path,
+                        sha256: "",
+                        ...(e.hostPath ? { hostDst: e.hostPath } : {}),
+                    }));
+                }
+            }
+        }
+
+        if (files.length === 0 && !status[pkgName]) {
+            await this.lib.std.print(`❌ Paket '${pkgName}' tidak terpasang.\n`);
+            return;
+        }
+        if (files.length === 0) {
+            await this.lib.std.print(
+                `❌ Tidak ada daftar file untuk '${pkgName}' (manifest/backup hilang). Hapus manual bila perlu.\n`,
+            );
+            return;
+        }
+
+        await this.lib.std.print(`\n\x1b[1;33m⚠️  Menghapus paket '${pkgName}' (${files.length} file).\x1b[0m\n`);
+
+        let removeAll = false;
+        let removed = 0;
+        let kept = 0;
+        let failed = 0;
+        let hostManual = 0;
+        let cancelled = false;
+
+        for (const f of files) {
+            if (this.isConfigPath(f.path) && !removeAll) {
+                const current = await this.lib.fs.readFile(f.path);
+                const modified =
+                    current !== null && current !== undefined && f.sha256 !== "" && sha256Hex(current) !== f.sha256;
+                const tag = modified ? "\x1b[1;33m(dimodifikasi)\x1b[0m" : "\x1b[2m(tidak berubah)\x1b[0m";
+                const ans = (await this.lib.std.read(`Konfigurasi ${f.path} ${tag} — [r]emove / [a]ll / [c]ancel: `))
+                    .toLowerCase()
+                    .trim();
+                if (ans === "c" || ans === "cancel") {
+                    cancelled = true;
+                    break;
+                }
+                if (ans === "a" || ans === "all" || ans === "remove all") {
+                    removeAll = true;
+                } else if (!(ans === "r" || ans === "remove" || ans === "y" || ans === "yes")) {
+                    // Jawaban tak dikenal (termasuk kosong) → biarkan berkas ini.
+                    kept++;
+                    continue;
+                }
+            }
+
+            try {
+                if (await this.exists(f.path)) {
+                    await this.lib.fs.unlink(f.path);
+                    await this.pruneEmptyParents(f.path);
+                    removed++;
+                }
+            } catch (e: any) {
+                failed++;
+                await this.lib.std.print(`⚠️  Gagal menghapus ${f.path}: ${e.message}\n`);
+            }
+
+            if (f.hostDst) {
+                // Kernel tidak punya syscall untuk menghapus file HOST; laporkan jujur.
+                hostManual++;
+                await this.lib.std.print(`⚠️  File host perlu dihapus manual: ${f.hostDst}\n`);
+            }
+        }
+
+        if (cancelled) {
+            await this.lib.std.print(
+                `\n⏹️  Dibatalkan. ${removed} file dihapus, ${kept} dilewati — status paket TIDAK diubah.\n` +
+                    `   Jalankan lagi 'tpkg remove ${pkgName}' untuk melanjutkan.\n`,
+            );
+            return;
+        }
+
+        delete status[pkgName];
+        await this.saveStatus(status);
+        // Manifest tidak relevan lagi setelah paket dilepas.
+        try {
+            await this.lib.fs.unlink(this.installedManifestPath(pkgName));
+        } catch (e) {
+            /* best-effort */
+        }
+
+        await this.lib.std.print(
+            `\n✅ Paket '${pkgName}' dihapus: ${removed} file` +
+                `${kept > 0 ? `, ${kept} konfigurasi dibiarkan` : ""}` +
+                `${failed > 0 ? `, ${failed} gagal` : ""}` +
+                `${hostManual > 0 ? `, ${hostManual} file host perlu manual` : ""}.\n`,
+        );
     }
 
     private async loadStatus(): Promise<Record<string, string>> {

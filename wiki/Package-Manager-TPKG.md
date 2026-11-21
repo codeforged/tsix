@@ -39,14 +39,15 @@ graph LR
 | `tpkg list`                                  | Tampilkan paket yang tersedia di katalog lokal                          |
 | `tpkg info <pkg> [--from <host[:port]>]`     | Detail satu paket (versi, ukuran, daftar file)                          |
 | `tpkg install <pkg> [--from <host[:port]>]`  | Ambil → verifikasi → backup → tulis → post-install                      |
+| `tpkg remove <pkg>`                          | Hapus file paket; konfigurasi dikonfirmasi per berkas                   |
 | `tpkg download <pkg> [--from <host[:port]>]` | Ambil & verifikasi TANPA menulis ke VFS                                 |
 | `tpkg verify <pkg> [--from <host[:port]>]`   | Periksa signature paket dari server                                     |
 | `tpkg rollback <pkg>`                        | Pulihkan backup terbaru paket tersebut                                  |
 | `tpkg metrics`                               | Statistik client (jumlah install/download/rollback)                     |
 | `tpkg --set-repo <host[:port]>`              | Simpan repository default                                               |
 
-Semua perintah yang **mengubah sistem** — `update`, `install`, `download`,
-`rollback` — **wajib root** (`sudo`). Yang boleh tanpa root: `list`, `info`,
+Semua perintah yang **mengubah sistem** — `update`, `install`, `remove`,
+`download`, `rollback` — **wajib root** (`sudo`). Yang boleh tanpa root: `list`, `info`,
 `verify`, `metrics`, `--set-repo`.
 
 Itu bukan sekadar sopan santun: paket **base-system** menulis ke HOST FS
@@ -69,6 +70,9 @@ sudo tpkg install hello-world
 # Cek dulu tanpa menyentuh VFS
 sudo tpkg download hello-world
 sudo tpkg verify hello-world
+
+# Hapus paket bila sudah tidak dipakai (konfigurasi dikonfirmasi per berkas)
+sudo tpkg remove hello-world
 
 # Kalau hasil instalasi bermasalah
 sudo tpkg rollback hello-world
@@ -326,6 +330,32 @@ nama file backup, mode, dan skrip undo paket. Status versi terpasang ada di
 - Backup lama dipangkas otomatis (`pruneBackups`, simpan N terbaru per paket).
 - `tpkg rollback <pkg>` memulihkan backup terbaru, lalu menjalankan `undoScript`
   kalau ada. Paket yang belum pernah diinstall akan ditolak.
+  Menghapus Paket (`tpkg remove`)
+
+`tpkg remove <pkg>` menghapus semua file yang pernah ditulis paket. Daftar file
+diambil dari manifest yang dibuat saat install:
+`/var/lib/tpkg/installed/<pkg>.json` (berisi path + sha256 tiap file). Untuk paket
+lama yang dipasang sebelum manifest ada, dipakai `index.json` backup terbaru.
+
+Berkas **konfigurasi** (`.conf`, `.cfg`, `.cnf`, `.ini`, `.json`, `.yaml`,
+`.yml`, `.toml`, `.env`, `.properties`, `.xml`) tidak dihapus diam-diam — selalu
+ditanya:
+
+```
+Konfigurasi /etc/app.conf (dimodifikasi) — [r]emove / [a]ll / [c]ancel:
+```
+
+- `r` — hapus berkas ini saja
+- `a` — hapus berkas ini dan sisanya tanpa tanya lagi
+- `c` — berhenti; sisa berkas dibiarkan dan `status.json` tidak diubah
+
+Penanda `(dimodifikasi)` muncul bila sha256 isi sekarang berbeda dengan saat
+install — supaya perubahan lokal tidak hilang tanpa sadar. Berkas host
+(`hostDst`) tidak bisa dihapus lewat VFS dan akan dilaporkan untuk dihapus manual.
+
+---
+
+##
 
 ---
 

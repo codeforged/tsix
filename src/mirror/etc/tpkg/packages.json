@@ -3,7 +3,7 @@
     "packages": [
         {
             "name": "base-system",
-            "version": "0.3.3.20260924.1",
+            "version": "0.3.4.20261121.1",
             "description": "TSIX base system: essential VFS, shared runtime, kernel and bootloader host infrastructure.",
             "author": "TSIX",
             "needReboot": true,
@@ -372,6 +372,11 @@
                     "src": "/sbin/tpkg.ts",
                     "dst": "/sbin/tpkg.ts",
                     "hostDst": "src/mirror/sbin/tpkg.ts"
+                },
+                {
+                    "src": "/sbin/transpile.ts",
+                    "dst": "/sbin/transpile.ts",
+                    "hostDst": "src/mirror/sbin/transpile.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/aux-devices/HttpServerDevice.ts",
@@ -797,7 +802,7 @@
         },
         {
             "name": "tpkg",
-            "version": "1.0.0",
+            "version": "1.0.3",
             "description": "Layanan server repository TPKG: daemon tpkgd, bootstrap demo, alat debug dan katalog. Klien tpkg tersedia di base-system.",
             "author": "TSIX",
             "needReboot": false,
@@ -821,8 +826,17 @@
                 {
                     "src": "/etc/tpkg/packages.json",
                     "dst": "/etc/tpkg/packages.json"
+                },
+                {
+                    "src": "/sbin/tpkg.ts",
+                    "dst": "/sbin/tpkg.ts"
+                },
+                {
+                    "src": "/sbin/transpile.ts",
+                    "dst": "/sbin/transpile.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "display-drivers",

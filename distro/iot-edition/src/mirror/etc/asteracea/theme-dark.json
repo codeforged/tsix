@@ -1,0 +1,63 @@
+{
+  "name": "Dracula Emerald",
+  "version": 1,
+  "author": "TSIX Project",
+
+  "colors": {
+    "bg": "#0d1b2a",
+    "bgAlt": "#0a0f1f",
+    "card": "#16213e",
+    "surface": "#1a1a2e",
+    "buttonBg": "#0f3460",
+
+    "windowTitlebar": "#1a1a2e",
+    "windowBorder": "#4caf50",
+    "windowShadow": "0 8px 32px rgba(0,0,0,0.4)",
+
+    "accent": "#4caf50",
+    "accentBg": "rgba(76,175,80,0.15)",
+    "accentBorder": "rgba(76,175,80,0.3)",
+
+    "danger": "#f44336",
+    "dangerBg": "rgba(244,67,54,0.1)",
+    "dangerBorder": "rgba(244,67,54,0.3)",
+
+    "warning": "#ff9800",
+    "info": "#2196f3",
+
+    "text": "#e0e0e0",
+    "textDim": "#ccc",
+    "textMuted": "#888",
+    "textDark": "#555",
+
+    "border": "rgba(255,255,255,0.1)",
+    "borderLight": "rgba(255,255,255,0.06)",
+
+    "overlay": "rgba(0,0,0,0.7)",
+
+    "scrollbar": "rgba(255,255,255,0.08)",
+    "scrollbarHover": "rgba(255,255,255,0.15)",
+
+    "inputBg": "rgba(255,255,255,0.06)",
+    "inputBorder": "rgba(255,255,255,0.12)",
+
+    "success": "#4caf50",
+    "error": "#f44336"
+  },
+
+  "sizes": {
+    "borderRadius": "8px",
+    "borderRadiusSm": "4px",
+    "borderRadiusLg": "12px",
+    "padding": "14px",
+    "paddingSm": "8px",
+    "fontSize": "13px",
+    "fontSizeSm": "11px",
+    "fontSizeLg": "16px"
+  },
+
+  "fonts": {
+    "sans": "'Segoe UI', sans-serif",
+    "mono": "monospace"
+  }
+}

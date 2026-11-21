@@ -1,0 +1,49 @@
+{
+    "schemaVersion": 1,
+    "distro": {
+        "id": "iot-edition",
+        "name": "TSIX IoT Edition",
+        "version": "0.1.0",
+        "status": "draft",
+        "description": "Distro TSIX lengkap untuk perangkat IoT: TDE, tooling, dan driver perangkat keras.",
+        "purpose": [
+            "Menyediakan sistem TSIX lengkap (TDE + aplikasi) yang siap dijalankan di perangkat IoT.",
+            "Menyertakan driver perangkat keras (TFT, LCD, PLCD, joystick) dan tooling jaringan/OTA."
+        ],
+        "features": [
+            "Komposisi image ditentukan dari paket TPKG, bukan daftar file.",
+            "TDE (PixelSpace, DOME, Asteracea, Emerald, Cashew, Pistachio, Lantana) dan aplikasi bawaan sudah terpasang.",
+            "test-lab tersedia di repository lokal untuk dipasang saat pengujian."
+        ]
+    },
+    "outputDirectory": "distro/iot-edition",
+    "installedPackages": [
+        "base-system",
+        "coreutils",
+        "procutils",
+        "nettools",
+        "filesystem-tools",
+        "scheduler",
+        "ipc-tools",
+        "key-tools",
+        "tpkg",
+        "dome",
+        "asteracea",
+        "emerald",
+        "cashew",
+        "pistachio",
+        "lantana",
+        "eucalyptus",
+        "file-cruiser",
+        "image-viewer",
+        "esp-ota",
+        "azalea-dashboard",
+        "network-traffic",
+        "pixelterm",
+        "set-theme",
+        "taskmgr",
+        "esp32-lantana-emu",
+        "mysqld"
+    ],
+    "repositoryPackages": ["test-lab"]
+}

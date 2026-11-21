@@ -1,0 +1,5 @@
+name=Network Traffic
+icon=✈️
+command=/opt/network-traffic/network-traffic.js
+pinned_launcher=false
+group=Network

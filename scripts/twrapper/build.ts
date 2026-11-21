@@ -274,6 +274,114 @@ function transformPackageJson(bytes: Buffer): Buffer {
     return Buffer.from(`${JSON.stringify(pkg, null, 2)}\n`, "utf8");
 }
 
+/**
+ * readKernelIdentity(): ambil `codename` dan `version` dari `src/kernel/Kernel.ts`.
+ *
+ * Sumber kebenaran versi kernel adalah kode kernel itu sendiri (bukan recipe),
+ * jadi `sysconfig.conf` pada image selalu konsisten dengan `Kernel.ts`.
+ */
+function readKernelIdentity(): { codename: string; version: string } {
+    const kernelPath = path.join(ROOT, "src/kernel/Kernel.ts");
+    const text = fs.readFileSync(kernelPath, "utf8");
+    const version = text.match(/private\s+version\s*:\s*string\s*=\s*["']([^"']+)["']/)?.[1];
+    const codename = text.match(/private\s+codename\s*:\s*string\s*=\s*["']([^"']+)["']/)?.[1];
+    if (!version || !codename) {
+        throw new Error(`Tidak bisa membaca codename/version kernel dari ${path.relative(ROOT, kernelPath)}.`);
+    }
+    return { codename, version };
+}
+
+/**
+ * transformSysconfig(): selaraskan identitas kernel di `src/sysconfig.conf`.
+ *
+ * `version` ← versi kernel (`src/kernel/Kernel.ts`) dan `distroName` ← codename
+ * kernel, supaya image melaporkan versi kernel yang benar-benar dibangun.
+ * Baris/komentar lain dan gaya EOL tidak diubah.
+ */
+function transformSysconfig(bytes: Buffer, identity: { codename: string; version: string }): Buffer {
+    const text = bytes.toString("utf8");
+    const eol = text.includes("\r\n") ? "\r\n" : "\n";
+    const lines = text.split(/\r?\n/);
+    const updates: Record<string, string> = {
+        version: identity.version,
+        distroName: identity.codename,
+    };
+    const seen = new Set<string>();
+    let section = "";
+
+    const out = lines.map((line) => {
+        const sectionMatch = line.match(/^\s*\[([^\]]+)\]\s*$/);
+        if (sectionMatch) {
+            section = sectionMatch[1].trim().toLowerCase();
+            return line;
+        }
+        if (section !== "kernel") return line;
+        const kv = line.match(/^(\s*)([A-Za-z0-9_.]+)(\s*=\s*)(.*)$/);
+        if (!kv) return line;
+        const key = kv[2];
+        if (!(key in updates)) return line;
+        seen.add(key);
+        return `${kv[1]}${key}${kv[3]}${updates[key]}`;
+    });
+
+    for (const key of Object.keys(updates)) {
+        if (!seen.has(key)) {
+            throw new Error(`sysconfig.conf: kunci '${key}' tidak ditemukan di bagian [kernel].`);
+        }
+    }
+    return Buffer.from(out.join(eol), "utf8");
+}
+
+/**
+ * buildPathEntries(): susun daftar PATH dari paket yang benar-benar terpasang.
+ *
+ * Dimulai dari direktori sistem standar, lalu menambahkan:
+ *   - direktori file `isExecutable` milik paket;
+ *   - direktori aplikasi `/opt/<app>` (satu level di bawah /opt) — HANYA untuk
+ *     paket yang ada di image, jadi `/opt/test` tidak muncul di distro yang
+ *     tidak memasang `test-lab`.
+ */
+function buildPathEntries(packages: TpkgPackage[]): string[] {
+    const entries: string[] = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin"];
+    const add = (dir: string) => {
+        if (!entries.includes(dir)) entries.push(dir);
+    };
+    const optDirs = new Set<string>();
+
+    for (const pkg of packages) {
+        for (const item of pkg.items ?? []) {
+            const dst = item.dst;
+            if (typeof dst !== "string" || !dst.startsWith("/")) continue;
+            const dir = dst.substring(0, dst.lastIndexOf("/")) || "/";
+            if (/^\/opt\/[^/]+$/.test(dir)) optDirs.add(dir);
+            if (item.isExecutable) add(dir);
+        }
+    }
+    for (const dir of [...optDirs].sort()) add(dir);
+    return entries;
+}
+
+/**
+ * transformProfile(): ganti baris `export PATH=...` di `/etc/profile` dengan
+ * PATH hasil `buildPathEntries()`. Baris lain & gaya EOL dipertahankan.
+ */
+function transformProfile(bytes: Buffer, pathEntries: string[]): Buffer {
+    const text = bytes.toString("utf8");
+    const eol = text.includes("\r\n") ? "\r\n" : "\n";
+    const line = `export PATH=${pathEntries.join(":")}`;
+    const lines = text.split(/\r?\n/);
+    let replaced = false;
+    const out = lines.map((l) => {
+        if (/^\s*export\s+PATH=/.test(l)) {
+            replaced = true;
+            return line;
+        }
+        return l;
+    });
+    if (!replaced) out.push(line);
+    return Buffer.from(out.join(eol), "utf8");
+}
+
 function readme(recipe: Recipe): Buffer {
     const text = [
         `# ${recipe.distro.name}`,
@@ -354,6 +462,16 @@ function buildPlan(recipePath: string) {
     addSource(outputs, "scripts/twrapper/rootfs/etc/rc.local", "src/mirror/etc/rc.local", true);
     addSource(outputs, "scripts/twrapper/rootfs/etc/tpkg/config.json", "src/mirror/etc/tpkg/config.json", true);
 
+    // PATH di /etc/profile mengikuti paket yang benar-benar terpasang:
+    // /opt/<app> hanya dimasukkan bila paket aplikasi itu ikut di image.
+    const profile = outputs.get("src/mirror/etc/profile");
+    if (profile) {
+        outputs.set("src/mirror/etc/profile", {
+            ...profile,
+            bytes: transformProfile(profile.bytes, buildPathEntries(installed)),
+        });
+    }
+
     for (const source of INSTALLER_FILES) addSource(outputs, source);
     for (const relative of walkFiles(path.join(ROOT, "src/common"))) {
         addSource(outputs, `src/common/${relative}`);
@@ -379,6 +497,14 @@ function buildPlan(recipePath: string) {
     outputs.set("package.json", {
         ...packageJson,
         bytes: transformPackageJson(packageJson.bytes),
+    });
+
+    // Selaraskan identitas distro (version + distroName) di sysconfig.conf.
+    const sysconfig = outputs.get("src/sysconfig.conf");
+    if (!sysconfig) throw new Error("src/sysconfig.conf was not included.");
+    outputs.set("src/sysconfig.conf", {
+        ...sysconfig,
+        bytes: transformSysconfig(sysconfig.bytes, readKernelIdentity()),
     });
 
     const readmeBytes = readme(recipe);

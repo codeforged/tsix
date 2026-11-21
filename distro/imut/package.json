@@ -14,7 +14,6 @@
     "typecheck": "tsc --noEmit",
     "tpkg:manifest": "node -r esbuild-register scripts/gen-tpkg-manifest.ts",
     "distro:inventory": "node -r esbuild-register scripts/inventory-tsix-files.ts",
-    "distro:generate": "node -r esbuild-register scripts/distro-generator.ts",
     "distro:twrapper": "node -r esbuild-register scripts/twrapper/build.ts",
     "test": "vitest run",
     "test:watch": "vitest",

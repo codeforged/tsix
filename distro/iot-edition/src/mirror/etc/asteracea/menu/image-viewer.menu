@@ -1,0 +1,4 @@
+name=Image Viewer
+icon=🖼️
+command=/opt/image-viewer/image-viewer.js
+group=System

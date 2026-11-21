@@ -144,6 +144,12 @@ Tiga berkas berikut **selalu menimpa** hasil paket (dipakai untuk rasa distro):
 
 Contohnya `rc.local` menjalankan `tpkgd` saat boot dan `config.json` menunjuk `localhost:8080` sebagai repo default.
 
+Baris `export PATH=` di `etc/profile` **dihasilkan saat build** dari paket yang
+terpasang: direktori sistem (`/bin`, `/sbin`, `/usr/bin`, `/usr/local/bin`),
+direktori file `isExecutable`, dan direktori aplikasi `/opt/<app>` — hanya untuk
+paket yang benar-benar ada di image. Jadi `/opt/test` tidak ikut muncul di distro
+yang tidak memasang `hello-world`/`test-lab`.
+
 ### `package.json` hasil build
 
 `scripts.install` dari `package.json` root diganti nama menjadi `scripts["tsix:install"]`, supaya `npm install` tidak otomatis menjalankan bootstrap saat dependency distro dipasang. Setelahnya:
@@ -154,6 +160,19 @@ npm run tsix:install
 ```
 
 `README.md` distro juga dibuat otomatis dari isi recipe.
+
+### Identitas kernel (`src/sysconfig.conf`)
+
+Saat build, Twrapper menyelaraskan dua kunci di bagian `[kernel]` dari
+`src/sysconfig.conf` dengan **kode kernel** (`src/kernel/Kernel.ts`):
+
+- `version` ← `private version` di `Kernel.ts`
+- `distroName` ← `private codename` di `Kernel.ts`
+
+Sumbernya sengaja Kernel.ts (bukan recipe), supaya versi yang dilaporkan image
+selalu sama dengan versi kernel yang benar-benar dibangun. Baris lain, komentar,
+dan gaya EOL tidak diubah. Bila `codename`/`version` tidak terbaca dari
+`Kernel.ts`, build gagal (bukan diam-diam dibiarkan).
 
 ---
 

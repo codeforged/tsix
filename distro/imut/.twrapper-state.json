@@ -386,7 +386,11 @@
     },
     {
       "path": "src/mirror/sbin/tpkg.ts",
-      "sha256": "c883d1bf79cd31ec287114547773d4ebd98aae1fc7060388b0c0c48f5245fd98"
+      "sha256": "fedb715bb2d2fcec0aaeefdd436a9ffb4831d031dbff3d9037679627066f8a41"
+    },
+    {
+      "path": "src/mirror/sbin/transpile.ts",
+      "sha256": "93c90a6298ffa70d18d00c5d8b3dc20b43b287554f5f9a769347f5317b42b92a"
     },
     {
       "path": "src/kernel/devices/aux-devices/HttpServerDevice.ts",
@@ -526,7 +530,7 @@
     },
     {
       "path": "src/userland/WorkerEntry.ts",
-      "sha256": "17a961d593247e3a3db4782bf0ad17d9f192104d66e5a0bf9fc64713828a04d5"
+      "sha256": "ff3308bc2614a3a2be016b4b499e4e8920af44bb08f558c3beb6d714012f5a7b"
     },
     {
       "path": "src/mirror/usr/bin/tbuild.ts",
@@ -686,7 +690,7 @@
     },
     {
       "path": "src/mirror/etc/profile",
-      "sha256": "81e9b0bd472c8de9013009d02f77e7cd07cb59b122048b99333e242255614322"
+      "sha256": "9a385548ea1adda5c74b89e1874659c4f8bcff4e011169bc1cc7372f3d65bda9"
     },
     {
       "path": "src/mirror/etc/rc.local",
@@ -706,7 +710,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "4af533771a444517f0c28213d16243e4af4068b17d01135551f2fcb74044930d"
+      "sha256": "f7e2eee45758e06d32d398d65fecf054bf0278de85507170fe83ed5540755522"
     },
     {
       "path": "package-lock.json",
@@ -746,11 +750,11 @@
     },
     {
       "path": "src/sysconfig.conf",
-      "sha256": "6b035c11fe5a5ac828c408d472dc8ed5e6cee758977f4fe424063d7acb803cf4"
+      "sha256": "80e6eba9e21d2d5e3ddb19a5f05303ac92b3229a990764c880a3c48ec1b001d3"
     },
     {
       "path": "src/userland/WorkerEntry.js",
-      "sha256": "db43ecd15528412ab568242b430f624a36ffa5b9d0feb3923bd95a0c56cf657c"
+      "sha256": "4051a80d407028a7e1b0b81cb32ac5ca858c0a9efc088d160b59d20d453bed4c"
     },
     {
       "path": "src/userland/VfsModuleResolver.js",

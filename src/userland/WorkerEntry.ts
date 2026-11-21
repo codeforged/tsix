@@ -314,7 +314,9 @@ const restrictHostAPI = (appName: string) => {
         // `apply-update` (hook pasca-instal base-system) harus transpile TS→JS
         // via esbuild untuk membangun ulang sidecar `.js`. Sama seperti `tbuild`,
         // ia butuh host module sehingga wajib privileged.
-        appName.toLowerCase().includes("apply-update");
+        appName.toLowerCase().includes("apply-update") ||
+        // `transpile` (hook pasca-instal paket biasa) juga transpile TS→JS.
+        appName.toLowerCase().includes("transpile");
     const allowedModules = ["path", "fs", "url", "esbuild", "crypto", "os", "bcryptjs", "mysql2", "mysql2/promise"];
 
     const privilegedRequire = (mod: string) => {
