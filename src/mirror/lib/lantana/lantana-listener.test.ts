@@ -388,6 +388,37 @@ describe("listener handshake + ingest", () => {
         expect(challenge.mode).toBe("psk");
     });
 
+    it("menolak AUTH PSK yang memakai akun berbeda dari HELLO", async () => {
+        // Akun korban dengan device sendiri; penyerang hanya tahu key "juragan".
+        const deps = (ctx.listener as any).deps;
+        deps.accounts.createRoot("tetangga");
+        deps.accounts.issueAccessKey("tetangga");
+        const victimDevice = deps.devices.register("tetangga", { name: "Korban" });
+
+        const clientNonce = "00112233445566778899aabbccddeeff";
+        await ctx.send(
+            JSON.stringify({ type: "LANTANA_HELLO", mode: "psk", accountId: "juragan", clientNonce }),
+        );
+        const challenge = JSON.parse(lastSent());
+        const psk = derivePsk(ctx.accessKey);
+
+        await ctx.send(
+            JSON.stringify({
+                type: "LANTANA_AUTH",
+                mode: "psk",
+                accountId: "tetangga",
+                deviceId: victimDevice.deviceId,
+                proof: clientProof(psk, clientNonce, challenge.nonce),
+            }),
+        );
+
+        const nack = JSON.parse(lastSent());
+        expect(nack.type).toBe("LANTANA_NACK");
+        expect(nack.name).toBe("UNAUTHENTICATED");
+        expect(ctx.sessions.isAuthenticated(`${DEVICE_ADDR}:${DEVICE_PORT}`)).toBe(false);
+        expect(ctx.sessions.get(`${DEVICE_ADDR}:${DEVICE_PORT}`)?.accountId).toBeNull();
+    });
+
     it("menolak AccessKey salah dengan NACK terenkripsi", async () => {
         await ctx.send(JSON.stringify({ type: "LANTANA_HELLO" }));
         const challenge = JSON.parse(lastSent());

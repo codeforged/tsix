@@ -73,7 +73,14 @@ export class LantanaListener {
     /** Waktu NACK terakhir per sesi (rate limit permintaan handshake ulang). */
     private nackSentAt: Map<string, number> = new Map();
     /** State handshake PSK per sesi (ESP8266 / device tanpa RSA). */
-    private pskState: Map<string, { psk: Buffer; clientNonce: string; serverNonce: string }> = new Map();
+    /**
+     * `accountId` dicatat saat HELLO karena PSK dipilih dari akun itu; AUTH
+     * wajib memakai akun yang sama supaya sesi tidak bisa diikat ke akun lain.
+     */
+    private pskState: Map<
+        string,
+        { accountId: string; psk: Buffer; clientNonce: string; serverNonce: string }
+    > = new Map();
 
     constructor(private deps: ListenerDeps) {}
 
@@ -195,7 +202,7 @@ export class LantanaListener {
                         this.deps.accounts.getPsk(accountId) ||
                         crypto.randomBytes(32);
 
-                    this.pskState.set(sessionId, { psk, clientNonce, serverNonce });
+                    this.pskState.set(sessionId, { accountId, psk, clientNonce, serverNonce });
 
                     await this.sendPlain(fd, port, endpoint, {
                         type: MSG_CHALLENGE,
@@ -285,8 +292,19 @@ export class LantanaListener {
                         return;
                     }
 
+                    // Proof hanya membuktikan kepemilikan PSK akun dari HELLO.
+                    // Akun di AUTH harus sama; jika tidak, pemegang key akun A
+                    // bisa mengikat sesi ke device milik akun B.
                     const accountId = String(msg.accountId || "");
                     const deviceId = String(msg.deviceId || "");
+                    if (!accountId || accountId !== state.accountId) {
+                        this.pskState.delete(sessionId);
+                        await this.sendPlain(fd, port, endpoint, this.nack(
+                            LantanaError.UNAUTHENTICATED,
+                            "accountId tidak cocok dengan hello",
+                        ));
+                        return;
+                    }
                     if (!this.deps.accounts.getPsk(accountId)) {
                         this.pskState.delete(sessionId);
                         await this.sendPlain(fd, port, endpoint, this.nack(
