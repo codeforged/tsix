@@ -106,3 +106,28 @@ describe("validasi nilai", () => {
         expect(reg.validate(300, "").ok).toBe(false);
     });
 });
+
+describe("batas panjang label/unit", () => {
+    const base = { ownerAccountId: "acc", type: "number" as const };
+
+    it("menerima batas maksimal", () => {
+        const reg = new SchemeRegistry();
+        const s = reg.add({ ...base, schemeId: 1, label: "L".repeat(128), unit: "u".repeat(32) });
+        expect(s.label).toHaveLength(128);
+    });
+
+    it("menolak label > 128 dan unit > 32 saat add", () => {
+        const reg = new SchemeRegistry();
+        expect(() => reg.add({ ...base, schemeId: 1, label: "L".repeat(129) })).toThrow(/label maksimal 128/);
+        expect(() => reg.add({ ...base, schemeId: 2, label: "Suhu", unit: "u".repeat(33) })).toThrow(/unit maksimal 32/);
+        expect(reg.list()).toEqual([]);
+    });
+
+    it("menolak patch yang melebihi batas tanpa mengubah scheme", () => {
+        const reg = new SchemeRegistry();
+        reg.add({ ...base, schemeId: 1, label: "Suhu", unit: "C" });
+        expect(() => reg.update("acc", 1, { label: "L".repeat(129) })).toThrow(/label maksimal/);
+        expect(() => reg.update("acc", 1, { unit: "u".repeat(33) })).toThrow(/unit maksimal/);
+        expect(reg.get(1)).toMatchObject({ label: "Suhu", unit: "C" });
+    });
+});

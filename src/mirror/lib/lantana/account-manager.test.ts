@@ -159,3 +159,13 @@ describe("serialisasi", () => {
         expect(restored.get("root")!.permissions.allowedInjectSchemes).toEqual([{ from: 1, to: 5 }]);
     });
 });
+
+describe("batas panjang accountId", () => {
+    it("menerima 64 karakter dan menolak 65", () => {
+        const mgr = new AccountManager();
+        expect(mgr.createRoot("a".repeat(64)).accountId).toHaveLength(64);
+        expect(() => mgr.createRoot("b".repeat(65))).toThrow(/maksimal 64/);
+        expect(() => mgr.createChild("a".repeat(64), "c".repeat(65))).toThrow(/maksimal 64/);
+        expect(mgr.has("b".repeat(65))).toBe(false);
+    });
+});

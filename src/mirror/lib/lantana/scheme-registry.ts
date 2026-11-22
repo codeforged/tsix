@@ -9,12 +9,23 @@
 
 import {
     LantanaError,
+    MAX_SCHEME_LABEL_LENGTH,
+    MAX_SCHEME_UNIT_LENGTH,
     ReadingValue,
     SchemeDef,
     SchemeType,
 } from "@tsix/lantana/lantana-core";
 
 export class SchemeRegistryError extends Error {}
+
+function checkLengths(label: string | undefined, unit: string | undefined): void {
+    if (label !== undefined && label.trim().length > MAX_SCHEME_LABEL_LENGTH) {
+        throw new SchemeRegistryError(`label maksimal ${MAX_SCHEME_LABEL_LENGTH} karakter`);
+    }
+    if (unit !== undefined && unit.length > MAX_SCHEME_UNIT_LENGTH) {
+        throw new SchemeRegistryError(`unit maksimal ${MAX_SCHEME_UNIT_LENGTH} karakter`);
+    }
+}
 
 export interface ValidationResult {
     ok: boolean;
@@ -39,6 +50,7 @@ export class SchemeRegistry {
         if (!def.ownerAccountId) throw new SchemeRegistryError("ownerAccountId wajib diisi");
         if (!isSchemeType(def.type)) throw new SchemeRegistryError(`tipe scheme tidak valid: ${def.type}`);
         if (!def.label || !def.label.trim()) throw new SchemeRegistryError("label wajib diisi");
+        checkLengths(def.label, def.unit);
         if (def.min !== undefined && !Number.isFinite(def.min)) {
             throw new SchemeRegistryError("min harus berupa angka finite");
         }
@@ -83,6 +95,7 @@ export class SchemeRegistry {
         if (patch.label !== undefined && !patch.label.trim()) {
             throw new SchemeRegistryError("label tidak boleh kosong");
         }
+        checkLengths(patch.label, patch.unit);
         if (patch.min !== undefined && !Number.isFinite(patch.min)) {
             throw new SchemeRegistryError("min harus berupa angka finite");
         }

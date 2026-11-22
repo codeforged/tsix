@@ -60,6 +60,14 @@ export function errorName(code: LantanaError): string {
     return LantanaError[code] || `ERR_0x${code.toString(16)}`;
 }
 
+// ─── Batas panjang (karakter) ─────────────────────────────────────────────
+// Selaras dengan kolom `sensor_readings` (account_id VARCHAR(64), label
+// VARCHAR(128), unit VARCHAR(32)) supaya data yang lolos Lantana pasti muat
+// di DataBank/consumer.
+export const MAX_ACCOUNT_ID_LENGTH = 64;
+export const MAX_SCHEME_LABEL_LENGTH = 128;
+export const MAX_SCHEME_UNIT_LENGTH = 32;
+
 // ─── Akun & izin ──────────────────────────────────────────────────────────
 /** Satu scheme ID, atau rentang inklusif `{ from, to }`. */
 export type SchemeRange = number | { from: number; to: number };

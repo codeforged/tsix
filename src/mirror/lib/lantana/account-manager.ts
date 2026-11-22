@@ -15,6 +15,7 @@ import { derivePsk } from "@tsix/lantana/lantana-psk";
 import {
     AccountRecord,
     EMPTY_PERMISSIONS,
+    MAX_ACCOUNT_ID_LENGTH,
     Permissions,
     StoredCredential,
 } from "@tsix/lantana/lantana-core";
@@ -95,6 +96,9 @@ export class AccountManager {
     ): AccountRecord {
         const id = (accountId || "").trim();
         if (!id) throw new AccountError("accountId wajib diisi");
+        if (id.length > MAX_ACCOUNT_ID_LENGTH) {
+            throw new AccountError(`accountId maksimal ${MAX_ACCOUNT_ID_LENGTH} karakter`);
+        }
         if (this.accounts.has(id)) throw new AccountError(`akun sudah ada: ${id}`);
         if (parentId !== null && !this.accounts.has(parentId)) {
             throw new AccountError(`parent tidak ditemukan: ${parentId}`);
