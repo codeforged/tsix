@@ -161,18 +161,18 @@ npm run tsix:install
 
 `README.md` distro juga dibuat otomatis dari isi recipe.
 
-### Identitas kernel (`src/sysconfig.conf`)
+### Identitas distro dan kernel (`src/sysconfig.conf`)
 
 Saat build, Twrapper menyelaraskan dua kunci di bagian `[kernel]` dari
-`src/sysconfig.conf` dengan **kode kernel** (`src/kernel/Kernel.ts`):
+`src/sysconfig.conf` dari dua sumber:
 
 - `version` ← `private version` di `Kernel.ts`
-- `distroName` ← `private codename` di `Kernel.ts`
+- `distroName` ← `distro.name` di recipe yang dipilih
 
-Sumbernya sengaja Kernel.ts (bukan recipe), supaya versi yang dilaporkan image
-selalu sama dengan versi kernel yang benar-benar dibangun. Baris lain, komentar,
-dan gaya EOL tidak diubah. Bila `codename`/`version` tidak terbaca dari
-`Kernel.ts`, build gagal (bukan diam-diam dibiarkan).
+Dengan begitu, setiap image melaporkan versi kernel yang benar-benar dibangun
+dan nama distro sesuai resepnya. Baris lain, komentar, dan gaya EOL tidak diubah.
+Build gagal bila versi kernel tidak terbaca dari `Kernel.ts` atau kunci target
+tidak ditemukan di bagian `[kernel]`.
 
 ---
 

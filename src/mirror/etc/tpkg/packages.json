@@ -3,7 +3,7 @@
     "packages": [
         {
             "name": "base-system",
-            "version": "0.3.4.20261121.1",
+            "version": "0.3.4.20261122.1",
             "description": "TSIX base system: essential VFS, shared runtime, kernel and bootloader host infrastructure.",
             "author": "TSIX",
             "needReboot": true,

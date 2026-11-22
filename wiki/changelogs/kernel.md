@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-11-22
+
+### sudo timestamp per user/TTY
+
+- **File:** `src/mirror/bin/sudo.ts`, `src/mirror/bin/sudo.test.ts`,
+  `src/kernel/Kernel.ts`, `src/mirror/etc/tpkg/packages.json`.
+- **Perubahan:** setelah autentikasi berhasil, tiket root-only di `/var/run`
+  berlaku 15 menit untuk UID + TTY tersebut. Tanpa TTY tidak ada cache.
+- **Perintah:** `sudo -v` memvalidasi/memperpanjang tiket; `sudo -k` menghapus
+  tiket TTY aktif; `sudo -K` menghapus semua tiket UID. Tiket hanya menghindari
+  prompt password; command tetap dijalankan lewat alur setuid root yang ada.
+- **Paket:** base-system dinaikkan ke `0.3.4.20261122.1` melalui versi kernel.
+- **Tes:** 6 tes `sudo.test.ts` lulus (cache, timeout, TTY isolation,
+  refresh, `-k`, `-K`).
+- **Oleh:** Copilot · **Laporan:** kakang
+
+---
+
 ## 2026-09-24
 
 ### Console/log kernel & script sinkronisasi → bahasa Inggris (komentar tetap Indonesia)
@@ -95,7 +113,7 @@
     - **Migrasi sekali-jalan** di `processFstab()`: kalau `.conf` belum ada tapi
       `.json` ada → isinya diurai, ditulis ulang ke `/etc/fstab.conf`
       (`formatFstabIni`), dicatat di boot log (`FSTAB: migrasi /etc/fstab.json →
-      /etc/fstab.conf`) + `/var/log/syslog`, peringatan parser ikut diteruskan.
+/etc/fstab.conf`) + `/var/log/syslog`, peringatan parser ikut diteruskan.
       Berkas `.json`-nya **tidak dihapus** (milik admin) — ia hanya berhenti
       dipakai. Ini yang mencegah node live kehilangan mount (mis. `/mnt/net`) saat
       pull.
@@ -158,9 +176,9 @@
   lama (`/tmp` 1023 = 0o1777 sticky, `/mnt/shared` & `/mnt/sbak` 509 = 0o775,
   `/hostsrc` 448 = 0o700 read-only). Suite: 1161 passed, 8 gagal pra-ada.
 - **Belum dikerjakan (opsi 2):** menulis `src/mirror/etc/fstab.conf` sebagai berkas resmi
-  + memindahkan `scripts/install.ts`, `src/mirror/etc/fstab.md`, dan wiki ke format INI,
-  plus migrasi DB lama. Jadi saat ini `.json` masih sumber efektif — perilaku runtime
-  **tidak berubah**, hanya lebih aman & teruji.
+    - memindahkan `scripts/install.ts`, `src/mirror/etc/fstab.md`, dan wiki ke format INI,
+      plus migrasi DB lama. Jadi saat ini `.json` masih sumber efektif — perilaku runtime
+      **tidak berubah**, hanya lebih aman & teruji.
 - **Deploy:** kernel saja (`src/kernel/*`) → restart kernel; tidak perlu `vfs:bootstrap`.
 - **Oleh:** Copilot · **Laporan:** andriansah
 
@@ -181,7 +199,7 @@
   dan `TERM=dumb` lewat `detectColor()`; saat non-TTY (`-1`/pipe) default tetap
   berwarna, matikan dengan `--no-color`.
 - **Perbaikan bug:** deteksi `showAll` dulu memakai `arg.includes("a") ||
-  arg.includes("e")`, jadi `ps --mem` (ada huruf "e") dan `ps --charset box`
+arg.includes("e")`, jadi `ps --mem` (ada huruf "e") dan `ps --charset box`
   (ada huruf "a") **diam-diam menampilkan SEMUA proses**. Sekarang hanya pola
   flag yang cocok: `aux`, `-aux`, `-[aefx]+`.
 - **Selaras:** kolom `STATE` diwarnai semantik (`tone.success`/`warning`/
@@ -227,13 +245,13 @@
 - **File:** `src/kernel/devices/SimpleMQTNLDriver.ts`, `src/kernel/netfs/MQTNLNetFSChannel.ts`.
 - **Laporan lapangan:** mount NetFS ke node A (`jatitsix`) sudah normal baca-tulis, lalu begitu `tssh` dari node yang sama ke node B (`mactsix`) dijalankan, jalur NetFS ke node A **terganggu** (request tidak dijawab, mount timeout) padahal node A tidak terlibat sama sekali.
 - **Akar masalah (bukan aplikasinya):** `protocolRegistry` — peta "protocol terakhir dipakai peer" yang dipakai driver saat memilih framing — diisi **sebelum** filter alamat, jadi termasuk untuk paket yang datang dari **alamat kita sendiri**:
-  - **gema broker**: semua node subscribe `mqtnl@1.x/#`, jadi paket yang kita publish dipantulkan balik ke kita;
-  - **loopback** antar-socket lokal (relay netfsd ↔ channel NetFS kernel).
-  Akibatnya `protocolRegistry[<alamat sendiri>]` berubah jadi **Binfeo** begitu ada trafik tsshd/tssh keluar — dan port channel NetFS kernel (yang dulu **tidak** di-pin protocolnya, sementara socket userland selalu di-pin oleh `NetSocket.open()`) ikut mewarisi framing itu. Request NetFS yang harusnya JSON terkirim sebagai Binfeo → tiba di `netfsd` sebagai **Buffer** → dibuang diam-diam → mount hang sampai timeout.
+    - **gema broker**: semua node subscribe `mqtnl@1.x/#`, jadi paket yang kita publish dipantulkan balik ke kita;
+    - **loopback** antar-socket lokal (relay netfsd ↔ channel NetFS kernel).
+      Akibatnya `protocolRegistry[<alamat sendiri>]` berubah jadi **Binfeo** begitu ada trafik tsshd/tssh keluar — dan port channel NetFS kernel (yang dulu **tidak** di-pin protocolnya, sementara socket userland selalu di-pin oleh `NetSocket.open()`) ikut mewarisi framing itu. Request NetFS yang harusnya JSON terkirim sebagai Binfeo → tiba di `netfsd` sebagai **Buffer** → dibuang diam-diam → mount hang sampai timeout.
 - **Perubahan:**
-  1. `protocolRegistry` hanya diisi untuk paket dari **peer lain** (`srcAddress !== localAddress`) — registry memang untuk mempelajari protocol PEER, bukan diri sendiri. Fitur multi-proto untuk peer tetap utuh.
-  2. `unregisterHandler()` kini juga membuang **pin protocol per-port** (`portProtocols`) — sebelumnya pin tertinggal dan bisa diwarisi socket baru yang memakai ulang nomor port itu (`PortManager` melepas nomor saat `CLOSE`).
-  3. `MQTNLNetFSChannel.open()` **mem-pin protocol port channel ke JSON** (`ioctl 0x1002`), dan `close()` melepasnya — NetFS tidak lagi bergantung pada `protocolRegistry`/`activeProtocol` global.
+    1. `protocolRegistry` hanya diisi untuk paket dari **peer lain** (`srcAddress !== localAddress`) — registry memang untuk mempelajari protocol PEER, bukan diri sendiri. Fitur multi-proto untuk peer tetap utuh.
+    2. `unregisterHandler()` kini juga membuang **pin protocol per-port** (`portProtocols`) — sebelumnya pin tertinggal dan bisa diwarisi socket baru yang memakai ulang nomor port itu (`PortManager` melepas nomor saat `CLOSE`).
+    3. `MQTNLNetFSChannel.open()` **mem-pin protocol port channel ke JSON** (`ioctl 0x1002`), dan `close()` melepasnya — NetFS tidak lagi bergantung pada `protocolRegistry`/`activeProtocol` global.
 - **Diagnosa:** jalur ini hanya rusak kalau port pengirim **tidak** di-pin. Socket `NetSocket` aman; channel kernel dulu tidak.
 - **Dampak:** satu node boleh mencampur trafik JSON (NetFS, SCP, ping) dan biner (tssh/tsshd, scanif/nmap, OTA) tanpa saling merusak — batas isolasi kini per-**port**, bukan per-node.
 - **Test:** `SimpleMQTNLDriver.protocol.test.ts` (N7: gema diri sendiri, registry peer, pin per-port, pembersihan pin) + `MQTNLNetFSChannel.test.ts` N4.06/N4.08 diperbarui (pin JSON saat open, dilepas saat close).
@@ -255,10 +273,10 @@
 - **File:** `src/common/Shebang.ts` (baru), `src/common/Shebang.test.ts` (baru), `src/kernel/Syscalls.ts` (kasus `EXEC` + `resolveShebangInterpreter()`).
 - **Perubahan:** kalau file yang di-`exec` **bukan** aplikasi `.ts`/`.js` (jadi tidak dibaca sebagai program) tapi isinya diawali `#!`, kernel menjalankan interpreter-nya — persis `execve` di Unix:
 
-  ```
-  exec("/etc/rc.local")  →  exec("/bin/tsh.js", ["/etc/rc.local", ...args])
-  exec("./start-netfs.sh") →  exec("/bin/tsh.js", ["./start-netfs.sh", ...args])
-  ```
+    ```
+    exec("/etc/rc.local")  →  exec("/bin/tsh.js", ["/etc/rc.local", ...args])
+    exec("./start-netfs.sh") →  exec("/bin/tsh.js", ["./start-netfs.sh", ...args])
+    ```
 
 - **Detail resolusi interpreter:** `#!/bin/tsh` boleh menunjuk file yang belum ada namanya — runtime mengeksekusi sidecar `.js` sedangkan source-nya `.ts`, jadi tiap kandidat dicoba apa adanya, lalu `.js`, lalu `.ts` (preferensi sama dengan EXEC biasa). Nama telanjang (`#!/bin/tsh` vs `#!/usr/bin/env tsh`) dinormalkan, dan direktori `/bin`, `/usr/bin`, `/sbin` dicoba untuk interpreter tanpa path.
 - **Urutan & keamanan:** permission `EXECUTE` diperiksa pada **skrip** (seperti sebelumnya), lalu juga pada **interpreter** — jadi setuid/izin `/bin/tsh.js` tidak bisa dilewati lewat skrip. `appContent` yang dimuat adalah milik interpreter (DME tetap jalan), sedangkan path skrip disisipkan sebagai argumen pertama sehingga `tsh` masuk mode non-interaktif.
@@ -271,12 +289,12 @@
 
 - **File:** `src/userland/WorkerEntry.ts`, `src/userland/WorkerEntry.js`, `scripts/test/worker-dme-smoke.mjs` (baru).
 - **Gejala (dilaporkan dari lapangan):** menjalankan `netfsd` → `[Worker 14] Direct Execution Error: Cannot find module './NetFSProtocol'`, dengan require stack `@common_netfs/NetFSServer.js` → `/sbin/netfsd.js`.
-- **Akar masalah:** saat memuat modul framework dari memory (DME), `WorkerEntry` men-_compile() modul dengan nama file buatan: `path.join(cwd, normalizedRequest.replace("/", "_") + ".js")`. `String.replace("/", "_")` **hanya mengganti garis miring PERTAMA**, jadi id `@common/netfs/NetFSServer` menjadi folder `@common_netfs/` + file `NetFSServer.js`. Untuk import relatif, kode lama memakai `path.basename(parent.filename)` dan mencocokkan awalan `@tsix_`/`@common_`: pada modul bersarang basename-nya **tidak** berawalan itu, sehingga `./NetFSProtocol` dibiarkan apa adanya dan diserahkan ke `require()` Node → tidak ketemu. Modul bersarang lain di repo (`@common/protocols/*`, mis. `TSSHProtocol`) selama ini aman **hanya karena** file-nya tidak punya import relatif di dalamnya — jadi bug ini laten, menunggu modul bersarang pertama yang punya import relatif (yaitu `@common/netfs/NetFSServer`, dipakai NetFS).
+- **Akar masalah:** saat memuat modul framework dari memory (DME), `WorkerEntry` men-_compile() modul dengan nama file buatan: `path.join(cwd, normalizedRequest.replace("/", "_") + ".js")`. `String.replace("/", "_")`**hanya mengganti garis miring PERTAMA**, jadi id`@common/netfs/NetFSServer`menjadi folder`@common_netfs/`+ file`NetFSServer.js`. Untuk import relatif, kode lama memakai `path.basename(parent.filename)`dan mencocokkan awalan`@tsix_`/`@common\_`: pada modul bersarang basename-nya **tidak** berawalan itu, sehingga `./NetFSProtocol`dibiarkan apa adanya dan diserahkan ke`require()` Node → tidak ketemu. Modul bersarang lain di repo (`@common/protocols/\*`, mis. `TSSHProtocol`) selama ini aman **hanya karena** file-nya tidak punya import relatif di dalamnya — jadi bug ini laten, menunggu modul bersarang pertama yang punya import relatif (yaitu `@common/netfs/NetFSServer`, dipakai NetFS).
 - **Perbaikan:** resolusi relatif dipindah ke **ruang module-id**, bukan nama file:
-  - peta `moduleIdByFile` (dummyFilename → id, mis. `@common/netfs/NetFSServer`);
-  - helper `resolveRelativeModuleId(parentId, request)` yang melipat `./` dan `../` di ruang id (`@common/netfs/NetFSServer` + `./NetFSProtocol` → `@common/netfs/NetFSProtocol`; `../Logger` → `@common/Logger`), dengan penjaga agar segmen scope (`@tsix`/`@common`) tidak pernah habis terlipat;
-  - peta didaftarkan **SEBELUM** `_compile()` — kesalahan pertama saat mengerjakan ini adalah mendaftarkannya sesudah, padahal isi modul me-require anaknya **saat** `_compile` berjalan;
-  - logika lama (basename) tetap dipakai sebagai fallback bila parent tidak dikenal (mis. modul dimuat `require()` biasa).
+    - peta `moduleIdByFile` (dummyFilename → id, mis. `@common/netfs/NetFSServer`);
+    - helper `resolveRelativeModuleId(parentId, request)` yang melipat `./` dan `../` di ruang id (`@common/netfs/NetFSServer` + `./NetFSProtocol` → `@common/netfs/NetFSProtocol`; `../Logger` → `@common/Logger`), dengan penjaga agar segmen scope (`@tsix`/`@common`) tidak pernah habis terlipat;
+    - peta didaftarkan **SEBELUM** `_compile()` — kesalahan pertama saat mengerjakan ini adalah mendaftarkannya sesudah, padahal isi modul me-require anaknya **saat** `_compile` berjalan;
+    - logika lama (basename) tetap dipakai sebagai fallback bila parent tidak dikenal (mis. modul dimuat `require()` biasa).
 - **Verifikasi (dengan reproduksi lebih dulu):** harness baru `scripts/test/worker-dme-smoke.mjs` menjalankan `WorkerEntry.js` **asli** di worker thread dengan `vfsCache` yang dibangun dari source repo (persis cara kernel: `mirror/lib`→`/lib`, `common`→`/lib/common`, app ditranspile seperti sidecar `.js`), lalu menjawab syscall minimal (PRINT/SCREEN_INFO/WHOAMI/GETCWD). Sebelum perbaikan harness **mereproduksi persis** error lapangan; sesudah perbaikan `netfsd --help` ✅ (mencetak usage), dan tidak ada regresi untuk jalur lama: `netfs --help`, `lsblk --help`, `scpd --help`, `iot-listener --help` semuanya ✅. `npm run typecheck` bersih untuk `src/userland/**`; 37 test NetFS tetap lulus.
 - **Dampak:** semua modul framework bersarang (`@common/<dir>/<mod>`) kini boleh memakai import relatif pada kedalaman berapa pun; jalur top-level (`@tsix/Application` → `./Emerald`, dsb.) tidak berubah. Catat juga: error loader dikirim ke parent lewat syscall `PRINT` (bukan stderr), jadi harness/skrip apa pun harus memeriksa keduanya — kalau tidak, kegagalan lolos sebagai “sukses”.
 - **Deploy:** `WorkerEntry.js` dibaca dari **host** (`sysconfig.scheduler.workerEntryPath` = `../userland/WorkerEntry.js`), bukan dari VFS → cukup restart `npm start` (tidak perlu `npm run install`).
@@ -290,7 +308,7 @@
 
 - **File:** `src/kernel/Kernel.ts` (`handleKeyboardHotkey`), `src/kernel/Kernel.test.ts`.
 - **Gejala:** di console native (host terminal), `Alt+1..6` sudah tidak memindahkan TTY, padahal dulu bisa. `Ctrl+1..6` juga tidak.
-- **Akar masalah (dibuktikan dengan `git log -S`):** commit **`fd3be6e` "switch tty hotkey in mac keyboard"** (2026-08-28) **mengganti** — bukan menambah — enam entri `"\x1b1".."\x1b6"` (ESC + digit, bentuk yang dikirim xterm / GNOME Terminal / VS Code / iTerm2 untuk Alt+digit) dengan enam karakter macOS `¡ ™ £ ¢ ∞ §`. Sejak commit itu, Alt+digit hanya cocok di Terminal.app (opsi *Use Option as Meta key* mati), dan di Linux tak ada lagi entri yang cocok. `Ctrl+digit` **tidak pernah** ada di kode mana pun (`git log -S 'Ctrl+1' --all` → kosong), jadi itu memang belum pernah didukung.
+- **Akar masalah (dibuktikan dengan `git log -S`):** commit **`fd3be6e` "switch tty hotkey in mac keyboard"** (2026-08-28) **mengganti** — bukan menambah — enam entri `"\x1b1".."\x1b6"` (ESC + digit, bentuk yang dikirim xterm / GNOME Terminal / VS Code / iTerm2 untuk Alt+digit) dengan enam karakter macOS `¡ ™ £ ¢ ∞ §`. Sejak commit itu, Alt+digit hanya cocok di Terminal.app (opsi _Use Option as Meta key_ mati), dan di Linux tak ada lagi entri yang cocok. `Ctrl+digit` **tidak pernah** ada di kode mana pun (`git log -S 'Ctrl+1' --all` → kosong), jadi itu memang belum pernah didukung.
 - **Perubahan 1 — Alt+digit dikembalikan, macOS tetap:** `"\x1b" + d` (Alt+digit native) **dan** `¡™£¢∞§` sama-sama dipetakan, jadi kedua platform jalan bersamaan tanpa saling mengorbankan.
 - **Perubahan 2 — Ctrl+1..6 untuk terminal modern:** ditambah varian **CSI-u** (`\x1b[<49-54>;5u` untuk Ctrl, `;3u` untuk Alt) dan **modifyOtherKeys=2** (`\x1b[27;5;<49-54>~` / `\x1b[27;3;<49-54>~`) — dipakai kitty, wezterm, Ghostty, foot, iTerm2 (Report modifiers), dan xterm dengan `modifyOtherKeys=2`.
 - **Perubahan 3 — Ctrl+4..6 lewat caret notation:** `0x1C/0x1D/0x1E` (FS/GS/RS) → TTY 4/5/6. Ini byte yang **benar-benar** dikirim terminal klasik (xterm, GNOME Terminal, Terminal.app) untuk Ctrl+4..Ctrl+6. Karena byte-nya sama, `Ctrl+\`, `Ctrl+]`, `Ctrl+^` ikut memindahkan TTY — tidak ada userland TSIX yang memakai ketiganya, jadi alokasinya aman (dan ini konsekuensi bawaan caret notation, bukan pilihan kita).
@@ -301,16 +319,17 @@
 - **Deploy:** file kernel (bukan `src/mirror/**`) → tidak perlu sync VFS, cukup restart `npm start`.
 - **Catatan lapangan — `Ctrl+digit` telanjang memang tidak bisa dipakai:** GNOME Terminal (Ubuntu) memakainya untuk pindah tab dan VS Code untuk "focus editor group"; **meng-unbind shortcut-nya pun tidak menolong**, karena byte yang sampai sudah kehilangan info modifier. Terukur di **GNOME Terminal/VTE** dengan `cat -v` (laporan andriansah, 2026-09-16):
 
-  | Kombinasi | Byte | Hasil di TSIX |
-  |---|---|---|
-  | `Alt+1..6` | `^[1` .. `^[6` (ESC + digit) | **TTY 1..6** — jalur utama yang dipakai |
-  | `Ctrl+Alt+1` | `^[1` | TTY 1 ✅ (VTE memperlakukan sama seperti Alt+1) |
-  | `Ctrl+Alt+4/5/6` | `^\` `^]` `^^` (FS/GS/RS) | TTY 4/5/6 ✅ lewat caret notation |
-  | `Ctrl+Alt+2` / `Ctrl+Alt+3` | `^@` (NUL) / `^[` (ESC) | sengaja tidak dipetakan |
-  | `Ctrl+1` | `1` | mustahil: tak terbedakan dari mengetik "1" |
-  | `Ctrl+2` / `Ctrl+3` / `Ctrl+4` | `^@` / `^[` / `^\` | caret notation; `^\` (0x1C) = **SIGQUIT** → `Quit (core dumped)` di shell biasa |
+    | Kombinasi                      | Byte                         | Hasil di TSIX                                                                   |
+    | ------------------------------ | ---------------------------- | ------------------------------------------------------------------------------- |
+    | `Alt+1..6`                     | `^[1` .. `^[6` (ESC + digit) | **TTY 1..6** — jalur utama yang dipakai                                         |
+    | `Ctrl+Alt+1`                   | `^[1`                        | TTY 1 ✅ (VTE memperlakukan sama seperti Alt+1)                                 |
+    | `Ctrl+Alt+4/5/6`               | `^\` `^]` `^^` (FS/GS/RS)    | TTY 4/5/6 ✅ lewat caret notation                                               |
+    | `Ctrl+Alt+2` / `Ctrl+Alt+3`    | `^@` (NUL) / `^[` (ESC)      | sengaja tidak dipetakan                                                         |
+    | `Ctrl+1`                       | `1`                          | mustahil: tak terbedakan dari mengetik "1"                                      |
+    | `Ctrl+2` / `Ctrl+3` / `Ctrl+4` | `^@` / `^[` / `^\`           | caret notation; `^\` (0x1C) = **SIGQUIT** → `Quit (core dumped)` di shell biasa |
 
-  SIGQUIT itu urusan line discipline host, bukan TSIX: TSIX men-set `stdin.setRawMode(true)` (lihat `KeyboardDevice`), jadi `0x1C` tiba sebagai data dan dipakai untuk pindah TTY — bukan membunuh proses. Di browser (pixelterm/retroterm) xterm.js hanya mengirim `Ctrl+3..7` (ESC/FS/GS/RS/US): `Ctrl+4..6` bekerja, `Ctrl+1/2` tidak. **Kesimpulan:** pakai `Alt+1..6` (dan biarkan GNOME Terminal 1 tab per window); `Ctrl+Alt+1` serta `Ctrl+4..6` ikut jalan sebagai bonus.
+    SIGQUIT itu urusan line discipline host, bukan TSIX: TSIX men-set `stdin.setRawMode(true)` (lihat `KeyboardDevice`), jadi `0x1C` tiba sebagai data dan dipakai untuk pindah TTY — bukan membunuh proses. Di browser (pixelterm/retroterm) xterm.js hanya mengirim `Ctrl+3..7` (ESC/FS/GS/RS/US): `Ctrl+4..6` bekerja, `Ctrl+1/2` tidak. **Kesimpulan:** pakai `Alt+1..6` (dan biarkan GNOME Terminal 1 tab per window); `Ctrl+Alt+1` serta `Ctrl+4..6` ikut jalan sebagai bonus.
+
 - **Oleh:** Copilot · **Laporan:** andriansah
 
 ### Device baru: pseudo-LCD `/dev/plcd` (`PLCDDevice`) — uji app LCD tanpa hardware
@@ -352,17 +371,17 @@
 - **File:** `src/kernel/Scheduler.ts`, `src/userland/WorkerEntry.ts`, `src/mirror/bin/ps.ts`, `src/mirror/sbin/mem.ts`
 - **Versi:** kernel `0.2.6.20260912.1` → `0.2.7.20260914.1`.
 - **Gejala:** di Windows kolom `HEAP+EXT(MB)` terisi; di macOS dan Ubuntu **semua** proses menampilkan `-` (`Total (0/13 processes read)`, `unreadable procs : 13`) **tanpa pesan apa pun** — terbaca seperti fitur rusak.
-- **Akar masalah:** jalur baca memori per-proses hanya memakai **`worker.getHeapStatistics()`**, dan method itu **baru ada di Node ≥ 22.16 / ≥ 24** (dok Node: *"Added in: v24.0.0, v22.16.0"*). Di Node 20 — versi yang dipakai `@types/node` proyek ini — `worker.getHeapStatistics` bernilai **`undefined`**, sehingga `await worker.getHeapStatistics()` melempar `TypeError`, tertangkap `catch`, dan jadi `null` untuk tiap proses. Windows kebetulan memakai Node yang lebih baru, jadi gejalanya tampak "jalan hanya di Windows". **Terverifikasi di mesin dev (Node v20.20.2):** `typeof Worker.prototype.getHeapStatistics === "undefined"`.
+- **Akar masalah:** jalur baca memori per-proses hanya memakai **`worker.getHeapStatistics()`**, dan method itu **baru ada di Node ≥ 22.16 / ≥ 24** (dok Node: _"Added in: v24.0.0, v22.16.0"_). Di Node 20 — versi yang dipakai `@types/node` proyek ini — `worker.getHeapStatistics` bernilai **`undefined`**, sehingga `await worker.getHeapStatistics()` melempar `TypeError`, tertangkap `catch`, dan jadi `null` untuk tiap proses. Windows kebetulan memakai Node yang lebih baru, jadi gejalanya tampak "jalan hanya di Windows". **Terverifikasi di mesin dev (Node v20.20.2):** `typeof Worker.prototype.getHeapStatistics === "undefined"`.
 - **Perubahan 1 — fallback IPC.** `Scheduler.getProcessMemory()` sekarang punya dua jalur:
-  1. **pull** — `worker.getHeapStatistics()` bila tersedia (Node ≥ 22.16). Bebas-blocking: tetap terbaca walau worker sedang sinkron.
-  2. **ipc** — bila tidak ada, kernel mengirim `{__tsixMemStatRequest}` dan menunggu balasan `{__tsixMemStat, stats}` dengan timeout **400 ms** (timer di-`unref()`, jadi tidak menahan event loop kernel). Balasan ini **dicegat di handler pesan Scheduler** dan tidak pernah diteruskan ke `syscallHandler`.
-  - Hasil kini membawa `source: "pull" | "ipc"`, dan `ps --mem` mencetak berapa proses yang dibaca lewat IPC.
+    1. **pull** — `worker.getHeapStatistics()` bila tersedia (Node ≥ 22.16). Bebas-blocking: tetap terbaca walau worker sedang sinkron.
+    2. **ipc** — bila tidak ada, kernel mengirim `{__tsixMemStatRequest}` dan menunggu balasan `{__tsixMemStat, stats}` dengan timeout **400 ms** (timer di-`unref()`, jadi tidak menahan event loop kernel). Balasan ini **dicegat di handler pesan Scheduler** dan tidak pernah diteruskan ke `syscallHandler`.
+    - Hasil kini membawa `source: "pull" | "ipc"`, dan `ps --mem` mencetak berapa proses yang dibaca lewat IPC.
 - **Perubahan 2 — kenapa responder diletakkan di `WorkerEntry`, bukan `UserLib`.** `WorkerEntry` **selalu** jalan (bahkan untuk app yang gagal dimuat), sedangkan `UserLib` baru hidup setelah app meng-import framework — tanpa itu, proses bermasalah justru kehilangan angka memorinya. Responder juga melaporkan `heapLimit` (`v8.getHeapStatistics().heap_size_limit`). `rss` sengaja **tidak** dikirim: di dalam worker nilainya process-wide dan menyesatkan.
 - **Perubahan 3 — berhenti diam-diam.** `ps --mem` & `mem --per-proc` kini menjelaskan diri saat tak ada angka sama sekali: Node ≥ 22.16 memberi jalur pull, Node lama bergantung pada worker yang sempat memutar event loop, dan proses yang baru spawn mungkin belum online. `ps --mem` juga mencetak versi Node host.
 - **Verifikasi:**
-  - **Sistem nyata (Ubuntu, Node 20 — kasus yang dilaporkan):** `mem --per-proc` kini menampilkan **13 proses** lengkap dan `unreadable procs : 0`; `ps --mem` melaporkan **`Total (13/13 processes read)`** plus baris `Read via worker reply (IPC): 13/13`. Angka total 114.7 MB (79.9 heap + 34.8 external) konsisten antara kedua utilitas.
-  - Responder (memakai `WorkerEntry.js` asli, worker hidup) → `{heapUsed: 5.4 MB, heapTotal: 9.9 MB, external: 2.5 MB, arrayBuffers: 10 KB, heapLimit: 4.3 GB}`.
-  - `Scheduler` nyata di Node 20 (jadi menempuh jalur IPC): worker idle → angka + `source: 'ipc'`; worker sibuk sinkron (`while` 3 s) → `null` setelah **401 ms**; PID tanpa worker → `null`.
+    - **Sistem nyata (Ubuntu, Node 20 — kasus yang dilaporkan):** `mem --per-proc` kini menampilkan **13 proses** lengkap dan `unreadable procs : 0`; `ps --mem` melaporkan **`Total (13/13 processes read)`** plus baris `Read via worker reply (IPC): 13/13`. Angka total 114.7 MB (79.9 heap + 34.8 external) konsisten antara kedua utilitas.
+    - Responder (memakai `WorkerEntry.js` asli, worker hidup) → `{heapUsed: 5.4 MB, heapTotal: 9.9 MB, external: 2.5 MB, arrayBuffers: 10 KB, heapLimit: 4.3 GB}`.
+    - `Scheduler` nyata di Node 20 (jadi menempuh jalur IPC): worker idle → angka + `source: 'ipc'`; worker sibuk sinkron (`while` 3 s) → `null` setelah **401 ms**; PID tanpa worker → `null`.
 - **Batasan yang disengaja:** di Node < 22.16, worker yang sedang sinkron/blocking **tidak bisa** dibaca (event loop-nya tak berputar). Ini kompromi yang lebih jujur daripada kolom kosong tanpa penjelasan; solusi penuhnya adalah memakai Node ≥ 22.16.
 - **Oleh:** Copilot · **Laporan:** kakang
 
@@ -380,18 +399,18 @@
   | Setelah fase 1 | 370 MB | 16.2 MB | 18.1 MB |
   | Setelah fase 2 | **250.9 MB** | **7.3 MB** | **10.5 MB** |
   | **Total** | **−313 MB (−56%)** | **−76%** | −42% |
-  - 12 worker total: 144.7 MB → **89.1 MB**.
-- **Temuan penting — RSS bukan angka stabil.** Dua perintah berturut-turut (`mem` lalu `mem --per-proc`, tanpa membuka app apa pun) melaporkan **292.7 MB** vs **250.9 MB** — selisih **42 MB** hanya dari halaman mmap V8 yang di-*reclaim* OS. Inilah alasan label `unattributed` di `mem` sengaja tidak diklaim sebagai "ukuran main thread": angka itu bergerak tanpa perubahan beban. Untuk perbandingan antar-proses, pakai `ps --sort-mem`.
+    - 12 worker total: 144.7 MB → **89.1 MB**.
+- **Temuan penting — RSS bukan angka stabil.** Dua perintah berturut-turut (`mem` lalu `mem --per-proc`, tanpa membuka app apa pun) melaporkan **292.7 MB** vs **250.9 MB** — selisih **42 MB** hanya dari halaman mmap V8 yang di-_reclaim_ OS. Inilah alasan label `unattributed` di `mem` sengaja tidak diklaim sebagai "ukuran main thread": angka itu bergerak tanpa perubahan beban. Untuk perbandingan antar-proses, pakai `ps --sort-mem`.
 - **Peluang yang DIUKUR lalu DITOLAK** (jangan diulang tanpa data baru):
-  - **Berbagi `module.exports` framework antar-worker** — framework hanya ~2 MB/worker (trivial 10.5 → require emerald+cashew 12.3 → 300 DOM node 12.7 MB). Harness IPC + scoping per-proses tidak sepadan.
-  - **`arena: true`** (berbagi heap antar-worker) — **berbahaya**: `WorkerEntry` menyabotase `global.require`/`process.exit` dan menyimpan `moduleCache` per-thread; heap bersama membuat proses saling menimpa dan membongkar isolasi.
-  - **Membuang `*.test.ts` dari `/lib`** — setelah cache hanya `.ts`, bobot test tinggal **84 KB** (18 file); hemat ~1 MB untuk 12 worker. Tidak sepadan.
-  - **Kebocoran `windowStates` (dome.ts) & `notifHistory` (asteracea.ts)** — memang tumbuh tanpa batas (prune hanya saat UNMOUNT/DESTROY), tapi lajunya kecil: clock taskbar 1 hari = 1.09 MB; dashboard 4 gauge 1 jam = 0.42 MB (~63 byte/entri). Bukan penyebab lonjakan ratusan MB. Tetap layak dibatasi someday (tumbuh monoton + snapshot dikirim ulang tiap klien reconnect), prioritas rendah.
-  - **Peta main thread (terukur per-modul):** baseline node 58.2 → SyscallDispatcher +14.9 → BKFS +6.2 → Kernel +3.3 → SerialDeviceManager +2.8 → **total 89.3 MB**. Dari situ, data kita hanya ~20 MB (`heapUsed` 16.9 + `malloced` 0.7 + `external` 2.1); **sisa ~70 MB adalah V8 code space (JIT) + stack + mmap** — konsekuensi mengompilasi ~90 MB modul JS, bukan data yang bisa dibebaskan.
+    - **Berbagi `module.exports` framework antar-worker** — framework hanya ~2 MB/worker (trivial 10.5 → require emerald+cashew 12.3 → 300 DOM node 12.7 MB). Harness IPC + scoping per-proses tidak sepadan.
+    - **`arena: true`** (berbagi heap antar-worker) — **berbahaya**: `WorkerEntry` menyabotase `global.require`/`process.exit` dan menyimpan `moduleCache` per-thread; heap bersama membuat proses saling menimpa dan membongkar isolasi.
+    - **Membuang `*.test.ts` dari `/lib`** — setelah cache hanya `.ts`, bobot test tinggal **84 KB** (18 file); hemat ~1 MB untuk 12 worker. Tidak sepadan.
+    - **Kebocoran `windowStates` (dome.ts) & `notifHistory` (asteracea.ts)** — memang tumbuh tanpa batas (prune hanya saat UNMOUNT/DESTROY), tapi lajunya kecil: clock taskbar 1 hari = 1.09 MB; dashboard 4 gauge 1 jam = 0.42 MB (~63 byte/entri). Bukan penyebab lonjakan ratusan MB. Tetap layak dibatasi someday (tumbuh monoton + snapshot dikirim ulang tiap klien reconnect), prioritas rendah.
+    - **Peta main thread (terukur per-modul):** baseline node 58.2 → SyscallDispatcher +14.9 → BKFS +6.2 → Kernel +3.3 → SerialDeviceManager +2.8 → **total 89.3 MB**. Dari situ, data kita hanya ~20 MB (`heapUsed` 16.9 + `malloced` 0.7 + `external` 2.1); **sisa ~70 MB adalah V8 code space (JIT) + stack + mmap** — konsekuensi mengompilasi ~90 MB modul JS, bukan data yang bisa dibebaskan.
 - **Peluang yang masih terbuka (belum dikerjakan):**
-  - Resolve `.ts` `/lib` dari sidecar `.js` yang sudah ada → hemat **96 ms CPU boot** (semua 16 sidecar segar, nol basi). Wajib pakai **guard `modified_at`** (jangan pakai `.js` bila lebih tua dari `.ts`), dan `scripts/vfs-bootstrap.ts` sebaiknya ikut `sourcemap: false` (sidecar 1.25 MB → 0.33 MB karena masih inline sourcemap). Menyentuh jalur eksekusi → perlu uji penuh.
-  - `scheduler.defaultShell: "tsh.ts"` di `sysconfig.json` adalah **setelan mati** (tidak ada pembacanya; `Kernel.runInit()` memakai `scheduler.bootEntry` = `init.js`). Perlu dibersihkan agar tidak menyesatkan.
-  - Akun runtime (`useradd`) pernah hilang dari `/etc/passwd` di `system.db`. **`vfs:bootstrap` TERBUKTI bukan penyebabnya** (lihat `wiki/changelogs/vfs.md`). Pemicu belum teridentifikasi.
+    - Resolve `.ts` `/lib` dari sidecar `.js` yang sudah ada → hemat **96 ms CPU boot** (semua 16 sidecar segar, nol basi). Wajib pakai **guard `modified_at`** (jangan pakai `.js` bila lebih tua dari `.ts`), dan `scripts/vfs-bootstrap.ts` sebaiknya ikut `sourcemap: false` (sidecar 1.25 MB → 0.33 MB karena masih inline sourcemap). Menyentuh jalur eksekusi → perlu uji penuh.
+    - `scheduler.defaultShell: "tsh.ts"` di `sysconfig.json` adalah **setelan mati** (tidak ada pembacanya; `Kernel.runInit()` memakai `scheduler.bootEntry` = `init.js`). Perlu dibersihkan agar tidak menyesatkan.
+    - Akun runtime (`useradd`) pernah hilang dari `/etc/passwd` di `system.db`. **`vfs:bootstrap` TERBUKTI bukan penyebabnya** (lihat `wiki/changelogs/vfs.md`). Pemicu belum teridentifikasi.
 - **Sisa selisih `unattributed` (~125 MB)** kemungkinan besar V8 code space + mmap + overhead isolate, **bukan** kebocoran — dibuktikan oleh inkonsistensi 42 MB di atas. Bila muncul pertumbuhan **monoton** saat idle (bukan naik-turun), itu baru indikasi kebocoran nyata; gunakan `mem --per-proc` berulang untuk memastikan.
 - **Oleh:** Copilot · **Laporan:** kakang
 
@@ -400,15 +419,15 @@
 - **File:** `src/kernel/Kernel.ts` (`rebuildVFSCache`), `src/mirror/sbin/mem.ts`, `src/mirror/bin/ps.ts`
 - **Latar:** setelah fase 1 (lihat bagian berikutnya), komposisi RSS bergeser — worker sudah ~12 MB, main thread menjadi komponen terbesar (~134 MB dari 298 MB).
 - **Perubahan 1 — cache hanya `.ts`.** `fetchDir()` sebelumnya memasukkan `.ts`, `.js`, **dan** `.json`. `WorkerEntry` memetakan `@tsix/X` → `/lib/X.ts` dan `@common/Y` → `/lib/common/Y.ts`, jadi entri `.js` (51 file, 1.70 MB) **tidak pernah di-lookup** tetapi tetap di-clone ke setiap worker via `workerData`.
-  - **Ukur (12 worker, app yang benar-benar `require` emerald+cashew+Application):**
-    - cache lama (2.16 MB): **16.44 MB/worker**
-    - cache baru (0.46 MB): **12.57 MB/worker**
-    - → hemat **3.86 MB/worker** (~46 MB untuk 12 worker)
-  - **Bukti kesetaraan:** kedua varian melaporkan framework identik lengkap — `OK emerald=48 cashew=46` (confirmed 12/12). Tidak ada framework yang meng-`import` `.js`/`.json` secara eksplisit (diverifikasi dengan grep), jadi pembuangan ini tidak memutus apa pun.
+    - **Ukur (12 worker, app yang benar-benar `require` emerald+cashew+Application):**
+        - cache lama (2.16 MB): **16.44 MB/worker**
+        - cache baru (0.46 MB): **12.57 MB/worker**
+        - → hemat **3.86 MB/worker** (~46 MB untuk 12 worker)
+    - **Bukti kesetaraan:** kedua varian melaporkan framework identik lengkap — `OK emerald=48 cashew=46` (confirmed 12/12). Tidak ada framework yang meng-`import` `.js`/`.json` secara eksplisit (diverifikasi dengan grep), jadi pembuangan ini tidak memutus apa pun.
 - **Perubahan 2 — `esbuild.stop()` setelah cache dibangun.** `esbuild.transformSync` men-spawn worker thread native yang bertahan seumur proses.
-  - **Ukur:** `require('esbuild')` +2.4 MB; `transformSync` pertama **+11.9 MB** (thread lahir); `stop()` membebaskan **~10–12 MB**. Pemanggilan `transformSync` berikutnya tidak menumbuhkan lagi (reuse).
-  - Setelah boot, kernel tidak memakai esbuild lagi — transpile app terjadi di dalam worker (yang punya instance sendiri).
-  - **Risiko diuji & bersih:** (a) worker tetap bisa `require("esbuild")` dan `transformSync` **setelah** main thread `stop()` — jalur DME app `.ts` aman; (b) main thread bisa memanggil lagi (lazy restart); (c) `stop()` hanya dipanggil di blok `finally` `rebuildVFSCache`, dan itu satu-satunya pemakai esbuild di `src/kernel`.
+    - **Ukur:** `require('esbuild')` +2.4 MB; `transformSync` pertama **+11.9 MB** (thread lahir); `stop()` membebaskan **~10–12 MB**. Pemanggilan `transformSync` berikutnya tidak menumbuhkan lagi (reuse).
+    - Setelah boot, kernel tidak memakai esbuild lagi — transpile app terjadi di dalam worker (yang punya instance sendiri).
+    - **Risiko diuji & bersih:** (a) worker tetap bisa `require("esbuild")` dan `transformSync` **setelah** main thread `stop()` — jalur DME app `.ts` aman; (b) main thread bisa memanggil lagi (lazy restart); (c) `stop()` hanya dipanggil di blok `finally` `rebuildVFSCache`, dan itu satu-satunya pemakai esbuild di `src/kernel`.
 - **Perubahan 3 — label `mem`/`ps` diperbaiki (akurasi diagnosis).** Sebelumnya `difference <- main thread + native libraries` terlalu percaya diri. Terukur pada 12 worker: `sum(heapUsed+external)` = **161.8 MB** sementara RSS naik **144.7 MB** — artinya angka itu bisa **lebih besar** dari RSS (karena `heapTotal` termasuk halaman terpesan yang belum resident). Label kini `unattributed` + catatan eksplisit bahwa angkanya campuran (main thread, V8 code space/JIT, stack, mmap, overhead isolate) dan harus dibaca sebagai tren, bukan ukuran presisi.
 - **Dampak:** ~46 MB (worker) + ~12 MB (thread esbuild) dari basis 12 worker.
 - **Oleh:** Copilot · **Laporan:** kakang
@@ -425,11 +444,11 @@
   | `WorkerEntry` + app biasa (`execArgv` kosong) | **+16.2 MB** |
   | `WorkerEntry` + app `.ts` (preload transpiler) | **+30.6 MB** |
 - **Perubahan:**
-  - **Preload transpiler hanya untuk jalur `.ts` mentah.** Jalur `.js` (yang dipakai runtime normal) kini `execArgv: []` → hemat ~14.4 MB/worker. `tsconfig-paths/register` dihapus (impor relatif userland sudah di-resolve hook `Module._load` di `WorkerEntry`). Log peringatan ditambahkan bila ada app `.ts` mentah.
-  - **`rebuildVFSCache()`: `sourcemap: "inline"` → `false`.** Cache di-clone ke setiap worker via `workerData`; inline sourcemap menambah ~70% ukuran (terukur 1.45 MB → 0.43 MB). Sourcemap inline tidak menambah akurasi stack trace karena konten dieksekusi via `_compile()` dari string, bukan `require()`.
-  - **`resourceLimits` per worker** (`scheduler.workerMaxOldGenMb` default 192, `workerMaxYoungGenMb` default 32). Pagar agar satu app nakal tidak membengkakkan RSS proses host. Set `0` untuk menonaktifkan.
-  - **Lifecycle worker diperbaiki** (akar "RSS naik tiap kali run aplikasi"): `pcb.worker` tidak pernah dilepas di handler `exit`; handler `error` hanya men-set state sementara worker dibiarkan hidup. Kini `pcb.worker = undefined` + `removeAllListeners()` di kedua jalur, plus jaring pengaman di `reap()`.
-  - Handler `message` memakai referensi `worker` lokal (bukan `pcb.worker`) agar balasan tidak nyasar ke worker baru saat proses di-`reexec`.
+    - **Preload transpiler hanya untuk jalur `.ts` mentah.** Jalur `.js` (yang dipakai runtime normal) kini `execArgv: []` → hemat ~14.4 MB/worker. `tsconfig-paths/register` dihapus (impor relatif userland sudah di-resolve hook `Module._load` di `WorkerEntry`). Log peringatan ditambahkan bila ada app `.ts` mentah.
+    - **`rebuildVFSCache()`: `sourcemap: "inline"` → `false`.** Cache di-clone ke setiap worker via `workerData`; inline sourcemap menambah ~70% ukuran (terukur 1.45 MB → 0.43 MB). Sourcemap inline tidak menambah akurasi stack trace karena konten dieksekusi via `_compile()` dari string, bukan `require()`.
+    - **`resourceLimits` per worker** (`scheduler.workerMaxOldGenMb` default 192, `workerMaxYoungGenMb` default 32). Pagar agar satu app nakal tidak membengkakkan RSS proses host. Set `0` untuk menonaktifkan.
+    - **Lifecycle worker diperbaiki** (akar "RSS naik tiap kali run aplikasi"): `pcb.worker` tidak pernah dilepas di handler `exit`; handler `error` hanya men-set state sementara worker dibiarkan hidup. Kini `pcb.worker = undefined` + `removeAllListeners()` di kedua jalur, plus jaring pengaman di `reap()`.
+    - Handler `message` memakai referensi `worker` lokal (bukan `pcb.worker`) agar balasan tidak nyasar ke worker baru saat proses di-`reexec`.
 - **Dampak:** Per worker app `.js`: +16.2 MB (sebelumnya ~30 MB untuk shell `.ts`). Pengurangan terukur pada sistem nyata: 564 MB → 370 MB.
 - **Oleh:** Copilot · **Laporan:** kakang
 
@@ -437,8 +456,8 @@
 
 - **File:** `src/sysconfig.json`, `src/common/Config.ts`, `src/kernel/Scheduler.ts`, `scripts/install.ts`
 - **Apa ini:** batas atas heap V8 **per worker**, diteruskan apa adanya ke `new Worker(..., { resourceLimits })`:
-  - **`workerMaxOldGenMb` (default 192)** → `resourceLimits.maxOldGenerationSizeMb`. Membatasi **old generation** (heap panjang-umur).
-  - **`workerMaxYoungGenMb` (default 32)** → `resourceLimits.maxYoungGenerationSizeMb`. Membatasi **young generation** (ruang objek berumur pendek, tempat GC muda/scavenge bekerja).
+    - **`workerMaxOldGenMb` (default 192)** → `resourceLimits.maxOldGenerationSizeMb`. Membatasi **old generation** (heap panjang-umur).
+    - **`workerMaxYoungGenMb` (default 32)** → `resourceLimits.maxYoungGenerationSizeMb`. Membatasi **young generation** (ruang objek berumur pendek, tempat GC muda/scavenge bekerja).
 - **Tujuannya KETAHANAN, bukan penghematan.** Kalau satu app bocor atau menumpuk objek tanpa batas, worker itu **gagal** (`Worker terminated due to reaching memory limit: JS heap out of memory`) alih-alih membengkakkan seluruh proses host.
 - **Penting:** parameter ini **tidak mengubah pemakaian normal**. Diukur: `heapTotal` per worker 9.11 MB tanpa limit vs 9.13 MB dengan limit — praktis sama. Yang diatur hanyalah **batas atas**.
 - **Angka default aman:** heap idle TSIX hanya ~8–10 MB/worker, jadi 192 MB ≈ 20× idle. App GUI berat (emerald/cashew + banyak widget) tetap longgar.
@@ -460,10 +479,10 @@
 - **Masalah:** `process.memoryUsage().rss` bersifat **process-wide** — bahkan bila dibaca dari dalam worker (worker dengan buffer 128 MB melaporkan `rss` 180 MB). Jadi `mem` lama tidak bisa menjelaskan siapa memakai berapa.
 - **Temuan kunci:** Node menyediakan **`worker.getHeapStatistics()`** — API **pull** yang dipanggil dari main thread **tanpa** `postMessage`, sehingga tetap merespons walau worker sedang sinkron/blocking (`while(true)` — terverifikasi). Mengembalikan `Promise<HeapInfo>` dengan angka **per-isolate** (`used_heap_size`, `total_heap_size`, `external_memory`, `heap_size_limit`).
 - **Perubahan:**
-  - `Scheduler.getProcessMemory(pid)` → `{heapUsed, heapTotal, external, heapLimit} | null`; `null` bila proses tanpa worker atau worker tak dapat dibaca. Cast `as any` karena `@types/node` v20 belum mendeklarasikan method ini.
-  - Syscall `PS` menerima `args.includeMemory` (opsional) → membaca statistik heap tiap worker. **Tidak** diambil pada `ps` biasa agar tetap ringan; `SyscallCode.PS` tidak ada di `validateArgs`, jadi argumen objek aman.
-  - `UserLib.ShellLib.ps(options?)` meneruskan `{includeMemory:true}`; tambah `memoryUsage()`.
-  - `ps --mem` / `ps --sort-mem` + ringkasan total heap semua worker; `mem --per-proc` menampilkan tabel per-proses dan **rekonsiliasi** (worker terukur vs RSS → selisih = main thread + library native).
+    - `Scheduler.getProcessMemory(pid)` → `{heapUsed, heapTotal, external, heapLimit} | null`; `null` bila proses tanpa worker atau worker tak dapat dibaca. Cast `as any` karena `@types/node` v20 belum mendeklarasikan method ini.
+    - Syscall `PS` menerima `args.includeMemory` (opsional) → membaca statistik heap tiap worker. **Tidak** diambil pada `ps` biasa agar tetap ringan; `SyscallCode.PS` tidak ada di `validateArgs`, jadi argumen objek aman.
+    - `UserLib.ShellLib.ps(options?)` meneruskan `{includeMemory:true}`; tambah `memoryUsage()`.
+    - `ps --mem` / `ps --sort-mem` + ringkasan total heap semua worker; `mem --per-proc` menampilkan tabel per-proses dan **rekonsiliasi** (worker terukur vs RSS → selisih = main thread + library native).
 - **Verifikasi:** uji e2e dengan worker nyata — `leak.js` tumbuh 19.7 → 42.3 MB sementara dua worker `calm` tetap datar di 10.2 MB; kebocoran teratribusi tepat. Uji itu juga membuktikan `resourceLimits` 192 MB benar-benar mematikan worker yang OOM.
 - **Catatan:** teks keluaran `ps`/`mem` berbahasa Inggris agar konsisten dengan utilitas Unix lain.
 - **Oleh:** Copilot · **Laporan:** kakang
@@ -482,9 +501,9 @@
 - **File:** `src/kernel/Kernel.ts` (`rebuildVFSCache`)
 - **Temuan:** `fetchDir` memasukkan `.ts`, `.js`, **dan** `.json` dari `/lib`, padahal `WorkerEntry` **hanya** mencari `/lib/X.ts` (`@tsix/X` → `/lib/X.ts`). Entri `.js` (51 file, **1.70 MB**) tidak pernah di-lookup, tetapi di-clone ke setiap worker.
 - **Ukur empiris** (4 worker, app yang benar-benar `require` `emerald`+`cashew`+`Application`):
-  - cache lengkap: **+16.9 MB/worker**
-  - tanpa `.js` mentah: **+12.5 MB/worker**, framework tetap lengkap (`FRAMEWORK-OK` 4/4)
-  - → potensi hemat **−4.4 MB/worker** (~84 MB untuk 19 worker), tanpa mengubah perilaku.
+    - cache lengkap: **+16.9 MB/worker**
+    - tanpa `.js` mentah: **+12.5 MB/worker**, framework tetap lengkap (`FRAMEWORK-OK` 4/4)
+    - → potensi hemat **−4.4 MB/worker** (~84 MB untuk 19 worker), tanpa mengubah perilaku.
 - **Temuan tambahan:** `*.test.ts` di `/lib` (354 KB, `.ts`+`.js`) ikut di-transpile saat boot & ikut dikirim ke setiap worker, padahal tidak pernah di-`require` aplikasi. Transpile 16 file `*.ts` saat boot memakan **96 ms CPU di main thread** (memblokir), sedangkan membaca sidecar `.js` yang sudah ada = **0 ms** (semua sidecar segar, nol yang basi).
 - **Status:** belum diimplementasikan — menunggu keputusan (lihat rekomendasi di `wiki/changelogs/vfs.md`).
 - **Oleh:** Copilot
@@ -495,9 +514,9 @@
 
 - **File:** `src/kernel/devices/aux-devices/HttpServerDevice.ts`, `src/kernel/devices/aux-devices/WebSocketDevice.ts`
 - **Perubahan:**
-  - **`HttpServerDevice` (`/dev/httpd`)** — server HTTP di kernel land. ioctl `LISTEN {port, ownerPid}`, `RESPOND {reqId,status,contentType,body,...}`, `STATUS`. Request dipush ke userland via channel `http_event` (`HTTP_REQUEST`/`LISTENING`/`LISTEN_ERROR`); belum dijawab dalam 30 dtk → auto 404.
-  - **`WebSocketDevice` (`/dev/wsd`)** — server WS di kernel land dengan 2 mode: **standalone** (`WSD_LISTEN {port}`) atau **attach ke HTTP server milik owner** (`WSD_ATTACH`) sehingga HTTP+WS bisa satu port. Event channel `ws_event` (`WS_CONNECT`/`WS_MESSAGE`/`WS_CLOSE`/...); perintah `WS_SEND`/`WS_BROADCAST`/`WS_CLOSE`/`STATUS`.
-  - SATU device menampung banyak server, dipisah per `ownerPid` → beberapa daemon (mis. DOME & web-gateway) bisa listen di port berbeda sekaligus.
+    - **`HttpServerDevice` (`/dev/httpd`)** — server HTTP di kernel land. ioctl `LISTEN {port, ownerPid}`, `RESPOND {reqId,status,contentType,body,...}`, `STATUS`. Request dipush ke userland via channel `http_event` (`HTTP_REQUEST`/`LISTENING`/`LISTEN_ERROR`); belum dijawab dalam 30 dtk → auto 404.
+    - **`WebSocketDevice` (`/dev/wsd`)** — server WS di kernel land dengan 2 mode: **standalone** (`WSD_LISTEN {port}`) atau **attach ke HTTP server milik owner** (`WSD_ATTACH`) sehingga HTTP+WS bisa satu port. Event channel `ws_event` (`WS_CONNECT`/`WS_MESSAGE`/`WS_CLOSE`/...); perintah `WS_SEND`/`WS_BROADCAST`/`WS_CLOSE`/`STATUS`.
+    - SATU device menampung banyak server, dipisah per `ownerPid` → beberapa daemon (mis. DOME & web-gateway) bisa listen di port berbeda sekaligus.
 - **Tujuan:** menutup lubang keamanan userland yang memakai `hostRequire("http"/"ws")` (escape hatch berdasarkan nama proses). Userland kini cukup `fs.open` + `fs.ioctl` + `lib.onEvent`.
 - **Dokumen:** `wiki/webserver.md`, `wiki/websocket.md`. Contoh pemakaian: `src/mirror/opt/test/webd-demo.ts`.
 - **Oleh:** Copilot + kakang
@@ -513,8 +532,8 @@
 
 - **File:** `src/kernel/devices/aux-devices/MCP23017Device.ts`
 - **Perubahan:**
-  - `HARDWARE_CONFIGS` kini dua chip: relay **`mcp-bulb` @0x20** + saklar **`mcp-sw` @0x24** (bus 1) → `/dev/mcp-bulb` & `/dev/mcp-sw` tersedia utk `smartbulb/service`.
-  - Default nama device konstruktor digenerikkan: `"mcp-bulb"` → `"MCP23017"` (nama nyata dari `HARDWARE_CONFIGS`/parameter konstruktor).
+    - `HARDWARE_CONFIGS` kini dua chip: relay **`mcp-bulb` @0x20** + saklar **`mcp-sw` @0x24** (bus 1) → `/dev/mcp-bulb` & `/dev/mcp-sw` tersedia utk `smartbulb/service`.
+    - Default nama device konstruktor digenerikkan: `"mcp-bulb"` → `"MCP23017"` (nama nyata dari `HARDWARE_CONFIGS`/parameter konstruktor).
 - **Dampak:** service smartbulb dapat membuka chip relay produksi tanpa registrasi manual tambahan; `disabled: false` tetap sehingga konfigurasi ini auto-init saat boot.
 - **Oleh:** kakang
 
@@ -531,10 +550,10 @@
 
 - **File:** `src/kernel/devices/SimpleMQTNLDriver.ts`, `src/kernel/Syscalls.ts`
 - **Perubahan:**
-  - `handleIncomingMessage()`: `PING_REQUEST` (flag 1) ke port service ≠ 65535/65534 **yang sedang di-bind** (ada handler di `onMessageHandlers`) kini dijawab `PING_REPLY` otomatis di level kernel — probe tidak diteruskan ke daemon. Ini yang membuat port scan remote (`scanif -p`) mendeteksi port terbuka, mirip SYN-ACK TCP. Port 65535/65534 tetap: ping & broadcast ping.
-  - Parameter `handleIncomingMessage(topic, message)` di-widen `Buffer` → `Buffer | string` (runtime sudah menangani keduanya; memperbaiki error tipe laten pada jalur loopback).
-  - Pelacakan pemilik port: map `portProcess: Map<port, namaProses>` + method `bindProcess(port, name)`; syscall `BIND` mencatat `pcb.name`; `unregisterHandler` membersihkannya.
-  - `getStats().params.boundPorts` kini `[{ port, proc }]` (sebelumnya hanya angka) → tersedia via `NETSTAT` untuk `scanif -l`.
+    - `handleIncomingMessage()`: `PING_REQUEST` (flag 1) ke port service ≠ 65535/65534 **yang sedang di-bind** (ada handler di `onMessageHandlers`) kini dijawab `PING_REPLY` otomatis di level kernel — probe tidak diteruskan ke daemon. Ini yang membuat port scan remote (`scanif -p`) mendeteksi port terbuka, mirip SYN-ACK TCP. Port 65535/65534 tetap: ping & broadcast ping.
+    - Parameter `handleIncomingMessage(topic, message)` di-widen `Buffer` → `Buffer | string` (runtime sudah menangani keduanya; memperbaiki error tipe laten pada jalur loopback).
+    - Pelacakan pemilik port: map `portProcess: Map<port, namaProses>` + method `bindProcess(port, name)`; syscall `BIND` mencatat `pcb.name`; `unregisterHandler` membersihkannya.
+    - `getStats().params.boundPorts` kini `[{ port, proc }]` (sebelumnya hanya angka) → tersedia via `NETSTAT` untuk `scanif -l`.
 - **Dampak:** `NETSTAT`/netstat lokal bisa menampilkan port bind per interface beserta nama script/daemon pemilik; auto-responder port-probe hanya aktif untuk port yang benar-benar di-bind.
 - **Oleh:** Copilot
 
@@ -542,10 +561,10 @@
 
 - **File:** `src/kernel/devices/aux-devices/MCP23017Device.ts`
 - **Perubahan:**
-  - Reformat konsisten (indent 2-space, komentar register dirapikan).
-  - `HARDWARE_CONFIGS` disesuaikan hardware JayaLaras → satu chip: `{ bus: 1, address: 0x24, name: "mcp-sw" }` (menggantikan default `0x20 "mcp23017"`).
-  - Nama default device konstruktor: `mcp23017` → `mcp-bulb`.
-  - Properti `disabled` default `false` → **`true`** (chip tidak ikut di-load saat boot sampai dikonfigurasi).
+    - Reformat konsisten (indent 2-space, komentar register dirapikan).
+    - `HARDWARE_CONFIGS` disesuaikan hardware JayaLaras → satu chip: `{ bus: 1, address: 0x24, name: "mcp-sw" }` (menggantikan default `0x20 "mcp23017"`).
+    - Nama default device konstruktor: `mcp23017` → `mcp-bulb`.
+    - Properti `disabled` default `false` → **`true`** (chip tidak ikut di-load saat boot sampai dikonfigurasi).
 - **Dampak:** chip saklar `mcp-sw` siap dipakai `smartbulb/service` & `control --hw`; menambah chip lain cukup edit `HARDWARE_CONFIGS`.
 - **Oleh:** kakang + Copilot
 
@@ -558,10 +577,10 @@
 - **File:** `src/kernel/Kernel.ts`, `src/common/Config.ts`, `src/sysconfig.json`, `src/mirror/bin/init.ts`, `scripts/install.ts`
 - **Masalah:** Jumlah konsol virtual & login hardcode (`new TTYManager(16)`, loop `i<=6`, login TTY2-6) → tidak bisa dikecilkan untuk hemat RAM.
 - **Perubahan:**
-  - `Config.ts` tambah `shell.ttyCount` & `shell.loginCount` (interface).
-  - `Kernel.ts`: `new TTYManager(cfg.shell.ttyCount ?? 6)`; loop device `tty1..ttyCount`; inject env `TSIX_TTY_COUNT`/`TSIX_LOGIN_COUNT` ke proses init (diturunkan ke semua userland).
-  - `init.ts`: spawn login `TTY2..(1+loginCount)` dari env.
-  - `install.ts`: prompt interaktif alokasi TTY + validasi (`loginCount < ttyCount`).
+    - `Config.ts` tambah `shell.ttyCount` & `shell.loginCount` (interface).
+    - `Kernel.ts`: `new TTYManager(cfg.shell.ttyCount ?? 6)`; loop device `tty1..ttyCount`; inject env `TSIX_TTY_COUNT`/`TSIX_LOGIN_COUNT` ke proses init (diturunkan ke semua userland).
+    - `init.ts`: spawn login `TTY2..(1+loginCount)` dari env.
+    - `install.ts`: prompt interaktif alokasi TTY + validasi (`loginCount < ttyCount`).
 - **Dampak:** `"ttyCount": 2, "loginCount": 1` = hemat RAM ekstrem; daemon remote (tsshd/airtermd/pixelterm) tidak lagi terikat slot ini karena sudah pakai PTY.
 - **Oleh:** Copilot · **Laporan/konsep:** kakang
 
@@ -570,9 +589,9 @@
 - **File:** `src/mirror/bin/openvt.ts` (baru), `src/kernel/tty/TTY.ts`, `src/kernel/devices/TTYDevice.ts`, `src/kernel/devices/PTYSlaveDevice.ts`
 - **Masalah:** TTY kosong (di luar loginCount) tidak bisa diisi tanpa edit kode; dan saat di-spawn, TTY idle menyimpan **input basi** (enter/karakter yang ditekan saat TTY tidak aktif) → proses baru (mis. login) langsung "memakan" enter basi → loop "Invalid username/password".
 - **Perubahan:**
-  - `TTY.flushInput()` — kosongkan `inputBuffer`/`lineBuffer`/`inputLines`/`cookedEchoState`.
-  - ioctl **cmd 5 = FLUSH_INPUT** di `TTYDevice` & `PTYSlaveDevice` (tidak bentrok: 1=clear, 2=switch, 4=winsz, 10=raw, 0x2001/0x2002).
-  - `openvt <ttyN> [cmd...]` — cek TTY ada, `ioctl(fd, 5, null)` buang input basi, lalu spawn program (default `/bin/login.js`, ala `getty`).
+    - `TTY.flushInput()` — kosongkan `inputBuffer`/`lineBuffer`/`inputLines`/`cookedEchoState`.
+    - ioctl **cmd 5 = FLUSH_INPUT** di `TTYDevice` & `PTYSlaveDevice` (tidak bentrok: 1=clear, 2=switch, 4=winsz, 10=raw, 0x2001/0x2002).
+    - `openvt <ttyN> [cmd...]` — cek TTY ada, `ioctl(fd, 5, null)` buang input basi, lalu spawn program (default `/bin/login.js`, ala `getty`).
 - **Dampak:** `openvt 4` → TTY4 jadi punya login prompt bersih; `openvt 5 /bin/tsh` → shell langsung. Konsol kosong = "aula siap atraksi" tanpa stale input.
 - **Oleh:** Copilot
 
@@ -585,10 +604,10 @@
 - **File:** `src/userland/WorkerEntry.ts`
 - **Masalah:** Saat app gagal di-transpile/dimuat (mis. `./app.ts` dengan error TS), `console.error` di worker hanya menulis ke **host stderr** — tidak terlihat di pixelterm (yang hanya membaca buffer TTY) maupun di desktop. Pesan akhir `-bash: ...: Application not found (Path: VFS-Only)` juga menyesatkan karena app sebenarnya ketemu, cuma gagal load.
 - **Perubahan:**
-  - **`emitWorkerError()`:** cetak error load-path (TS Transpile, Direct Execution, identify AppClass, require gagal) ke TTY via `lib.std.print` (merah, format `[Worker N] ...`), fallback ke `console.error` bila print TTY gagal.
-  - **Pesan akhir jujur:** `-bash: <app>: Failed to load — <penyebab>` (`transpile failed` / `direct execution failed` / `failed to load module` / `no valid 'main' export found`) menggantikan "Application not found" yang menyesatkan; `Application not found` tetap dipakai bila app benar-benar tidak ada.
-  - **`notifyLoadError()`:** kirim `GUI_WINDOW_ERROR` ke parent & Window Manager (Asteracea) via `/opt/asteracea/wm-pid` — pola sama dengan `notifyParentWindowEvent()` di Emerald — sehingga error tampil sebagai popup desktop meski app dijalankan dari file-cruiser/terminal (foreign app). **WAJIB di-await** sebelum `realExit(1)` (fire-and-forget tidak sempat terkirim karena worker langsung mati).
-  - **Popup detail:** `loadErrorDetail` membawa pesan esbuild/runtime asli agar popup WM spesifik, bukan sekadar kategori.
+    - **`emitWorkerError()`:** cetak error load-path (TS Transpile, Direct Execution, identify AppClass, require gagal) ke TTY via `lib.std.print` (merah, format `[Worker N] ...`), fallback ke `console.error` bila print TTY gagal.
+    - **Pesan akhir jujur:** `-bash: <app>: Failed to load — <penyebab>` (`transpile failed` / `direct execution failed` / `failed to load module` / `no valid 'main' export found`) menggantikan "Application not found" yang menyesatkan; `Application not found` tetap dipakai bila app benar-benar tidak ada.
+    - **`notifyLoadError()`:** kirim `GUI_WINDOW_ERROR` ke parent & Window Manager (Asteracea) via `/opt/asteracea/wm-pid` — pola sama dengan `notifyParentWindowEvent()` di Emerald — sehingga error tampil sebagai popup desktop meski app dijalankan dari file-cruiser/terminal (foreign app). **WAJIB di-await** sebelum `realExit(1)` (fire-and-forget tidak sempat terkirim karena worker langsung mati).
+    - **Popup detail:** `loadErrorDetail` membawa pesan esbuild/runtime asli agar popup WM spesifik, bukan sekadar kategori.
 - **Dampak:** Error gagal-load kini terlihat di pixelterm (TTY) dan di desktop (popup WM) dari mana pun app dijalankan. Deploy: recompile `WorkerEntry.ts` → `WorkerEntry.js` (kernel memuat file `.js`), lalu restart.
 - **Oleh:** Copilot
 
@@ -601,8 +620,8 @@
 - **File:** `src/kernel/devices/TTYDevice.ts`, `src/mirror/opt/pixelterm/pixelterm.ts`
 - **Masalah:** Device `/dev/ttyN` default `mode = 0o600` (root-only, dari `device.mode ?? 0o600` di syscall OPEN) → pixelterm yang dijalankan **non-root** gagal `fs.open("/dev/ttyN", "w+")` untuk TIOCSWINSZ → TTY tidak ke-resize, `getScreenInfo()` app (mis. atto) tetap 80x24 & tanpa SIGWINCH (hanya IPC RESIZE fallback yang tidak konsisten).
 - **Perubahan:**
-  - **`TTYDevice.ts`:** default `uid=0, gid=0, mode=0o666` — semua user boleh membuka `/dev/ttyN` untuk kontrol terminal (TIOCSWINSZ ioctl 3, clear ioctl 1) dan `less`/`more` yang buka `/dev/tty` dengan "r" (butuh READ). Konsisten dengan model keamanan existing (shell.write/read/send via PID tidak punya ownership check); root tetap bisa chmod/chown per-device.
-  - **`pixelterm.ts`:** `applyTtySize()` log warning sekali jika open `/dev/ttyN` ditolak (tidak lagi gagal diam-diam).
+    - **`TTYDevice.ts`:** default `uid=0, gid=0, mode=0o666` — semua user boleh membuka `/dev/ttyN` untuk kontrol terminal (TIOCSWINSZ ioctl 3, clear ioctl 1) dan `less`/`more` yang buka `/dev/tty` dengan "r" (butuh READ). Konsisten dengan model keamanan existing (shell.write/read/send via PID tidak punya ownership check); root tetap bisa chmod/chown per-device.
+    - **`pixelterm.ts`:** `applyTtySize()` log warning sekali jika open `/dev/ttyN` ditolak (tidak lagi gagal diam-diam).
 - **Dampak:** Resize atto di pixelterm non-root kini sama seperti root. Deploy: restart kernel agar mode device baru aktif.
 - **Oleh:** Copilot
 
@@ -615,9 +634,9 @@
 - **File:** `src/kernel/Scheduler.ts`, `src/kernel/Syscalls.ts`, `src/mirror/bin/login.ts`
 - **Masalah:** Setelah WM login sebagai user non-root, proses drop privilege permanen → kernel menolak `setgroups`/`setgid`/`setuid` untuk non-root, dan `/etc/shadow` (0640 root) tidak lagi terbaca → logout lalu login ulang sebagai root gagal. TSIX belum punya mekanisme **Saved UID** seperti Unix (`seteuid`/`setresuid`).
 - **Perubahan:**
-  - **`Scheduler.ts`:** tambah `pcb.suid` (Saved UID) di PCB & `createProcess`. Default `suid` = UID proses itu sendiri → app biasa TIDAK bisa escalate; hanya proses yang turun dari root (WM) yang menyimpan `suid=0`.
-  - **`Syscalls.ts` SETUID:** proses root bebas setuid & menyimpan `suid` = UID lama (0 utk root); proses non-root hanya boleh **restore** ke `suid`-nya (`setuid(0)` → balik ke root). `SETGID`/`SETGROUPS` tetap root-only (setelah `setuid(0)`, proses jadi root → gid/groups normal).
-  - **`login.ts`:** tambah mode `--verify <user> <pass> <resultFile>` — karena `/bin/login.js` SetUID root, ia bisa baca `/etc/shadow` walau dipanggil proses non-root (dipakai WM login). Hasil ditulis ke file (`OK`/`FAIL:...`); kanal file dipilih karena exit code anak tidak andal (WorkerEntry selalu menuntaskan `exit(0)`).
+    - **`Scheduler.ts`:** tambah `pcb.suid` (Saved UID) di PCB & `createProcess`. Default `suid` = UID proses itu sendiri → app biasa TIDAK bisa escalate; hanya proses yang turun dari root (WM) yang menyimpan `suid=0`.
+    - **`Syscalls.ts` SETUID:** proses root bebas setuid & menyimpan `suid` = UID lama (0 utk root); proses non-root hanya boleh **restore** ke `suid`-nya (`setuid(0)` → balik ke root). `SETGID`/`SETGROUPS` tetap root-only (setelah `setuid(0)`, proses jadi root → gid/groups normal).
+    - **`login.ts`:** tambah mode `--verify <user> <pass> <resultFile>` — karena `/bin/login.js` SetUID root, ia bisa baca `/etc/shadow` walau dipanggil proses non-root (dipakai WM login). Hasil ditulis ke file (`OK`/`FAIL:...`); kanal file dipilih karena exit code anak tidak andal (WorkerEntry selalu menuntaskan `exit(0)`).
 - **Dampak:** WM (Asteracea) bisa logout → login ulang sebagai user lain (termasuk root). Deploy: rebuild kernel + re-sync `login.ts`→`login.js` & `asteracea.ts` ke VFS + restart Asteracea.
 - **Oleh:** Copilot · **Laporan/reproduksi:** kakang
 
@@ -648,20 +667,20 @@
 - **File:** `src/kernel/devices/SocketDevice.ts`, `src/kernel/Syscalls.ts`, `src/mirror/lib/NetworkLib.ts`
 - **Masalah:** `ping` menunjukkan RTT ~102ms padahal di bitshark (sniffer) hanya ~5ms. Akar masalah: `SocketDevice.read()` non-blocking (`buffer.shift() || null`), sedangkan `NetworkLib.recvFrom()` polling buta tiap 100ms → balasan yang sudah sampai di buffer ~5ms baru "terlihat" di tick polling berikutnya → RTT terukur ikut +~100ms.
 - **Perubahan:**
-  - **`SocketDevice`:** tambah `waiters[]` + `waitForData(timeoutMs)` (event-driven). `push()` kini membangunkan reader yang sedang menunggu, bukan menunggu tick polling.
-  - **`Syscalls.ts` RECVFROM:** cek non-blocking dulu; kalau buffer kosong → `await socket.waitForData(50)` → begitu paket di-`push`, langsung return.
-  - **`NetworkLib.recvFrom`:** ganti `retries = timeoutMs/100` + sleep 100ms dengan loop berbasis `deadline`; penerimaan paket kini event-driven.
+    - **`SocketDevice`:** tambah `waiters[]` + `waitForData(timeoutMs)` (event-driven). `push()` kini membangunkan reader yang sedang menunggu, bukan menunggu tick polling.
+    - **`Syscalls.ts` RECVFROM:** cek non-blocking dulu; kalau buffer kosong → `await socket.waitForData(50)` → begitu paket di-`push`, langsung return.
+    - **`NetworkLib.recvFrom`:** ganti `retries = timeoutMs/100` + sleep 100ms dengan loop berbasis `deadline`; penerimaan paket kini event-driven.
 - **Dampak:** RTT yang diukur aplikasi (ping, nmap) akurat mengikuti waktu nyata paket tiba. Daemon yang `recv` dalam loop (`tsd`, `otad`, `tpkgd`, `scpd`, `airtermd`) ikut lebih responsif (tidak ada jeda 100ms). Batas timeout keseluruhan tetap dihormati.
 
 ### MQTNL local loopback (localhost) — bypass broker untuk traffic lokal
 
 - **File:** `src/kernel/devices/SimpleMQTNLDriver.ts`
 - **Perubahan:**
-  - Registry statis `SimpleMQTNLDriver.instances` + `findLocal(address)` (cocokkan `localAddress` atau nama device).
-  - `send()`: sebelum publish ke broker, kalau alamat tujuan milik node ini (mis. `tsix`, `tsix-node-2`) → paket langsung diserahkan ke `handleIncomingMessage()` driver tujuan (loopback, tanpa round-trip MQTT).
-  - Alias reserved **`localhost`** → di-resolve ke `this.localAddress` (interface pengirim) lalu di-loopback — mirip localhost di OS sungguhan. (Catatan: `127.0.0.1` sengaja TIDAK dijadikan alias — `test-dynamic-ota.ts` memakainya sebagai placeholder host remote.)
-  - Cek koneksi (`!client.connected`) hanya berlaku untuk paket yang benar-benar keluar ke broker → komunikasi lokal tetap jalan walau broker mati.
-  - Broadcast (`*`) tetap lewat broker (tidak di-loopback).
+    - Registry statis `SimpleMQTNLDriver.instances` + `findLocal(address)` (cocokkan `localAddress` atau nama device).
+    - `send()`: sebelum publish ke broker, kalau alamat tujuan milik node ini (mis. `tsix`, `tsix-node-2`) → paket langsung diserahkan ke `handleIncomingMessage()` driver tujuan (loopback, tanpa round-trip MQTT).
+    - Alias reserved **`localhost`** → di-resolve ke `this.localAddress` (interface pengirim) lalu di-loopback — mirip localhost di OS sungguhan. (Catatan: `127.0.0.1` sengaja TIDAK dijadikan alias — `test-dynamic-ota.ts` memakainya sebagai placeholder host remote.)
+    - Cek koneksi (`!client.connected`) hanya berlaku untuk paket yang benar-benar keluar ke broker → komunikasi lokal tetap jalan walau broker mati.
+    - Broadcast (`*`) tetap lewat broker (tidak di-loopback).
 - **Dampak:** Self-ping & komunikasi antar interface lokal (`tsix` ↔ `tsix-node-2`) tidak lagi bergantung pada broker Mosquitto → RTT lokal minimal dan tetap berfungsi offline. Aplikasi userland tidak berubah (tetap `sendTo("<hostname>", ...)`); header paket tetap sama. `tpkg update localhost` kini benar-benar menarget diri sendiri.
 - **Oleh:** Copilot
 
@@ -673,20 +692,20 @@
 
 - **File:** `src/common/SyscallCode.ts`, `src/kernel/Syscalls.ts`, `src/kernel/devices/SimpleMQTNLDriver.ts`, `src/mirror/lib/UserLib.ts`
 - **Perubahan:**
-  - **Syscall baru:**
-    - `NET_SNIFFER_REGISTER = 72` — daftarkan proses sebagai sniffer interface (arg: `interfaceName` atau `"*"` = semua).
-    - `NET_SNIFFER_UNREGISTER = 73` — hentikan sniffing.
-  - **`Syscalls.ts`:**
-    - Registri `netSniffers: Map<interfaceName, Set<pid>>` — tahu PID mana yang menerima paket tiap interface; `"*"` untuk semua interface.
-    - `forwardSniff(sniff)` — teruskan paket ke semua PID yang terdaftar via `scheduler.sendEvent(pid, "ipc_message", { data: sniff })`.
-    - `ensureSnifferWiring()` — wire `onSniff` tiap `SimpleMQTNLDriver` ke `forwardSniff`; `wiredSniffers` mencegah duplikat callback.
-    - Handler syscall 72/73; **cleanup otomatis** saat proses mati (PID dilepas dari semua interface).
-  - **`SimpleMQTNLDriver.ts`:**
-    - `sniffers[]` + `onSniff(cb)` + `emitSniff(sniff)`.
-    - Hook di **dua titik strategis**:
-      - **TX** (sebelum payload dienkripsi) → data plaintext asli.
-      - **RX** (setelah payload didekripsi) → hasil decrypt, langsung terbaca.
-  - **`UserLib.ts`:** `netSnifferRegister(iface)` / `netSnifferUnregister(iface)` — API untuk app userland.
+    - **Syscall baru:**
+        - `NET_SNIFFER_REGISTER = 72` — daftarkan proses sebagai sniffer interface (arg: `interfaceName` atau `"*"` = semua).
+        - `NET_SNIFFER_UNREGISTER = 73` — hentikan sniffing.
+    - **`Syscalls.ts`:**
+        - Registri `netSniffers: Map<interfaceName, Set<pid>>` — tahu PID mana yang menerima paket tiap interface; `"*"` untuk semua interface.
+        - `forwardSniff(sniff)` — teruskan paket ke semua PID yang terdaftar via `scheduler.sendEvent(pid, "ipc_message", { data: sniff })`.
+        - `ensureSnifferWiring()` — wire `onSniff` tiap `SimpleMQTNLDriver` ke `forwardSniff`; `wiredSniffers` mencegah duplikat callback.
+        - Handler syscall 72/73; **cleanup otomatis** saat proses mati (PID dilepas dari semua interface).
+    - **`SimpleMQTNLDriver.ts`:**
+        - `sniffers[]` + `onSniff(cb)` + `emitSniff(sniff)`.
+        - Hook di **dua titik strategis**:
+            - **TX** (sebelum payload dienkripsi) → data plaintext asli.
+            - **RX** (setelah payload didekripsi) → hasil decrypt, langsung terbaca.
+    - **`UserLib.ts`:** `netSnifferRegister(iface)` / `netSnifferUnregister(iface)` — API untuk app userland.
 - **Dampak:** App (Bitshark) bisa menyadap lalu lintas MQTNL per interface dari userland tanpa akses langsung ke perangkat — model sandbox/ring: semua akses lewat syscall. Karena intercept di dalam driver, payload terlihat plaintext (TX sebelum enkripsi, RX sesudah decrypt) tanpa perlu reverse-engineering enkripsi.
 - **Oleh:** Copilot
 
@@ -698,9 +717,9 @@
 
 - **File:** `src/mirror/etc/mysqld/mysqld.ts`
 - **Perubahan:**
-  - **Masalah:** `ps` menunjukkan `mysqld EXITED` di boot kedua+. Akar masalah: pidfile `/etc/mysqld/mysqld.pid` persisten di BKFS, dan PID di-reuse antar reboot → guard single-instance melihat dirinya sendiri (`isAlive(11)` = true karena proses baru dapat PID yang sama) → langsung `return` tanpa register sebagai DB service → app DB gagal (`/dev/mysql tidak tersedia`).
-  - **Fix guard:** `existing !== selfPid` — pidfile yang berisi PID diri sendiri (reuse) tidak lagi dianggap instance lain.
-  - **Fix `stop()`:** Cek `isMysqldAlive()` (PID + nama proses + state != EXITED) — pidfile basi yang menunjuk ke PID yang sudah dipakai proses lain tidak lagi salah-kill saat `mysqld --stop`.
+    - **Masalah:** `ps` menunjukkan `mysqld EXITED` di boot kedua+. Akar masalah: pidfile `/etc/mysqld/mysqld.pid` persisten di BKFS, dan PID di-reuse antar reboot → guard single-instance melihat dirinya sendiri (`isAlive(11)` = true karena proses baru dapat PID yang sama) → langsung `return` tanpa register sebagai DB service → app DB gagal (`/dev/mysql tidak tersedia`).
+    - **Fix guard:** `existing !== selfPid` — pidfile yang berisi PID diri sendiri (reuse) tidak lagi dianggap instance lain.
+    - **Fix `stop()`:** Cek `isMysqldAlive()` (PID + nama proses + state != EXITED) — pidfile basi yang menunjuk ke PID yang sudah dipakai proses lain tidak lagi salah-kill saat `mysqld --stop`.
 - **Dampak:** mysqld ter-register sebagai DB service di setiap boot. `--stop` aman dari salah membunuh proses yang mewarisi PID lama.
 - **Oleh:** Copilot
 
@@ -708,10 +727,10 @@
 
 - **File:** `src/mirror/bin/crond.ts`
 - **Perubahan:**
-  - **Daemonize by default:** `crond` kini auto-daemonize (`shell.daemonize("Cron Daemon")`) kecuali `--foreground`/`-f`. Sebelumnya hanya di-daemonize dengan flag `--detach`, padahal `rc.local` menjalankannya tanpa flag.
-  - **Keep-alive fix:** Ganti `await new Promise(() => {})` (promise kosong tidak menahan event loop worker → worker mati) dengan `while(true){ await sleep(5s) }` (timer handle nyata).
-  - **Header komentar:** Konversi blok `/* */` → komentar `//` per baris karena contoh cron `*/5` mengandung `*/` yang menutup blok komentar (inilah kenapa header lama tampak "mangling" dengan spasi).
-  - **Type fix:** `CronEntry.isReboot?: boolean` (pre-existing error).
+    - **Daemonize by default:** `crond` kini auto-daemonize (`shell.daemonize("Cron Daemon")`) kecuali `--foreground`/`-f`. Sebelumnya hanya di-daemonize dengan flag `--detach`, padahal `rc.local` menjalankannya tanpa flag.
+    - **Keep-alive fix:** Ganti `await new Promise(() => {})` (promise kosong tidak menahan event loop worker → worker mati) dengan `while(true){ await sleep(5s) }` (timer handle nyata).
+    - **Header komentar:** Konversi blok `/* */` → komentar `//` per baris karena contoh cron `*/5` mengandung `*/` yang menutup blok komentar (inilah kenapa header lama tampak "mangling" dengan spasi).
+    - **Type fix:** `CronEntry.isReboot?: boolean` (pre-existing error).
 - **Dampak:** crond berjalan sebagai background daemon dari rc.local dan tetap hidup meski crontab kosong.
 - **Oleh:** Copilot
 
@@ -729,14 +748,14 @@
 
 - **File:** `src/kernel/Kernel.ts`, `src/kernel/Syscalls.ts`, `src/kernel/MountManager.ts`, `src/mirror/lib/UserLib.ts`, `src/mirror/bin/mount.ts`, `src/vfs/VFS.ts`, `src/vfs/RamFS.ts`, `src/vfs/HostVFS.ts`, `src/vfs/BKFS.ts`
 - **Perubahan:**
-  - **FSTAB fields baru:** `uid`, `gid`, `mode` (opsional) untuk mengatur kepemilikan dan permission mount point. `active: false` untuk skip entry saat boot.
-  - **`MountManager`:** `MountPoint` interface + `uid`/`gid`. `mount()` dan `listMounts()` mendukung parameter baru.
-  - **`processFstab()`:** Baca `uid`/`gid`/`mode`/`active` dari fstab. Mount point yang sudah ada (dibuat `ensureDefaultAuth`) di-`chown`/`chmod` ulang. Semua tipe driver (RamFS, HostVFS, BKFS) menerima ownership parameter.
-  - **`VirtualFileSystem`:** Constructor terima `rootUid`, `rootGid`, `rootMode` (default `0, 0, 0o755`). **Bug fix:** `mkdir()` sekarang benar-benar pakai parameter `uid`/`gid`/`mode` yang diberikan, bukan hardcoded `0, 0, 493`.
-  - **`RamFS`:** Constructor terima `label, uid, gid, mode` → teruskan ke VirtualFileSystem.
-  - **`HostVFS`:** Constructor terima `uid, gid, mode`. `stat()` return nilai override jika diset, fallback ke host OS.
-  - **`BKFS`:** Constructor terima `uid, gid, mode`. Setelah `initSchema()`, update root node di SQLite jika ownership/permission diset.
-  - **`mount` CLI:** Parse `--uid N` dan `--gid N`. Output `mount` (list) tampilkan `uid=`/`gid=` jika ada.
+    - **FSTAB fields baru:** `uid`, `gid`, `mode` (opsional) untuk mengatur kepemilikan dan permission mount point. `active: false` untuk skip entry saat boot.
+    - **`MountManager`:** `MountPoint` interface + `uid`/`gid`. `mount()` dan `listMounts()` mendukung parameter baru.
+    - **`processFstab()`:** Baca `uid`/`gid`/`mode`/`active` dari fstab. Mount point yang sudah ada (dibuat `ensureDefaultAuth`) di-`chown`/`chmod` ulang. Semua tipe driver (RamFS, HostVFS, BKFS) menerima ownership parameter.
+    - **`VirtualFileSystem`:** Constructor terima `rootUid`, `rootGid`, `rootMode` (default `0, 0, 0o755`). **Bug fix:** `mkdir()` sekarang benar-benar pakai parameter `uid`/`gid`/`mode` yang diberikan, bukan hardcoded `0, 0, 493`.
+    - **`RamFS`:** Constructor terima `label, uid, gid, mode` → teruskan ke VirtualFileSystem.
+    - **`HostVFS`:** Constructor terima `uid, gid, mode`. `stat()` return nilai override jika diset, fallback ke host OS.
+    - **`BKFS`:** Constructor terima `uid, gid, mode`. Setelah `initSchema()`, update root node di SQLite jika ownership/permission diset.
+    - **`mount` CLI:** Parse `--uid N` dan `--gid N`. Output `mount` (list) tampilkan `uid=`/`gid=` jika ada.
 - **Dampak:** Mount point bisa dimiliki user/group selain root. `/tmp` bisa `mode: 1023` (sticky `rwxrwxrwt`) sehingga user biasa bisa nulis. Semua 3 tipe mount (ramfs, host, bkfs) konsisten mendukung custom ownership & permission. Backward compatible — semua field baru opsional.
 - **Oleh:** Copilot
 
@@ -755,9 +774,9 @@
 
 - **File:** `src/kernel/Syscalls.ts` — `case SyscallCode.KILL`, `case SyscallCode.SIGNAL`
 - **Perubahan:**
-  - **PID 1 (init) dilindungi:** Tidak bisa di-kill atau di-signal oleh siapapun, termasuk root. Hanya bisa dimatikan lewat `SHUTDOWN` syscall yang merupakan prosedur resmi system termination.
-  - **Permission check:** Non-root user hanya bisa kill/signal proses miliknya sendiri (cek via UID). Root tetap bisa kill proses siapapun.
-  - **Existence check:** Kalau PID target gak ada, return error `kill: No such process` (sebelumnya silent fail).
+    - **PID 1 (init) dilindungi:** Tidak bisa di-kill atau di-signal oleh siapapun, termasuk root. Hanya bisa dimatikan lewat `SHUTDOWN` syscall yang merupakan prosedur resmi system termination.
+    - **Permission check:** Non-root user hanya bisa kill/signal proses miliknya sendiri (cek via UID). Root tetap bisa kill proses siapapun.
+    - **Existence check:** Kalau PID target gak ada, return error `kill: No such process` (sebelumnya silent fail).
 - **Dampak:** User biasa `kill 1234` proses milik root → error. Root `kill 1` → error, disuruh pakai `shutdown` atau `reboot`. Sesuai standar UNIX security.
 - **Oleh:** Copilot
 

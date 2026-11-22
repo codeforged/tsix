@@ -83,8 +83,8 @@ tsix-file-inventory.ts`) karena dipakai untuk inventaris file TSIX.
 - File host (`hostDst`) tidak bisa dihapus via VFS; dilaporkan untuk dihapus
   manual (batasan yang sama dengan rollback).
 - **Twrapper:** `src/sysconfig.conf` kini diselaraskan saat build —
-  `[kernel] version` ← `private version` dan `distroName` ← `private codename`
-  dari `src/kernel/Kernel.ts` (sumber kebenaran versi kernel).
+  `[kernel] version` ← `private version` dari `src/kernel/Kernel.ts`, dan
+  `distroName` ← `distro.name` dari recipe terpilih.
 - **Twrapper:** baris `export PATH` di `etc/profile` dihasilkan dari paket yang
   terpasang (direktori sistem + `isExecutable` + `/opt/<app>` yang ada saja).
 - **Recipe baru:** `scripts/twrapper/iot-edition.json`; `distro/iot-edition`

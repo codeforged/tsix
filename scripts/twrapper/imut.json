@@ -3,7 +3,7 @@
     "distro": {
         "id": "imut",
         "name": "TSIX Imut",
-        "version": "0.1.0-draft",
+        "version": "0.1.0",
         "status": "draft",
         "description": "Distro minimal TSIX untuk menguji instalasi paket TPKG.",
         "purpose": [

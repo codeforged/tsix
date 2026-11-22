@@ -274,37 +274,30 @@ function transformPackageJson(bytes: Buffer): Buffer {
     return Buffer.from(`${JSON.stringify(pkg, null, 2)}\n`, "utf8");
 }
 
-/**
- * readKernelIdentity(): ambil `codename` dan `version` dari `src/kernel/Kernel.ts`.
- *
- * Sumber kebenaran versi kernel adalah kode kernel itu sendiri (bukan recipe),
- * jadi `sysconfig.conf` pada image selalu konsisten dengan `Kernel.ts`.
- */
-function readKernelIdentity(): { codename: string; version: string } {
+/** Sumber kebenaran versi kernel adalah `src/kernel/Kernel.ts`, bukan recipe. */
+function readKernelVersion(): string {
     const kernelPath = path.join(ROOT, "src/kernel/Kernel.ts");
     const text = fs.readFileSync(kernelPath, "utf8");
     const version = text.match(/private\s+version\s*:\s*string\s*=\s*["']([^"']+)["']/)?.[1];
-    const codename = text.match(/private\s+codename\s*:\s*string\s*=\s*["']([^"']+)["']/)?.[1];
-    if (!version || !codename) {
-        throw new Error(`Tidak bisa membaca codename/version kernel dari ${path.relative(ROOT, kernelPath)}.`);
+    if (!version) {
+        throw new Error(`Tidak bisa membaca versi kernel dari ${path.relative(ROOT, kernelPath)}.`);
     }
-    return { codename, version };
+    return version;
 }
 
 /**
  * transformSysconfig(): selaraskan identitas kernel di `src/sysconfig.conf`.
  *
- * `version` ← versi kernel (`src/kernel/Kernel.ts`) dan `distroName` ← codename
- * kernel, supaya image melaporkan versi kernel yang benar-benar dibangun.
- * Baris/komentar lain dan gaya EOL tidak diubah.
+ * `version` ← versi kernel (`src/kernel/Kernel.ts`) dan `distroName` ← nama distro
+ * pada recipe. Baris/komentar lain dan gaya EOL tidak diubah.
  */
-function transformSysconfig(bytes: Buffer, identity: { codename: string; version: string }): Buffer {
+function transformSysconfig(bytes: Buffer, recipe: Recipe, kernelVersion: string): Buffer {
     const text = bytes.toString("utf8");
     const eol = text.includes("\r\n") ? "\r\n" : "\n";
     const lines = text.split(/\r?\n/);
     const updates: Record<string, string> = {
-        version: identity.version,
-        distroName: identity.codename,
+        version: kernelVersion,
+        distroName: recipe.distro.name,
     };
     const seen = new Set<string>();
     let section = "";
@@ -504,7 +497,7 @@ function buildPlan(recipePath: string) {
     if (!sysconfig) throw new Error("src/sysconfig.conf was not included.");
     outputs.set("src/sysconfig.conf", {
         ...sysconfig,
-        bytes: transformSysconfig(sysconfig.bytes, readKernelIdentity()),
+        bytes: transformSysconfig(sysconfig.bytes, recipe, readKernelVersion()),
     });
 
     const readmeBytes = readme(recipe);
