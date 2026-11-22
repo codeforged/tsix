@@ -4,6 +4,40 @@
 
 ---
 
+## 2026-11-23
+
+### Nomor urut paket (seq) anti-replay
+
+- **File:** `src/mirror/lib/lantana/lantana-core.ts`, `lantana-listener.ts`,
+  `platformio/TSIX-All-in-One/lib/lantana-auth/lantana_auth.{h,cpp}`,
+  `platformio/TSIX-All-in-One/src/variants/lantana.cpp`,
+  `src/mirror/opt/esp32-demo/esp32-demo.ts`, `src/mirror/opt/lantana/lantana-stress.ts`.
+- **Perubahan:** payload teks menerima `LANTANA|<deviceId>|#<seq>|...` dan frame
+  biner versi `0x03` membawa `seq:u32 LE`. Listener menolak seq yang sudah
+  diterima per sesi (jendela geser 64), sehingga replay tertutup penuh, tidak lagi
+  terbatas riwayat 4096 IV. Seq opsional; firmware lama tetap diterima. Firmware
+  dan simulator kini mengirim seq yang direset setiap sesi ONLINE.
+- **Verifikasi:** tes parser, `SeqWindow`, dan listener; firmware `lantana-esp32` /
+  `lantana-esp8266` ter-compile.
+- **Oleh:** Claude
+
+### Perbaikan keamanan dan keandalan daemon
+
+- **Handshake PSK:** AUTH wajib memakai `accountId` yang sama dengan HELLO; sebelumnya
+  pemegang AccessKey akun A bisa mengikat sesi ke device akun B.
+- **Replay/duplikat:** IV ChaCha20 dicatat per sesi (4096 terakhir); duplikat dibuang
+  tanpa NACK. `readingId` diturunkan dari akun|device|IV|scheme (format UUID).
+- **Distributor:** consumer yang PID-nya mati dibuang (`shell.send` mengembalikan
+  `false`, tidak melempar).
+- **Command:** dikirim lewat port layanan yang dipakai sesi device. `forgetSessions()`
+  membersihkan key/rute/riwayat sesi yang kedaluwarsa.
+- **DataBank:** log kegagalan tidak lagi tiap detik (`DrainReporter`).
+- **db-injector:** `readingId` ikut di `SensorReading` sehingga mode `--db` benar-benar
+  menulis; query memakai prepared statement (menutup SQL injection lewat backslash).
+- **Validasi & skema:** `accountId` ≤ 64, `label` ≤ 128, `unit` ≤ 32 karakter; kolom
+  `value` di skema contoh menjadi `VARCHAR(255)`.
+- **Oleh:** Claude
+
 ## 2026-11-20
 
 ### Monitor mempertahankan DOM dan posisi scroll
