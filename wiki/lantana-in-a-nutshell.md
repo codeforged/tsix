@@ -321,16 +321,17 @@ Contoh `LANTANA_READING`:
   "dataAgeMs": 120,
   "deviceStatus": "ONLINE",
   "readings": [
-    { "schemeId": 101, "value": 27.5, "label": "Suhu", "unit": "C", "ts": 1756800000000 },
-    { "schemeId": 102, "value": 60, "label": "Kelembapan", "unit": "%", "ts": 1756800000000 }
+    { "readingId": "3b1f0c2a-9d4e-4a71-b0c8-5e2f6a7d8c90", "schemeId": 101, "value": 27.5, "label": "Suhu", "unit": "C", "ts": 1756800000000 },
+    { "readingId": "a7c4e19b-2f60-4d38-9e15-0b6d3f8a2c47", "schemeId": 102, "value": 60, "label": "Kelembapan", "unit": "%", "ts": 1756800000000 }
   ]
 }
 ```
 
 - **`lantana-file-logger`** menulis ke
   `/var/log/lantana/<accountId>/<deviceId>/<YYYY-MM-DD>.log`.
-- **`lantana-db-injector`** INSERT ke `sensor_readings`; tanpa `--db` berjalan
-  mode kering (cetak ke terminal).
+- **`lantana-db-injector`** INSERT ke `sensor_readings` lewat prepared
+  statement dengan `readingId` sebagai kunci idempoten (akun/device diambil dari
+  batch); tanpa `--db` berjalan mode kering (cetak ke terminal).
 - **`lantana-dashboard`** menampilkan device + kartu sensor + status heartbeat.
 
 ---

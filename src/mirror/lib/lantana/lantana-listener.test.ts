@@ -652,6 +652,27 @@ describe("dedup paket duplikat / replay", () => {
         await ctx.send(packet);
         expect(ctx.dataBank.pending).toBe(1);
     });
+
+    it("readingId yang sama sampai ke consumer (event READING + snapshot DeviceBank)", async () => {
+        const client = await authenticate();
+        const distributor = (ctx.listener as any).deps.distributor;
+        const batches: any[] = [];
+        distributor.broadcastBatch = async (b: any) => {
+            batches.push(b);
+        };
+
+        await ctx.send(
+            client.securePacketOut(
+                encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 30 }]),
+            ),
+        );
+
+        const [stored] = queued();
+        expect(batches[0].readings[0].readingId).toBe(stored.readingId);
+        expect(ctx.bank.getReadings("juragan", ctx.device.deviceId)[0].readingId).toBe(
+            stored.readingId,
+        );
+    });
 });
 
 describe("ReplayWindow", () => {

@@ -69,6 +69,7 @@ export class DeviceBank {
 
         for (const reading of readings) {
             dev.readings.set(reading.schemeId, {
+                readingId: reading.readingId,
                 schemeId: reading.schemeId,
                 value: reading.value,
                 label: reading.label,

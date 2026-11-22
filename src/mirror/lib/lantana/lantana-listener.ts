@@ -539,6 +539,7 @@ export class LantanaListener {
             dataAgeMs: 0,
             deviceStatus: "ONLINE",
             readings: result.readings.map((r) => ({
+                readingId: r.readingId,
                 schemeId: r.schemeId,
                 value: r.value,
                 label: r.label,

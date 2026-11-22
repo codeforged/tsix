@@ -178,6 +178,8 @@ export interface AcceptedReading {
 
 /** Satu bacaan dalam bentuk yang dikirim ke consumer. */
 export interface SensorReading {
+    /** Sama dengan `AcceptedReading.readingId`; kunci idempotensi consumer (mis. DB). */
+    readingId?: string;
     schemeId: number;
     value: ReadingValue;
     label: string;

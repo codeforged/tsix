@@ -14,6 +14,8 @@
 
 import { Program, std, shell, db } from "@tsix/Application";
 import { LANTANA_UUID, EVT_READING, EVT_SNAPSHOT_REPLY, resolveDaemonTarget } from "@tsix/lantana/lantana-core";
+import type { SensorReading } from "@tsix/lantana/lantana-core";
+import { INSERT_SENSOR_READING_SQL, sensorReadingRows } from "@tsix/lantana/db-injector-rows";
 
 const TAG = "lantana-db-injector";
 
@@ -73,12 +75,15 @@ export const main = Program(async (args: string[]) => {
         if (!payload || typeof payload !== "object") return;
 
         if (payload.type === EVT_READING) {
-            if (payload.data?.accountId !== accountId) return;
-            await writeBatch(payload.data.readings || [], dbCfg);
+            const batch = payload.data;
+            if (batch?.accountId !== accountId) return;
+            await writeBatch(accountId, batch.deviceId, batch.readings || [], dbCfg);
         } else if (payload.type === EVT_SNAPSHOT_REPLY) {
+            // Snapshot berisi bacaan terakhir dengan readingId aslinya, jadi
+            // menulisnya lagi setelah restart tidak menggandakan baris.
             for (const entry of payload.data?.devices || []) {
                 if (entry.device?.accountId !== accountId) continue;
-                await writeBatch(entry.readings || [], dbCfg);
+                await writeBatch(accountId, entry.device.deviceId, entry.readings || [], dbCfg);
             }
         }
     });
@@ -90,36 +95,36 @@ export const main = Program(async (args: string[]) => {
     }
 });
 
-async function writeBatch(readings: any[], dbCfg: DbConfig | null): Promise<void> {
-    for (const r of readings) {
-        const ts = new Date(r.receivedAt || r.ts || Date.now())
-            .toISOString()
-            .slice(0, 19)
-            .replace("T", " ");
+let warnedMissingId = false;
 
+async function writeBatch(
+    accountId: string,
+    deviceId: unknown,
+    readings: SensorReading[],
+    dbCfg: DbConfig | null,
+): Promise<void> {
+    if (typeof deviceId !== "string" || !deviceId) return;
+    const { rows, skipped } = sensorReadingRows(accountId, deviceId, readings);
+
+    if (skipped > 0 && !warnedMissingId) {
+        warnedMissingId = true;
+        await std.println(
+            `[${TAG}] ${skipped} bacaan tanpa readingId dilewati — perbarui daemon Lantana.`,
+        );
+    }
+
+    for (const row of rows) {
+        const [, , , schemeId, label, unit, value, receivedAt] = row;
         if (!dbCfg) {
             await std.print(
-                `[${ts}] account=${r.accountId} device=${r.deviceId} scheme=${r.schemeId}(${r.label})=${r.value}${r.unit ? " " + r.unit : ""}\n`,
+                `[${receivedAt}] account=${accountId} device=${deviceId} scheme=${schemeId}(${label})=${value}${unit ? " " + unit : ""}\n`,
             );
             continue;
         }
 
-        if (typeof r.readingId !== "string") continue;
-
-        const sql =
-            `INSERT INTO sensor_readings ` +
-            `(reading_id, account_id, device_id, scheme_id, label, unit, value, received_at) VALUES (` +
-            `${quote(r.readingId)}, ${quote(r.accountId)}, ${quote(r.deviceId)}, ${Number(r.schemeId)}, ` +
-            `${quote(r.label)}, ${quote(r.unit || "")}, ${quote(String(r.value))}, ${quote(ts)}) ` +
-            `ON DUPLICATE KEY UPDATE reading_id = reading_id`;
-
-        const res = await db.query(sql);
+        const res = await db.query(INSERT_SENSOR_READING_SQL, row);
         if (res && (res as any).error) {
             await std.println(`[${TAG}] DB error: ${(res as any).error}`);
         }
     }
-}
-
-function quote(value: string): string {
-    return `'${String(value).replace(/'/g, "''")}'`;
 }
