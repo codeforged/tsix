@@ -1132,7 +1132,7 @@
         },
         {
             "name": "lantana",
-            "version": "1.0.0",
+            "version": "1.0.2",
             "description": "Lantana IoT stack: core, device bank, ingest, dashboard server, control panel dan konfigurasi /etc/lantana.",
             "author": "TSIX",
             "needReboot": false,
