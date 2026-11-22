@@ -7,15 +7,19 @@ import { AcceptedReading } from "./lantana-core";
 
 vi.mock("@tsix/Application", () => {
     const outbox: { pid: number; payload: any }[] = [];
+    // PID yang sudah EXITED: kernel mengembalikan false, tidak melempar.
+    const deadPids = new Set<number>();
     return {
         shell: {
             send: async (pid: number, payload: any) => {
+                if (deadPids.has(pid)) return false;
                 outbox.push({ pid, payload });
                 return true;
             },
         },
         std: { log: async () => true },
         __outbox: outbox,
+        __deadPids: deadPids,
     };
 });
 
@@ -27,6 +31,7 @@ import { SchemeRegistry } from "./scheme-registry";
 import { PermissionPolicy } from "./permission-policy";
 
 const outbox = (app as any).__outbox as { pid: number; payload: any }[];
+const deadPids = (app as any).__deadPids as Set<number>;
 
 const reading = (schemeId: number, value: number): AcceptedReading => ({
     readingId: `r-${schemeId}`,
@@ -185,6 +190,60 @@ describe("registrasi consumer", () => {
 
         expect(outbox).toHaveLength(0);
         expect(distributor.consumerCount).toBe(1);
+    });
+});
+
+describe("consumer mati", () => {
+    const batch = {
+        type: "LANTANA_READING" as const,
+        accountId: "acc",
+        deviceId: "dev-1",
+        name: "Satu",
+        category: "generic",
+        receivedAt: 1000,
+        dataAgeMs: 0,
+        deviceStatus: "ONLINE" as const,
+        readings: [],
+    };
+
+    beforeEach(() => {
+        outbox.length = 0;
+        deadPids.clear();
+    });
+
+    it("membuang consumer yang PID-nya sudah mati saat broadcast bacaan", async () => {
+        const { distributor } = setup();
+        distributor.registerConsumer(88, "hidup", "acc");
+        distributor.registerConsumer(99, "mati", "acc");
+        deadPids.add(99);
+
+        await distributor.broadcastBatch(batch);
+
+        expect(distributor.getConsumerPids()).toEqual([88]);
+        expect(outbox.map((m) => m.pid)).toEqual([88]);
+    });
+
+    it("membuang consumer mati saat broadcast status, sekali saja per consumer", async () => {
+        const { distributor } = setup();
+        distributor.subscribeConsumer(99, "mati", "acc");
+        distributor.subscribeConsumer(99, "mati", "lain");
+        distributor.registerConsumer(88, "hidup", "acc");
+        deadPids.add(99);
+
+        await distributor.broadcastStatus(2000);
+
+        expect(distributor.getConsumerPids()).toEqual([88]);
+        expect(outbox.map((m) => m.payload.type)).toEqual(["LANTANA_DEVICE_STATUS"]);
+    });
+
+    it("membuang consumer yang mati sebelum menerima balasan snapshot", async () => {
+        const { distributor } = setup();
+        distributor.registerConsumer(99, "mati", "acc");
+        deadPids.add(99);
+
+        await distributor.sendSnapshot(99, "acc");
+
+        expect(distributor.consumerCount).toBe(0);
     });
 });
 

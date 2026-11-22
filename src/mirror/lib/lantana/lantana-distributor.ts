@@ -112,29 +112,38 @@ export class LantanaDistributor {
         return this.consumers.size;
     }
 
+    /**
+     * Kirim IPC ke satu PID. Kernel mengembalikan `false` (tidak melempar)
+     * bila PID sudah EXITED/tidak ada, jadi `false` maupun exception sama-sama
+     * berarti consumer mati dan dikeluarkan dari daftar.
+     */
+    private async deliver(pid: number, message: unknown): Promise<boolean> {
+        let ok = false;
+        try {
+            ok = (await shell.send(pid, message)) !== false;
+        } catch {
+            ok = false;
+        }
+        if (!ok && this.consumers.delete(pid)) {
+            std.log(`[${TAG}] Consumer PID ${pid} tidak dapat dihubungi — dihapus`, TAG);
+        }
+        return ok;
+    }
+
     /** Siarkan satu batch bacaan tervalidasi (hanya ke consumer akun yang sama). */
     async broadcastBatch(batch: NormalizedReadingBatch): Promise<void> {
-        for (const [pid, info] of this.consumers.entries()) {
+        for (const [pid, info] of Array.from(this.consumers.entries())) {
             if (!info.accountIds.has(batch.accountId)) continue;
-            try {
-                await shell.send(pid, { type: EVT_READING, data: batch });
-            } catch {
-                this.consumers.delete(pid);
-            }
+            await this.deliver(pid, { type: EVT_READING, data: batch });
         }
     }
 
     /** Status device berkala (heartbeat). */
     async broadcastStatus(now: number = Date.now()): Promise<void> {
-        for (const [pid, info] of this.consumers.entries()) {
+        for (const [pid, info] of Array.from(this.consumers.entries())) {
             for (const accountId of info.accountIds) {
                 const devices = this.bank.listDevices(now, accountId);
-                try {
-                    await shell.send(pid, { type: EVT_DEVICE_STATUS, data: devices });
-                } catch {
-                    this.consumers.delete(pid);
-                    break;
-                }
+                if (!(await this.deliver(pid, { type: EVT_DEVICE_STATUS, data: devices }))) break;
             }
         }
     }
@@ -159,14 +168,10 @@ export class LantanaDistributor {
             payload.push({ device, readings });
         }
 
-        try {
-            await shell.send(targetPid, {
-                type: EVT_SNAPSHOT_REPLY,
-                data: { accountId: accountId || null, devices: payload, ts: now, requestId },
-            });
-        } catch {
-            /* consumer sudah tidak ada */
-        }
+        await this.deliver(targetPid, {
+            type: EVT_SNAPSHOT_REPLY,
+            data: { accountId: accountId || null, devices: payload, ts: now, requestId },
+        });
     }
 
     async onIpcMessage(msg: any): Promise<void> {
@@ -209,11 +214,7 @@ export class LantanaDistributor {
         cmd: LantanaCommand,
     ): Promise<{ ok: boolean; error?: string }> {
         const reply = async (result: { ok: boolean; error?: string }) => {
-            try {
-                await shell.send(fromPid, { type: EVT_COMMAND_RESULT, data: { ...cmd, ...result } });
-            } catch {
-                /* peminta hilang */
-            }
+            await this.deliver(fromPid, { type: EVT_COMMAND_RESULT, data: { ...cmd, ...result } });
             return result;
         };
 
