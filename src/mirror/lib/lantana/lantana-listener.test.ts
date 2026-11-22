@@ -693,3 +693,131 @@ describe("ReplayWindow", () => {
         expect(w.accept("iv-45")).toBe(true);
     });
 });
+
+describe("sendCommand", () => {
+    const SECOND_PORT = 2000;
+    const SECOND_FD = 2;
+    let ctx: ReturnType<typeof setup>;
+
+    const sendVia = (port: number, fd: number, data: any) =>
+        (ctx.listener as any).handlePacket(port, fd, { src: DEVICE_ADDR, port: DEVICE_PORT, data });
+
+    /** Handshake RSA lewat port layanan tertentu. */
+    async function authenticateVia(port: number, fd: number): Promise<SecurityAgent> {
+        await sendVia(port, fd, JSON.stringify({ type: "LANTANA_HELLO" }));
+        const challenge = JSON.parse(lastSent());
+        const client = new SecurityAgent();
+        const sessionKey = SecurityAgent.generateSessionKey();
+        await sendVia(
+            port,
+            fd,
+            JSON.stringify({
+                type: "LANTANA_KEYSET",
+                encryptedKey: SecurityAgent.encryptWithPublicKey(challenge.publicKey, sessionKey),
+            }),
+        );
+        client.setSessionKey(sessionKey);
+        await sendVia(
+            port,
+            fd,
+            JSON.stringify({
+                type: "LANTANA_AUTH",
+                payload: client.securePacketOut(
+                    JSON.stringify({
+                        accountId: "juragan",
+                        deviceId: ctx.device.deviceId,
+                        accessKey: ctx.accessKey,
+                        nonce: challenge.nonce,
+                    }),
+                ),
+            }),
+        );
+        expect(JSON.parse(client.securePacketIn(lastSent())).type).toBe("LANTANA_AUTH_OK");
+        sent.length = 0;
+        return client;
+    }
+
+    const endpoint = { address: DEVICE_ADDR, port: DEVICE_PORT };
+
+    beforeEach(() => {
+        ctx = setup();
+        // Daemon mendengarkan dua port; port 1000 terdaftar lebih dulu.
+        (ctx.listener as any).socketFds = new Map([
+            [SERVICE_PORT, 1],
+            [SECOND_PORT, SECOND_FD],
+        ]);
+    });
+
+    it("mengirim command lewat port layanan yang dipakai device", async () => {
+        const client = await authenticateVia(SECOND_PORT, SECOND_FD);
+
+        const ok = await ctx.listener.sendCommand("juragan", ctx.device.deviceId, endpoint, "RELAY_1:1");
+
+        expect(ok).toBe(true);
+        expect(sent).toHaveLength(1);
+        expect(sent[0]).toMatchObject({
+            fd: SECOND_FD,
+            srcPort: SECOND_PORT,
+            address: DEVICE_ADDR,
+            port: DEVICE_PORT,
+        });
+        expect(client.securePacketIn(sent[0].data)).toBe("RELAY_1:1");
+    });
+
+    it("mengikuti port terakhir bila device pindah port layanan dalam sesi yang sama", async () => {
+        const client = await authenticateVia(SERVICE_PORT, 1);
+        await sendVia(
+            SECOND_PORT,
+            SECOND_FD,
+            client.securePacketOut(encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 30 }])),
+        );
+
+        await ctx.listener.sendCommand("juragan", ctx.device.deviceId, endpoint, "RELAY_1:0");
+
+        expect(sent.at(-1)).toMatchObject({ fd: SECOND_FD, srcPort: SECOND_PORT });
+    });
+
+    it("menolak command untuk device lain di sesi yang sama", async () => {
+        await authenticateVia(SECOND_PORT, SECOND_FD);
+        const ok = await ctx.listener.sendCommand("juragan", "device-lain", endpoint, "RELAY_1:1");
+        expect(ok).toBe(false);
+        expect(sent).toHaveLength(0);
+    });
+
+    it("melaporkan gagal bila sendto gagal (tidak mencoba port lain)", async () => {
+        await authenticateVia(SECOND_PORT, SECOND_FD);
+        const net = (await import("@tsix/Application")).net as any;
+        const original = net.sendto;
+        net.sendto = async () => false;
+        try {
+            const ok = await ctx.listener.sendCommand("juragan", ctx.device.deviceId, endpoint, "X");
+            expect(ok).toBe(false);
+        } finally {
+            net.sendto = original;
+        }
+    });
+
+    it("forgetSessions membuang key + rute sesi yang sudah kedaluwarsa", async () => {
+        const client = await authenticateVia(SECOND_PORT, SECOND_FD);
+        const sessionId = `${DEVICE_ADDR}:${DEVICE_PORT}`;
+
+        const removed = ctx.sessions.cleanup(Date.now() + 10 * 60 * 1000);
+        expect(removed).toEqual([sessionId]);
+        ctx.listener.forgetSessions(removed);
+
+        expect(await ctx.listener.sendCommand("juragan", ctx.device.deviceId, endpoint, "X")).toBe(false);
+        const l = ctx.listener as any;
+        for (const map of [l.agents, l.routes, l.replay, l.pskState, l.nackSentAt]) {
+            expect(map.has(sessionId)).toBe(false);
+        }
+
+        // Ciphertext lama dari sesi yang dilupakan → diminta handshake ulang.
+        await sendVia(
+            SECOND_PORT,
+            SECOND_FD,
+            client.securePacketOut(encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 30 }])),
+        );
+        expect(JSON.parse(lastSent())).toMatchObject({ type: "LANTANA_NACK", name: "UNAUTHENTICATED" });
+        expect(ctx.dataBank.pending).toBe(0);
+    });
+});

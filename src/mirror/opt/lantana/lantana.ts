@@ -145,7 +145,7 @@ export const main = Program(async (args: string[]) => {
             await std.log(`DataBank belum menerima data (${drained.error}); antrean ${dataBank.pending}.`, TAG);
         }
 
-        sessions.cleanup();
+        listener.forgetSessions(sessions.cleanup());
 
         const now = Date.now();
         if (now - lastStatusAt >= RELOAD_INTERVAL_MS) {

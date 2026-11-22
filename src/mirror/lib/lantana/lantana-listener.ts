@@ -116,6 +116,12 @@ export class LantanaListener {
         { accountId: string; psk: Buffer; clientNonce: string; serverNonce: string }
     > = new Map();
 
+    /**
+     * Port layanan (dan fd-nya) tempat paket terakhir sesi masuk. Command
+     * harus keluar dari port yang sama: device hanya mendengarkan balasan
+     * dari port yang ia hubungi.
+     */
+    private routes: Map<string, { port: number; fd: number }> = new Map();
     /** IV yang sudah diterima per sesi; direset setiap handshake baru. */
     private replay: Map<string, ReplayWindow> = new Map();
     /** Sesi yang sudah dicatat mengirim duplikat (log sekali per sesi). */
@@ -182,6 +188,7 @@ export class LantanaListener {
 
         const session = this.deps.sessions.open(sessionId);
         const agent = this.agents.get(sessionId) || null;
+        this.routes.set(sessionId, { port, fd });
 
         const control = this.asJson(pkt.data);
         if (control && typeof control.type === "string") {
@@ -650,22 +657,42 @@ export class LantanaListener {
             return false;
         }
 
-        const payload = agent.securePacketOut(command);
-
-        for (const [port, fd] of this.socketFds.entries()) {
-            try {
-                const ok = await net.sendto(fd, endpoint.address, endpoint.port, payload, 0, port);
-                if (ok) {
-                    await std.log(
-                        `[${TAG}] command "${command}" → ${deviceId} (${endpoint.address}:${endpoint.port})`,
-                        TAG,
-                    );
-                    return true;
-                }
-            } catch {
-                /* coba port lain */
-            }
+        // Sesi terautentikasi pasti pernah mengirim paket, jadi rutenya ada.
+        const route = this.routes.get(sessionId);
+        if (!route) {
+            await std.log(`[${TAG}] command ke ${deviceId} gagal: rute sesi tidak diketahui`, TAG);
+            return false;
         }
-        return false;
+
+        const payload = agent.securePacketOut(command);
+        let ok = false;
+        try {
+            ok = !!(await net.sendto(route.fd, endpoint.address, endpoint.port, payload, 0, route.port));
+        } catch {
+            ok = false;
+        }
+        await std.log(
+            ok
+                ? `[${TAG}] command "${command}" → ${deviceId} (${endpoint.address}:${endpoint.port} via port ${route.port})`
+                : `[${TAG}] command ke ${deviceId} gagal dikirim via port ${route.port}`,
+            TAG,
+        );
+        return ok;
+    }
+
+    /**
+     * Lupakan state kripto/routing sesi yang sudah dihapus SessionManager
+     * (mis. idle melewati TTL). Tanpa ini map per sesi tumbuh tanpa batas.
+     */
+    forgetSessions(sessionIds: readonly string[]): void {
+        for (const id of sessionIds) {
+            this.agents.delete(id);
+            this.pskState.delete(id);
+            this.routes.delete(id);
+            this.replay.delete(id);
+            this.replayWarned.delete(id);
+            this.nackSentAt.delete(id);
+            this.warned.delete(id);
+        }
     }
 }
