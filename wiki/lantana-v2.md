@@ -233,7 +233,7 @@ CREATE TABLE IF NOT EXISTS sensor_readings (
     scheme_id   INT NOT NULL,
     label       VARCHAR(128) NOT NULL,
     unit        VARCHAR(32) NOT NULL,
-    value       VARCHAR(64) NOT NULL,
+    value       VARCHAR(255) NOT NULL,  -- bacaan string Lantana maks. 255 byte
     received_at DATETIME NOT NULL,
     INDEX idx_account_device_time (account_id, device_id, received_at)
 );
@@ -241,6 +241,13 @@ CREATE TABLE IF NOT EXISTS sensor_readings (
 
 `reading_id` sebagai PRIMARY KEY membuat retry idempoten: pengiriman ulang
 tidak menggandakan baris.
+
+Tabel lama yang dibuat dengan `value VARCHAR(64)` akan menolak bacaan string
+yang lebih panjang (muncul sebagai `DB error` di log injector). Perbesar dengan:
+
+```sql
+ALTER TABLE sensor_readings MODIFY value VARCHAR(255) NOT NULL;
+```
 
 ## Yang dipakai ulang dan yang dibuang
 
