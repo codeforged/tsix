@@ -37,6 +37,12 @@ export interface IngestInput {
     readings: RawReading[];
     receivedAt?: number;
     endpoint: Endpoint;
+    /**
+     * ID unik paket dari transport (hex IV ChaCha20). Bila ada, `readingId`
+     * diturunkan darinya sehingga paket yang sama selalu menghasilkan
+     * `readingId` yang sama dan dedup DataBank tetap berlaku.
+     */
+    packetId?: string;
 }
 
 export type IngestResult =
@@ -55,6 +61,24 @@ export type IngestResult =
 
 export function newReadingId(): string {
     return crypto.randomUUID();
+}
+
+/**
+ * readingId deterministik: SHA-256(account|device|packet|scheme), 16 byte
+ * pertama diformat seperti UUID (36 karakter) agar cocok dengan kolom
+ * `reading_id` yang sudah ada.
+ */
+export function packetReadingId(
+    accountId: string,
+    deviceId: string,
+    packetId: string,
+    schemeId: number,
+): string {
+    const h = crypto
+        .createHash("sha256")
+        .update(`${accountId}|${deviceId}|${packetId}|${schemeId}`, "utf8")
+        .digest("hex");
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
 }
 
 export class IngestPipeline {
@@ -153,7 +177,9 @@ export class IngestPipeline {
             }
 
             accepted.push({
-                readingId: newReadingId(),
+                readingId: input.packetId
+                    ? packetReadingId(account.accountId, input.deviceId, input.packetId, def.schemeId)
+                    : newReadingId(),
                 accountId: account.accountId,
                 deviceId: input.deviceId,
                 schemeId: def.schemeId,

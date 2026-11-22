@@ -55,6 +55,40 @@ const MSG_NACK = "LANTANA_NACK";
 /** Jarak minimum NACK "sesi tidak aktif" per device agar tidak membanjiri link. */
 const SESSION_NACK_INTERVAL_MS = 5000;
 
+/** Panjang IV ChaCha20 di depan setiap ciphertext (format SecurityAgent). */
+const PACKET_IV_BYTES = 12;
+/**
+ * Jumlah IV terakhir yang diingat per sesi untuk menolak paket duplikat/replay.
+ * IV acak (tanpa urutan), jadi yang bisa dilakukan hanya jendela berbatas:
+ * dengan interval kirim 5 detik, 4096 IV ≈ 5,7 jam riwayat per sesi.
+ */
+export const REPLAY_WINDOW = 4096;
+
+/** Jendela IV per sesi: Set untuk lookup + antrean FIFO untuk eviksi. */
+export class ReplayWindow {
+    private seen = new Set<string>();
+    private order: string[] = [];
+    private head = 0;
+
+    constructor(private capacity: number) {}
+
+    /** true bila IV baru (dan langsung dicatat); false bila sudah pernah. */
+    accept(id: string): boolean {
+        if (this.seen.has(id)) return false;
+        this.seen.add(id);
+        this.order.push(id);
+        if (this.order.length - this.head > this.capacity) {
+            this.seen.delete(this.order[this.head++]);
+            // Rapatkan sesekali agar array tidak tumbuh tanpa batas.
+            if (this.head >= this.capacity) {
+                this.order = this.order.slice(this.head);
+                this.head = 0;
+            }
+        }
+        return true;
+    }
+}
+
 export interface ListenerDeps {
     accounts: AccountManager;
     devices: DeviceRegistry;
@@ -81,6 +115,11 @@ export class LantanaListener {
         string,
         { accountId: string; psk: Buffer; clientNonce: string; serverNonce: string }
     > = new Map();
+
+    /** IV yang sudah diterima per sesi; direset setiap handshake baru. */
+    private replay: Map<string, ReplayWindow> = new Map();
+    /** Sesi yang sudah dicatat mengirim duplikat (log sekali per sesi). */
+    private replayWarned: Set<string> = new Set();
 
     constructor(private deps: ListenerDeps) {}
 
@@ -181,6 +220,10 @@ export class LantanaListener {
                 // dibuang agar key sebelumnya tidak bisa dipakai ulang.
                 this.agents.delete(sessionId);
                 this.pskState.delete(sessionId);
+                // Key sesi baru → ciphertext lama tidak bisa didekripsi lagi,
+                // jadi riwayat IV sesi sebelumnya tidak diperlukan.
+                this.replay.delete(sessionId);
+                this.replayWarned.delete(sessionId);
 
                 const mode = msg.mode === "psk" ? "psk" : "rsa";
                 const serverNonce = crypto.randomBytes(16).toString("hex");
@@ -404,25 +447,37 @@ export class LantanaListener {
         data: any,
         agent: SecurityAgent,
     ): Promise<void> {
-        let plain: Buffer | null = null;
+        // Device mengirim ciphertext sebagai Buffer mentah atau hex. Hex WAJIB
+        // didekode ke Buffer dulu: frame biner mengandung byte >= 0x80 yang
+        // rusak bila dikonversi ke utf8 (gejala: "tipe bacaan tidak dikenal: 0x66").
+        // Decoding hex Node berhenti di karakter non-hex pertama, sama seperti
+        // SecurityAgent.securePacketIn, sehingga IV yang dicek di bawah selalu
+        // IV dari byte yang benar-benar didekripsi.
+        let cipher: Buffer | null = null;
+        if (Buffer.isBuffer(data)) cipher = data;
+        else if (typeof data === "string") cipher = Buffer.from(data.trim(), "hex");
 
-        if (Buffer.isBuffer(data)) {
-            plain = agent.securePacketInRawBuffer(data);
-        } else if (typeof data === "string") {
-            // Device mengirim ciphertext sebagai hex. WAJIB lewat jalur Buffer:
-            // frame biner mengandung byte >= 0x80 yang rusak bila dikonversi
-            // ke utf8 dulu (gejala: "tipe bacaan tidak dikenal: 0x66").
-            const hex = data.trim();
-            if (/^[0-9a-f]+$/i.test(hex) && hex.length % 2 === 0) {
-                plain = agent.securePacketInRawBuffer(Buffer.from(hex, "hex"));
-            } else {
-                const text = agent.securePacketIn(hex);
-                plain = text ? Buffer.from(text, "utf8") : null;
-            }
+        const plain = cipher ? agent.securePacketInRawBuffer(cipher) : null;
+        if (!cipher || !plain) {
+            await this.sendNack(fd, port, endpoint, agent, LantanaError.UNAUTHENTICATED, "payload tidak bisa didekripsi");
+            return;
         }
 
-        if (!plain) {
-            await this.sendNack(fd, port, endpoint, agent, LantanaError.UNAUTHENTICATED, "payload tidak bisa didekripsi");
+        // Dekripsi sukses berarti tag Poly1305 valid → IV berasal dari pemegang
+        // key sesi, jadi aman dipakai sebagai ID paket. Duplikat (retransmit
+        // broker atau replay penyadap) dibuang diam-diam: NACK akan memaksa
+        // device yang sah me-restart sesinya.
+        const packetId = cipher.subarray(0, PACKET_IV_BYTES).toString("hex");
+        let window = this.replay.get(sessionId);
+        if (!window) {
+            window = new ReplayWindow(REPLAY_WINDOW);
+            this.replay.set(sessionId, window);
+        }
+        if (!window.accept(packetId)) {
+            if (!this.replayWarned.has(sessionId)) {
+                this.replayWarned.add(sessionId);
+                await std.log(`[${TAG}] paket duplikat/replay dari ${sessionId} dibuang`, TAG);
+            }
             return;
         }
 
@@ -437,6 +492,7 @@ export class LantanaListener {
             deviceId: parsed.deviceId,
             readings: parsed.readings,
             endpoint,
+            packetId,
         });
 
         if (!result.ok) {

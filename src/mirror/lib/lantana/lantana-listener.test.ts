@@ -49,9 +49,10 @@ import { IngestPipeline } from "./lantana-ingest";
 import { DeviceBank } from "./lantana-device-bank";
 import { LantanaDistributor } from "./lantana-distributor";
 import { DataBankQueue, MemoryDataBank } from "./lantana-databank";
-import { LantanaListener } from "./lantana-listener";
+import { LantanaListener, ReplayWindow } from "./lantana-listener";
 import { ServerKeyPair } from "./lantana-keys";
 import { encodeBinaryPayload, encodePlainPayload } from "./lantana-core";
+import { packetReadingId } from "./lantana-ingest";
 import { clientProof, derivePsk, deriveSessionKey, serverProof } from "./lantana-psk";
 
 const SERVICE_PORT = 1000;
@@ -522,5 +523,152 @@ describe("listener handshake + ingest", () => {
         // Agent lama sudah dibuang → balasan berupa NACK plaintext JSON.
         expect(JSON.parse(decoded || last).type).toBe("LANTANA_NACK");
         expect(ctx.sessions.isAuthenticated(`${DEVICE_ADDR}:${DEVICE_PORT}`)).toBe(false);
+    });
+});
+
+describe("dedup paket duplikat / replay", () => {
+    let ctx: ReturnType<typeof setup>;
+
+    /** Handshake RSA lengkap; kembalikan agent klien yang memegang key sesi. */
+    async function authenticate(): Promise<SecurityAgent> {
+        await ctx.send(JSON.stringify({ type: "LANTANA_HELLO" }));
+        const challenge = JSON.parse(lastSent());
+        const client = new SecurityAgent();
+        const sessionKey = SecurityAgent.generateSessionKey();
+        await ctx.send(
+            JSON.stringify({
+                type: "LANTANA_KEYSET",
+                encryptedKey: SecurityAgent.encryptWithPublicKey(challenge.publicKey, sessionKey),
+            }),
+        );
+        client.setSessionKey(sessionKey);
+        await ctx.send(
+            JSON.stringify({
+                type: "LANTANA_AUTH",
+                payload: client.securePacketOut(
+                    JSON.stringify({
+                        accountId: "juragan",
+                        deviceId: ctx.device.deviceId,
+                        accessKey: ctx.accessKey,
+                        nonce: challenge.nonce,
+                    }),
+                ),
+            }),
+        );
+        expect(JSON.parse(client.securePacketIn(lastSent())).type).toBe("LANTANA_AUTH_OK");
+        sent.length = 0;
+        return client;
+    }
+
+    const queued = () => (ctx.dataBank as any).queue as { readingId: string; value: unknown }[];
+
+    beforeEach(() => {
+        ctx = setup();
+    });
+
+    it("membuang ciphertext yang sama persis tanpa NACK", async () => {
+        const client = await authenticate();
+        const packet = client.securePacketOut(
+            encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 30 }]),
+        );
+
+        await ctx.send(packet);
+        await ctx.send(packet);
+        await ctx.send(packet);
+
+        expect(ctx.dataBank.pending).toBe(1);
+        // Duplikat dibuang diam-diam: NACK akan memaksa device restart sesi.
+        expect(sent).toHaveLength(0);
+    });
+
+    it("tidak bisa dilewati dengan menambah karakter non-hex di ujung ciphertext", async () => {
+        const client = await authenticate();
+        const packet = client.securePacketOut(
+            encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 30 }]),
+        );
+
+        await ctx.send(packet);
+        await ctx.send(`${packet}zz`);
+        await ctx.send(`  ${packet}  `);
+
+        expect(ctx.dataBank.pending).toBe(1);
+    });
+
+    it("membuang duplikat frame biner (Buffer mentah)", async () => {
+        const client = await authenticate();
+        const raw = client.securePacketOutRaw(
+            encodeBinaryPayload(ctx.device.deviceId, [{ schemeId: 101, value: 21.5 }]),
+        ) as Buffer;
+
+        await ctx.send(raw);
+        await ctx.send(Buffer.from(raw));
+
+        expect(ctx.dataBank.pending).toBe(1);
+    });
+
+    it("menerima dua paket berbeda walaupun isinya identik", async () => {
+        const client = await authenticate();
+        const payload = encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 30 }]);
+
+        await ctx.send(client.securePacketOut(payload));
+        await ctx.send(client.securePacketOut(payload));
+
+        expect(ctx.dataBank.pending).toBe(2);
+        const [a, b] = queued();
+        expect(a.readingId).not.toBe(b.readingId);
+    });
+
+    it("readingId diturunkan dari paket sehingga stabil dan berformat UUID", async () => {
+        const client = await authenticate();
+        const packet = client.securePacketOut(
+            encodePlainPayload(ctx.device.deviceId, [
+                { schemeId: 101, value: 30 },
+                { schemeId: 102, value: 55 },
+            ]),
+        );
+        await ctx.send(packet);
+
+        const iv = Buffer.from(packet, "hex").subarray(0, 12).toString("hex");
+        expect(queued().map((r) => r.readingId)).toEqual([
+            packetReadingId("juragan", ctx.device.deviceId, iv, 101),
+            packetReadingId("juragan", ctx.device.deviceId, iv, 102),
+        ]);
+        expect(queued()[0].readingId).toMatch(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+        );
+    });
+
+    it("paket dengan tag rusak tidak meracuni riwayat IV", async () => {
+        const client = await authenticate();
+        const packet = client.securePacketOut(
+            encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 30 }]),
+        );
+        // IV sama, tag dibalik → gagal dekripsi, IV tidak boleh tercatat.
+        const forged = packet.slice(0, 24) + "00".repeat(16) + packet.slice(56);
+
+        await ctx.send(forged);
+        expect(JSON.parse(client.securePacketIn(lastSent())).name).toBe("UNAUTHENTICATED");
+
+        await ctx.send(packet);
+        expect(ctx.dataBank.pending).toBe(1);
+    });
+});
+
+describe("ReplayWindow", () => {
+    it("mengingat IV terbaru dan melupakan yang tertua saat penuh", () => {
+        const w = new ReplayWindow(3);
+        expect(["a", "b", "c"].map((id) => w.accept(id))).toEqual([true, true, true]);
+        expect(w.accept("b")).toBe(false);
+
+        expect(w.accept("d")).toBe(true); // "a" tergusur
+        expect(w.accept("a")).toBe(true);
+        expect(w.accept("c")).toBe(false);
+    });
+
+    it("tetap benar setelah banyak eviksi (pemadatan array internal)", () => {
+        const w = new ReplayWindow(4);
+        for (let i = 0; i < 50; i++) expect(w.accept(`iv-${i}`)).toBe(true);
+        for (let i = 46; i < 50; i++) expect(w.accept(`iv-${i}`)).toBe(false);
+        expect(w.accept("iv-45")).toBe(true);
     });
 });
