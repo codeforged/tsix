@@ -8,7 +8,7 @@
 //   ESP32   : RSA-OAEP (mbedtls) — session key acak dibungkus public key server
 //   ESP8266 : PSK + HMAC/HKDF (BearSSL) — tanpa RSA, cocok untuk RAM/flash kecil
 //
-// Payload data: LANTANA|<deviceId>|<schemeId:value;...>  (V2 teks)
+// Payload data: LANTANA|<deviceId>|#<seq>|<schemeId:value;...>  (V2 teks + seq)
 // Build: -DAPP_VARIANT_LANTANA (env lantana-esp32 / -esp8266)
 // ─────────────────────────────────────────────────────────────
 #include <Arduino.h>
@@ -108,10 +108,10 @@ void onEncrypted(const char *srcAddress, int srcPort, const char *payload)
 
 void sendRelayStatus()
 {
-  char data[112];
+  char data[128];
   snprintf(data, sizeof(data),
-           "LANTANA|%s|%u:%s;%u:%s",
-           TSIX_DEVICE_ID,
+           "LANTANA|%s|#%lu|%u:%s;%u:%s",
+           TSIX_DEVICE_ID, (unsigned long)auth.nextSeq(),
            TSIX_RELAY1_SCHEME_ID, relay1State ? "true" : "false",
            TSIX_RELAY2_SCHEME_ID, relay2State ? "true" : "false");
 
@@ -169,10 +169,10 @@ void loop()
       schemeVals[i] = constrain(schemeVals[i] + delta, SCHEME_MIN[i], SCHEME_MAX[i]);
     }
 
-    char data[128];
+    char data[144];
     snprintf(data, sizeof(data),
-             "LANTANA|%s|%u:%d;%u:%d;%u:%d;%u:%d",
-             TSIX_DEVICE_ID,
+             "LANTANA|%s|#%lu|%u:%d;%u:%d;%u:%d;%u:%d",
+             TSIX_DEVICE_ID, (unsigned long)auth.nextSeq(),
              SCHEME_IDS[0], schemeVals[0],
              SCHEME_IDS[1], schemeVals[1],
              SCHEME_IDS[2], schemeVals[2],

@@ -23,6 +23,13 @@ public:
    */
   void noteSendResult(bool ok);
 
+  /**
+   * Nomor urut paket data berikutnya (1, 2, 3, ...). Direset setiap sesi
+   * baru menjadi ONLINE; server menolak seq yang sudah pernah diterima dalam
+   * sesi yang sama, sehingga paket yang direkam tidak bisa diputar ulang.
+   */
+  uint32_t nextSeq();
+
 private:
   enum State { IDLE, WAIT_CHALLENGE, WAIT_KEYSET, WAIT_AUTH, ONLINE };
 
@@ -39,6 +46,7 @@ private:
   uint32_t onlineSince_;
   bool lastLinkUp_;
   uint8_t sendFailures_;
+  uint32_t txSeq_;
   uint8_t sessionKey_[TSIX_KEY_SIZE];
   char clientNonceHex_[33];
   char serverNonceHex_[33];

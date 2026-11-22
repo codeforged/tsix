@@ -810,9 +810,11 @@ async function runSenderLoop(
 
         await Promise.all(due.map(async (client) => {
             const readings = makeReadings(schemes, client.index, client.sequence++);
+            // client.sequence kini ≥ 1 → dipakai juga sebagai seq paket (anti-replay).
+            const seq = client.sequence;
             const payload = usePlain
-                ? encodePlainPayload(client.deviceId, readings)
-                : encodeBinaryPayload(client.deviceId, readings);
+                ? encodePlainPayload(client.deviceId, readings, seq)
+                : encodeBinaryPayload(client.deviceId, readings, seq);
             try {
                 const sent = await net.sendto(
                     client.fd,

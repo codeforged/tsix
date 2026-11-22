@@ -239,6 +239,9 @@ export interface Endpoint {
 // ─── Payload ──────────────────────────────────────────────────────────────
 export const LANTANA_BINARY_MAGIC = 0x4c;
 export const LANTANA_BINARY_VERSION = 0x02;
+/** Versi frame dengan nomor urut paket (seq:u32 LE setelah deviceId). */
+export const LANTANA_BINARY_VERSION_SEQ = 0x03;
+export const MAX_PACKET_SEQ = 0xffffffff;
 export const LANTANA_PLAIN_PREFIX = "LANTANA";
 
 export type ReadingTypeCode = 0x00 | 0x01 | 0x02; // f32 | bool | string
@@ -247,7 +250,18 @@ export const READING_TYPE_BOOL: ReadingTypeCode = 0x01;
 export const READING_TYPE_STRING: ReadingTypeCode = 0x02;
 
 export type ParsedPayload =
-    | { ok: true; format: "binary" | "plain"; deviceId: string; readings: RawReading[] }
+    | {
+          ok: true;
+          format: "binary" | "plain";
+          deviceId: string;
+          readings: RawReading[];
+          /**
+           * Nomor urut paket per sesi (1, 2, 3, …). Opsional: device lama
+           * tidak mengirimnya. Bila ada, listener menolak seq yang sudah
+           * pernah diterima dalam sesi yang sama (anti-replay penuh).
+           */
+          seq?: number;
+      }
     | { ok: false; error: LantanaError; message: string };
 
 /**
@@ -268,7 +282,10 @@ export function detectFormat(data: any): "binary" | "plain" | "unknown" {
     return "unknown";
 }
 
-/** Parse teks: `LANTANA|<deviceId>|<schemeId>:<value>;...` */
+/**
+ * Parse teks: `LANTANA|<deviceId>|[#<seq>|]<schemeId>:<value>;...`
+ * Segmen `#<seq>` opsional (1..4294967295).
+ */
 export function parsePlainPayload(data: string): ParsedPayload {
     const s = (data || "").trim();
     if (!s) {
@@ -289,8 +306,20 @@ export function parsePlainPayload(data: string): ParsedPayload {
         return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "deviceId kosong" };
     }
 
+    let bodyStart = 2;
+    let seq: number | undefined;
+    if (parts[2].trim().startsWith("#")) {
+        const raw = parts[2].trim().slice(1);
+        const n = Number(raw);
+        if (!/^\d{1,10}$/.test(raw) || n < 1 || n > MAX_PACKET_SEQ) {
+            return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: `seq tidak valid: ${raw}` };
+        }
+        seq = n;
+        bodyStart = 3;
+    }
+
     const readings: RawReading[] = [];
-    for (const entry of parts.slice(2).join("|").split(";")) {
+    for (const entry of parts.slice(bodyStart).join("|").split(";")) {
         const item = entry.trim();
         if (!item) continue;
         const idx = item.indexOf(":");
@@ -323,7 +352,9 @@ export function parsePlainPayload(data: string): ParsedPayload {
     if (readings.length === 0) {
         return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "tidak ada bacaan" };
     }
-    return { ok: true, format: "plain", deviceId, readings };
+    return seq === undefined
+        ? { ok: true, format: "plain", deviceId, readings }
+        : { ok: true, format: "plain", deviceId, readings, seq };
 }
 
 function parseTextValue(raw: string): ReadingValue | null {
@@ -337,6 +368,7 @@ function parseTextValue(raw: string): ReadingValue | null {
 /**
  * Parse frame biner V2:
  *   [0x4C][0x02][devLen:1][deviceId][count:1]
+ *   [0x4C][0x03][devLen:1][deviceId][seq:u32 LE][count:1]   (dengan seq)
  *   per bacaan: [schemeId:u16 LE][type:1][value]
  *     type 0x00 → f32 LE (4 byte)
  *     type 0x01 → u8 (0/1)
@@ -347,7 +379,8 @@ export function parseBinaryPayload(data: Buffer): ParsedPayload {
     if (!buf || buf.length < 4 || buf[0] !== LANTANA_BINARY_MAGIC) {
         return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "magic biner tidak dikenal" };
     }
-    if (buf[1] !== LANTANA_BINARY_VERSION) {
+    const version = buf[1];
+    if (version !== LANTANA_BINARY_VERSION && version !== LANTANA_BINARY_VERSION_SEQ) {
         return {
             ok: false,
             error: LantanaError.PAYLOAD_INVALID,
@@ -363,6 +396,17 @@ export function parseBinaryPayload(data: Buffer): ParsedPayload {
         }
         const deviceId = buf.subarray(off, off + deviceLen).toString("utf8");
         off += deviceLen;
+        let seq: number | undefined;
+        if (version === LANTANA_BINARY_VERSION_SEQ) {
+            if (off + 4 > buf.length) {
+                return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "seq terpotong" };
+            }
+            seq = buf.readUInt32LE(off);
+            off += 4;
+            if (seq === 0) {
+                return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "seq tidak valid: 0" };
+            }
+        }
         if (off >= buf.length) {
             return { ok: false, error: LantanaError.PAYLOAD_INVALID, message: "jumlah bacaan hilang" };
         }
@@ -411,7 +455,9 @@ export function parseBinaryPayload(data: Buffer): ParsedPayload {
             }
         }
 
-        return { ok: true, format: "binary", deviceId, readings };
+        return seq === undefined
+            ? { ok: true, format: "binary", deviceId, readings }
+            : { ok: true, format: "binary", deviceId, readings, seq };
     } catch (e: any) {
         return {
             ok: false,
@@ -432,13 +478,21 @@ export function parsePayload(data: any): ParsedPayload {
 export function encodeBinaryPayload(
     deviceId: string,
     readings: RawReading[],
+    seq?: number,
 ): Buffer {
     const devBuf = Buffer.from(deviceId, "utf8");
     if (devBuf.length === 0 || devBuf.length > 255) throw new Error("deviceId harus 1..255 byte");
     if (readings.length === 0 || readings.length > 255) throw new Error("jumlah bacaan harus 1..255");
 
-    const parts: Buffer[] = [Buffer.from([LANTANA_BINARY_MAGIC, LANTANA_BINARY_VERSION, devBuf.length])];
+    if (seq !== undefined) assertSeq(seq);
+    const version = seq === undefined ? LANTANA_BINARY_VERSION : LANTANA_BINARY_VERSION_SEQ;
+    const parts: Buffer[] = [Buffer.from([LANTANA_BINARY_MAGIC, version, devBuf.length])];
     parts.push(devBuf);
+    if (seq !== undefined) {
+        const seqBuf = Buffer.alloc(4);
+        seqBuf.writeUInt32LE(seq, 0);
+        parts.push(seqBuf);
+    }
     parts.push(Buffer.from([readings.length]));
 
     for (const r of readings) {
@@ -467,10 +521,18 @@ export function encodeBinaryPayload(
     return Buffer.concat(parts);
 }
 
-/** Encode payload teks V2. */
-export function encodePlainPayload(deviceId: string, readings: RawReading[]): string {
+function assertSeq(seq: number): void {
+    if (!Number.isInteger(seq) || seq < 1 || seq > MAX_PACKET_SEQ) {
+        throw new Error(`seq harus 1..${MAX_PACKET_SEQ}`);
+    }
+}
+
+/** Encode payload teks V2 (dengan `#<seq>` bila seq diberikan). */
+export function encodePlainPayload(deviceId: string, readings: RawReading[], seq?: number): string {
     const body = readings.map((r) => `${r.schemeId}:${String(r.value)}`).join(";");
-    return `${LANTANA_PLAIN_PREFIX}|${deviceId}|${body}`;
+    if (seq === undefined) return `${LANTANA_PLAIN_PREFIX}|${deviceId}|${body}`;
+    assertSeq(seq);
+    return `${LANTANA_PLAIN_PREFIX}|${deviceId}|#${seq}|${body}`;
 }
 
 // ─── Helper target daemon ─────────────────────────────────────────────────

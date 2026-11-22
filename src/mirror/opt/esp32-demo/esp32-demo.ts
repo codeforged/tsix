@@ -158,15 +158,18 @@ export default class Esp32Demo {
             { schemeId: 104, value: 60, min: 0, max: 100, step: 5 },
         ];
 
+        // Nomor urut paket per sesi; server menolak seq yang sudah diterima.
+        let seq = 0;
         while (true) {
             for (const r of readings) {
                 const delta = Math.floor(Math.random() * (r.step * 2 + 1)) - r.step;
                 r.value = Math.min(r.max, Math.max(r.min, r.value + delta));
             }
 
+            seq++;
             const payload = usePlain
-                ? encodePlainPayload(deviceId, readings)
-                : encodeBinaryPayload(deviceId, readings);
+                ? encodePlainPayload(deviceId, readings, seq)
+                : encodeBinaryPayload(deviceId, readings, seq);
 
             const encrypted = agent.securePacketOut(payload);
             const ok = await lib.net.sendto(

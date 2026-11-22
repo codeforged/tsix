@@ -49,7 +49,7 @@ import { IngestPipeline } from "./lantana-ingest";
 import { DeviceBank } from "./lantana-device-bank";
 import { LantanaDistributor } from "./lantana-distributor";
 import { DataBankQueue, MemoryDataBank } from "./lantana-databank";
-import { LantanaListener, ReplayWindow } from "./lantana-listener";
+import { LantanaListener, ReplayWindow, SeqWindow } from "./lantana-listener";
 import { ServerKeyPair } from "./lantana-keys";
 import { encodeBinaryPayload, encodePlainPayload } from "./lantana-core";
 import { packetReadingId } from "./lantana-ingest";
@@ -819,5 +819,120 @@ describe("sendCommand", () => {
         );
         expect(JSON.parse(lastSent())).toMatchObject({ type: "LANTANA_NACK", name: "UNAUTHENTICATED" });
         expect(ctx.dataBank.pending).toBe(0);
+    });
+});
+
+describe("SeqWindow", () => {
+    it("menerima seq naik, menolak duplikat", () => {
+        const w = new SeqWindow(64);
+        expect([1, 2, 3].map((s) => w.accept(s))).toEqual([true, true, true]);
+        expect(w.accept(2)).toBe(false);
+        expect(w.accept(3)).toBe(false);
+    });
+
+    it("menerima paket terlambat di dalam jendela sekali saja", () => {
+        const w = new SeqWindow(64);
+        w.accept(10);
+        expect(w.accept(5)).toBe(true);
+        expect(w.accept(5)).toBe(false);
+    });
+
+    it("menolak seq yang lebih tua dari jendela walaupun belum pernah dilihat", () => {
+        const w = new SeqWindow(64);
+        w.accept(1);
+        w.accept(100);
+        expect(w.accept(36)).toBe(false); // 100 - 64 = 36 → di luar jendela
+        expect(w.accept(37)).toBe(true);
+    });
+});
+
+describe("listener + seq", () => {
+    let ctx: ReturnType<typeof setup>;
+
+    async function authenticate(): Promise<SecurityAgent> {
+        await ctx.send(JSON.stringify({ type: "LANTANA_HELLO" }));
+        const challenge = JSON.parse(lastSent());
+        const client = new SecurityAgent();
+        const sessionKey = SecurityAgent.generateSessionKey();
+        await ctx.send(
+            JSON.stringify({
+                type: "LANTANA_KEYSET",
+                encryptedKey: SecurityAgent.encryptWithPublicKey(challenge.publicKey, sessionKey),
+            }),
+        );
+        client.setSessionKey(sessionKey);
+        await ctx.send(
+            JSON.stringify({
+                type: "LANTANA_AUTH",
+                payload: client.securePacketOut(
+                    JSON.stringify({
+                        accountId: "juragan",
+                        deviceId: ctx.device.deviceId,
+                        accessKey: ctx.accessKey,
+                        nonce: challenge.nonce,
+                    }),
+                ),
+            }),
+        );
+        sent.length = 0;
+        return client;
+    }
+
+    const sessionId = `${DEVICE_ADDR}:${DEVICE_PORT}`;
+
+    beforeEach(() => {
+        ctx = setup();
+    });
+
+    it("menolak replay paket ber-seq walaupun IV-nya sudah keluar dari jendela IV", async () => {
+        const client = await authenticate();
+        const old = client.securePacketOut(
+            encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 30 }], 1),
+        );
+        await ctx.send(old);
+        await ctx.send(
+            client.securePacketOut(encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 31 }], 2)),
+        );
+        expect(ctx.dataBank.pending).toBe(2);
+
+        // Simulasikan IV paket lama sudah tergusur dari ReplayWindow (> 4096 paket).
+        (ctx.listener as any).replay.delete(sessionId);
+
+        await ctx.send(old);
+        expect(ctx.dataBank.pending).toBe(2);
+        expect(sent).toHaveLength(0); // dibuang diam-diam, tanpa NACK
+    });
+
+    it("menerima frame biner 0x03 dan paket terlambat dalam jendela seq", async () => {
+        const client = await authenticate();
+        const raw = (seq: number, value: number) =>
+            client.securePacketOutRaw(
+                encodeBinaryPayload(ctx.device.deviceId, [{ schemeId: 101, value }], seq),
+            ) as Buffer;
+
+        await ctx.send(raw(3, 20));
+        await ctx.send(raw(1, 21)); // datang terlambat, masih di jendela
+        await ctx.send(raw(3, 22)); // seq duplikat (IV beda) → ditolak
+        expect(ctx.dataBank.pending).toBe(2);
+    });
+
+    it("device lama tanpa seq tetap diterima", async () => {
+        const client = await authenticate();
+        const payload = encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 30 }]);
+        await ctx.send(client.securePacketOut(payload));
+        await ctx.send(client.securePacketOut(payload));
+        expect(ctx.dataBank.pending).toBe(2);
+    });
+
+    it("seq dimulai ulang setelah handshake baru", async () => {
+        let client = await authenticate();
+        await ctx.send(
+            client.securePacketOut(encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 30 }], 5)),
+        );
+        client = await authenticate();
+        await ctx.send(
+            client.securePacketOut(encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 31 }], 1)),
+        );
+        expect(ctx.dataBank.pending).toBe(2);
     });
 });

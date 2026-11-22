@@ -118,7 +118,7 @@ LantanaAuth::LantanaAuth(TSIX &transport, const char *host, int port,
     : transport_(transport), host_(host), port_(port), accountId_(accountId),
       deviceId_(deviceId), accessKey_(accessKey), fingerprint_(fingerprint),
       state_(IDLE), stateStartedAt_(0), lastHelloAt_(0), onlineSince_(0),
-      lastLinkUp_(false), sendFailures_(0)
+      lastLinkUp_(false), sendFailures_(0), txSeq_(0)
 {
   memset(sessionKey_, 0, sizeof(sessionKey_));
   memset(clientNonceHex_, 0, sizeof(clientNonceHex_));
@@ -137,6 +137,14 @@ const char *LantanaAuth::mode() const
 bool LantanaAuth::isOnline() const
 {
   return state_ == ONLINE;
+}
+
+uint32_t LantanaAuth::nextSeq()
+{
+  // 2^32 paket per sesi tidak tercapai (sesi di-refresh berkala), tapi jangan
+  // pernah memakai 0: server menganggapnya tidak valid.
+  if (++txSeq_ == 0) txSeq_ = 1;
+  return txSeq_;
 }
 
 void LantanaAuth::begin()
@@ -250,6 +258,7 @@ bool LantanaAuth::onEncryptedMessage(const char *payload)
     state_ = ONLINE;
     onlineSince_ = millis();
     sendFailures_ = 0;
+    txSeq_ = 0; // sesi (dan key) baru → seq mulai lagi dari 1
     lastLinkUp_ = transport_.mqttConnected();
     Serial.println("[HS] ONLINE — mulai kirim data");
     return true;

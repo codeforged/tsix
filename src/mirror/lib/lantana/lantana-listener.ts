@@ -89,6 +89,35 @@ export class ReplayWindow {
     }
 }
 
+/** Lebar jendela seq: paket boleh datang terlambat/terbalik hingga 64 nomor. */
+export const SEQ_WINDOW = 64;
+
+/**
+ * Jendela geser nomor urut ala IPsec/DTLS. Berbeda dengan ReplayWindow (IV
+ * acak, berbatas jumlah), seq naik monoton sehingga SEMUA paket lama dalam
+ * sesi bisa ditolak: yang lebih tua dari jendela langsung dianggap replay.
+ */
+export class SeqWindow {
+    private max = 0;
+    private seen = new Set<number>();
+
+    constructor(private width: number = SEQ_WINDOW) {}
+
+    accept(seq: number): boolean {
+        if (seq > this.max) {
+            this.max = seq;
+            this.seen.add(seq);
+            const floor = this.max - this.width;
+            for (const s of this.seen) if (s <= floor) this.seen.delete(s);
+            return true;
+        }
+        if (seq <= this.max - this.width) return false; // terlalu tua
+        if (this.seen.has(seq)) return false; // duplikat
+        this.seen.add(seq);
+        return true;
+    }
+}
+
 export interface ListenerDeps {
     accounts: AccountManager;
     devices: DeviceRegistry;
@@ -106,8 +135,8 @@ export class LantanaListener {
     private warned: Set<string> = new Set();
     /** Waktu NACK terakhir per sesi (rate limit permintaan handshake ulang). */
     private nackSentAt: Map<string, number> = new Map();
-    /** State handshake PSK per sesi (ESP8266 / device tanpa RSA). */
     /**
+     * State handshake PSK per sesi (ESP8266 / device tanpa RSA).
      * `accountId` dicatat saat HELLO karena PSK dipilih dari akun itu; AUTH
      * wajib memakai akun yang sama supaya sesi tidak bisa diikat ke akun lain.
      */
@@ -124,6 +153,8 @@ export class LantanaListener {
     private routes: Map<string, { port: number; fd: number }> = new Map();
     /** IV yang sudah diterima per sesi; direset setiap handshake baru. */
     private replay: Map<string, ReplayWindow> = new Map();
+    /** Nomor urut paket per sesi (hanya untuk device yang mengirim seq). */
+    private seqWindows: Map<string, SeqWindow> = new Map();
     /** Sesi yang sudah dicatat mengirim duplikat (log sekali per sesi). */
     private replayWarned: Set<string> = new Set();
 
@@ -230,6 +261,7 @@ export class LantanaListener {
                 // Key sesi baru → ciphertext lama tidak bisa didekripsi lagi,
                 // jadi riwayat IV sesi sebelumnya tidak diperlukan.
                 this.replay.delete(sessionId);
+                this.seqWindows.delete(sessionId);
                 this.replayWarned.delete(sessionId);
 
                 const mode = msg.mode === "psk" ? "psk" : "rsa";
@@ -481,10 +513,7 @@ export class LantanaListener {
             this.replay.set(sessionId, window);
         }
         if (!window.accept(packetId)) {
-            if (!this.replayWarned.has(sessionId)) {
-                this.replayWarned.add(sessionId);
-                await std.log(`[${TAG}] paket duplikat/replay dari ${sessionId} dibuang`, TAG);
-            }
+            await this.warnReplay(sessionId);
             return;
         }
 
@@ -492,6 +521,20 @@ export class LantanaListener {
         if (!parsed.ok) {
             await this.sendNack(fd, port, endpoint, agent, parsed.error, parsed.message);
             return;
+        }
+
+        // Device baru mengirim seq; ini menutup replay paket yang sudah keluar
+        // dari jendela IV (lebih tua dari REPLAY_WINDOW paket).
+        if (parsed.seq !== undefined) {
+            let seqWindow = this.seqWindows.get(sessionId);
+            if (!seqWindow) {
+                seqWindow = new SeqWindow();
+                this.seqWindows.set(sessionId, seqWindow);
+            }
+            if (!seqWindow.accept(parsed.seq)) {
+                await this.warnReplay(sessionId);
+                return;
+            }
         }
 
         const result = this.deps.ingest.ingest({
@@ -555,6 +598,13 @@ export class LantanaListener {
             })),
         };
         await this.deps.distributor.broadcastBatch(batch);
+    }
+
+    /** Duplikat/replay dibuang diam-diam; log sekali per sesi. */
+    private async warnReplay(sessionId: string): Promise<void> {
+        if (this.replayWarned.has(sessionId)) return;
+        this.replayWarned.add(sessionId);
+        await std.log(`[${TAG}] paket duplikat/replay dari ${sessionId} dibuang`, TAG);
     }
 
     /** Payload bisa berupa frame biner V2 atau teks LANTANA|... */
@@ -690,6 +740,7 @@ export class LantanaListener {
             this.pskState.delete(id);
             this.routes.delete(id);
             this.replay.delete(id);
+            this.seqWindows.delete(id);
             this.replayWarned.delete(id);
             this.nackSentAt.delete(id);
             this.warned.delete(id);

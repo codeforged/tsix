@@ -254,30 +254,39 @@ menunggu interval sensor. Sesuaikan macro scheme bila ID tersebut sudah dipakai.
 ### Payload teks V2
 
 ```text
-LANTANA|<deviceId>|<schemeId>:<value>;<schemeId>:<value>;...
+LANTANA|<deviceId>|#<seq>|<schemeId>:<value>;<schemeId>:<value>;...
 ```
+
+`#<seq>` adalah nomor urut paket per sesi (1, 2, 3, …; maks. 2^32−1) dan
+direset setiap handshake baru. Segmen ini opsional demi firmware lama, tetapi
+disarankan: server menolak seq yang sudah pernah diterima dalam sesi yang sama
+(jendela geser 64 untuk paket yang datang terlambat). Tanpa seq, perlindungan
+replay hanya berupa riwayat 4096 IV terakhir per sesi. Paket duplikat dibuang
+diam-diam, tanpa NACK.
 
 Contoh:
 
 ```cpp
-char payload[128];
+char payload[144];
 snprintf(payload, sizeof(payload),
-         "LANTANA|%s|101:%.2f;102:%.2f",
-         TSIX_DEVICE_ID, suhu, kelembapan);
+         "LANTANA|%s|#%lu|101:%.2f;102:%.2f",
+         TSIX_DEVICE_ID, (unsigned long)auth.nextSeq(), suhu, kelembapan);
 tsix.sendEncrypted(LANTANA_HOST, LANTANA_PORT, payload);
 ```
 
 ### Frame biner V2
 
 ```text
-[0x4C][0x02][devLen:1][deviceId][count:1]
+[0x4C][0x02][devLen:1][deviceId][count:1]                  tanpa seq
+[0x4C][0x03][devLen:1][deviceId][seq:u32 LE][count:1]      dengan seq
 per bacaan: [schemeId:u16 LE][type:1][value]
   type 0x00 → float32 LE
   type 0x01 → bool (1 byte)
   type 0x02 → len:u8 + utf8
 ```
 
-Magic `0x4C`, versi frame `0x02`. Tidak ada fallback ke format V1.
+Magic `0x4C`, versi frame `0x02` atau `0x03` (sama, ditambah seq; aturannya
+seperti `#<seq>` di format teks). Tidak ada fallback ke format V1.
 
 > V1 (`sensorIdMap`, `LANTANA|<nodeId>|01:25;...` dengan ID sensor, dan
 > `deviceGroupMap` flat) sudah dihapus. Gunakan `deviceId` + `schemeId`.
