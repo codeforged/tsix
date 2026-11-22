@@ -19,7 +19,7 @@ import { IngestPipeline } from "@tsix/lantana/lantana-ingest";
 import { DeviceBank } from "@tsix/lantana/lantana-device-bank";
 import { LantanaDistributor } from "@tsix/lantana/lantana-distributor";
 import { LantanaListener } from "@tsix/lantana/lantana-listener";
-import { MemoryDataBank, DataBankQueue } from "@tsix/lantana/lantana-databank";
+import { MemoryDataBank, DataBankQueue, DrainReporter } from "@tsix/lantana/lantana-databank";
 import { loadState } from "@tsix/lantana/lantana-store";
 import { loadOrCreateServerKey } from "@tsix/lantana/lantana-keys";
 import { LANTANA_UUID } from "@tsix/lantana/lantana-core";
@@ -139,11 +139,11 @@ export const main = Program(async (args: string[]) => {
 
     // ── Loop: drain DataBank + siarkan status ──
     let lastStatusAt = 0;
+    const drainReporter = new DrainReporter();
     while (true) {
         const drained = await dataBank.drain();
-        if (!drained.ok) {
-            await std.log(`DataBank belum menerima data (${drained.error}); antrean ${dataBank.pending}.`, TAG);
-        }
+        const drainLog = drainReporter.report(drained, dataBank.pending);
+        if (drainLog) await std.log(drainLog, TAG);
 
         listener.forgetSessions(sessions.cleanup());
 

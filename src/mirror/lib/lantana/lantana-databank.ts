@@ -124,3 +124,42 @@ export class DataBankQueue implements DataBankSink {
         return { ok: true, stored: result.stored ?? batch.length };
     }
 }
+
+export const DRAIN_REPORT_INTERVAL_MS = 60_000;
+
+/**
+ * Ringkas hasil `drain()` berulang menjadi log yang tidak membanjiri: satu
+ * baris saat mulai gagal, ringkasan berkala selama masih gagal, dan satu baris
+ * saat pulih. Mengembalikan pesan yang perlu dicatat, atau null.
+ */
+export class DrainReporter {
+    private failingSince: number | null = null;
+    private lastReportAt = 0;
+    private failures = 0;
+
+    constructor(private intervalMs: number = DRAIN_REPORT_INTERVAL_MS) {}
+
+    report(result: DataBankResult, pending: number, now: number = Date.now()): string | null {
+        if (result.ok) {
+            if (this.failingSince === null) return null;
+            const downSec = Math.round((now - this.failingSince) / 1000);
+            const failures = this.failures;
+            this.failingSince = null;
+            this.failures = 0;
+            return `DataBank pulih setelah ${downSec} detik (${failures} percobaan gagal); antrean ${pending}.`;
+        }
+
+        this.failures++;
+        if (this.failingSince === null) {
+            this.failingSince = now;
+            this.lastReportAt = now;
+            return `DataBank belum menerima data (${result.error}); antrean ${pending}.`;
+        }
+        if (now - this.lastReportAt >= this.intervalMs) {
+            this.lastReportAt = now;
+            const downSec = Math.round((now - this.failingSince) / 1000);
+            return `DataBank masih gagal ${downSec} detik (${result.error}, ${this.failures} percobaan); antrean ${pending}.`;
+        }
+        return null;
+    }
+}
