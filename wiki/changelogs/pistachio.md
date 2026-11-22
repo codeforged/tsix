@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-11-22
+
+### Paket `pistachio-demos` dan menu launcher
+
+- **File:** `src/mirror/etc/tpkg/packages.json`,
+  `src/mirror/etc/asteracea/menu/pistachio-demo.menu`,
+  `src/mirror/etc/asteracea/menu/pistachio-dbcontrols-demo.menu`,
+  `src/mirror/sbin/transpile.ts`, `scripts/twrapper/iot-edition.json`.
+- **Paket:** `pistachio-demos` mengemas `pistachio-demo.ts`, `pistachio-dbdemo.ts`,
+  `pistachio-dbcontrols-demo.ts`, data contoh `pistachio-dbcontrols-demo.sql`,
+  dan menu launcher-nya. `onAfterDownload` menjalankan `/sbin/transpile.ts`
+  supaya sidecar `.js` siap dipakai setelah instalasi.
+- **Launcher:** "Pistachio Demo" dan "Pistachio DB Browser" masuk grup
+  "Pistachio Demo" di Asteracea.
+- **Transpile:** `/opt` ditambahkan ke aturan mode `/sbin/transpile.ts` (0o755)
+  agar sidecar aplikasi di `/opt` bisa dijalankan user biasa — selama ini hanya
+  `/bin`, `/sbin`, `/usr/bin`, dan `/usr/local/bin` yang di-chmod.
+- **Oleh:** Copilot
+
 ## 2026-11-19
 
 ### Rendering ulang widget IoT dan chart dashboard

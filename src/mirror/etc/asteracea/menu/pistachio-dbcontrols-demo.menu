@@ -1,0 +1,5 @@
+name=Pistachio DB Browser
+icon=🗄️
+command=/opt/test/pistachio-dbcontrols-demo.js
+pinned_launcher=false
+group=Pistachio Demo

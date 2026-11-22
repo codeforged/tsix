@@ -27,6 +27,7 @@ const EXEC_MODE_DIRS: Record<string, number> = {
     "/sbin": 0o744,
     "/usr/bin": 0o755,
     "/usr/local/bin": 0o755,
+    "/opt": 0o755,
 };
 
 function modeFor(path: string): number {

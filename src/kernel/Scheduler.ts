@@ -617,6 +617,47 @@ export class Scheduler {
     }
 
     /**
+     * terminateAllWorkers(): Minta SEMUA worker thread berhenti, dibatasi waktu.
+     *
+     * KENAPA PERLU (bug operasional nyata — hanya di Windows):
+     * `process.exit()` harus mem-join setiap worker thread. Worker yang macet di
+     * kode native tidak bisa di-join, sehingga `process.exit()` menggantung
+     * selamanya: checkpoint WAL sudah sukses tapi proses tidak pernah kembali ke
+     * `bootstrap.bat` dan prompt host tidak balik. Di Linux join-nya tetap selesai,
+     * jadi gejalanya tidak terasa. Karena itu seluruh worker diminta berhenti
+     * LEBIH DULU (bounded), baru `process.exit()` dipanggil.
+     *
+     * `Promise.race` dengan timeout: `terminate()` pada worker yang macet TIDAK
+     * pernah selesai, jadi kita tidak boleh menunggunya tanpa batas. Satu worker
+     * yang gagal berhenti tidak menghalangi proses lain (semua di-`catch`).
+     */
+    public async terminateAllWorkers(timeoutMs: number = 1200): Promise<number> {
+        const workers: any[] = [];
+        for (const pcb of this.processes) {
+            if (pcb.worker) workers.push(pcb.worker);
+        }
+        if (workers.length === 0) return 0;
+
+        const jobs = workers.map((w) => {
+            try {
+                return Promise.resolve(w.terminate()).catch(() => { });
+            } catch (_) {
+                return Promise.resolve();
+            }
+        });
+
+        const all = Promise.all(jobs).then(() => workers.length);
+        const timeout = new Promise<number>((resolve) => {
+            const t: any = setTimeout(() => resolve(-1), timeoutMs);
+            if (typeof t?.unref === "function") t.unref();
+        });
+
+        const result = await Promise.race([all, timeout]);
+        // `-1` = batas waktu terlampaui (join kemungkinan besar akan menggantung).
+        return result;
+    }
+
+    /**
      * reap(): Membersihkan PCB dari memory setelah proses EXITED.
      * Dipanggil setelah waitpid() selesai atau jika proses tidak punya waiter.
      */

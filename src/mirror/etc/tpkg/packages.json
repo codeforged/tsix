@@ -1097,6 +1097,40 @@
             ]
         },
         {
+            "name": "pistachio-demos",
+            "version": "1.0.0",
+            "description": "Contoh aplikasi demo/test Pistachio: demo kontrol, demo DB, DB browser, data contoh, dan menu launcher.",
+            "author": "TSIX",
+            "needReboot": false,
+            "onAfterDownload": "/sbin/transpile.ts",
+            "items": [
+                {
+                    "src": "/opt/test/pistachio-demo.ts",
+                    "dst": "/opt/test/pistachio-demo.ts"
+                },
+                {
+                    "src": "/opt/test/pistachio-dbdemo.ts",
+                    "dst": "/opt/test/pistachio-dbdemo.ts"
+                },
+                {
+                    "src": "/opt/test/pistachio-dbcontrols-demo.ts",
+                    "dst": "/opt/test/pistachio-dbcontrols-demo.ts"
+                },
+                {
+                    "src": "/opt/test/pistachio-dbcontrols-demo.sql",
+                    "dst": "/opt/test/pistachio-dbcontrols-demo.sql"
+                },
+                {
+                    "src": "/etc/asteracea/menu/pistachio-demo.menu",
+                    "dst": "/etc/asteracea/menu/pistachio-demo.menu"
+                },
+                {
+                    "src": "/etc/asteracea/menu/pistachio-dbcontrols-demo.menu",
+                    "dst": "/etc/asteracea/menu/pistachio-dbcontrols-demo.menu"
+                }
+            ]
+        },
+        {
             "name": "lantana",
             "version": "1.0.0",
             "description": "Lantana IoT stack: core, device bank, ingest, dashboard server, control panel dan konfigurasi /etc/lantana.",
@@ -2146,22 +2180,6 @@
                 {
                     "src": "/opt/test/mqtnl-binary-demo.ts",
                     "dst": "/opt/test/mqtnl-binary-demo.ts"
-                },
-                {
-                    "src": "/opt/test/pistachio-dbcontrols-demo.sql",
-                    "dst": "/opt/test/pistachio-dbcontrols-demo.sql"
-                },
-                {
-                    "src": "/opt/test/pistachio-dbcontrols-demo.ts",
-                    "dst": "/opt/test/pistachio-dbcontrols-demo.ts"
-                },
-                {
-                    "src": "/opt/test/pistachio-dbdemo.ts",
-                    "dst": "/opt/test/pistachio-dbdemo.ts"
-                },
-                {
-                    "src": "/opt/test/pistachio-demo.ts",
-                    "dst": "/opt/test/pistachio-demo.ts"
                 },
                 {
                     "src": "/opt/test/pli-app.ts",

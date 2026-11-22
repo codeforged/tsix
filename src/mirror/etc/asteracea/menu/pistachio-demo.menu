@@ -1,0 +1,5 @@
+name=Pistachio Demo
+icon=🌰
+command=/opt/test/pistachio-demo.js
+pinned_launcher=false
+group=Pistachio Demo
