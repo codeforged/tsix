@@ -43,7 +43,7 @@ import { TButton, TForm, THStack, TLabel, TSpacer } from "@tsix/pistachio";
 // Dipakai Eucalyptus/File Cruiser untuk mengenali aplikasi GUI.
 export const appMode = "gui";
 
-export const main = Program(async () => {
+export const main = Program(async (args: string[]) => {
   const form = new TForm({ title: "Counter", width: 360, height: 160 });
 
   let count = 0;
@@ -63,6 +63,11 @@ export const main = Program(async () => {
 Semua import dari satu barrel: `@tsix/pistachio`. Contoh lengkap yang bisa
 dijalankan ada di `/opt/test/pistachio-demo.ts` (menu Asteracea
 **Pistachio Demo**, paket `pistachio-demos`).
+
+**Tentang contoh kode:** Quick Start dan contoh program lengkap pada bagian
+migrasi menyertakan `Program` dan entrypoint `main`. Blok kode lain di panduan
+ini sengaja berupa snippet: import, deklarasi variabel, atau konteks program
+yang tidak relevan dengan topik bisa dihilangkan.
 
 ---
 
@@ -433,8 +438,18 @@ onReading((v) => {
 ## 💬 Dialog
 
 Pemilik dialog bisa `TForm` (setelah `run()`) atau `Screen`.
+`TDialogs`, `TOpenDialog`, dan `TSaveDialog` semuanya diekspor oleh barrel
+`@tsix/pistachio`; `TDialogs` adalah helper statis, sedangkan dialog file
+adalah komponen non-visual.
 
 ```ts
+import {
+  TDialogs,
+  TForm,
+  TOpenDialog,
+  TSaveDialog,
+} from "@tsix/pistachio";
+
 await TDialogs.alert(form, "Info", "Tersimpan.");
 
 const answer = await TDialogs.confirm(form, "Hapus?", "Tidak bisa dibatalkan.", ["Ya", "Batal"]);
@@ -464,9 +479,12 @@ tidak dipasang tetap bisa dipakai dengan owner eksplisit: `dlg.execute(form)`.
 
 `TKeyboard` adalah komponen non-visual. Shortcut hanya aktif saat window
 **sedang fokus**, karena DOME merutekan event keyboard hanya ke window aktif.
-Beberapa `TKeyboard` bisa hidup berdampingan di satu form.
+Beberapa `TKeyboard` bisa hidup berdampingan di satu form. Komponen ini juga
+diimpor dari barrel `@tsix/pistachio`.
 
 ```ts
+import { TKeyboard } from "@tsix/pistachio";
+
 const keys = new TKeyboard({
   shortcuts: {
     "Ctrl+S": () => save(),
@@ -722,41 +740,49 @@ komponen keduanya dalam satu form.
 **Cashew:**
 
 ```ts
+import { Program } from "@tsix/Application";
 import { HStack, Spacer, TButton, TForm, TLabel, TTimer } from "@tsix/cashew";
 
-const form = new TForm("Suhu", 360, 140);
-const lbl = new TLabel("lbl-suhu");
-lbl.caption = "—";
-const btn = new TButton("btn-reset", { marginLeft: "8px" });
-btn.caption = "Reset";
-btn.onClick = () => { lbl.caption = "—"; };
+export const main = Program(async (args: string[]) => {
+  const form = new TForm("Suhu", 360, 140);
+  const lbl = new TLabel("lbl-suhu");
+  lbl.caption = "—";
+  const btn = new TButton("btn-reset", { marginLeft: "8px" });
+  btn.caption = "Reset";
+  btn.onClick = () => { lbl.caption = "—"; };
 
-const timer = new TTimer("tmr", 2000, true);
-timer.onTimer = async () => { lbl.caption = `${await readSuhu()} °C`; };
+  const timer = new TTimer("tmr", 2000, true);
+  timer.onTimer = async () => { lbl.caption = `${await readSuhu()} °C`; };
 
-form.add(HStack(lbl, Spacer(), btn));
-form.add(timer);
-await form.run();
+  form.add(HStack(lbl, Spacer(), btn));
+  form.add(timer);
+  await form.run();
+});
 ```
 
 **Pistachio:**
 
 ```ts
+import { Program } from "@tsix/Application";
 import { TButton, TForm, THStack, TLabel, TSpacer, TTimer } from "@tsix/pistachio";
 
-const form = new TForm({ title: "Suhu", width: 360, height: 140 });
-const lbl = new TLabel({ id: "lbl-suhu", text: "—" });
-const btn = new TButton({ id: "btn-reset", caption: "Reset", style: { marginLeft: "8px" } });
-btn.onClick = () => { lbl.text = "—"; };
+export const main = Program(async (args: string[]) => {
+  const form = new TForm({ title: "Suhu", width: 360, height: 140 });
+  const lbl = new TLabel({ id: "lbl-suhu", text: "—" });
+  const btn = new TButton({ id: "btn-reset", caption: "Reset", style: { marginLeft: "8px" } });
+  btn.onClick = () => { lbl.text = "—"; };
 
-form.add(new THStack({ children: [lbl, new TSpacer(), btn] }));
+  form.add(new THStack({ children: [lbl, new TSpacer(), btn] }));
 
-const timer = new TTimer({ id: "tmr-suhu", interval: 2000, enabled: true });
-timer.onTimer = () => {
-  void readSuhu().then((value) => { lbl.text = `${value} °C`; });
-};
-form.add(timer);
-await form.run();
+  let counter = 0;
+  const timer = new TTimer({ id: "tmr-suhu", interval: 1000, enabled: true });
+  timer.onTimer = () => {
+    lbl.text = String(counter);
+    counter++;
+  };
+  form.add(timer);
+  await form.run();
+});
 ```
 
 ### Database: sebelum → sesudah
