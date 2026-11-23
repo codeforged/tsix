@@ -161,18 +161,6 @@ function canEditField(
     : dataSource.state === "dsEdit" && capabilities.canUpdate;
 }
 
-function reportAsyncError(
-  owner: string,
-  onError: ((error: unknown) => void) | null,
-  error: unknown,
-): void {
-  if (onError) {
-    onError(error);
-    return;
-  }
-  console.error(`[Pistachio] ${owner} failed:`, error);
-}
-
 /** Read-only text view backed by a basic TLabel. */
 export interface TDBTextOptions
   extends TLabelOptions,
@@ -434,9 +422,7 @@ export class TDBListBox extends TListBox {
   }
 
   private scheduleRefresh(): void {
-    void this.refresh().catch((error) =>
-      reportAsyncError("TDBListBox refresh", this.onError, error),
-    );
+    this.background(this.refresh(), "refresh");
   }
 }
 
@@ -550,7 +536,7 @@ export class TDBGrid extends TTabulatorGrid {
   }
   override set columns(value: DataGridColumn[]) {
     if (this._automaticColumns) throw unsupportedAutoColumns(this.id);
-    void super.setColumns(value);
+    this.background(super.setColumns(value), "setColumns");
   }
 
   override async setColumns(columns: DataGridColumn[]): Promise<void> {
@@ -565,7 +551,7 @@ export class TDBGrid extends TTabulatorGrid {
         event,
         false,
         (error) =>
-          reportAsyncError("TDBGrid keyboard navigation", this.onError, error),
+          this.reportError("keyboard navigation", error),
       ) || super.handleKeyEvent(event)
     );
   }
@@ -602,15 +588,11 @@ export class TDBGrid extends TTabulatorGrid {
   }
 
   private scheduleRefresh(): void {
-    void this.refresh().catch((error) =>
-      reportAsyncError("TDBGrid refresh", this.onError, error),
-    );
+    this.background(this.refresh(), "refresh");
   }
 
   private scheduleSelection(): void {
-    void this.syncSelection().catch((error) =>
-      reportAsyncError("TDBGrid selection", this.onError, error),
-    );
+    this.background(this.syncSelection(), "selection");
   }
 
   private async syncSelection(): Promise<void> {
@@ -796,7 +778,7 @@ export class TDBNavigator extends THStack {
             this._status.text = `Apply failed: ${result.failed}`;
             for (const row of result.results) {
               if (!row.success) {
-                reportAsyncError("TDBNavigator apply", this.onError, row.error);
+                this.reportError("apply", row.error);
               }
             }
 
@@ -807,7 +789,7 @@ export class TDBNavigator extends THStack {
         .catch((error) => {
           const message = error instanceof Error ? error.message : String(error);
           this._status.text = `Apply error: ${message}`;
-          reportAsyncError("TDBNavigator apply", this.onError, error);
+          this.reportError("apply", error);
         });
     };
     this._unsubscribe = this._dataSource.subscribe(() => this.updateState());
@@ -825,11 +807,7 @@ export class TDBNavigator extends THStack {
         event,
         true,
         (error) =>
-          reportAsyncError(
-            "TDBNavigator keyboard navigation",
-            this.onError,
-            error,
-          ),
+          this.reportError("keyboard navigation", error),
       ) || super.handleKeyEvent(event)
     );
   }
@@ -978,13 +956,13 @@ export class TDBPager extends THStack {
       this.add(control);
     }
 
-    this.firstButton.onClick = () => void this.goToPage(0);
+    this.firstButton.onClick = () => this.background(this.goToPage(0), "goToPage");
     this.priorButton.onClick = () =>
-      void this.goToPage(Math.max(0, this._query.pageIndex - 1));
+      this.background(this.goToPage(Math.max(0, this._query.pageIndex - 1)), "goToPage");
     this.nextButton.onClick = () =>
-      void this.goToPage(this._query.pageIndex + 1);
+      this.background(this.goToPage(this._query.pageIndex + 1), "goToPage");
     this.lastButton.onClick = () =>
-      void this.goToPage(Math.max(0, this.pageCount - 1));
+      this.background(this.goToPage(Math.max(0, this.pageCount - 1)), "goToPage");
     this.pageEdit.onCommit = (value) => this.commitPageInput(value);
 
     this._unsubscribe = this._dataSource.subscribe((event) => {
@@ -999,11 +977,11 @@ export class TDBPager extends THStack {
         this._message = null;
       }
       this.updateState();
-      if (appliedChanges) void this.loadPage(this._query.pageIndex);
+      if (appliedChanges) this.background(this.loadPage(this._query.pageIndex), "loadPage");
     });
     this.updateState();
     // A pager attached to an already-open dataset still needs its first page.
-    if (this._dataSource.isOpen) void this.loadPage(this._query.pageIndex);
+    if (this._dataSource.isOpen) this.background(this.loadPage(this._query.pageIndex), "loadPage");
   }
 
   get dataSource(): TDataSource {
@@ -1108,7 +1086,7 @@ export class TDBPager extends THStack {
       this._query.setPageIndex(previousPage);
       const message = error instanceof Error ? error.message : String(error);
       this._message = `Gagal memuat halaman: ${message}`;
-      reportAsyncError("TDBPager refresh", this.onError, error);
+      this.reportError("refresh", error);
     } finally {
       this._loading = false;
       this.updateState();
@@ -1137,7 +1115,7 @@ export class TDBPager extends THStack {
     void this.goToPage(requested - 1)
       .then(() => this.updateState())
       .catch((error) => {
-        reportAsyncError("TDBPager page input", this.onError, error);
+        this.reportError("page input", error);
         this.updateState();
       });
   }

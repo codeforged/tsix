@@ -166,6 +166,6 @@ export class TGroupBox extends TPanel {
   }
   set caption(value: string) {
     this._caption.props.text = value;
-    if (this.host) void this.host.update(this._caption.id, { text: value });
+    if (this.host) this.background(this.host.update(this._caption.id, { text: value }), "update");
   }
 }

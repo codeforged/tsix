@@ -113,14 +113,14 @@ abstract class TGridBase<TG extends TEmbeddedGrid> extends TComponent {
     return this._columns;
   }
   set columns(value: DataGridColumn[]) {
-    void this.setColumns(value);
+    this.background(this.setColumns(value), "setColumns");
   }
 
   get data(): readonly Record<string, any>[] {
     return this._data;
   }
   set data(value: Record<string, any>[]) {
-    void this.setData(value);
+    this.background(this.setData(value), "setData");
   }
 
   get sort(): { key: string; dir: "asc" | "desc" } | null {
@@ -203,12 +203,12 @@ export class TDataGrid extends TGridBase<ConnectedDataGrid> {
   }
 
   protected mountGrid(host: TScreenPort): void {
-    void this._grid.mount(
+    this.background(this._grid.mount(
       host as unknown as Screen,
       (key, dir) => this.onSort?.(key, dir),
       (index, record) => this.onRowClick?.(index, record),
       (index, record, x, y) => this.onRowContextMenu?.(index, record, x, y),
-    );
+    ), "grid mount");
   }
 }
 
@@ -250,14 +250,14 @@ export class TTabulatorGrid extends TGridBase<ConnectedTabulator> {
   }
 
   protected mountGrid(host: TScreenPort): void {
-    void this._grid.mount(
+    this.background(this._grid.mount(
       host as unknown as Screen,
       (key, dir) => this.onSort?.(key, dir),
       (index, record) => this.onRowClick?.(index, record),
       (index, record, x, y) => this.onRowContextMenu?.(index, record, x, y),
       (index, record) => this.onSelectionChange?.(index, record),
       (index, record) => this.onRowDoubleClick?.(index, record),
-    );
+    ), "grid mount");
   }
 }
 
@@ -429,9 +429,9 @@ export class TProgressBar extends TComponent {
   set value(value: number) {
     this._value = clampPercent(value);
     if (this.host) {
-      void this.host.update(`${this.id}_fill`, {
+      this.background(this.host.update(`${this.id}_fill`, {
         style: { width: `${this._value}%` },
-      });
+      }), "update");
     }
   }
 
@@ -507,7 +507,7 @@ export class TIndicatorLamp extends TCardWidget {
   set on(value: boolean) {
     if (value === this._on) return;
     this._on = value;
-    void this.rerender();
+    this.background(this.rerender(), "render");
   }
 
   protected buildView(): TNode {
@@ -565,7 +565,7 @@ export class TToggleSwitch extends TCardWidget {
   set on(value: boolean) {
     if (value === this._on) return;
     this._on = value;
-    void this.rerender();
+    this.background(this.rerender(), "render");
   }
 
   protected buildView(): TNode {
@@ -589,7 +589,7 @@ export class TToggleSwitch extends TCardWidget {
       }
       this._on = requestedState;
       this.onClick?.(requestedState);
-      void this.rerender();
+      this.background(this.rerender(), "render");
     });
   }
 }
@@ -633,7 +633,7 @@ export class TRelayCard extends TCardWidget {
   set active(value: boolean) {
     if (value === this._active) return;
     this._active = value;
-    void this.rerender();
+    this.background(this.rerender(), "render");
   }
 
   protected buildView(): TNode {
@@ -654,7 +654,7 @@ export class TRelayCard extends TCardWidget {
     host.on(`rc-${this.id}`, "click", () => {
       this._active = !this._active;
       this.onToggle?.(this._active);
-      void this.rerender();
+      this.background(this.rerender(), "render");
     });
   }
 }
@@ -709,7 +709,7 @@ export class TSensorCard extends TCardWidget {
   set value(value: number) {
     if (value === this._value) return;
     this._value = value;
-    void this.rerender();
+    this.background(this.rerender(), "render");
   }
 
   protected buildView(): TNode {
@@ -782,7 +782,7 @@ export class TLineChart extends TViewWidget {
     return this._data;
   }
   set data(value: number[]) {
-    void this.setData(value);
+    this.background(this.setData(value), "setData");
   }
 
   async setData(values: number[]): Promise<void> {
@@ -860,7 +860,7 @@ export class TRadialGauge extends TCardWidget {
   set value(value: number) {
     if (value === this._value) return;
     this._value = value;
-    void this.rerender();
+    this.background(this.rerender(), "render");
   }
 
   protected buildView(): TNode {
@@ -923,7 +923,7 @@ export class TSevenSegment extends TViewWidget {
   set value(value: number) {
     if (value === this._value) return;
     this._value = value;
-    void this.rerender();
+    this.background(this.rerender(), "render");
   }
 
   protected buildView(): TNode {
@@ -986,7 +986,7 @@ export class TVerticalGauge extends TViewWidget {
     const next = clampPercent(value);
     if (next === this._value) return;
     this._value = next;
-    void this.rerender();
+    this.background(this.rerender(), "render");
   }
 
   protected buildView(): TNode {
@@ -1047,7 +1047,7 @@ export class TStatusBar extends TComponent {
   }
   set leftText(value: string) {
     this._left = value;
-    if (this.host) void this.host.update(`${this.id}_left`, { text: value });
+    if (this.host) this.background(this.host.update(`${this.id}_left`, { text: value }), "update");
   }
 
   get rightText(): string {
@@ -1055,7 +1055,7 @@ export class TStatusBar extends TComponent {
   }
   set rightText(value: string) {
     this._right = value;
-    if (this.host) void this.host.update(`${this.id}_right`, { text: value });
+    if (this.host) this.background(this.host.update(`${this.id}_right`, { text: value }), "update");
   }
 
   build(): TNode {
@@ -1133,7 +1133,7 @@ export class TSlider extends TViewWidget {
     const next = this.clamp(value);
     if (next === this._value) return;
     this._value = next;
-    void this.rerender();
+    this.background(this.rerender(), "render");
   }
 
   bindEventHandler(host: TScreenPort): void {
@@ -1143,7 +1143,7 @@ export class TSlider extends TViewWidget {
       if (Number.isNaN(parsed)) return;
 
       this._value = this.clamp(parsed);
-      void host.update(`sl-val-${this.id}`, { text: this.displayValue() });
+      this.background(host.update(`sl-val-${this.id}`, { text: this.displayValue() }), "update");
       this.onInput?.(this._value);
     });
   }
@@ -1269,7 +1269,7 @@ export class TImage extends TComponent {
 
     if (this._file && !this._fileLoaded) {
       this._fileLoaded = true;
-      void this.loadFile(this._file).catch(() => {});
+      this.background(this.loadFile(this._file), "loadFile");
     }
   }
 

@@ -15,7 +15,7 @@
  * — hapus entrinya dari daftar. Jangan menambah entri baru tanpa ID paket kerja.
  */
 
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as P from "@tsix/pistachio";
 import {
   defineProps,
@@ -206,6 +206,43 @@ function createPort() {
   };
 }
 
+/**
+ * Host yang semua operasi render-nya gagal (mis. window sudah ditutup).
+ * Sengaja tanpa `vi.fn`: mock vitest memasang `.then` pada promise hasil
+ * (untuk `settledResults`) sehingga rejection tidak pernah "unhandled".
+ */
+function createFailingPort() {
+  const port = {
+    calls: 0,
+    mount: async () => fail(),
+    update: async () => fail(),
+    on: () => {},
+    off: () => {},
+    unmount: async () => fail(),
+    setContent: async () => fail(),
+  };
+  function fail(): never {
+    port.calls++;
+    throw new Error("host gone");
+  }
+  return port;
+}
+
+// P2-4: rejection yang lolos dari komponen dicatat per tes.
+const unhandled: unknown[] = [];
+const onUnhandled = (reason: unknown) => unhandled.push(reason);
+beforeEach(() => {
+  unhandled.length = 0;
+  process.on("unhandledRejection", onUnhandled);
+});
+afterEach(() => {
+  process.off("unhandledRejection", onUnhandled);
+  vi.restoreAllMocks();
+});
+
+/** Beri kesempatan event loop melaporkan unhandled rejection. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+
 /** Tiru `TForm.run()`: bind seluruh subtree lalu refresh. */
 async function mount(component: TComponent, port: TScreenPort): Promise<void> {
   const walk = (c: TComponent, fn: (c: TComponent) => void) => {
@@ -383,6 +420,32 @@ for (const [name, C] of components) {
       }
     }
 
+    // (e2) P2-4: host yang gagal tidak menghasilkan unhandled rejection.
+    if (!NON_VISUAL.has(name)) {
+      contract(name, "host gagal: tanpa unhandled rejection", async () => {
+        const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+        const c = construct(name, C);
+        const port = createFailingPort();
+        try {
+          await mount(c, port);
+        } catch {
+          // refresh() yang ditunggu boleh menolak; yang diuji adalah jalur fire-and-forget.
+        }
+        for (const prop of publicSetters(C)) {
+          if (/^on[A-Z]/.test(prop)) continue;
+          try {
+            (c as any)[prop] = nextValue(name, prop, (c as any)[prop]);
+          } catch (error) {
+            if (!(error instanceof EComponentError && error.code === "UNSUPPORTED")) throw error;
+          }
+        }
+        c.dispose();
+        await settle();
+        expect(unhandled, `${name}: rejection lolos dari fire-and-forget`).toEqual([]);
+        if (port.calls > 0) expect(errorLog).toHaveBeenCalled();
+      });
+    }
+
     // (f) nama event K1 — dikumpulkan dari instance saat koleksi tes.
     let declared: string[] = [];
     try {
@@ -431,5 +494,38 @@ describe("kontrak: defineProps (K5)", () => {
     defineProps<TProbeOptions>()(["alpha", "beta", "delta"]);
     // @ts-expect-error — subclass hanya mendaftarkan props tambahannya.
     defineProps<TProbeChildOptions, TProbeOptions>()(["alpha", "gamma"]);
+  });
+});
+
+describe("kontrak: pelaporan error async (P2-4)", () => {
+  it("diteruskan ke onError bila komponen punya", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const grid = new P.TDBGrid({ dataSource: stack.dataSource });
+    const seen: unknown[] = [];
+    grid.onError = (error) => seen.push(error);
+    (grid as any).background(Promise.reject(new Error("boom")), "test");
+    await settle();
+    expect(seen).toEqual([expect.objectContaining({ message: "boom" })]);
+    expect(errorLog).not.toHaveBeenCalled();
+    grid.dispose();
+  });
+
+  it("dilog ke console.error bila tidak ada onError, termasuk bila onError melempar", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const label = new P.TLabel("lbl-err");
+    (label as any).background(Promise.reject(new Error("boom")), "update");
+    await settle();
+    expect(errorLog).toHaveBeenCalledWith('[Pistachio] TLabel "lbl-err" update failed:', expect.any(Error));
+
+    errorLog.mockClear();
+    const grid = new P.TDBGrid({ dataSource: stack.dataSource });
+    grid.onError = () => {
+      throw new Error("handler");
+    };
+    (grid as any).background(Promise.reject(new Error("boom")), "refresh");
+    await settle();
+    expect(errorLog).toHaveBeenCalledTimes(2);
+    expect(unhandled).toEqual([]);
+    grid.dispose();
   });
 });

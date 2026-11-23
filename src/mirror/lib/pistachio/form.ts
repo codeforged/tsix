@@ -169,9 +169,9 @@ export class TForm extends TComponent {
     const screen = this._screen;
     if (!screen) return;
 
-    if (child.isVisual) void screen.mount(child.build(), parent.id);
+    if (child.isVisual) this.background(screen.mount(child.build(), parent.id), "mount");
     this.bindTree(child, screen);
-    void this.refreshTree(child);
+    this.background(this.refreshTree(child), "refresh");
   }
 
   private bindTree(component: TComponent, host: TScreenPort): void {

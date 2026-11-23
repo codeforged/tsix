@@ -245,7 +245,7 @@ export class TComponent {
   set style(v: TStyle) {
     this._style = v || {};
     if (this._host) {
-      void this._host.update(this.id, { style: { ...this._style } });
+      this.background(this._host.update(this.id, { style: { ...this._style } }), "style update");
     }
   }
 
@@ -429,7 +429,35 @@ export class TComponent {
 
   /** Kirim perubahan props ke UI bila komponen sudah ter-mount. */
   protected push(props: Record<string, any>): void {
-    if (this._host) void this._host.update(this.id, props);
+    if (this._host) this.background(this._host.update(this.id, props), "update");
+  }
+
+  /**
+   * Fire-and-forget terpusat: tugas async yang tidak ditunggu pemanggil
+   * (setter, event UI) tidak boleh menjadi unhandled rejection. Kegagalannya
+   * diteruskan ke `reportError()`.
+   */
+  protected background(task: unknown, context: string): void {
+    if (task && typeof (task as PromiseLike<unknown>).then === "function") {
+      (task as PromiseLike<unknown>).then(undefined, (error) => this.reportError(context, error));
+    }
+  }
+
+  /**
+   * Laporkan kegagalan async: ke `onError` milik komponen bila ada (K1),
+   * selain itu ke `console.error`. Handler yang ikut melempar juga dilog.
+   */
+  protected reportError(context: string, error: unknown): void {
+    const onError = (this as { onError?: unknown }).onError;
+    if (typeof onError === "function") {
+      try {
+        onError.call(this, error);
+        return;
+      } catch (handlerError) {
+        console.error(`[Pistachio] ${this.constructor.name} "${this.id}" onError failed:`, handlerError);
+      }
+    }
+    console.error(`[Pistachio] ${this.constructor.name} "${this.id}" ${context} failed:`, error);
   }
 
   /** Daftarkan host UI. Subclass yang menangani event wajib memanggil super. */
@@ -454,7 +482,7 @@ export class TComponent {
 
     host.off?.(this.id);
     if (this.isVisual && !this._skipUnmountOnDispose) {
-      void host.unmount?.(this.id);
+      this.background(host.unmount?.(this.id), "unmount");
     }
     this._host = null;
   }

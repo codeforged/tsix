@@ -380,7 +380,7 @@ export class TCheckBox extends TComponent {
   }
 
   private pushChild(id: string, props: Record<string, any>): void {
-    if (this.host) void this.host.update(id, props);
+    if (this.host) this.background(this.host.update(id, props), "update");
   }
 }
 
@@ -496,7 +496,7 @@ export class TComboBox extends TComponent {
   }
   /** Sama persis dengan `setItems()`; pakai `setItems()` bila perlu menunggu render. */
   set items(value: string[]) {
-    void this.setItems(value);
+    this.background(this.setItems(value), "setItems");
   }
 
   get selectedIndex(): number {
@@ -591,7 +591,7 @@ export class TListBox extends TComponent {
   }
   /** Sama persis dengan `setItems()`; pakai `setItems()` bila perlu menunggu render. */
   set items(value: string[]) {
-    void this.setItems(value);
+    this.background(this.setItems(value), "setItems");
   }
 
   get selectedIndex(): number {
@@ -658,9 +658,9 @@ export class TListBox extends TComponent {
     const host = this.host;
     if (!host) return;
     this._items.forEach((_, index) => {
-      void host.update(`${this.id}_item_${index}`, {
+      this.background(host.update(`${this.id}_item_${index}`, {
         style: this.rowStyle(index),
-      });
+      }), "update");
     });
   }
 

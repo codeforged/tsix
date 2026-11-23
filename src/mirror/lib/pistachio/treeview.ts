@@ -342,9 +342,9 @@ export class TTreeView extends TComponent {
     const host = this.host;
     if (!host) return;
     for (const row of this.flatten()) {
-      void host.update(this.rowIdOf(row.node), {
+      this.background(host.update(this.rowIdOf(row.node), {
         style: this.rowStyle(row, row.node.id === this._selectedId),
-      });
+      }), "update");
     }
   }
 
@@ -364,7 +364,7 @@ export class TTreeView extends TComponent {
       );
       if (row.node.children?.length) {
         host.on(this.toggleIdOf(row.node), "click", () =>
-          void this.toggle(row.node.id),
+          this.background(this.toggle(row.node.id), "toggle"),
         );
       }
     }
@@ -381,7 +381,7 @@ export class TTreeView extends TComponent {
     // panel langsung menampilkan form walaupun DOM sedang di-update.
     this.onSelect?.(node);
 
-    if (openNow) void this.rerender();
+    if (openNow) this.background(this.rerender(), "render");
     else this.applySelection();
   }
 
