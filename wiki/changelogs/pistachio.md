@@ -6,6 +6,14 @@
 
 ## 2026-11-23
 
+### GUI tester untuk driver CSV
+
+- **File:** `pistachio-csv-demo.ts`, menu Asteracea, manifest `pistachio-demos`,
+  nutshell.
+- Demo dapat membuat file CSV contoh, menjalankan query `SELECT` ke grid, dan
+  memverifikasi bahwa perintah `DELETE` ditolak sebagai read-only.
+- **Oleh:** Copilot
+
 ### Improve plan P1-6 — `onError` seragam + bagian Konvensi
 
 - **File:** `pistachio/core.ts`, `dbcontrols.ts`, `widgets.ts`,

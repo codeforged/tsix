@@ -150,6 +150,26 @@ export class TForm extends TComponent {
     await this._screen?.maximize();
   }
 
+  /** Sembunyikan window (iconify). */
+  async minimize(): Promise<void> {
+    await this._screen?.minimize();
+  }
+
+  /** Kembalikan window dari keadaan minimize. */
+  async restore(): Promise<void> {
+    await this._screen?.restore();
+  }
+
+  /** Kembalikan window dari keadaan maximized ke ukuran sebelumnya. */
+  async unMaximize(): Promise<void> {
+    const screen = this._screen as unknown as {
+      unmaximize?: () => Promise<unknown>;
+      unMaximize?: () => Promise<unknown>;
+    } | null;
+    if (screen?.unmaximize) await screen.unmaximize();
+    else if (screen?.unMaximize) await screen.unMaximize();
+  }
+
   /** Tutup window dan hancurkan seluruh subtree. */
   async close(): Promise<void> {
     this.onClose?.();

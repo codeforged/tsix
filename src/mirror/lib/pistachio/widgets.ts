@@ -67,6 +67,7 @@ interface TEmbeddedGrid {
   setSelectedRecord(record: Record<string, any> | null): Promise<void>;
   clearSelection(): Promise<void>;
   readonly sort: { key: string; dir: "asc" | "desc" } | null;
+  toggleSort?(key: string): Promise<void>;
 }
 
 const GRID_OPTIONS = defineProps<TGridOptions>()(["columns", "data", "height", "maxRows"]);
@@ -146,6 +147,14 @@ abstract class TGridBase<TG extends TEmbeddedGrid> extends TComponent {
 
   get sort(): { key: string; dir: "asc" | "desc" } | null {
     return this._grid.sort;
+  }
+
+  /** Toggle sort untuk kolom; jika grid belum mendukungnya, lempar UNSUPPORTED. */
+  async toggleSort(key: string): Promise<void> {
+    if (!this._grid.toggleSort) {
+      throw new EComponentError("UNSUPPORTED", `Grid "${this.id}" does not support toggleSort`, this.id);
+    }
+    await this._grid.toggleSort(key);
   }
 
   get selectedIndex(): number {

@@ -33,6 +33,7 @@ import {
   TSaveDialog,
   TSpacer,
   TToggleSwitch,
+  TTimer,
   TVStack,
 } from "@tsix/pistachio";
 
@@ -395,7 +396,8 @@ export const main = Program(async () => {
   let hum = gauge.value;
   let trend = [...chart.data];
 
-  const timer = setInterval(() => {
+  const timer = new TTimer({ id: "timer-sensor", interval: 5000, enabled: true });
+  timer.onTimer = () => {
     suhu = drift(suhu, 0.8, 20, 35);
     hum = drift(hum, 3, 40, 90);
     trend = [...trend, suhu].slice(-CHART_POINTS);
@@ -403,13 +405,10 @@ export const main = Program(async () => {
     sensor.value = suhu;
     gauge.value = hum;
     chart.data = trend;
-  }, 5000);
+  };
+  form.add(timer);
 
-  try {
-    await form.run();
-  } finally {
-    clearInterval(timer);
-  }
+  await form.run();
 });
 
 /** Langkah acak ±`step` dari `value`, dijepit ke [min, max], 1 desimal. */

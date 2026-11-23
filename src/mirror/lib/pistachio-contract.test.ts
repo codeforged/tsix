@@ -101,6 +101,9 @@ const FIXTURES: Record<string, () => Record<string, any>> = {
   TDBNavigator: () => ({ dataSource: stack.dataSource }),
   // Pager mengubah dataset ke mode paging; jangan pakai stack bersama.
   TDBPager: () => ({ dataSource: makeStack().dataSource }),
+  TSplit: () => ({ children: [] }),
+  TSplitHorizontal: () => ({ children: [] }),
+  TSplitVertical: () => ({ children: [] }),
 };
 
 /** K6: komponen non-visual. Kelas lain wajib `isVisual === true`. */
@@ -113,10 +116,11 @@ const NON_VISUAL = new Set([
   "TDataSource",
   "TOpenDialog",
   "TSaveDialog",
+  "TTimer",
 ]);
 
 /** Helper statis murni (K6) — sengaja bukan TComponent. */
-const STATIC_HELPERS = new Set(["TDialogs"]);
+const STATIC_HELPERS = new Set(["TDialogs", "TCSVDriver"]);
 
 /**
  * K1: event yang boleh ada dan kelas yang boleh memakainya
@@ -134,6 +138,7 @@ const EVENT_RULES: Record<string, "*" | Function[]> = {
   onSort: GRIDS,
   onRowContextMenu: GRIDS,
   onToggle: [TTreeView],
+  onTimer: "*",
   // Event siklus hidup spesifik (tanpa padanan umum, K1 baris terakhir).
   onSetup: [TForm],
   onClose: [TForm],

@@ -4,7 +4,7 @@
  * (c) 2026 TSIX Project
  */
 
-import { db } from "@tsix/Application";
+import { db, fs } from "@tsix/Application";
 import { defineProps, TComponent, TOptions } from "./core";
 import type {
   DbConfig,
@@ -57,8 +57,15 @@ export interface TDBDriver {
 export type TDBConfig = DbConfig;
 export type TDBParams = DbQueryParameters;
 
-export interface TDBConnectionOptions extends TOptions, TDBConfig {
+export interface TDBConnectionOptions extends TOptions {
   driver?: string | TDBDriver;
+  host?: string;
+  port?: number;
+  user?: string;
+  password?: string;
+  database?: string;
+  path?: string;
+  delimiter?: string;
 }
 
 export interface TDBQueryOptions extends TOptions {
@@ -264,6 +271,131 @@ function hasError(value: unknown): value is { error: string } {
   );
 }
 
+export interface TCSVDriverOptions {
+  path?: string;
+  database?: string;
+  delimiter?: string;
+}
+
+/** Driver database CSV read-only. Mendukung SELECT * dan SELECT kolom sederhana. */
+export class TCSVDriver implements TDBDriver {
+  readonly name = "csv";
+  readonly capabilities = Object.freeze({
+    canWrite: false,
+    canTransact: false,
+    canParam: false,
+  });
+
+  private path: string;
+  private delimiter: string;
+  private text = "";
+  private headers: string[] = [];
+
+  constructor(options?: string | TCSVDriverOptions) {
+    const o = typeof options === "string" ? { path: options } : (options ?? {});
+    this.path = o.path ?? o.database ?? "";
+    this.delimiter = o.delimiter ?? ",";
+  }
+
+  async connect(config: TDBConfig): Promise<void> {
+    const path = this.path || (config.database as string) || (config.host as string);
+    if (!path) {
+      throw new EDatabaseError("CONNECTION_FAILED", "CSV path is required", this.name);
+    }
+    this.path = path;
+    const content = await fs.readFile(path);
+    if (content === null) {
+      throw new EDatabaseError("CONNECTION_FAILED", `Cannot read CSV file: ${path}`, this.name);
+    }
+    this.text = content;
+  }
+
+  async disconnect(): Promise<void> {
+    this.text = "";
+    this.headers = [];
+  }
+
+  async execute(sql: string, _params: TDBParams): Promise<TDBResult> {
+    const trimmed = sql.trim().replace(/;$/, "");
+    const withFrom = /^SELECT\s+(.+?)\s+FROM\s+/i.exec(trimmed);
+    const simple = /^SELECT\s+(.+)$/i.exec(trimmed);
+    const projected = (withFrom?.[1] ?? simple?.[1])?.trim();
+    if (!/^SELECT\b/i.test(trimmed) || !projected) {
+      throw new EDatabaseError("PROVIDER_NOT_WRITABLE", "CSV driver is read-only", this.name);
+    }
+
+    const rows = parseCSV(this.text, this.delimiter);
+    if (rows.length === 0) {
+      this.headers = [];
+      return { rows: [], fields: [] };
+    }
+
+    this.headers = rows.shift()!.map((value) => value.trim());
+    const fields: TFieldDef[] = this.headers.map((name) => ({
+      name,
+      type: "ftString",
+      nullable: true,
+      primaryKey: false,
+      autoIncrement: false,
+    }));
+
+    const names = projected === "*"
+      ? this.headers
+      : projected.split(",").map((name) => name.trim()).filter((name) => this.headers.includes(name));
+
+    const resultRows = rows.map((values) => {
+      const row: Record<string, unknown> = {};
+      for (let i = 0; i < this.headers.length; i++) {
+        if (names.includes(this.headers[i])) row[this.headers[i]] = values[i] ?? "";
+      }
+      return row;
+    });
+
+    return {
+      rows: resultRows,
+      fields: fields.filter((field) => names.includes(field.name)),
+    };
+  }
+
+  quoteIdent(name: string): string {
+    return `"${name.replace(/"/g, '""')}"`;
+  }
+}
+
+function parseCSV(text: string, delimiter: string): string[][] {
+  const result: string[][] = [];
+  let row: string[] = [];
+  let value = "";
+  let quoted = false;
+  const sep = delimiter || ",";
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '"') {
+      if (quoted && text[i + 1] === '"') {
+        value += '"';
+        i++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === sep && !quoted) {
+      row.push(value);
+      value = "";
+    } else if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && text[i + 1] === "\n") i++;
+      row.push(value);
+      if (row.some((part) => part !== "")) result.push(row);
+      row = [];
+      value = "";
+    } else {
+      value += char;
+    }
+  }
+  row.push(value);
+  if (row.some((part) => part !== "")) result.push(row);
+  return result;
+}
+
 class TMySQLDriver implements TDBDriver {
   readonly name = "mysql";
   readonly capabilities = Object.freeze({
@@ -323,12 +455,23 @@ let activeProcessConnection: TDBConnection | null = null;
 
 function resolveDriver(
   driver: string | TDBDriver | undefined,
+  options?: TDBConnectionOptions,
 ): { driver: TDBDriver; processScoped: boolean } {
   if (driver === undefined || driver === "mysql") {
     return { driver: new TMySQLDriver(), processScoped: true };
   }
 
   if (typeof driver === "string") {
+    if (driver.toLowerCase() === "csv") {
+      return {
+        driver: new TCSVDriver({
+          path: options?.path,
+          database: options?.database,
+          delimiter: options?.delimiter,
+        }),
+        processScoped: false,
+      };
+    }
     throw new EDatabaseError(
       "DRIVER_NOT_FOUND",
       `Database driver "${driver}" is not registered`,
@@ -346,6 +489,8 @@ const CONNECTION_PROPS = defineProps<TDBConnectionOptions>()([
   "user",
   "password",
   "database",
+  "path",
+  "delimiter",
 ]);
 
 /** Koneksi database non-visual yang dimiliki satu proses TSIX. */
@@ -364,14 +509,14 @@ export class TDBConnection extends TComponent {
     super(idOrOpts, opts, CONNECTION_PROPS);
 
     const options = this.options as TDBConnectionOptions;
-    const resolved = resolveDriver(options.driver);
+    const resolved = resolveDriver(options.driver, options);
     this.driver = resolved.driver;
     this.processScoped = resolved.processScoped;
     this.config = {
-      host: options.host,
-      user: options.user,
-      password: options.password,
-      database: options.database,
+      host: options.host ?? "",
+      user: options.user ?? "",
+      password: options.password ?? "",
+      database: options.database ?? options.path ?? "",
       ...(options.port !== undefined ? { port: options.port } : {}),
     };
     this.isVisual = false;
@@ -394,10 +539,17 @@ export class TDBConnection extends TComponent {
         this.driver.name,
       );
     }
-    if (!this.config.host || !this.config.user || !this.config.database) {
+    if (this.driver.name !== "csv" && (!this.config.host || !this.config.user || !this.config.database)) {
       throw new EDatabaseError(
         "CONNECTION_FAILED",
         "host, user, and database are required",
+        this.driver.name,
+      );
+    }
+    if (this.driver.name === "csv" && !this.config.database) {
+      throw new EDatabaseError(
+        "CONNECTION_FAILED",
+        "CSV path is required",
         this.driver.name,
       );
     }

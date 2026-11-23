@@ -662,13 +662,9 @@ Aturan yang berlaku untuk semua komponen, dijaga otomatis oleh
 
 | Belum ada | Alternatif sementara |
 | :-- | :-- |
-| `TTimer` | `setInterval` + `clearInterval` setelah `await form.run()` (lihat contoh migrasi) |
 | `TChart` (Lightweight Charts) | `TLineChart` untuk tren sederhana |
-| `TSplitHorizontal` / `TSplitVertical` (drag) | `THStack` / `TVStack` dengan `style.flex` |
 | `TFlowPanel`, konstanta `alTop`/`alClient`/... | `THStack` (sudah `flexWrap`), `TGridPanel`, atau `style` |
-| `form.minimize()`, `restore()`, `unMaximize()` | `form.screen.win` (API emerald) |
-| `toggleSort()` di grid | sort lewat header grid, atau `dataset.setSort()` untuk DB |
-| Driver selain MySQL (CSV, SQLite, PostgreSQL) | implementasi `TDBDriver` sendiri; driver CSV direncanakan |
+| Driver selain CSV dan MySQL (SQLite, PostgreSQL) | implementasi `TDBDriver` sendiri |
 | Transaksi, multi-koneksi per proses | `applyUpdates()` per baris; satu `TDBConnection` per proses |
 
 Status terbaru ada di checklist [pistachio-plan.md §13](./pistachio-plan.md#13-checklist-eksekusi).
@@ -714,7 +710,7 @@ komponen keduanya dalam satu form.
 | `TGroupBox("g", "Judul", style)` | `new TGroupBox({ id: "g", caption: "Judul", style, children })` |
 | `TGridPanel("g", 3)` | `new TGridPanel({ id: "g", columns: 3 })` |
 | `new TTabulatorGrid("g", cols, data, { height })` | `new TTabulatorGrid({ id: "g", columns: cols, data, height })` |
-| `new TTimer("t", 2000, true)` | belum ada, pakai `setInterval` (lihat contoh) |
+| `new TTimer("t", 2000, true)` | `new TTimer({ id: "t", interval: 2000, enabled: true })`
 | `TDialogs.openFile(screen, fs, title, dir)` → path | `form.add(dlg = new TOpenDialog({ title, startDir: dir }))`, lalu `await dlg.execute()` → `{ path, … } \| null` |
 | `TDialogs.saveFile(screen, fs, title, name)` → path | `form.add(dlg = new TSaveDialog({ title, defaultName: name }))`, lalu `await dlg.execute()` → `{ path, … } \| null` |
 | `TDialogs.alert/confirm/input(screen, …)` | sama, pemilik boleh `form` |
@@ -746,7 +742,7 @@ await form.run();
 **Pistachio:**
 
 ```ts
-import { TButton, TForm, THStack, TLabel, TSpacer } from "@tsix/pistachio";
+import { TButton, TForm, THStack, TLabel, TSpacer, TTimer } from "@tsix/pistachio";
 
 const form = new TForm({ title: "Suhu", width: 360, height: 140 });
 const lbl = new TLabel({ id: "lbl-suhu", text: "—" });
@@ -755,15 +751,12 @@ btn.onClick = () => { lbl.text = "—"; };
 
 form.add(new THStack({ children: [lbl, new TSpacer(), btn] }));
 
-// Pengganti TTimer: timer dibersihkan setelah window ditutup.
-const timer = setInterval(async () => {
-  lbl.text = `${await readSuhu()} °C`;
-}, 2000);
-try {
-  await form.run();
-} finally {
-  clearInterval(timer);
-}
+const timer = new TTimer({ id: "tmr-suhu", interval: 2000, enabled: true });
+timer.onTimer = () => {
+  void readSuhu().then((value) => { lbl.text = `${value} °C`; });
+};
+form.add(timer);
+await form.run();
 ```
 
 ### Database: sebelum → sesudah
@@ -820,6 +813,7 @@ form.onSetup = async () => {
 | `/opt/test/pistachio-demo.ts` | Demo kontrol, layout, widget, dialog, shortcut |
 | `/opt/test/pistachio-dbdemo.ts` | Demo stack DB dari CLI (konfigurasi lewat environment) |
 | `/opt/test/pistachio-dbcontrols-demo.ts` | DB Browser: grid, navigator, pager, editor record |
+| `/opt/test/pistachio-csv-demo.ts` | GUI tester driver CSV: buat sampel, jalankan `SELECT`, dan uji read-only |
 | `/opt/lantana/lantana-control-panel.ts` | Aplikasi nyata berbasis Pistachio (tree, editor, monitor) |
 | [pistachio-plan.md](./pistachio-plan.md) | Alasan desain, fase, keputusan terbuka |
 | [changelogs/pistachio.md](./changelogs/pistachio.md) | Riwayat perubahan |

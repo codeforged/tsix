@@ -361,4 +361,4 @@ mengikuti konvensi §3 sejak awal.
 
 ### P3 (opsional)
 
-- [ ] P3-1 `TTimer` · [ ] P3-2 `TSplit` · [ ] P3-3 window control · [ ] P3-4 `toggleSort` · [ ] P3-5 driver CSV
+- [x] P3-1 `TTimer` · [x] P3-2 `TSplit` · [x] P3-3 window control · [x] P3-4 `toggleSort` · [x] P3-5 driver CSV

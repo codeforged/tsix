@@ -1099,7 +1099,7 @@
         {
             "name": "pistachio-demos",
             "version": "1.0.0",
-            "description": "Contoh aplikasi demo/test Pistachio: demo kontrol, demo DB, DB browser, data contoh, dan menu launcher.",
+            "description": "Contoh aplikasi demo/test Pistachio: demo kontrol, demo DB, DB browser, CSV driver, data contoh, dan menu launcher.",
             "author": "TSIX",
             "needReboot": false,
             "onAfterDownload": "/sbin/transpile.ts",
@@ -1117,6 +1117,10 @@
                     "dst": "/opt/test/pistachio-dbcontrols-demo.ts"
                 },
                 {
+                    "src": "/opt/test/pistachio-csv-demo.ts",
+                    "dst": "/opt/test/pistachio-csv-demo.ts"
+                },
+                {
                     "src": "/opt/test/pistachio-dbcontrols-demo.sql",
                     "dst": "/opt/test/pistachio-dbcontrols-demo.sql"
                 },
@@ -1127,6 +1131,10 @@
                 {
                     "src": "/etc/asteracea/menu/pistachio-dbcontrols-demo.menu",
                     "dst": "/etc/asteracea/menu/pistachio-dbcontrols-demo.menu"
+                },
+                {
+                    "src": "/etc/asteracea/menu/pistachio-csv-demo.menu",
+                    "dst": "/etc/asteracea/menu/pistachio-csv-demo.menu"
                 }
             ]
         },

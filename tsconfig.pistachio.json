@@ -9,6 +9,7 @@
         "src/mirror/opt/azalea-dashboard/azalea-dashboard.ts",
         "src/mirror/opt/test/pistachio-demo.ts",
         "src/mirror/opt/test/pistachio-dbdemo.ts",
-        "src/mirror/opt/test/pistachio-dbcontrols-demo.ts"
+        "src/mirror/opt/test/pistachio-dbcontrols-demo.ts",
+        "src/mirror/opt/test/pistachio-csv-demo.ts"
     ]
 }

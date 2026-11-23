@@ -1,0 +1,5 @@
+name=Pistachio CSV Driver Tester
+icon=📄
+command=/opt/test/pistachio-csv-demo.js
+pinned_launcher=false
+group=Pistachio Demo
