@@ -7,7 +7,7 @@
  * (c) 2026 TSIX Project
  */
 
-import { TComponent, TOptions } from "./core";
+import { defineProps, TComponent, TOptions } from "./core";
 
 const SURFACE = "var(--surface, #16213e)";
 const BORDER = "1px solid var(--border, rgba(255,255,255,0.12))";
@@ -71,6 +71,8 @@ export interface TGridPanelOptions extends TOptions {
   columns?: number;
 }
 
+const GRIDPANEL_PROPS = defineProps<TGridPanelOptions>()(["columns"]);
+
 /** Container grid dengan jumlah kolom tetap. */
 export class TGridPanel extends TComponent {
   constructor(
@@ -78,7 +80,7 @@ export class TGridPanel extends TComponent {
     opts?: TGridPanelOptions,
     knownProps: readonly string[] = [],
   ) {
-    super(idOrOpts, opts, ["columns", ...knownProps]);
+    super(idOrOpts, opts, [...GRIDPANEL_PROPS, ...knownProps]);
     const columns = (this.options as TGridPanelOptions).columns ?? 2;
     this.style = {
       display: "grid",
@@ -106,6 +108,8 @@ export interface TSpacerOptions extends TOptions {
   size?: number;
 }
 
+const SPACER_PROPS = defineProps<TSpacerOptions>()(["size"]);
+
 /** Ruang kosong fleksibel atau berukuran tetap. */
 export class TSpacer extends TComponent {
   constructor(
@@ -113,7 +117,7 @@ export class TSpacer extends TComponent {
     opts?: TSpacerOptions,
     knownProps: readonly string[] = [],
   ) {
-    super(idOrOpts, opts, ["size", ...knownProps]);
+    super(idOrOpts, opts, [...SPACER_PROPS, ...knownProps]);
     const size = (this.options as TSpacerOptions).size ?? 0;
     this.style = size > 0
       ? { width: `${size}px`, height: `${size}px`, flexShrink: "0" }
@@ -125,12 +129,14 @@ export interface TGroupBoxOptions extends TOptions {
   caption?: string;
 }
 
+const GROUPBOX_PROPS = defineProps<TGroupBoxOptions>()(["caption"]);
+
 /** Panel bergaris dengan judul di atas border. */
 export class TGroupBox extends TPanel {
   private readonly _caption: TComponent;
 
   constructor(idOrOpts?: string | TGroupBoxOptions, opts?: TGroupBoxOptions) {
-    super(idOrOpts, opts, ["caption"]);
+    super(idOrOpts, opts, GROUPBOX_PROPS);
     const caption = (this.options as TGroupBoxOptions).caption ?? "";
 
     this.style = {

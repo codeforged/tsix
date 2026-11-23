@@ -105,6 +105,37 @@ export class EComponentError extends Error {
 
 const BASE_OPTIONS = ["id", "style", "children"] as const;
 
+/** Key opsi milik `T` yang tidak diwarisi dari `TBase` (default: opsi dasar). */
+export type OwnProps<T, TBase = TOptions> = Exclude<keyof T, keyof TBase> & string;
+
+/** `true` bila dua union key sama persis, `false` bila tidak. */
+export type AssertExact<A extends PropertyKey, B extends PropertyKey> = [A] extends [B]
+  ? [B] extends [A]
+    ? true
+    : false
+  : false;
+
+/**
+ * K5 — satu sumber props. Daftar props kelas ditulis sekali sebagai array dan
+ * dicek terhadap interface opsinya saat compile:
+ *
+ * ```ts
+ * const BUTTON_PROPS = defineProps<TButtonOptions>()(["caption", "enabled"]);
+ * ```
+ *
+ * Key di array yang tidak ada di interface → error; key di interface yang tidak
+ * ada di array → error `missing: "..."`. Untuk subclass, `TBase` adalah
+ * interface opsi induk, sehingga hanya props tambahannya yang didaftarkan.
+ */
+export function defineProps<T, TBase = TOptions>() {
+  return <const K extends readonly OwnProps<T, TBase>[]>(
+    keys: K &
+      ([AssertExact<OwnProps<T, TBase>, K[number]>] extends [true]
+        ? unknown
+        : { missing: Exclude<OwnProps<T, TBase>, K[number]> }),
+  ): K => keys;
+}
+
 function isPlainObject(value: unknown): value is Record<string, any> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

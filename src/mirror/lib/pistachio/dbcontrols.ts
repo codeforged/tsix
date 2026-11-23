@@ -5,6 +5,7 @@
  */
 
 import {
+  defineProps,
   EComponentError,
   resolveOptions,
   TComponent,
@@ -173,7 +174,15 @@ function reportAsyncError(
 }
 
 /** Read-only text view backed by a basic TLabel. */
-export interface TDBTextOptions extends TLabelOptions, TDBBoundOptions {}
+export interface TDBTextOptions
+  extends TLabelOptions,
+    Omit<TDBBoundOptions, "parseValue"> {}
+
+const DBTEXT_PROPS = defineProps<TDBTextOptions, TLabelOptions>()([
+  "dataSource",
+  "field",
+  "formatValue",
+]);
 
 export class TDBText extends TLabel {
   private readonly _dataSource: TDataSource;
@@ -185,7 +194,7 @@ export class TDBText extends TLabel {
     idOrOpts?: string | TDBTextOptions,
     opts?: TDBTextOptions,
   ) {
-    super(idOrOpts, opts, ["dataSource", "field", "formatValue"]);
+    super(idOrOpts, opts, DBTEXT_PROPS);
     const options = this.options as TDBTextOptions;
     validateBinding(options.dataSource, options.field);
     this._dataSource = options.dataSource;
@@ -217,6 +226,13 @@ export class TDBText extends TLabel {
 /** Single-line bound editor backed by a basic TEdit. */
 export interface TDBEditOptions extends TEditOptions, TDBBoundOptions {}
 
+const DBEDIT_PROPS = defineProps<TDBEditOptions, TEditOptions>()([
+  "dataSource",
+  "field",
+  "formatValue",
+  "parseValue",
+]);
+
 export class TDBEdit extends TEdit {
   private readonly _dataSource: TDataSource;
   private readonly _field: string;
@@ -229,12 +245,7 @@ export class TDBEdit extends TEdit {
     idOrOpts?: string | TDBEditOptions,
     opts?: TDBEditOptions,
   ) {
-    super(idOrOpts, opts, [
-      "dataSource",
-      "field",
-      "formatValue",
-      "parseValue",
-    ]);
+    super(idOrOpts, opts, DBEDIT_PROPS);
     const options = this.options as TDBEditOptions;
     validateBinding(options.dataSource, options.field);
     this._dataSource = options.dataSource;
@@ -281,6 +292,13 @@ export class TDBEdit extends TEdit {
 /** Multiline bound editor backed by a basic TMemo. */
 export interface TDBMemoOptions extends TMemoOptions, TDBBoundOptions {}
 
+const DBMEMO_PROPS = defineProps<TDBMemoOptions, TMemoOptions>()([
+  "dataSource",
+  "field",
+  "formatValue",
+  "parseValue",
+]);
+
 export class TDBMemo extends TMemo {
   private readonly _dataSource: TDataSource;
   private readonly _field: string;
@@ -293,12 +311,7 @@ export class TDBMemo extends TMemo {
     idOrOpts?: string | TDBMemoOptions,
     opts?: TDBMemoOptions,
   ) {
-    super(idOrOpts, opts, [
-      "dataSource",
-      "field",
-      "formatValue",
-      "parseValue",
-    ]);
+    super(idOrOpts, opts, DBMEMO_PROPS);
     const options = this.options as TDBMemoOptions;
     validateBinding(options.dataSource, options.field);
     this._dataSource = options.dataSource;
@@ -347,6 +360,12 @@ export interface TDBListBoxOptions
   extends TListBoxOptions,
     Omit<TDBBoundOptions, "formatValue"> {}
 
+const DBLISTBOX_PROPS = defineProps<TDBListBoxOptions, TListBoxOptions>()([
+  "dataSource",
+  "field",
+  "parseValue",
+]);
+
 export class TDBListBox extends TListBox {
   public onError: ((error: unknown) => void) | null = null;
 
@@ -360,7 +379,7 @@ export class TDBListBox extends TListBox {
     idOrOpts?: string | TDBListBoxOptions,
     opts?: TDBListBoxOptions,
   ) {
-    super(idOrOpts, opts, ["dataSource", "field", "parseValue"]);
+    super(idOrOpts, opts, DBLISTBOX_PROPS);
     const options = this.options as TDBListBoxOptions;
     validateBinding(options.dataSource, options.field);
     this._dataSource = options.dataSource;
@@ -453,6 +472,10 @@ function resolveDBGridOptions(
   };
 }
 
+const DBGRID_PROPS = defineProps<TDBGridOptions, TTabulatorGridOptions>()([
+  "dataSource",
+]);
+
 /** Tabulator-backed database grid; columns default to field metadata. */
 export class TDBGrid extends TTabulatorGrid {
   public onError: ((error: unknown) => void) | null = null;
@@ -470,7 +493,7 @@ export class TDBGrid extends TTabulatorGrid {
     opts?: TDBGridOptions,
   ) {
     const resolved = resolveDBGridOptions(idOrOpts, opts);
-    super(resolved.options, undefined, ["dataSource"]);
+    super(resolved.options, undefined, DBGRID_PROPS);
     this._dataSource = resolved.options.dataSource;
     this._automaticColumns = resolved.automaticColumns;
     this.onSort = (key, direction) => {
@@ -686,6 +709,8 @@ export interface TDBNavigatorOptions extends TOptions {
   dataSource: TDataSource;
 }
 
+const DBNAVIGATOR_PROPS = defineProps<TDBNavigatorOptions>()(["dataSource"]);
+
 export class TDBNavigator extends THStack {
   public onError: ((error: unknown) => void) | null = null;
 
@@ -708,7 +733,7 @@ export class TDBNavigator extends THStack {
     idOrOpts?: string | TDBNavigatorOptions,
     opts?: TDBNavigatorOptions,
   ) {
-    super(idOrOpts, opts, ["dataSource"]);
+    super(idOrOpts, opts, DBNAVIGATOR_PROPS);
     const options = this.options as TDBNavigatorOptions;
     if (!(options.dataSource instanceof TDataSource)) {
       throw new EDatabaseError(
@@ -857,7 +882,6 @@ export interface TDBPagerOptions extends TOptions {
   pageSize?: number;
 }
 
-/** Server-side paging for the SELECT query bound to a data source. */
 /** Edit nomor halaman: commit saat Enter atau saat field ditinggalkan. */
 class TPageEdit extends TEdit {
   public onCommit: ((value: string) => void) | null = null;
@@ -887,6 +911,9 @@ class TPageEdit extends TEdit {
   }
 }
 
+const DBPAGER_PROPS = defineProps<TDBPagerOptions>()(["dataSource", "pageSize"]);
+
+/** Server-side paging for the SELECT query bound to a data source. */
 export class TDBPager extends THStack {
   public onError: ((error: unknown) => void) | null = null;
 
@@ -910,7 +937,7 @@ export class TDBPager extends THStack {
     idOrOpts?: string | TDBPagerOptions,
     opts?: TDBPagerOptions,
   ) {
-    super(idOrOpts, opts, ["dataSource", "pageSize"]);
+    super(idOrOpts, opts, DBPAGER_PROPS);
     const options = this.options as TDBPagerOptions;
     if (!(options.dataSource instanceof TDataSource)) {
       throw new EDatabaseError(

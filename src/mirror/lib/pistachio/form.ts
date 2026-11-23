@@ -10,9 +10,9 @@
 import { Keyboard, Screen } from "@tsix/emerald";
 import { theme } from "@tsix/theme";
 import { shell } from "@tsix/Application";
-import { TComponent, TKeyEvent, TOptions, TScreenPort } from "./core";
+import { defineProps, TComponent, TKeyEvent, TOptions, TScreenPort } from "./core";
 
-const FORM_OPTIONS = [
+const FORM_OPTIONS = defineProps<TFormOptions>()([
   "title",
   "icon",
   "width",
@@ -24,7 +24,7 @@ const FORM_OPTIONS = [
   "left",
   "top",
   "desktopCentered",
-] as const;
+]);
 
 export interface TFormOptions extends TOptions {
   title?: string;

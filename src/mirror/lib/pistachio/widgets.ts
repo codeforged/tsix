@@ -24,7 +24,14 @@ import {
   verticalGauge,
 } from "@tsix/emerald";
 import { fs } from "@tsix/Application";
-import { TComponent, TNode, TOptions, TScreenPort, TStyle } from "./core";
+import {
+  defineProps,
+  TComponent,
+  TNode,
+  TOptions,
+  TScreenPort,
+  TStyle,
+} from "./core";
 
 export type { DataGridColumn };
 
@@ -60,7 +67,7 @@ interface TEmbeddedGrid {
   readonly sort: { key: string; dir: "asc" | "desc" } | null;
 }
 
-const GRID_OPTIONS = ["columns", "data", "height", "maxRows"] as const;
+const GRID_OPTIONS = defineProps<TGridOptions>()(["columns", "data", "height", "maxRows"]);
 
 /**
  * Basis grid data manual. Subclass hanya menentukan grid emerald yang dipakai
@@ -205,6 +212,10 @@ export class TDataGrid extends TGridBase<ConnectedDataGrid> {
   }
 }
 
+const TABULATOR_PROPS = defineProps<TTabulatorGridOptions, TGridOptions>()([
+  "selectable",
+]);
+
 /**
  * Grid data manual berbasis Tabulator (virtualized, cocok untuk banyak baris).
  */
@@ -223,7 +234,7 @@ export class TTabulatorGrid extends TGridBase<ConnectedTabulator> {
     opts?: TTabulatorGridOptions,
     knownProps: readonly string[] = [],
   ) {
-    super(idOrOpts, opts, ["selectable", ...knownProps]);
+    super(idOrOpts, opts, [...TABULATOR_PROPS, ...knownProps]);
   }
 
   protected createGrid(): ConnectedTabulator {
@@ -386,6 +397,13 @@ export interface TProgressBarOptions extends TOptions {
   height?: number;
 }
 
+const PROGRESSBAR_PROPS = defineProps<TProgressBarOptions>()([
+  "value",
+  "color",
+  "track",
+  "height",
+]);
+
 /** Bar progres 0–100. */
 export class TProgressBar extends TComponent {
   private _value: number;
@@ -397,7 +415,7 @@ export class TProgressBar extends TComponent {
     idOrOpts?: string | TProgressBarOptions,
     opts?: TProgressBarOptions,
   ) {
-    super(idOrOpts, opts, ["value", "color", "track", "height"]);
+    super(idOrOpts, opts, PROGRESSBAR_PROPS);
     const o = this.options as TProgressBarOptions;
     this._value = clampPercent(o.value ?? 0);
     this._color = o.color ?? "var(--accent, #4caf50)";
@@ -458,6 +476,13 @@ export interface TIndicatorLampOptions extends TOptions {
   size?: number;
 }
 
+const INDICATORLAMP_PROPS = defineProps<TIndicatorLampOptions>()([
+  "on",
+  "color",
+  "label",
+  "size",
+]);
+
 export class TIndicatorLamp extends TCardWidget {
   private _on: boolean;
   private readonly _color: string;
@@ -468,7 +493,7 @@ export class TIndicatorLamp extends TCardWidget {
     idOrOpts?: string | TIndicatorLampOptions,
     opts?: TIndicatorLampOptions,
   ) {
-    super(idOrOpts, opts, ["on", "color", "label", "size"]);
+    super(idOrOpts, opts, INDICATORLAMP_PROPS);
     const o = this.options as TIndicatorLampOptions;
     this._on = Boolean(o.on);
     this._color = o.color ?? "var(--accent, #4caf50)";
@@ -505,6 +530,14 @@ export interface TToggleSwitchOptions extends TOptions {
   size?: number;
 }
 
+const TOGGLESWITCH_PROPS = defineProps<TToggleSwitchOptions>()([
+  "on",
+  "controlled",
+  "color",
+  "label",
+  "size",
+]);
+
 export class TToggleSwitch extends TCardWidget {
   public onClick: ((on: boolean) => void) | null = null;
   private _on: boolean;
@@ -517,7 +550,7 @@ export class TToggleSwitch extends TCardWidget {
     idOrOpts?: string | TToggleSwitchOptions,
     opts?: TToggleSwitchOptions,
   ) {
-    super(idOrOpts, opts, ["on", "controlled", "color", "label", "size"]);
+    super(idOrOpts, opts, TOGGLESWITCH_PROPS);
     const o = this.options as TToggleSwitchOptions;
     this._on = Boolean(o.on);
     this._controlled = Boolean(o.controlled);
@@ -568,6 +601,13 @@ export interface TRelayCardOptions extends TOptions {
   icon?: string;
 }
 
+const RELAYCARD_PROPS = defineProps<TRelayCardOptions>()([
+  "active",
+  "color",
+  "label",
+  "icon",
+]);
+
 export class TRelayCard extends TCardWidget {
   public onToggle: ((active: boolean) => void) | null = null;
   private _active: boolean;
@@ -579,7 +619,7 @@ export class TRelayCard extends TCardWidget {
     idOrOpts?: string | TRelayCardOptions,
     opts?: TRelayCardOptions,
   ) {
-    super(idOrOpts, opts, ["active", "color", "label", "icon"]);
+    super(idOrOpts, opts, RELAYCARD_PROPS);
     const o = this.options as TRelayCardOptions;
     this._active = Boolean(o.active);
     this._color = o.color ?? "var(--accent, #4caf50)";
@@ -629,6 +669,16 @@ export interface TSensorCardOptions extends TOptions {
   max?: number;
 }
 
+const SENSORCARD_PROPS = defineProps<TSensorCardOptions>()([
+  "value",
+  "label",
+  "unit",
+  "icon",
+  "color",
+  "min",
+  "max",
+]);
+
 export class TSensorCard extends TCardWidget {
   private _value: number;
   private readonly _label: string;
@@ -642,7 +692,7 @@ export class TSensorCard extends TCardWidget {
     idOrOpts?: string | TSensorCardOptions,
     opts?: TSensorCardOptions,
   ) {
-    super(idOrOpts, opts, ["value", "label", "unit", "icon", "color", "min", "max"]);
+    super(idOrOpts, opts, SENSORCARD_PROPS);
     const o = this.options as TSensorCardOptions;
     this._value = o.value ?? 0;
     this._label = o.label ?? "Sensor";
@@ -688,6 +738,18 @@ export interface TLineChartOptions extends TOptions {
   showYAxisLabels?: boolean;
 }
 
+const LINECHART_PROPS = defineProps<TLineChartOptions>()([
+  "data",
+  "color",
+  "spline",
+  "fill",
+  "width",
+  "height",
+  "viewStyle",
+  "showXAxisLabels",
+  "showYAxisLabels",
+]);
+
 export class TLineChart extends TViewWidget {
   private _data: number[];
   private readonly _color: string;
@@ -703,17 +765,7 @@ export class TLineChart extends TViewWidget {
     idOrOpts?: string | TLineChartOptions,
     opts?: TLineChartOptions,
   ) {
-    super(idOrOpts, opts, [
-      "data",
-      "color",
-      "spline",
-      "fill",
-      "width",
-      "height",
-      "viewStyle",
-      "showXAxisLabels",
-      "showYAxisLabels",
-    ]);
+    super(idOrOpts, opts, LINECHART_PROPS);
     const o = this.options as TLineChartOptions;
     this._data = [...(o.data ?? [])];
     this._color = o.color ?? "var(--accent, #4caf50)";
@@ -768,6 +820,16 @@ export interface TRadialGaugeOptions extends TOptions {
   unit?: string;
 }
 
+const RADIALGAUGE_PROPS = defineProps<TRadialGaugeOptions>()([
+  "value",
+  "min",
+  "max",
+  "color",
+  "size",
+  "label",
+  "unit",
+]);
+
 export class TRadialGauge extends TCardWidget {
   private _value: number;
   private readonly _min: number;
@@ -781,7 +843,7 @@ export class TRadialGauge extends TCardWidget {
     idOrOpts?: string | TRadialGaugeOptions,
     opts?: TRadialGaugeOptions,
   ) {
-    super(idOrOpts, opts, ["value", "min", "max", "color", "size", "label", "unit"]);
+    super(idOrOpts, opts, RADIALGAUGE_PROPS);
     const o = this.options as TRadialGaugeOptions;
     this._value = o.value ?? 0;
     this._min = o.min ?? 0;
@@ -824,6 +886,15 @@ export interface TSevenSegmentOptions extends TOptions {
   scale?: number;
 }
 
+const SEVENSEGMENT_PROPS = defineProps<TSevenSegmentOptions>()([
+  "value",
+  "digits",
+  "decimals",
+  "color",
+  "label",
+  "scale",
+]);
+
 export class TSevenSegment extends TViewWidget {
   private _value: number;
   private readonly _digits: number;
@@ -836,7 +907,7 @@ export class TSevenSegment extends TViewWidget {
     idOrOpts?: string | TSevenSegmentOptions,
     opts?: TSevenSegmentOptions,
   ) {
-    super(idOrOpts, opts, ["value", "digits", "decimals", "color", "label", "scale"]);
+    super(idOrOpts, opts, SEVENSEGMENT_PROPS);
     const o = this.options as TSevenSegmentOptions;
     this._value = o.value ?? 0;
     this._digits = o.digits ?? 4;
@@ -877,6 +948,15 @@ export interface TVerticalGaugeOptions extends TOptions {
   height?: number;
 }
 
+const VERTICALGAUGE_PROPS = defineProps<TVerticalGaugeOptions>()([
+  "value",
+  "color",
+  "label",
+  "unit",
+  "width",
+  "height",
+]);
+
 export class TVerticalGauge extends TViewWidget {
   private _value: number;
   private readonly _color: string;
@@ -889,7 +969,7 @@ export class TVerticalGauge extends TViewWidget {
     idOrOpts?: string | TVerticalGaugeOptions,
     opts?: TVerticalGaugeOptions,
   ) {
-    super(idOrOpts, opts, ["value", "color", "label", "unit", "width", "height"]);
+    super(idOrOpts, opts, VERTICALGAUGE_PROPS);
     const o = this.options as TVerticalGaugeOptions;
     this._value = clampPercent(o.value ?? 0);
     this._color = o.color ?? "#2196f3";
@@ -932,6 +1012,8 @@ export interface TStatusBarOptions extends TOptions {
   rightText?: string;
 }
 
+const STATUSBAR_PROPS = defineProps<TStatusBarOptions>()(["leftText", "rightText"]);
+
 /** Baris status dua sisi (kiri/kanan). */
 export class TStatusBar extends TComponent {
   private _left: string;
@@ -941,7 +1023,7 @@ export class TStatusBar extends TComponent {
     idOrOpts?: string | TStatusBarOptions,
     opts?: TStatusBarOptions,
   ) {
-    super(idOrOpts, opts, ["leftText", "rightText"]);
+    super(idOrOpts, opts, STATUSBAR_PROPS);
     const o = this.options as TStatusBarOptions;
 
     this.tag = "div";
@@ -1009,6 +1091,16 @@ export interface TSliderOptions extends TOptions {
   color?: string;
 }
 
+const SLIDER_PROPS = defineProps<TSliderOptions>()([
+  "value",
+  "min",
+  "max",
+  "step",
+  "unit",
+  "label",
+  "color",
+]);
+
 /** Slider rentang dengan nilai tampil di bawahnya. */
 export class TSlider extends TViewWidget {
   public onInput: ((value: number) => void) | null = null;
@@ -1022,15 +1114,7 @@ export class TSlider extends TViewWidget {
   private readonly _color: string;
 
   constructor(idOrOpts?: string | TSliderOptions, opts?: TSliderOptions) {
-    super(idOrOpts, opts, [
-      "value",
-      "min",
-      "max",
-      "step",
-      "unit",
-      "label",
-      "color",
-    ]);
+    super(idOrOpts, opts, SLIDER_PROPS);
     const o = this.options as TSliderOptions;
 
     this._min = o.min ?? 0;
@@ -1102,6 +1186,15 @@ export interface TImageOptions extends TOptions {
   height?: number | string;
 }
 
+const IMAGE_PROPS = defineProps<TImageOptions>()([
+  "src",
+  "file",
+  "alt",
+  "fit",
+  "width",
+  "height",
+]);
+
 /** Gambar; bisa dari URL/data URI atau file VFS. */
 export class TImage extends TComponent {
   public onClick: (() => void) | null = null;
@@ -1113,14 +1206,7 @@ export class TImage extends TComponent {
   private _fileLoaded: boolean = false;
 
   constructor(idOrOpts?: string | TImageOptions, opts?: TImageOptions) {
-    super(idOrOpts, opts, [
-      "src",
-      "file",
-      "alt",
-      "fit",
-      "width",
-      "height",
-    ]);
+    super(idOrOpts, opts, IMAGE_PROPS);
     const o = this.options as TImageOptions;
 
     this.tag = "img";

@@ -12,9 +12,10 @@
  */
 
 import {
+  defineProps,
   TComponent,
-  TKeyEvent,
   TKeyboardPort,
+  TKeyEvent,
   TOptions,
   TScreenPort,
 } from "./core";
@@ -73,6 +74,8 @@ export function normalizeCombo(combo: string): string {
   return [...mods, key].filter(Boolean).join("+");
 }
 
+const KEYBOARD_PROPS = defineProps<TKeyboardOptions>()(["shortcuts"]);
+
 /** Komponen non-visual pendaftar shortcut keyboard. */
 export class TKeyboard extends TComponent {
   /** Listener mentah untuk semua keydown (setelah shortcut dicocokkan). */
@@ -85,7 +88,7 @@ export class TKeyboard extends TComponent {
     idOrOpts?: string | TKeyboardOptions,
     opts?: TKeyboardOptions,
   ) {
-    super(idOrOpts, opts, ["shortcuts"]);
+    super(idOrOpts, opts, KEYBOARD_PROPS);
     this.isVisual = false;
 
     const shortcuts = (this.options as TKeyboardOptions).shortcuts ?? {};

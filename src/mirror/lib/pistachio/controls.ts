@@ -9,7 +9,14 @@
  * (c) 2026 TSIX Project
  */
 
-import { TComponent, TNode, TOptions, TScreenPort, TStyle } from "./core";
+import {
+  defineProps,
+  TComponent,
+  TNode,
+  TOptions,
+  TScreenPort,
+  TStyle,
+} from "./core";
 
 const TEXT = "var(--text, #e0e0e0)";
 const TEXT_DIM = "var(--text-dim, #ccc)";
@@ -83,13 +90,15 @@ export interface TLabelOptions extends TOptions {
   text?: string;
 }
 
+const LABEL_PROPS = defineProps<TLabelOptions>()(["text"]);
+
 export class TLabel extends TComponent {
   constructor(
     idOrOpts?: string | TLabelOptions,
     opts?: TLabelOptions,
     knownProps: readonly string[] = [],
   ) {
-    super(idOrOpts, opts, ["text", ...knownProps]);
+    super(idOrOpts, opts, [...LABEL_PROPS, ...knownProps]);
     this.tag = "span";
     const o = this.options as TLabelOptions;
     if (o.text !== undefined) this.text = o.text;
@@ -111,6 +120,8 @@ export interface TButtonOptions extends TOptions {
   enabled?: boolean;
 }
 
+const BUTTON_PROPS = defineProps<TButtonOptions>()(["caption", "enabled"]);
+
 export class TButton extends TComponent {
   public onClick: (() => void) | null = null;
 
@@ -119,7 +130,7 @@ export class TButton extends TComponent {
     opts?: TButtonOptions,
     knownProps: readonly string[] = [],
   ) {
-    super(idOrOpts, opts, ["caption", "enabled", ...knownProps]);
+    super(idOrOpts, opts, [...BUTTON_PROPS, ...knownProps]);
     this.tag = "button";
     this.props.onClickId = this.id;
     const o = this.options as TButtonOptions;
@@ -167,6 +178,8 @@ export interface TEditOptions extends TOptions {
   readOnly?: boolean;
 }
 
+const EDIT_PROPS = defineProps<TEditOptions>()(["text", "placeholder", "readOnly"]);
+
 export class TEdit extends TComponent {
   public onInput: ((value: string) => void) | null = null;
 
@@ -175,7 +188,7 @@ export class TEdit extends TComponent {
     opts?: TEditOptions,
     knownProps: readonly string[] = [],
   ) {
-    super(idOrOpts, opts, ["text", "placeholder", "readOnly", ...knownProps]);
+    super(idOrOpts, opts, [...EDIT_PROPS, ...knownProps]);
     this.tag = "input";
     this.props.type = "text";
     this.props.onInputId = this.id;
@@ -229,6 +242,8 @@ export interface TMemoOptions extends TOptions {
   readOnly?: boolean;
 }
 
+const MEMO_PROPS = defineProps<TMemoOptions>()(["text", "rows", "readOnly"]);
+
 export class TMemo extends TComponent {
   public onInput: ((value: string) => void) | null = null;
 
@@ -237,7 +252,7 @@ export class TMemo extends TComponent {
     opts?: TMemoOptions,
     knownProps: readonly string[] = [],
   ) {
-    super(idOrOpts, opts, ["text", "rows", "readOnly", ...knownProps]);
+    super(idOrOpts, opts, [...MEMO_PROPS, ...knownProps]);
     this.tag = "textarea";
     this.props.onInputId = this.id;
     const o = this.options as TMemoOptions;
@@ -289,6 +304,8 @@ export interface TCheckBoxOptions extends TOptions {
   checked?: boolean;
 }
 
+const CHECKBOX_PROPS = defineProps<TCheckBoxOptions>()(["caption", "checked"]);
+
 export class TCheckBox extends TComponent {
   public onClick: ((checked: boolean) => void) | null = null;
   private _caption: string = "";
@@ -298,7 +315,7 @@ export class TCheckBox extends TComponent {
     opts?: TCheckBoxOptions,
     knownProps: readonly string[] = [],
   ) {
-    super(idOrOpts, opts, ["caption", "checked", ...knownProps]);
+    super(idOrOpts, opts, [...CHECKBOX_PROPS, ...knownProps]);
     this.tag = "div";
     this.props.onClickId = this.id;
     const o = this.options as TCheckBoxOptions;
@@ -372,6 +389,8 @@ export interface TRadioButtonOptions extends TCheckBoxOptions {
   group?: string;
 }
 
+const RADIO_PROPS = defineProps<TRadioButtonOptions, TCheckBoxOptions>()(["group"]);
+
 export class TRadioButton extends TCheckBox {
   /** `null` = tanpa grup eksplisit → hanya saudara satu parent. */
   private _group: string | null;
@@ -380,7 +399,7 @@ export class TRadioButton extends TCheckBox {
     idOrOpts?: string | TRadioButtonOptions,
     opts?: TRadioButtonOptions,
   ) {
-    super(idOrOpts, opts, ["group"]);
+    super(idOrOpts, opts, RADIO_PROPS);
     const o = this.options as TRadioButtonOptions;
     this._group = o.group ?? null;
   }
@@ -446,6 +465,8 @@ export interface TComboBoxOptions extends TOptions {
   selectedIndex?: number;
 }
 
+const COMBOBOX_PROPS = defineProps<TComboBoxOptions>()(["items", "selectedIndex"]);
+
 export class TComboBox extends TComponent {
   public onChange: ((index: number, item: string) => void) | null = null;
   private _items: string[] = [];
@@ -456,7 +477,7 @@ export class TComboBox extends TComponent {
     opts?: TComboBoxOptions,
     knownProps: readonly string[] = [],
   ) {
-    super(idOrOpts, opts, ["items", "selectedIndex", ...knownProps]);
+    super(idOrOpts, opts, [...COMBOBOX_PROPS, ...knownProps]);
     this.tag = "select";
     this.props.onInputId = this.id;
     const o = this.options as TComboBoxOptions;
@@ -535,6 +556,8 @@ export interface TListBoxOptions extends TOptions {
   selectedIndex?: number;
 }
 
+const LISTBOX_PROPS = defineProps<TListBoxOptions>()(["items", "selectedIndex"]);
+
 export class TListBox extends TComponent {
   public onClick: ((index: number, item: string) => void) | null = null;
   private _items: string[] = [];
@@ -545,7 +568,7 @@ export class TListBox extends TComponent {
     opts?: TListBoxOptions,
     knownProps: readonly string[] = [],
   ) {
-    super(idOrOpts, opts, ["items", "selectedIndex", ...knownProps]);
+    super(idOrOpts, opts, [...LISTBOX_PROPS, ...knownProps]);
     this.tag = "div";
     const o = this.options as TListBoxOptions;
     this._items = [...(o.items ?? [])];

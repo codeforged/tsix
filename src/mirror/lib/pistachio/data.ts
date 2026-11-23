@@ -5,7 +5,7 @@
  */
 
 import { db } from "@tsix/Application";
-import { TComponent, TOptions } from "./core";
+import { defineProps, TComponent, TOptions } from "./core";
 import type {
   DbConfig,
   DbQueryField,
@@ -337,6 +337,15 @@ function resolveDriver(
   return { driver, processScoped: false };
 }
 
+const CONNECTION_PROPS = defineProps<TDBConnectionOptions>()([
+  "driver",
+  "host",
+  "port",
+  "user",
+  "password",
+  "database",
+]);
+
 /** Koneksi database non-visual yang dimiliki satu proses TSIX. */
 export class TDBConnection extends TComponent {
   public readonly driver: TDBDriver;
@@ -350,14 +359,7 @@ export class TDBConnection extends TComponent {
     idOrOpts?: string | TDBConnectionOptions,
     opts?: TDBConnectionOptions,
   ) {
-    super(idOrOpts, opts, [
-      "driver",
-      "host",
-      "port",
-      "user",
-      "password",
-      "database",
-    ]);
+    super(idOrOpts, opts, CONNECTION_PROPS);
 
     const options = this.options as TDBConnectionOptions;
     const resolved = resolveDriver(options.driver);
@@ -511,6 +513,8 @@ export class TDBConnection extends TComponent {
   }
 }
 
+const QUERY_PROPS = defineProps<TDBQueryOptions>()(["connection", "sql", "params"]);
+
 /** Definisi query SQL; hasil dan metadata dikembalikan oleh setiap eksekusi. */
 export class TDBQuery extends TComponent {
   private _connection: TDBConnection;
@@ -526,7 +530,7 @@ export class TDBQuery extends TComponent {
     idOrOpts?: string | TDBQueryOptions,
     opts?: TDBQueryOptions,
   ) {
-    super(idOrOpts, opts, ["connection", "sql", "params"]);
+    super(idOrOpts, opts, QUERY_PROPS);
     const options = this.options as TDBQueryOptions;
     if (!(options.connection instanceof TDBConnection)) {
       throw new EDatabaseError(
@@ -772,6 +776,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const PROVIDER_PROPS = defineProps<TProviderOptions>()([
+  "query",
+  "tableName",
+  "primaryKey",
+]);
+
 /** Jembatan non-visual dari TDBQuery ke buffer dataset. */
 export class TProvider extends TComponent {
   private readonly _query: TDBQuery;
@@ -782,7 +792,7 @@ export class TProvider extends TComponent {
     idOrOpts?: string | TProviderOptions,
     opts?: TProviderOptions,
   ) {
-    super(idOrOpts, opts, ["query", "tableName", "primaryKey"]);
+    super(idOrOpts, opts, PROVIDER_PROPS);
     const options = this.options as TProviderOptions;
     if (!(options.query instanceof TDBQuery)) {
       throw new EDatabaseError(
@@ -1200,6 +1210,8 @@ function recordsEqual(
   return [...keys].every((key) => Object.is(left[key], right[key]));
 }
 
+const CLIENTDATASET_PROPS = defineProps<TClientDatasetOptions>()(["provider"]);
+
 /** In-memory row buffer with cursor, edit state, filtering, and dirty tracking. */
 export class TClientDataset extends TComponent {
   private readonly _provider: TProvider;
@@ -1224,7 +1236,7 @@ export class TClientDataset extends TComponent {
     idOrOpts?: string | TClientDatasetOptions,
     opts?: TClientDatasetOptions,
   ) {
-    super(idOrOpts, opts, ["provider"]);
+    super(idOrOpts, opts, CLIENTDATASET_PROPS);
     const options = this.options as TClientDatasetOptions;
     if (!(options.provider instanceof TProvider)) {
       throw new EDatabaseError(
@@ -1773,6 +1785,8 @@ export interface TDataSourceOptions extends TOptions {
   dataset: TClientDataset;
 }
 
+const DATASOURCE_PROPS = defineProps<TDataSourceOptions>()(["dataset"]);
+
 /** Non-visual binding point that forwards dataset changes to multiple views. */
 export class TDataSource extends TComponent {
   private readonly _dataset: TClientDataset;
@@ -1783,7 +1797,7 @@ export class TDataSource extends TComponent {
     idOrOpts?: string | TDataSourceOptions,
     opts?: TDataSourceOptions,
   ) {
-    super(idOrOpts, opts, ["dataset"]);
+    super(idOrOpts, opts, DATASOURCE_PROPS);
     const options = this.options as TDataSourceOptions;
     if (!(options.dataset instanceof TClientDataset)) {
       throw new EDatabaseError(

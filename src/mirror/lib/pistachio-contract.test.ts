@@ -18,6 +18,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import * as P from "@tsix/pistachio";
 import {
+  defineProps,
   EComponentError,
   TButton,
   TClientDataset,
@@ -36,6 +37,7 @@ import {
   TTabulatorGrid,
   TTreeView,
   type TDBDriver,
+  type TOptions,
   type TScreenPort,
 } from "@tsix/pistachio";
 
@@ -404,3 +406,30 @@ function eventAllowed(instance: TComponent, event: string): boolean {
 }
 
 
+// ---------------------------------------------------------------------------
+// K5 — satu sumber props (diperiksa oleh `npm run typecheck:pistachio`)
+// ---------------------------------------------------------------------------
+
+interface TProbeOptions extends TOptions {
+  alpha?: string;
+  beta?: number;
+}
+interface TProbeChildOptions extends TProbeOptions {
+  gamma?: boolean;
+}
+
+describe("kontrak: defineProps (K5)", () => {
+  it("menerima daftar yang sama persis dengan interface", () => {
+    expect(defineProps<TProbeOptions>()(["alpha", "beta"])).toEqual(["alpha", "beta"]);
+    expect(defineProps<TProbeChildOptions, TProbeOptions>()(["gamma"])).toEqual(["gamma"]);
+  });
+
+  it("menolak daftar yang tidak cocok saat compile", () => {
+    // @ts-expect-error — "beta" ada di interface tapi tidak di array.
+    defineProps<TProbeOptions>()(["alpha"]);
+    // @ts-expect-error — "delta" tidak ada di interface.
+    defineProps<TProbeOptions>()(["alpha", "beta", "delta"]);
+    // @ts-expect-error — subclass hanya mendaftarkan props tambahannya.
+    defineProps<TProbeChildOptions, TProbeOptions>()(["alpha", "gamma"]);
+  });
+});

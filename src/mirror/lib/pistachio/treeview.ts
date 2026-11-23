@@ -7,7 +7,14 @@
  * (c) 2026 TSIX Project
  */
 
-import { TComponent, TNode, TOptions, TScreenPort, TStyle } from "./core";
+import {
+  defineProps,
+  TComponent,
+  TNode,
+  TOptions,
+  TScreenPort,
+  TStyle,
+} from "./core";
 
 const TEXT_DIM = "var(--text-dim, #ccc)";
 const TEXT_MUTED = "var(--text-muted, #8b97a6)";
@@ -39,6 +46,8 @@ interface TreeRow {
   depth: number;
 }
 
+const TREEVIEW_PROPS = defineProps<TTreeViewOptions>()(["nodes", "indent"]);
+
 export class TTreeView extends TComponent {
   public onSelect: ((node: TTreeNode) => void) | null = null;
   public onToggle: ((node: TTreeNode, expanded: boolean) => void) | null = null;
@@ -52,7 +61,7 @@ export class TTreeView extends TComponent {
     idOrOpts?: string | TTreeViewOptions,
     opts?: TTreeViewOptions,
   ) {
-    super(idOrOpts, opts, ["nodes", "indent"]);
+    super(idOrOpts, opts, TREEVIEW_PROPS);
     this.tag = "div";
     const o = this.options as TTreeViewOptions;
     this._nodes = [...(o.nodes ?? [])];
