@@ -339,7 +339,7 @@ mengikuti konvensi §3 sejak awal.
 - [x] P1-2 `label` → `caption`
 - [x] P1-3 Properti tampilan widget runtime
 - [x] P1-4 Error K4
-- [ ] P1-5 Dialog file non-visual
+- [x] P1-5 Dialog file non-visual
 - [ ] P1-6 `onError` seragam
 - [ ] Bagian Konvensi masuk `pistachio-in-a-nutshell.md`
 

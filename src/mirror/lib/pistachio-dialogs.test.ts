@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { TDialogs, TOpenDialog, TSaveDialog } from "@tsix/pistachio";
+import { TDialogs, TForm, TOpenDialog, TSaveDialog } from "@tsix/pistachio";
 
 function fakeOwner() {
   const screen = {
@@ -113,5 +113,43 @@ describe("TOpenDialog & TSaveDialog", () => {
     const result = await new TOpenDialog().execute(owner);
 
     expect(result).toBeNull();
+  });
+});
+
+describe("dialog file sebagai komponen non-visual (P1-5, K6)", () => {
+  it("execute() tanpa owner memakai form tempat dialog dipasang", async () => {
+    const { screen } = fakeOwner();
+    const form = new TForm({ id: "frm-dlg" });
+    (form as any)._screen = screen; // seperti setelah run()
+    const open = new TOpenDialog({ id: "dlg-open", title: "Buka", filter: ["txt"] });
+    const save = new TSaveDialog("dlg-save", { defaultName: "b.txt" });
+    form.add(open);
+    form.add(save);
+
+    expect(open.isVisual).toBe(false);
+    expect(form.byId("dlg-open")).toBe(open);
+    expect(form.build().children).toEqual([]);
+    expect(await open.execute()).toMatchObject({ path: "/docs/a.txt" });
+    expect(screen.openFileDialog).toHaveBeenCalledWith(expect.anything(), {
+      title: "Buka",
+      startDir: undefined,
+      filter: ["txt"],
+    });
+    expect(await save.execute()).toMatchObject({ path: "/docs/b.txt" });
+    expect(screen.saveFileDialog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ defaultName: "b.txt" }),
+    );
+  });
+
+  it("NOT_MOUNTED bila form belum run() atau dialog tidak di form", async () => {
+    const form = new TForm({ id: "frm-idle" });
+    const inForm = new TOpenDialog("dlg-a");
+    form.add(inForm);
+    await expect(inForm.execute()).rejects.toMatchObject({ code: "NOT_MOUNTED" });
+    await expect(new TSaveDialog("dlg-b").execute()).rejects.toMatchObject({
+      code: "NOT_MOUNTED",
+      componentId: "dlg-b",
+    });
   });
 });

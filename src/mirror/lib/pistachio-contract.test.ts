@@ -111,6 +111,8 @@ const NON_VISUAL = new Set([
   "TProvider",
   "TClientDataset",
   "TDataSource",
+  "TOpenDialog",
+  "TSaveDialog",
 ]);
 
 /** Helper statis murni (K6) — sengaja bukan TComponent. */
@@ -140,9 +142,6 @@ const EVENT_RULES: Record<string, "*" | Function[]> = {
 
 /** `Kelas:cek` → paket kerja yang akan memperbaikinya. */
 const KNOWN_VIOLATIONS: Record<string, string> = {
-  // P1-5 (K6): dialog file sebagai komponen non-visual.
-  "TOpenDialog:is TComponent": "P1-5",
-  "TSaveDialog:is TComponent": "P1-5",
 };
 
 // ---------------------------------------------------------------------------

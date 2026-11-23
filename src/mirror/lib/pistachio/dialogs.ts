@@ -9,7 +9,7 @@
 
 import { Screen, type TAlertOptions } from "@tsix/emerald";
 import { fs } from "@tsix/Application";
-import { EComponentError } from "./core";
+import { defineProps, EComponentError, TComponent, type TOptions } from "./core";
 import { TForm } from "./form";
 
 export interface TFileDialogResult {
@@ -82,33 +82,63 @@ export class TDialogs {
   }
 }
 
-export interface TOpenDialogOptions {
+export interface TOpenDialogOptions extends TOptions {
   title?: string;
   startDir?: string;
   filter?: string[];
 }
 
-/** Dialog pilih file. `execute()` mengembalikan null bila dibatalkan. */
-export class TOpenDialog {
+const OPENDIALOG_PROPS = defineProps<TOpenDialogOptions>()(["title", "startDir", "filter"]);
+
+/**
+ * Dialog pilih file, komponen non-visual (K6). Pasang ke form lalu panggil
+ * `execute()`; hasilnya null bila dibatalkan.
+ *
+ * ```ts
+ * const dlg = new TOpenDialog({ id: "dlg-open", title: "Pilih file" });
+ * form.add(dlg);
+ * const result = await dlg.execute();
+ * ```
+ */
+export class TOpenDialog extends TComponent {
   public title?: string;
   public startDir?: string;
   public filter: string[];
 
-  constructor(options: TOpenDialogOptions = {}) {
-    this.title = options.title;
-    this.startDir = options.startDir;
-    this.filter = options.filter ?? [];
+  constructor(
+    idOrOpts?: string | TOpenDialogOptions,
+    opts?: TOpenDialogOptions,
+    knownProps: readonly string[] = [],
+  ) {
+    super(idOrOpts, opts, [...OPENDIALOG_PROPS, ...knownProps]);
+    this.isVisual = false;
+    const o = this.options as TOpenDialogOptions;
+    this.title = o.title;
+    this.startDir = o.startDir;
+    this.filter = [...(o.filter ?? [])];
   }
 
-  async execute(
-    owner: TDialogOwner,
-    fsLib: any = fs,
-  ): Promise<TFileDialogResult | null> {
-    return resolveScreen(owner).openFileDialog(fsLib, {
+  /** Tampilkan dialog. Tanpa `owner`, dialog memakai form tempat ia dipasang. */
+  async execute(owner?: TDialogOwner, fsLib: any = fs): Promise<TFileDialogResult | null> {
+    return this.ownerScreen(owner).openFileDialog(fsLib, {
       title: this.title,
       startDir: this.startDir,
       filter: this.filter,
     });
+  }
+
+  protected ownerScreen(owner?: TDialogOwner): Screen {
+    if (owner) return resolveScreen(owner);
+    let root: TComponent = this;
+    while (root.parent) root = root.parent;
+    if (!(root instanceof TForm)) {
+      throw new EComponentError(
+        "NOT_MOUNTED",
+        `Dialog "${this.id}" is not attached to a form; add it to a form or pass an owner`,
+        this.id,
+      );
+    }
+    return resolveScreen(root);
   }
 }
 
@@ -116,25 +146,22 @@ export interface TSaveDialogOptions extends TOpenDialogOptions {
   defaultName?: string;
 }
 
-/** Dialog simpan file. `execute()` mengembalikan null bila dibatalkan. */
-export class TSaveDialog {
-  public title?: string;
-  public startDir?: string;
-  public filter: string[];
+const SAVEDIALOG_PROPS = defineProps<TSaveDialogOptions, TOpenDialogOptions>()(["defaultName"]);
+
+/** Dialog simpan file, komponen non-visual. `execute()` → null bila dibatalkan. */
+export class TSaveDialog extends TOpenDialog {
   public defaultName: string;
 
-  constructor(options: TSaveDialogOptions = {}) {
-    this.title = options.title;
-    this.startDir = options.startDir;
-    this.filter = options.filter ?? [];
-    this.defaultName = options.defaultName ?? "";
+  constructor(idOrOpts?: string | TSaveDialogOptions, opts?: TSaveDialogOptions) {
+    super(idOrOpts, opts, SAVEDIALOG_PROPS);
+    this.defaultName = (this.options as TSaveDialogOptions).defaultName ?? "";
   }
 
-  async execute(
-    owner: TDialogOwner,
+  override async execute(
+    owner?: TDialogOwner,
     fsLib: any = fs,
   ): Promise<TFileDialogResult | null> {
-    return resolveScreen(owner).saveFileDialog(fsLib, {
+    return this.ownerScreen(owner).saveFileDialog(fsLib, {
       title: this.title,
       startDir: this.startDir,
       defaultName: this.defaultName,

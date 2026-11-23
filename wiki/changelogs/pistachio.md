@@ -6,6 +6,19 @@
 
 ## 2026-11-23
 
+### Improve plan P1-5 — dialog file sebagai komponen non-visual (breaking)
+
+- **File:** `pistachio/dialogs.ts`, `pistachio-dialogs.test.ts`,
+  `pistachio-contract.test.ts`, `pistachio-demo.ts`, nutshell.
+- `TOpenDialog`/`TSaveDialog` kini `TComponent` (`isVisual = false`) dengan
+  kontrak konstruktor `(idOrOpts, opts)` dan `UNKNOWN_PROP`. `TSaveDialog`
+  turunan `TOpenDialog`.
+- `execute()` tanpa owner memakai form tempat dialog dipasang;
+  `NOT_MOUNTED` bila belum di form atau form belum `run()`. `execute(owner)`
+  tetap tersedia.
+- Tes kontrak: daftar pelanggaran yang diketahui kini kosong.
+- **Oleh:** Claude
+
 ### Improve plan P1-4 — error terketik K4 (breaking untuk pemeriksa `code`)
 
 - **File:** `pistachio/core.ts`, `data.ts`, `dbcontrols.ts`, `dialogs.ts`,

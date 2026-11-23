@@ -220,6 +220,15 @@ export const main = Program(async () => {
     style: { background: "#f5f5f5", border: "1px solid #ccc" },
   });
 
+  // Dialog file = komponen non-visual milik form (K6).
+  const dlgOpen = new TOpenDialog({ id: "dlg-open", title: "Pilih file", filter: ["*", "txt", "md"] });
+  const dlgImage = new TOpenDialog({
+    id: "dlg-image",
+    title: "Pilih gambar",
+    filter: [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg"],
+  });
+  const dlgSave = new TSaveDialog({ id: "dlg-save", title: "Simpan file", defaultName: "catatan.txt" });
+
   const dialogGroup = new TGroupBox({
     id: "grp-dialog",
     caption: "Dialog",
@@ -241,6 +250,9 @@ export const main = Program(async () => {
   form.add(dataGroup);
   form.add(iotGroup);
   form.add(dialogGroup);
+  form.add(dlgOpen);
+  form.add(dlgImage);
+  form.add(dlgSave);
   form.add(imageGroup);
   form.add(
     new THStack({
@@ -315,15 +327,12 @@ export const main = Program(async () => {
   };
 
   btnOpenFile.onClick = async () => {
-    const result = await new TOpenDialog({ title: "Pilih file", filter: ["*", "txt", "md"] }).execute(form);
+    const result = await dlgOpen.execute();
     status.text = result ? `Open: ${result.path}` : "Open dibatalkan";
   };
 
   btnOpenImage.onClick = async () => {
-    const result = await new TOpenDialog({
-      title: "Pilih gambar",
-      filter: [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg"],
-    }).execute(form);
+    const result = await dlgImage.execute();
     if (!result) {
       status.text = "Pilih gambar dibatalkan";
       return;
@@ -340,7 +349,7 @@ export const main = Program(async () => {
   };
 
   btnSaveFile.onClick = async () => {
-    const result = await new TSaveDialog({ title: "Simpan file", defaultName: "catatan.txt" }).execute(form);
+    const result = await dlgSave.execute();
     status.text = result ? `Save: ${result.path}` : "Save dibatalkan";
   };
 

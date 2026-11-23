@@ -123,7 +123,7 @@ di-refresh. UI dinamis tidak butuh langkah tambahan.
 4. **`onSetup(form)`**: hook aplikasi, opsional.
 5. Menunggu window ditutup, lalu **dispose** seluruh tree.
 
-Komponen non-visual (`TKeyboard`, `TDBConnection`, `TDataSource`, ...) punya
+Komponen non-visual (`TKeyboard`, `TOpenDialog`/`TSaveDialog`, `TDBConnection`, `TDataSource`, ...) punya
 `isVisual = false`: tetap di-bind, tapi tidak menghasilkan elemen DOM.
 
 ### Error terketik
@@ -428,12 +428,20 @@ if (answer === "Ya") { /* label tombol yang diklik */ }
 const name = await TDialogs.input(form, "Nama", "Masukkan nama:", "default");
 // string, atau null bila dibatalkan
 
-const opened = await new TOpenDialog({ title: "Pilih file", startDir: "/home", filter: ["txt", "md"] })
-  .execute(form);
-const saved = await new TSaveDialog({ title: "Simpan", defaultName: "catatan.txt" })
-  .execute(form);
+// Dialog file = komponen non-visual (seperti TOpenDialog di Delphi).
+const dlgOpen = new TOpenDialog({ id: "dlg-open", title: "Pilih file", startDir: "/home", filter: ["txt", "md"] });
+const dlgSave = new TSaveDialog({ id: "dlg-save", title: "Simpan", defaultName: "catatan.txt" });
+form.add(dlgOpen);
+form.add(dlgSave);
+
+const opened = await dlgOpen.execute(); // memakai form tempat dialog dipasang
+const saved = await dlgSave.execute();
 // { path, filename, directory } atau null bila dibatalkan
 ```
+
+`execute()` butuh form yang sedang berjalan; bila dialog belum dipasang ke form
+atau form belum `run()`, hasilnya `EComponentError("NOT_MOUNTED")`. Dialog yang
+tidak dipasang tetap bisa dipakai dengan owner eksplisit: `dlg.execute(form)`.
 
 ---
 
@@ -669,8 +677,8 @@ komponen keduanya dalam satu form.
 | `TGridPanel("g", 3)` | `new TGridPanel({ id: "g", columns: 3 })` |
 | `new TTabulatorGrid("g", cols, data, { height })` | `new TTabulatorGrid({ id: "g", columns: cols, data, height })` |
 | `new TTimer("t", 2000, true)` | belum ada, pakai `setInterval` (lihat contoh) |
-| `TDialogs.openFile(screen, fs, title, dir)` → path | `new TOpenDialog({ title, startDir: dir }).execute(form)` → `{ path, … } \| null` |
-| `TDialogs.saveFile(screen, fs, title, name)` → path | `new TSaveDialog({ title, defaultName: name }).execute(form)` → `{ path, … } \| null` |
+| `TDialogs.openFile(screen, fs, title, dir)` → path | `form.add(dlg = new TOpenDialog({ title, startDir: dir }))`, lalu `await dlg.execute()` → `{ path, … } \| null` |
+| `TDialogs.saveFile(screen, fs, title, name)` → path | `form.add(dlg = new TSaveDialog({ title, defaultName: name }))`, lalu `await dlg.execute()` → `{ path, … } \| null` |
 | `TDialogs.alert/confirm/input(screen, …)` | sama, pemilik boleh `form` |
 | `isVisual = false` (opt-out) | sama; kelas non-visual sudah mendeklarasikannya |
 | `db.connect()` + `db.query(sql)` + cek `{ error }` | `TDBConnection` + `TDBQuery` + `EDatabaseError` |
