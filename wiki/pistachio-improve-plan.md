@@ -1,6 +1,6 @@
 # Pistachio — Rencana Penyempurnaan
 
-**Improvement Plan** | **Version 1.0** | **2026-11-23** | **Status: Disetujui — P0 berjalan**
+**Improvement Plan** | **Version 1.0** | **2026-11-23** | **Status: Disetujui — P0 selesai, berikutnya P2 (guard)**
 
 Pistachio baru dibangun beberapa hari, dan fondasinya sudah sesuai
 [pistachio-plan.md](./pistachio-plan.md): satu kontrak konstruktor, props vs
@@ -300,7 +300,7 @@ mengikuti konvensi §3 sejak awal.
 - [x] P0-2 `TListBox.setItems` mempertahankan pilihan
 - [x] P0-3 Radio programatik meng-uncheck grup (+ Q6: grup eksplisit lingkup form)
 - [x] P0-4 `TDBGrid` menolak API data manual
-- [ ] P0-5 Contoh plan §6.6
+- [x] P0-5 Contoh plan §6.6
 
 ### Keputusan
 

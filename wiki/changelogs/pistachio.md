@@ -6,6 +6,23 @@
 
 ## 2026-11-23
 
+### Improve plan P0 — bug & kebenaran
+
+- **File:** `src/mirror/lib/pistachio/controls.ts`, `dbcontrols.ts`, `core.ts`,
+  `pistachio-controls.test.ts`, `pistachio-dbcontrols.test.ts`.
+- **P0-1:** setter `items` di `TComboBox`/`TListBox` kini me-render ulang (identik
+  dengan `setItems()`); sebelumnya list di layar tidak berubah.
+- **P0-2:** `setItems()` memakai aturan pilihan yang sama di combo dan list (item
+  yang masih ada tetap terpilih; combo jatuh ke item pertama, list ke `-1`).
+- **P0-3:** `rb.checked = true` lewat kode mematikan anggota grup lain (tanpa
+  `onClick`); `group` eksplisit berlaku di seluruh form (Q6).
+- **P0-4:** `TDBGrid` menolak `setData`/`appendData`/`data =` dengan
+  `EComponentError("UNSUPPORTED")` (kode baru); kolom `"auto"` tidak bisa diganti.
+- **P0-5:** contoh `pistachio-plan.md` §6.6 memakai `TDBPager({ pageSize })`.
+- **Verifikasi:** 128 tes Pistachio lolos (sebelumnya 110); tiap tes baru gagal di
+  kode lama; typecheck tanpa error di Pistachio.
+- **Oleh:** Claude
+
 ### Dokumentasi `pistachio-in-a-nutshell.md` + panduan migrasi
 
 - **File:** `wiki/pistachio-in-a-nutshell.md` (baru), `wiki/pistachio-plan.md`,

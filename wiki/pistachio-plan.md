@@ -269,11 +269,12 @@ const query = new TDBQuery({
 });
 
 const provider = new TProvider({ query });
-const dataset = new TClientDataset({ provider, pageSize: 50 });
+const dataset = new TClientDataset({ provider });
 const source = new TDataSource({ dataset });
 
 const grid = new TDBGrid({ dataSource: source, columns: "auto" });
 const nav = new TDBNavigator({ dataSource: source });
+const pager = new TDBPager({ dataSource: source, pageSize: 50 }); // paging sisi server
 const edtValue = new TDBEdit({ dataSource: source, field: "value" });
 ```
 
