@@ -6,6 +6,19 @@
 
 ## 2026-11-23
 
+### Improve plan P1-6 — `onError` seragam + bagian Konvensi
+
+- **File:** `pistachio/core.ts`, `dbcontrols.ts`, `widgets.ts`,
+  `pistachio-contract.test.ts`, nutshell.
+- Tipe baru `TErrorHandler = (error: EComponentError | EDatabaseError) => void`
+  dipakai semua `onError`. Error mentah dibungkus `IO_FAILED` dengan `cause`.
+- `onError` baru di `TImage` (auto-load `file`), `TDBEdit`, `TDBMemo`.
+  Ketikan/pilihan yang ditolak dataset di `TDBEdit`/`TDBMemo`/`TDBListBox` kini
+  dilaporkan ke `onError`, tidak lagi dilempar ke loop event UI.
+- Tes kontrak memeriksa setiap kelas ber-`onError` secara otomatis.
+- Nutshell mendapat bagian **Konvensi API** (ringkasan K1–K6).
+- **Oleh:** Claude
+
 ### Improve plan P1-5 — dialog file sebagai komponen non-visual (breaking)
 
 - **File:** `pistachio/dialogs.ts`, `pistachio-dialogs.test.ts`,

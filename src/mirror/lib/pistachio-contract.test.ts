@@ -492,7 +492,9 @@ describe("kontrak: pelaporan error async (P2-4)", () => {
     grid.onError = (error) => seen.push(error);
     (grid as any).background(Promise.reject(new Error("boom")), "test");
     await settle();
-    expect(seen).toEqual([expect.objectContaining({ message: "boom" })]);
+    expect(seen).toEqual([
+      expect.objectContaining({ code: "IO_FAILED", cause: expect.objectContaining({ message: "boom" }) }),
+    ]);
     expect(errorLog).not.toHaveBeenCalled();
     grid.dispose();
   });
@@ -567,5 +569,64 @@ describe("kontrak: error terketik (K4)", () => {
     const form = new TForm({ id: "frm-idle" });
     await expect(P.TDialogs.alert(form, "x")).rejects.toMatchObject({ code: "NOT_MOUNTED" });
     await expect(P.TDialogs.alert({} as any, "x")).rejects.toMatchObject({ code: "INVALID_OPTIONS" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P1-6 — onError seragam
+// ---------------------------------------------------------------------------
+
+describe("kontrak: onError seragam (P1-6)", () => {
+  const withOnError = components.filter(([name, C]) => {
+    try {
+      return "onError" in construct(name, C);
+    } catch {
+      return false;
+    }
+  });
+
+  it("komponen ber-I/O dari event punya onError", () => {
+    expect(withOnError.map(([name]) => name).sort()).toEqual(
+      ["TDBEdit", "TDBGrid", "TDBListBox", "TDBMemo", "TDBNavigator", "TDBPager", "TImage"].sort(),
+    );
+  });
+
+  for (const [name, C] of withOnError) {
+    it(`${name}: error mentah → IO_FAILED + cause; error terketik diteruskan apa adanya`, async () => {
+      const c = construct(name, C) as any;
+      const seen: unknown[] = [];
+      c.onError = (error: unknown) => seen.push(error);
+      const raw = new Error("disk");
+      const typed = new P.EDatabaseError("QUERY_FAILED", "nope");
+      c.background(Promise.reject(raw), "load");
+      c.background(Promise.reject(typed), "load");
+      await settle();
+      expect(seen[0]).toBeInstanceOf(EComponentError);
+      expect(seen[0]).toMatchObject({ code: "IO_FAILED", componentId: c.id, cause: raw });
+      expect(seen[1]).toBe(typed);
+      c.dispose();
+    });
+  }
+
+  it("TDBEdit: ketikan yang ditolak dataset → onError, onInput tidak dipicu", () => {
+    const edit = new P.TDBEdit({ dataSource: stack.dataSource, field: "id" });
+    const seen: unknown[] = [];
+    const onInput = vi.fn();
+    edit.onError = (error) => seen.push(error);
+    edit.onInput = onInput;
+    (edit as any).handleInput("bukan-angka"); // dataset belum edit() → ditolak
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ name: "EDatabaseError" });
+    expect(onInput).not.toHaveBeenCalled();
+    edit.dispose();
+  });
+
+  it("TImage: auto-load file yang gagal → onError IO_FAILED", async () => {
+    const image = new P.TImage({ id: "img-auto", file: "/tidak/ada.png" });
+    const seen: unknown[] = [];
+    image.onError = (error) => seen.push(error);
+    image.bindEventHandler(createPort());
+    await settle();
+    expect(seen).toEqual([expect.objectContaining({ code: "IO_FAILED", componentId: "img-auto" })]);
   });
 });

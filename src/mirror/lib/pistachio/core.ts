@@ -9,6 +9,8 @@
  * (c) 2026 TSIX Project
  */
 
+import type { EDatabaseError } from "./data";
+
 /** Style CSS objek, diteruskan ke lapisan DOM. */
 export type TStyle = Record<string, any>;
 
@@ -90,6 +92,13 @@ export type TComponentErrorCode =
   | "NOT_MOUNTED"
   /** Baca file/aset gagal; `cause` = error asli. */
   | "IO_FAILED";
+
+/**
+ * Handler `onError` (K1): satu signature untuk semua komponen. Error mentah
+ * (mis. dari host atau driver) dibungkus `EComponentError("IO_FAILED")`
+ * dengan `cause`, sehingga handler selalu bisa memeriksa `code`.
+ */
+export type TErrorHandler = (error: EComponentError | EDatabaseError) => void;
 
 export class EComponentError extends Error {
   public readonly code: TComponentErrorCode;
@@ -458,13 +467,22 @@ export class TComponent {
     const onError = (this as { onError?: unknown }).onError;
     if (typeof onError === "function") {
       try {
-        onError.call(this, error);
+        onError.call(this, this.typedError(context, error));
         return;
       } catch (handlerError) {
         console.error(`[Pistachio] ${this.constructor.name} "${this.id}" onError failed:`, handlerError);
       }
     }
     console.error(`[Pistachio] ${this.constructor.name} "${this.id}" ${context} failed:`, error);
+  }
+
+  /** Error terketik apa adanya; selain itu dibungkus `IO_FAILED` + `cause`. */
+  private typedError(context: string, error: unknown): EComponentError | EDatabaseError {
+    if (error instanceof EComponentError) return error;
+    // Cek nama, bukan instanceof: core tidak boleh mengimpor data.ts saat runtime.
+    if (error instanceof Error && error.name === "EDatabaseError") return error as EDatabaseError;
+    const message = error instanceof Error ? error.message : String(error);
+    return new EComponentError("IO_FAILED", `${context} failed: ${message}`, this.id, error);
   }
 
   /** Daftarkan host UI. Subclass yang menangani event wajib memanggil super. */

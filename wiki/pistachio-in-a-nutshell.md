@@ -27,9 +27,10 @@ TDBControls`).
 9. [Dialog](#-dialog)
 10. [Shortcut Keyboard](#-shortcut-keyboard)
 11. [Stack Database](#-stack-database)
-12. [Batasan Saat Ini](#-batasan-saat-ini)
-13. [Panduan Migrasi dari Cashew](#-panduan-migrasi-dari-cashew)
-14. [Referensi](#-referensi)
+12. [Konvensi API](#-konvensi-api)
+13. [Batasan Saat Ini](#-batasan-saat-ini)
+14. [Panduan Migrasi dari Cashew](#-panduan-migrasi-dari-cashew)
+15. [Referensi](#-referensi)
 
 ---
 
@@ -140,9 +141,23 @@ pesan error.
 langsung kembali), jadi kegagalan render di belakangnya, misalnya karena window
 sudah ditutup, tidak bisa dilempar ke pemanggil. Kegagalan itu tidak menjadi
 unhandled rejection. Pistachio meneruskannya ke `onError` milik komponen bila
-ada (kontrol DB), dan selain itu menulisnya ke `console.error` sebagai
+ada, dan selain itu menulisnya ke `console.error` sebagai
 `[Pistachio] TLabel "status" update failed: ...`. Pakai varian `async setX()`
 bila perlu menunggu dan menangkap error sendiri.
+
+**`onError`** ada di komponen yang melakukan I/O dari event user: `TImage`
+(auto-load `file`), `TDBEdit`, `TDBMemo`, `TDBListBox` (nilai ditolak dataset),
+`TDBGrid`, `TDBNavigator`, `TDBPager`. Signature-nya satu untuk semua:
+
+```ts
+grid.onError = (error) => {
+  // error: EComponentError | EDatabaseError — selalu punya `code`
+  status.text = `${error.code}: ${error.message}`;
+};
+```
+
+Error mentah (mis. dari driver atau host) dibungkus
+`EComponentError("IO_FAILED")` dengan `cause` = error asli.
 
 ### Membuat kelas komponen
 
@@ -617,6 +632,29 @@ dicek manual seperti di `db.query()` mentah.
 | `INVALID_QUERY` | SQL kosong/tidak bisa di-page, argumen query/filter/sort tidak valid |
 
 Pesan error berbahasa Inggris; cek `code`, bukan teks pesan.
+
+---
+
+## 📏 Konvensi API
+
+Aturan yang berlaku untuk semua komponen, dijaga otomatis oleh
+`pistachio-contract.test.ts` dan `npm run typecheck:pistachio`.
+
+| Area | Aturan |
+| :-- | :-- |
+| Konstruktor | `new TX()`, `new TX("id")`, `new TX({ ... })`, `new TX("id", { ... })`; key tak dikenal → `UNKNOWN_PROP` |
+| Event klik | `onClick()` hanya untuk aktivasi murni (`TButton`, `TImage`) |
+| Event nilai | `onChange(nilaiBaru, …)` saat **user** mengubah nilai; `onInput(value)` untuk perubahan sementara (ketik, geser) |
+| Event koleksi | `onSelect(…)` untuk seleksi, `onActivate(…)` untuk double-click/Enter |
+| Event vs kode | perubahan lewat kode (`cb.checked = true`, `tree.select(id)`) tidak memicu event |
+| Kegagalan async | `onError(error: EComponentError \| EDatabaseError)`; tanpa handler → `console.error` |
+| Setter | setiap setter publik langsung memperbarui UI; `async setX()` hanya bila perlu menunggu render |
+| Koleksi | mengganti isi mempertahankan item terpilih bila masih ada (combo → item pertama, list → `-1`) |
+| Teks | `text` = isi (`TLabel`, `TEdit`, `TMemo`); `caption` = judul kontrol/widget |
+| Mutabilitas | semua properti tampilan bisa diubah runtime; yang tetap hanya identitas (`id`) dan wiring (`dataSource`, `field`) |
+| Error | `EComponentError`/`EDatabaseError` dengan `code`, pesan berbahasa Inggris; tidak ada `throw new Error` |
+| Non-visual | `TKeyboard`, dialog file, stack DB: `TComponent` dengan `isVisual = false`; helper statis (`TDialogs`) tetap statis |
+| Wiring internal | kontrol turunan memakai hook `protected`, sehingga event publik selalu milik aplikasi |
 
 ---
 

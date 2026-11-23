@@ -9,6 +9,7 @@ import {
   EComponentError,
   resolveOptions,
   TComponent,
+  type TErrorHandler,
   TKeyEvent,
   TOptions,
   TScreenPort,
@@ -222,6 +223,8 @@ const DBEDIT_PROPS = defineProps<TDBEditOptions, TEditOptions>()([
 ]);
 
 export class TDBEdit extends TEdit {
+  /** Ketikan user tidak bisa ditulis ke field (mis. angka tidak valid). */
+  public onError: TErrorHandler | null = null;
   private readonly _dataSource: TDataSource;
   private readonly _field: string;
   private readonly _formatValue?: TFieldFormatter;
@@ -254,12 +257,20 @@ export class TDBEdit extends TEdit {
     super.dispose();
   }
 
-  /** Ketikan user langsung ditulis ke field; `onInput` tetap milik aplikasi. */
+  /**
+   * Ketikan user langsung ditulis ke field; `onInput` tetap milik aplikasi.
+   * Nilai yang ditolak dataset dilaporkan ke `onError`, bukan dilempar ke UI.
+   */
   protected override handleInput(text: string): void {
-    const value = this._parseValue
-      ? this._parseValue(text)
-      : parseFieldValue(this._dataSource, this._field, text);
-    this._dataSource.setField(this._field, value);
+    try {
+      const value = this._parseValue
+        ? this._parseValue(text)
+        : parseFieldValue(this._dataSource, this._field, text);
+      this._dataSource.setField(this._field, value);
+    } catch (error) {
+      this.reportError("input", error);
+      return;
+    }
     super.handleInput(text);
   }
 
@@ -291,6 +302,8 @@ const DBMEMO_PROPS = defineProps<TDBMemoOptions, TMemoOptions>()([
 ]);
 
 export class TDBMemo extends TMemo {
+  /** Ketikan user tidak bisa ditulis ke field (mis. angka tidak valid). */
+  public onError: TErrorHandler | null = null;
   private readonly _dataSource: TDataSource;
   private readonly _field: string;
   private readonly _formatValue?: TFieldFormatter;
@@ -323,12 +336,20 @@ export class TDBMemo extends TMemo {
     super.dispose();
   }
 
-  /** Ketikan user langsung ditulis ke field; `onInput` tetap milik aplikasi. */
+  /**
+   * Ketikan user langsung ditulis ke field; `onInput` tetap milik aplikasi.
+   * Nilai yang ditolak dataset dilaporkan ke `onError`, bukan dilempar ke UI.
+   */
   protected override handleInput(text: string): void {
-    const value = this._parseValue
-      ? this._parseValue(text)
-      : parseFieldValue(this._dataSource, this._field, text);
-    this._dataSource.setField(this._field, value);
+    try {
+      const value = this._parseValue
+        ? this._parseValue(text)
+        : parseFieldValue(this._dataSource, this._field, text);
+      this._dataSource.setField(this._field, value);
+    } catch (error) {
+      this.reportError("input", error);
+      return;
+    }
     super.handleInput(text);
   }
 
@@ -361,7 +382,7 @@ const DBLISTBOX_PROPS = defineProps<TDBListBoxOptions, TListBoxOptions>()([
 ]);
 
 export class TDBListBox extends TListBox {
-  public onError: ((error: unknown) => void) | null = null;
+  public onError: TErrorHandler | null = null;
 
   private readonly _dataSource: TDataSource;
   private readonly _field: string;
@@ -395,17 +416,22 @@ export class TDBListBox extends TListBox {
 
   /** Pilihan user ditulis ke field; `onChange` tetap milik aplikasi. */
   protected override handleSelect(index: number): void {
-    if (this.readOnly) {
-      throw new EDatabaseError(
-        "DATASET_NOT_BROWSE",
-        "Call edit() or insert() before changing a field",
-      );
+    try {
+      if (this.readOnly) {
+        throw new EDatabaseError(
+          "DATASET_NOT_BROWSE",
+          "Call edit() or insert() before changing a field",
+        );
+      }
+      const item = this.items[index] ?? "";
+      const value = this._parseValue
+        ? this._parseValue(item)
+        : parseFieldValue(this._dataSource, this._field, item);
+      this._dataSource.setField(this._field, value);
+    } catch (error) {
+      this.reportError("select", error);
+      return;
     }
-    const item = this.items[index] ?? "";
-    const value = this._parseValue
-      ? this._parseValue(item)
-      : parseFieldValue(this._dataSource, this._field, item);
-    this._dataSource.setField(this._field, value);
     super.handleSelect(index);
   }
 
@@ -474,7 +500,7 @@ const DBGRID_PROPS = defineProps<TDBGridOptions, TTabulatorGridOptions>()([
 
 /** Tabulator-backed database grid; columns default to field metadata. */
 export class TDBGrid extends TTabulatorGrid {
-  public onError: ((error: unknown) => void) | null = null;
+  public onError: TErrorHandler | null = null;
 
   private readonly _dataSource: TDataSource;
   private readonly _automaticColumns: boolean;
@@ -710,7 +736,7 @@ export interface TDBNavigatorOptions extends TOptions {
 const DBNAVIGATOR_PROPS = defineProps<TDBNavigatorOptions>()(["dataSource"]);
 
 export class TDBNavigator extends THStack {
-  public onError: ((error: unknown) => void) | null = null;
+  public onError: TErrorHandler | null = null;
 
   private readonly _dataSource: TDataSource;
   private readonly _unsubscribe: () => void;
@@ -918,7 +944,7 @@ const DBPAGER_PROPS = defineProps<TDBPagerOptions>()(["dataSource", "pageSize"])
 
 /** Server-side paging for the SELECT query bound to a data source. */
 export class TDBPager extends THStack {
-  public onError: ((error: unknown) => void) | null = null;
+  public onError: TErrorHandler | null = null;
 
   readonly firstButton: TButton;
   readonly priorButton: TButton;

@@ -27,6 +27,7 @@ import { fs } from "@tsix/Application";
 import {
   defineProps,
   EComponentError,
+  type TErrorHandler,
   TComponent,
   TNode,
   TOptions,
@@ -1688,6 +1689,8 @@ const IMAGE_PROPS = defineProps<TImageOptions>()([
 /** Gambar; bisa dari URL/data URI atau file VFS. */
 export class TImage extends TComponent {
   public onClick: (() => void) | null = null;
+  /** Auto-load `file` gagal (`IO_FAILED`); tanpa handler, error dilog. */
+  public onError: TErrorHandler | null = null;
 
   private _src: string;
   private _alt: string;
