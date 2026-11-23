@@ -517,3 +517,56 @@ describe("kontrak: pelaporan error async (P2-4)", () => {
     grid.dispose();
   });
 });
+
+// ---------------------------------------------------------------------------
+// K4 — error terketik (P1-4)
+// ---------------------------------------------------------------------------
+
+describe("kontrak: error terketik (K4)", () => {
+  it("tidak ada `new Error(` di sumber Pistachio", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const dir = path.resolve(__dirname, "pistachio");
+    const offenders = fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+      .filter((f) => /\bnew Error\(/.test(fs.readFileSync(path.join(dir, f), "utf8")));
+    expect(offenders).toEqual([]);
+  });
+
+  const wrong = { not: "a component" } as any;
+  const bindingCases: [string, () => unknown][] = [
+    ["TDBQuery", () => new TDBQuery({ connection: wrong, sql: SQL })],
+    ["TProvider", () => new TProvider({ query: wrong })],
+    ["TClientDataset", () => new TClientDataset({ provider: wrong })],
+    ["TDataSource", () => new TDataSource({ dataset: wrong })],
+    ["TDBText", () => new P.TDBText({ dataSource: wrong, field: "notes" })],
+    ["TDBGrid", () => new P.TDBGrid({ dataSource: wrong })],
+    ["TDBNavigator", () => new P.TDBNavigator({ dataSource: wrong })],
+    ["TDBPager", () => new P.TDBPager({ dataSource: wrong })],
+  ];
+  for (const [name, make] of bindingCases) {
+    it(`${name}: wiring salah tipe → INVALID_BINDING`, () => {
+      expect(make).toThrow(expect.objectContaining({ name: "EDatabaseError", code: "INVALID_BINDING" }));
+    });
+  }
+
+  it("field yang tidak ada tetap INVALID_FIELD", () => {
+    expect(() => new P.TDBText({ dataSource: stack.dataSource, field: "nope" })).toThrow(
+      expect.objectContaining({ code: "INVALID_FIELD" }),
+    );
+  });
+
+  it("TImage.loadFile gagal → IO_FAILED dengan cause", async () => {
+    const image = new P.TImage({ id: "img-io" });
+    const error = await image.loadFile("/tidak/ada.png").catch((e) => e);
+    expect(error).toBeInstanceOf(EComponentError);
+    expect(error).toMatchObject({ code: "IO_FAILED", componentId: "img-io" });
+  });
+
+  it("dialog dari form yang belum run() → NOT_MOUNTED; owner salah → INVALID_OPTIONS", async () => {
+    const form = new TForm({ id: "frm-idle" });
+    await expect(P.TDialogs.alert(form, "x")).rejects.toMatchObject({ code: "NOT_MOUNTED" });
+    await expect(P.TDialogs.alert({} as any, "x")).rejects.toMatchObject({ code: "INVALID_OPTIONS" });
+  });
+});

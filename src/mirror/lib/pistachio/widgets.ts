@@ -26,6 +26,7 @@ import {
 import { fs } from "@tsix/Application";
 import {
   defineProps,
+  EComponentError,
   TComponent,
   TNode,
   TOptions,
@@ -1743,9 +1744,14 @@ export class TImage extends TComponent {
     if (!path) return;
 
     this._file = path;
-    const raw = await fs.readFile(path);
+    let raw: unknown;
+    try {
+      raw = await fs.readFile(path);
+    } catch (error) {
+      throw new EComponentError("IO_FAILED", `Cannot read image "${path}"`, this.id, error);
+    }
     if (!raw) {
-      throw new Error(`[TImage] cannot read ${path}`);
+      throw new EComponentError("IO_FAILED", `Cannot read image "${path}"`, this.id);
     }
 
     this._mime = mimeOfPath(path, this._mime);

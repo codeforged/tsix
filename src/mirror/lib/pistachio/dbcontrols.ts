@@ -51,7 +51,7 @@ interface TDBBoundOptions extends TOptions {
 function validateBinding(dataSource: TDataSource, field: string): void {
   if (!(dataSource instanceof TDataSource)) {
     throw new EDatabaseError(
-      "INVALID_FIELD",
+      "INVALID_BINDING",
       "A DB control requires a TDataSource",
     );
   }
@@ -453,7 +453,7 @@ function resolveDBGridOptions(
   const options = resolveOptions(idOrOpts, opts) as TDBGridOptions;
   if (!(options.dataSource instanceof TDataSource)) {
     throw new EDatabaseError(
-      "INVALID_FIELD",
+      "INVALID_BINDING",
       "TDBGrid requires a TDataSource",
     );
   }
@@ -735,7 +735,7 @@ export class TDBNavigator extends THStack {
     const options = this.options as TDBNavigatorOptions;
     if (!(options.dataSource instanceof TDataSource)) {
       throw new EDatabaseError(
-        "INVALID_FIELD",
+        "INVALID_BINDING",
         "TDBNavigator requires a TDataSource",
       );
     }
@@ -944,7 +944,7 @@ export class TDBPager extends THStack {
     const options = this.options as TDBPagerOptions;
     if (!(options.dataSource instanceof TDataSource)) {
       throw new EDatabaseError(
-        "INVALID_FIELD",
+        "INVALID_BINDING",
         "TDBPager requires a TDataSource",
       );
     }

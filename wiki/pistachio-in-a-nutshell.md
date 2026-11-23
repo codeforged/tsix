@@ -130,7 +130,7 @@ Komponen non-visual (`TKeyboard`, `TDBConnection`, `TDataSource`, ...) punya
 
 | Kelas | Kapan | Contoh kode |
 | :-- | :-- | :-- |
-| `EComponentError` | kesalahan tree/opsi | `UNKNOWN_PROP`, `DUPLICATE_ID`, `ALREADY_PARENTED`, `CYCLE`, `NOT_A_CHILD`, `DISPOSED`, `INVALID_OPTIONS`, `UNSUPPORTED` |
+| `EComponentError` | kesalahan tree/opsi/operasi | `UNKNOWN_PROP`, `DUPLICATE_ID`, `ALREADY_PARENTED`, `CYCLE`, `NOT_A_CHILD`, `DISPOSED`, `INVALID_OPTIONS`, `UNSUPPORTED`, `NOT_MOUNTED` (form belum `run()`), `IO_FAILED` (baca file gagal, `cause` = error asli) |
 | `EDatabaseError` | kesalahan stack database | `CONNECTION_FAILED`, `QUERY_FAILED`, `PROVIDER_NOT_WRITABLE`, `DATASET_DIRTY`, ... (lihat [Stack Database](#-stack-database)) |
 
 Keduanya punya `code` untuk dicek program, jadi aplikasi tidak perlu mem-parsing
@@ -601,6 +601,14 @@ Semua kegagalan dibungkus `EDatabaseError` dengan `code`, misalnya
 `PROVIDER_NOT_WRITABLE`, `PROVIDER_NOT_UPDATABLE`, `DATASET_DIRTY`,
 `DATASET_NOT_BROWSE`, `INVALID_FIELD`. Tidak ada objek `{ error }` yang perlu
 dicek manual seperti di `db.query()` mentah.
+
+| Kode | Arti |
+| :-- | :-- |
+| `INVALID_BINDING` | wiring salah tipe: `TProvider` tanpa `TDBQuery`, kontrol DB tanpa `TDataSource`, ... |
+| `INVALID_FIELD` | nama field kosong/tidak ada, atau nilai tidak cocok dengan tipe field |
+| `INVALID_QUERY` | SQL kosong/tidak bisa di-page, argumen query/filter/sort tidak valid |
+
+Pesan error berbahasa Inggris; cek `code`, bukan teks pesan.
 
 ---
 

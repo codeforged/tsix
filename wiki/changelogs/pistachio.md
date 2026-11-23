@@ -6,6 +6,20 @@
 
 ## 2026-11-23
 
+### Improve plan P1-4 — error terketik K4 (breaking untuk pemeriksa `code`)
+
+- **File:** `pistachio/core.ts`, `data.ts`, `dbcontrols.ts`, `dialogs.ts`,
+  `widgets.ts`, `pistachio-contract.test.ts`, nutshell.
+- **Kode baru:** `EComponentError` `NOT_MOUNTED` dan `IO_FAILED` (dengan
+  `cause`); `EDatabaseError` `INVALID_BINDING`.
+- Wiring stack DB yang salah tipe (9 titik) kini `INVALID_BINDING`, bukan
+  `INVALID_QUERY`/`INVALID_FIELD`. Field tidak ada tetap `INVALID_FIELD`.
+- Tidak ada lagi `throw new Error(...)` di Pistachio: dialog dari form yang
+  belum `run()` → `NOT_MOUNTED` (sebelumnya pesan berbahasa Indonesia), owner
+  salah → `INVALID_OPTIONS`, `TImage.loadFile` gagal → `IO_FAILED`. Tes kontrak
+  menjaga aturan ini.
+- **Oleh:** Claude
+
 ### Improve plan P1-3 — properti tampilan widget bisa diubah runtime
 
 - **File:** `pistachio/widgets.ts`, `pistachio-widgets.test.ts`,

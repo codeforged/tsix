@@ -9,6 +9,7 @@
 
 import { Screen, type TAlertOptions } from "@tsix/emerald";
 import { fs } from "@tsix/Application";
+import { EComponentError } from "./core";
 import { TForm } from "./form";
 
 export interface TFileDialogResult {
@@ -24,7 +25,11 @@ function resolveScreen(owner: TDialogOwner): Screen {
   if (owner instanceof TForm) {
     const screen = owner.screen;
     if (!screen) {
-      throw new Error("TForm belum dijalankan — panggil run() lebih dulu");
+      throw new EComponentError(
+        "NOT_MOUNTED",
+        `Form "${owner.id}" is not running; call run() before opening a dialog`,
+        owner.id,
+      );
     }
     return screen;
   }
@@ -36,7 +41,7 @@ function resolveScreen(owner: TDialogOwner): Screen {
   const nested = (owner as any).screen;
   if (nested) return nested as Screen;
 
-  throw new Error("Dialog owner must be a TForm or Screen");
+  throw new EComponentError("INVALID_OPTIONS", "Dialog owner must be a TForm or Screen");
 }
 
 /**

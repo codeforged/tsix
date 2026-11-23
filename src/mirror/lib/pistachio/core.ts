@@ -85,21 +85,28 @@ export type TComponentErrorCode =
   | "DUPLICATE_ID"
   | "NOT_A_CHILD"
   | "DISPOSED"
-  | "UNSUPPORTED";
+  | "UNSUPPORTED"
+  /** Operasi butuh form yang sudah `run()`. */
+  | "NOT_MOUNTED"
+  /** Baca file/aset gagal; `cause` = error asli. */
+  | "IO_FAILED";
 
 export class EComponentError extends Error {
   public readonly code: TComponentErrorCode;
   public readonly componentId?: string;
+  public readonly cause?: unknown;
 
   constructor(
     code: TComponentErrorCode,
     message: string,
     componentId?: string,
+    cause?: unknown,
   ) {
     super(message);
     this.name = "EComponentError";
     this.code = code;
     this.componentId = componentId;
+    this.cause = cause;
   }
 }
 

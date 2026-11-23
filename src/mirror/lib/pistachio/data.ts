@@ -83,7 +83,9 @@ export type TDatabaseErrorCode =
   | "DATASET_NOT_OPEN"
   | "DATASET_DIRTY"
   | "DATASET_NOT_BROWSE"
-  | "INVALID_FIELD";
+  | "INVALID_FIELD"
+  /** Wiring stack DB salah tipe (mis. `TProvider` tanpa `TDBQuery`). */
+  | "INVALID_BINDING";
 
 export class EDatabaseError extends Error {
   public readonly code: TDatabaseErrorCode;
@@ -534,7 +536,7 @@ export class TDBQuery extends TComponent {
     const options = this.options as TDBQueryOptions;
     if (!(options.connection instanceof TDBConnection)) {
       throw new EDatabaseError(
-        "INVALID_QUERY",
+        "INVALID_BINDING",
         "TDBQuery requires a TDBConnection",
       );
     }
@@ -554,7 +556,7 @@ export class TDBQuery extends TComponent {
   set connection(value: TDBConnection) {
     if (!(value instanceof TDBConnection)) {
       throw new EDatabaseError(
-        "INVALID_QUERY",
+        "INVALID_BINDING",
         "TDBQuery requires a TDBConnection",
       );
     }
@@ -796,7 +798,7 @@ export class TProvider extends TComponent {
     const options = this.options as TProviderOptions;
     if (!(options.query instanceof TDBQuery)) {
       throw new EDatabaseError(
-        "INVALID_QUERY",
+        "INVALID_BINDING",
         "TProvider requires a TDBQuery",
       );
     }
@@ -1240,7 +1242,7 @@ export class TClientDataset extends TComponent {
     const options = this.options as TClientDatasetOptions;
     if (!(options.provider instanceof TProvider)) {
       throw new EDatabaseError(
-        "INVALID_QUERY",
+        "INVALID_BINDING",
         "TClientDataset requires a TProvider",
       );
     }
@@ -1801,7 +1803,7 @@ export class TDataSource extends TComponent {
     const options = this.options as TDataSourceOptions;
     if (!(options.dataset instanceof TClientDataset)) {
       throw new EDatabaseError(
-        "INVALID_QUERY",
+        "INVALID_BINDING",
         "TDataSource requires a TClientDataset",
       );
     }
