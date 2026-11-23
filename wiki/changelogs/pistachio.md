@@ -6,6 +6,15 @@
 
 ## 2026-11-23
 
+### Tutup komponen sebelum window dihancurkan
+
+- **File:** `emerald.ts`, `pistachio/form.ts`, `pistachio-form.test.ts`,
+  nutshell.
+- `Screen.loopUntilClose()` menerima hook lifecycle yang dipanggil saat event
+  close diterima. `TForm` menjalankan `onClose` dan dispose tree secara sinkron
+  melalui hook tersebut, sehingga `TTimer` berhenti sebelum window dihancurkan.
+- **Oleh:** Copilot
+
 ### GUI tester untuk driver CSV
 
 - **File:** `pistachio-csv-demo.ts`, menu Asteracea, manifest `pistachio-demos`,

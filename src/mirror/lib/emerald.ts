@@ -4934,9 +4934,13 @@ export class Screen {
   // ============================================================
   // LOOP — stay alive sampai window ditutup atau running=false
   // ============================================================
-  async loopUntilClose() {
+  async loopUntilClose(beforeClose?: () => void) {
     this.win.onClose(() => {
-      this.running = false;
+      try {
+        beforeClose?.();
+      } finally {
+        this.running = false;
+      }
     });
     while (this.running) {
       await new Promise((r) => setTimeout(r, 1000));

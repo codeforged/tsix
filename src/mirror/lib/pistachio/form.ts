@@ -46,6 +46,7 @@ export class TForm extends TComponent {
 
   private _screen: Screen | null = null;
   private _keyboardUnbind: (() => void) | null = null;
+  private _closePrepared = false;
   private readonly _title: string;
   private readonly _icon?: string;
   private readonly _width: number;
@@ -122,8 +123,6 @@ export class TForm extends TComponent {
     });
     this._screen = screen;
 
-    if (this.onClose) screen.win.onClose(() => this.onClose?.());
-
     await applyTheme(screen);
     await screen.mount(this.build());
 
@@ -138,7 +137,7 @@ export class TForm extends TComponent {
 
     try {
       if (this.onSetup) await this.onSetup(this);
-      await screen.loopUntilClose();
+      await screen.loopUntilClose(() => this.prepareForClose());
     } finally {
       this.unbindKeyboard();
       this.disposeTree({ unmount: false });
@@ -172,9 +171,7 @@ export class TForm extends TComponent {
 
   /** Tutup window dan hancurkan seluruh subtree. */
   async close(): Promise<void> {
-    this.onClose?.();
-    this.unbindKeyboard();
-    this.disposeTree({ unmount: false });
+    this.prepareForClose();
     await this._screen?.keyboard?.detach();
     await this._screen?.close();
   }
@@ -207,6 +204,17 @@ export class TForm extends TComponent {
   private unbindKeyboard(): void {
     this._keyboardUnbind?.();
     this._keyboardUnbind = null;
+  }
+
+  private prepareForClose(): void {
+    if (this._closePrepared) return;
+    this._closePrepared = true;
+    try {
+      this.onClose?.();
+    } finally {
+      this.unbindKeyboard();
+      this.disposeTree({ unmount: false });
+    }
   }
 }
 

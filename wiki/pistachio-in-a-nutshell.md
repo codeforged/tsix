@@ -129,6 +129,11 @@ di-refresh. UI dinamis tidak butuh langkah tambahan.
 4. **`onSetup(form)`**: hook aplikasi, opsional.
 5. Menunggu window ditutup, lalu **dispose** seluruh tree.
 
+Saat window mulai ditutup, `TForm` menjalankan `onClose` dan menghentikan /
+men-dispose komponen terlebih dahulu. Karena itu timer dan resource komponen
+dibersihkan sebelum window Emerald dihancurkan; aplikasi tidak perlu mengelola
+`TTimer` secara manual di callback penutupan.
+
 Komponen non-visual (`TKeyboard`, `TOpenDialog`/`TSaveDialog`, `TDBConnection`, `TDataSource`, ...) punya
 `isVisual = false`: tetap di-bind, tapi tidak menghasilkan elemen DOM.
 
