@@ -380,5 +380,31 @@ export const main = Program(async () => {
 
   form.add(keyboard);
 
-  await form.run();
+  // Simulasi sensor: suhu, kelembaban, dan chart bergerak setiap 5 detik.
+  const CHART_POINTS = 10; // chart menggeser: hanya 10 data terakhir yang tampil
+  let suhu = sensor.value;
+  let hum = gauge.value;
+  let trend = [...chart.data];
+
+  const timer = setInterval(() => {
+    suhu = drift(suhu, 0.8, 20, 35);
+    hum = drift(hum, 3, 40, 90);
+    trend = [...trend, suhu].slice(-CHART_POINTS);
+
+    sensor.value = suhu;
+    gauge.value = hum;
+    chart.data = trend;
+  }, 5000);
+
+  try {
+    await form.run();
+  } finally {
+    clearInterval(timer);
+  }
 });
+
+/** Langkah acak ±`step` dari `value`, dijepit ke [min, max], 1 desimal. */
+function drift(value: number, step: number, min: number, max: number): number {
+  const next = value + (Math.random() * 2 - 1) * step;
+  return Math.round(Math.min(max, Math.max(min, next)) * 10) / 10;
+}
