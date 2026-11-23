@@ -1,0 +1,14 @@
+{
+    "extends": "./tsconfig.json",
+    "include": [
+        "src/mirror/lib/pistachio.ts",
+        "src/mirror/lib/pistachio/**/*.ts",
+        "src/mirror/lib/pistachio*.test.ts",
+        "src/mirror/lib/lantana/control-panel-tree.ts",
+        "src/mirror/opt/lantana/lantana-control-panel.ts",
+        "src/mirror/opt/azalea-dashboard/azalea-dashboard.ts",
+        "src/mirror/opt/test/pistachio-demo.ts",
+        "src/mirror/opt/test/pistachio-dbdemo.ts",
+        "src/mirror/opt/test/pistachio-dbcontrols-demo.ts"
+    ]
+}

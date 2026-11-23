@@ -13,6 +13,7 @@
         "install": "node -r esbuild-register -r tsconfig-paths/register scripts/install.ts",
         "course:serve": "node -r esbuild-register -r tsconfig-paths/register wiki/course/course-server.ts",
         "typecheck": "tsc --noEmit",
+        "typecheck:pistachio": "node -r esbuild-register scripts/typecheck-pistachio.ts",
         "tpkg:manifest": "node -r esbuild-register scripts/gen-tpkg-manifest.ts",
         "distro:inventory": "node -r esbuild-register scripts/inventory-tsix-files.ts",
         "distro:twrapper": "node -r esbuild-register scripts/twrapper/build.ts",
