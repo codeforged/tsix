@@ -685,3 +685,75 @@ describe("setter items me-render ulang (P0-1)", () => {
     expect(onClick).toHaveBeenCalledWith(1, "b");
   });
 });
+
+describe("TRadioButton grup (P0-3, Q6)", () => {
+  const radio = (id: string, group?: string, checked = false) =>
+    new TRadioButton({ id, caption: id, checked, ...(group ? { group } : {}) });
+
+  it("checked = true lewat kode mematikan anggota grup lain tanpa memicu onClick", () => {
+    const a = radio("a", "g", true);
+    const b = radio("b", "g");
+    new THStack({ children: [a, b] });
+    const onClick = vi.fn();
+    a.onClick = onClick;
+    b.onClick = onClick;
+
+    b.checked = true;
+
+    expect([a.checked, b.checked]).toEqual([false, true]);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("grup eksplisit berlaku di seluruh form, lintas parent", () => {
+    const a = radio("a", "prio", true);
+    const b = radio("b", "prio");
+    new TVStack({
+      children: [new THStack({ children: [a] }), new TPanel({ children: [new THStack({ children: [b] })] })],
+    });
+
+    b.checked = true;
+    expect(a.checked).toBe(false);
+  });
+
+  it("klik juga mematikan anggota grup di parent lain", () => {
+    const a = radio("a", "prio", true);
+    const b = radio("b", "prio");
+    new TVStack({ children: [new THStack({ children: [a] }), new THStack({ children: [b] })] });
+    const port = createPort();
+    b.bindEventHandler(port);
+
+    clickHandler(port, "b")();
+    expect([a.checked, b.checked]).toEqual([false, true]);
+  });
+
+  it("grup berbeda tidak saling memengaruhi", () => {
+    const a = radio("a", "warna", true);
+    const b = radio("b", "ukuran");
+    new THStack({ children: [a, b] });
+
+    b.checked = true;
+    expect([a.checked, b.checked]).toEqual([true, true]);
+  });
+
+  it("tanpa group: hanya saudara satu parent yang satu grup", () => {
+    const a1 = radio("a1", undefined, true);
+    const a2 = radio("a2");
+    const b1 = radio("b1", undefined, true);
+    new TVStack({
+      children: [new THStack({ children: [a1, a2] }), new THStack({ children: [b1] })],
+    });
+
+    a2.checked = true;
+    expect([a1.checked, a2.checked, b1.checked]).toEqual([false, true, true]);
+    expect(a1.group).toBe("default");
+  });
+
+  it("checked = false tidak menyentuh anggota lain", () => {
+    const a = radio("a", "g", true);
+    const b = radio("b", "g");
+    new THStack({ children: [a, b] });
+
+    a.checked = false;
+    expect([a.checked, b.checked]).toEqual([false, false]);
+  });
+});

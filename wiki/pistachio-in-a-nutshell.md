@@ -239,8 +239,10 @@ pakai `setItems()` bila perlu menunggu render selesai. Item terpilih yang masih
 ada tetap terpilih. Bila hilang, `TComboBox` memilih item pertama dan
 `TListBox` kembali ke `-1`.
 
-> ⚠️ **Radio button:** tombol satu `group` harus berada di **parent yang sama**
-> agar saling meng-uncheck.
+**Radio button:** radio dengan `group` yang sama saling meng-uncheck di
+seluruh form, walaupun berada di panel berbeda. Radio tanpa `group` hanya
+dikelompokkan dengan saudara satu parent. `rb.checked = true` lewat kode juga
+mematikan anggota grup lain, tanpa memicu `onClick`.
 
 `readOnly` di `TEdit`/`TMemo` bisa diubah setelah mount; field tetap bisa
 dipilih dan disalin, dengan tampilan embos.

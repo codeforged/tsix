@@ -373,7 +373,8 @@ export interface TRadioButtonOptions extends TCheckBoxOptions {
 }
 
 export class TRadioButton extends TCheckBox {
-  private _group: string;
+  /** `null` = tanpa grup eksplisit → hanya saudara satu parent. */
+  private _group: string | null;
 
   constructor(
     idOrOpts?: string | TRadioButtonOptions,
@@ -381,31 +382,61 @@ export class TRadioButton extends TCheckBox {
   ) {
     super(idOrOpts, opts, ["group"]);
     const o = this.options as TRadioButtonOptions;
-    this._group = o.group ?? "default";
+    this._group = o.group ?? null;
   }
 
   get group(): string {
-    return this._group;
+    return this._group ?? "default";
+  }
+
+  override get checked(): boolean {
+    return super.checked;
+  }
+  /**
+   * Menyalakan radio (lewat klik atau kode) mematikan anggota grup lain.
+   * Grup eksplisit berlaku untuk seluruh form; tanpa `group` hanya untuk
+   * saudara satu parent. Perubahan lewat kode tidak memicu `onClick`.
+   */
+  override set checked(value: boolean) {
+    super.checked = value;
+    if (value) {
+      for (const other of this.groupMembers()) other.checked = false;
+    }
   }
 
   protected handleClick(): void {
     if (this.checked) return;
-
-    const parent = this.parent;
-    if (parent) {
-      for (const sibling of parent.children) {
-        if (
-          sibling instanceof TRadioButton &&
-          sibling !== this &&
-          sibling.group === this._group
-        ) {
-          sibling.checked = false;
-        }
-      }
-    }
-
     this.checked = true;
     this.onClick?.(true);
+  }
+
+  /** Radio lain yang satu grup (konstruktor: belum ada tree, jadi kosong). */
+  private groupMembers(): TRadioButton[] {
+    // Saat super() memanggil setter, _group belum diinisialisasi.
+    if (this._group === undefined) return [];
+
+    let scope: TComponent | null = this.parent;
+    if (!scope) return [];
+    if (this._group !== null) {
+      while (scope.parent) scope = scope.parent;
+    }
+
+    const members: TRadioButton[] = [];
+    const visit = (node: TComponent, deep: boolean): void => {
+      for (const child of node.children) {
+        if (
+          child instanceof TRadioButton &&
+          child !== this &&
+          child._group === this._group &&
+          (this._group !== null || child.parent === this.parent)
+        ) {
+          members.push(child);
+        }
+        if (deep) visit(child, true);
+      }
+    };
+    visit(scope, this._group !== null);
+    return members;
   }
 }
 
