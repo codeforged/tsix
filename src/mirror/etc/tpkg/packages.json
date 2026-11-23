@@ -1807,7 +1807,8 @@
                     "src": "/opt/tssh/tssh.ts",
                     "dst": "/opt/tssh/tssh.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "tsshd",
