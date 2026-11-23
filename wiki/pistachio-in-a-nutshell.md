@@ -234,9 +234,10 @@ const cmbMode = new TComboBox({ items: ["Santai", "Normal", "Ketat"], selectedIn
 btnSave.onClick = () => save(edtName.text, cmbMode.selectedIndex);
 ```
 
-> ⚠️ **Ganti isi list setelah mount pakai `await setItems(items)`**, bukan
-> setter `items`. Setter hanya mengganti data internal tanpa render ulang.
-> `setItems()` me-render ulang dan mempertahankan pilihan bila masih ada.
+**Mengganti isi list:** setter `items` dan `await setItems(items)` identik;
+pakai `setItems()` bila perlu menunggu render selesai. Item terpilih yang masih
+ada tetap terpilih. Bila hilang, `TComboBox` memilih item pertama dan
+`TListBox` kembali ke `-1`.
 
 > ⚠️ **Radio button:** tombol satu `group` harus berada di **parent yang sama**
 > agar saling meng-uncheck.
@@ -589,7 +590,7 @@ komponen keduanya dalam satu form.
 | `const lbl = new TLabel("x"); lbl.caption = "Hai"` | `new TLabel({ id: "x", text: "Hai" })`; properti `text` |
 | `new TButton("b", { color: "red" }); b.caption = "OK"` | `new TButton({ id: "b", caption: "OK", style: { color: "red" } })` |
 | `new TRadioButton("rb", "warna")` | `new TRadioButton({ id: "rb", group: "warna", caption: "…" })` |
-| `lb.items = […]; lb.refresh(screen)` | `await lb.setItems([…])` |
+| `lb.items = […]; lb.refresh(screen)` | `lb.items = […]` (atau `await lb.setItems([…])`) |
 | `new TStatusBar("s"); s.text = "Siap"` | `new TStatusBar({ leftText: "Siap" })`; `leftText` / `rightText` |
 | `HStack(style?, a, b)` / `VStack(…)` | `new THStack({ style, children: [a, b] })` / `TVStack` |
 | `Spacer(size?)` | `new TSpacer({ size })` |
@@ -684,7 +685,6 @@ form.onSetup = async () => {
 - [ ] Tidak ada import `@tsix/cashew` tersisa.
 - [ ] Semua `new TForm(...)` memakai `{ title }`, bukan string.
 - [ ] Tidak ada `caption` pada `TLabel` dan `text` pada `TStatusBar` (diganti `text` / `leftText`).
-- [ ] Isi list runtime diganti dengan `setItems()`.
 - [ ] Timer dibersihkan setelah `form.run()` selesai.
 - [ ] Query memakai parameter, bukan string yang disambung.
 - [ ] Aplikasi dibuka sekali di DOME tanpa `EComponentError`.

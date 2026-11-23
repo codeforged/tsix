@@ -643,3 +643,45 @@ describe("pemilihan setelah isi koleksi diganti (K2.3)", () => {
     expect(list.selectedIndex).toBe(-1);
   });
 });
+
+describe("setter items me-render ulang (P0-1)", () => {
+  for (const [name, make] of [
+    ["TComboBox", () => new TComboBox({ id: "x", items: ["a", "b"] })],
+    ["TListBox", () => new TListBox({ id: "x", items: ["a", "b"] })],
+  ] as const) {
+    it(`${name}: setter setelah mount memanggil setContent seperti setItems()`, () => {
+      const port = createPort();
+      const viaSetter = make();
+      viaSetter.bindEventHandler(port);
+      viaSetter.items = ["c", "d", "e"];
+
+      expect(viaSetter.items).toEqual(["c", "d", "e"]); // langsung terbaca
+      const content = port.setContent.mock.calls.at(-1);
+      expect(content?.[0]).toBe("x");
+      expect(content?.slice(1)).toHaveLength(3);
+    });
+
+    it(`${name}: setter dan setItems() menghasilkan state yang sama`, async () => {
+      const a = make();
+      const b = make();
+      a.selectedIndex = 1;
+      b.selectedIndex = 1;
+      a.items = ["b", "z"];
+      await b.setItems(["b", "z"]);
+      expect([a.items, a.selectedIndex]).toEqual([b.items, b.selectedIndex]);
+    });
+  }
+
+  it("TListBox: baris baru dari setter bisa diklik", async () => {
+    const port = createPort();
+    const list = new TListBox({ id: "list", items: ["a"] });
+    const onClick = vi.fn();
+    list.onClick = onClick;
+    list.bindEventHandler(port);
+
+    list.items = ["a", "b"];
+    await Promise.resolve();
+    lastClickHandler(port, "list_item_1")();
+    expect(onClick).toHaveBeenCalledWith(1, "b");
+  });
+});

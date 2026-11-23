@@ -295,8 +295,8 @@ mengikuti konvensi §3 sejak awal.
 
 ### P0
 
-- [ ] P0-1 Setter `items` me-render ulang
-- [ ] P0-2 `TListBox.setItems` mempertahankan pilihan
+- [x] P0-1 Setter `items` me-render ulang
+- [x] P0-2 `TListBox.setItems` mempertahankan pilihan
 - [ ] P0-3 Radio programatik meng-uncheck grup
 - [ ] P0-4 `TDBGrid` menolak API data manual
 - [ ] P0-5 Contoh plan §6.6

@@ -442,9 +442,9 @@ export class TComboBox extends TComponent {
   get items(): readonly string[] {
     return this._items;
   }
+  /** Sama persis dengan `setItems()`; pakai `setItems()` bila perlu menunggu render. */
   set items(value: string[]) {
-    this._items = [...value];
-    if (this._selectedIndex >= this._items.length) this._selectedIndex = -1;
+    void this.setItems(value);
   }
 
   get selectedIndex(): number {
@@ -535,9 +535,9 @@ export class TListBox extends TComponent {
   get items(): readonly string[] {
     return this._items;
   }
+  /** Sama persis dengan `setItems()`; pakai `setItems()` bila perlu menunggu render. */
   set items(value: string[]) {
-    this._items = [...value];
-    if (this._selectedIndex >= this._items.length) this._selectedIndex = -1;
+    void this.setItems(value);
   }
 
   get selectedIndex(): number {
