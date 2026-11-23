@@ -55,6 +55,29 @@ const CHECK_STYLE: TStyle = {
   fontSize: "12px",
 };
 
+/**
+ * Pilihan setelah isi koleksi diganti (aturan K2.3, pistachio-improve-plan):
+ * - item terpilih yang masih ada tetap terpilih (indeks barunya);
+ * - bila sebelumnya tidak ada item valid, indeks dipertahankan selama masih
+ *   dalam jangkauan (mendukung urutan "set selectedIndex dulu, lalu items");
+ * - selain itu jatuh ke `fallback` (combo: item pertama, list: -1).
+ */
+function nextSelection(
+  oldItems: readonly string[],
+  oldIndex: number,
+  newItems: readonly string[],
+  fallback: "first" | "none",
+): number {
+  const previous = oldIndex >= 0 ? oldItems[oldIndex] : undefined;
+  if (previous !== undefined) {
+    const kept = newItems.indexOf(previous);
+    if (kept >= 0) return kept;
+  } else if (oldIndex >= 0 && oldIndex < newItems.length) {
+    return oldIndex;
+  }
+  return fallback === "first" && newItems.length > 0 ? 0 : -1;
+}
+
 /** Teks statis. */
 export interface TLabelOptions extends TOptions {
   text?: string;
@@ -437,10 +460,9 @@ export class TComboBox extends TComponent {
    * lain. Nilai yang sedang dipilih dipertahankan bila masih ada.
    */
   async setItems(items: string[]): Promise<void> {
-    const previous = this._items[this._selectedIndex];
-    this._items = [...items];
-    const kept = previous === undefined ? -1 : this._items.indexOf(previous);
-    this._selectedIndex = kept >= 0 ? kept : this._items.length ? 0 : -1;
+    const next = [...items];
+    this._selectedIndex = nextSelection(this._items, this._selectedIndex, next, "first");
+    this._items = next;
     this.push({ value: String(this._selectedIndex) });
     const host = this.host;
     if (!host?.setContent) return;
@@ -526,10 +548,14 @@ export class TListBox extends TComponent {
     this.applySelection();
   }
 
-  /** Ganti isi list saat runtime; butuh host dengan `setContent`. */
+  /**
+   * Ganti isi list saat runtime. Item terpilih dipertahankan bila masih ada
+   * (aturan sama dengan TComboBox, tapi tanpa memilih item pertama otomatis).
+   */
   async setItems(items: string[]): Promise<void> {
-    this._items = [...items];
-    this._selectedIndex = -1;
+    const next = [...items];
+    this._selectedIndex = nextSelection(this._items, this._selectedIndex, next, "none");
+    this._items = next;
     if (!this.host?.setContent) return;
 
     await this.host.setContent(this.id, ...this.build().children);

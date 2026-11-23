@@ -590,3 +590,56 @@ describe("TForm", () => {
     expect(form.children).toHaveLength(0);
   });
 });
+
+describe("pemilihan setelah isi koleksi diganti (K2.3)", () => {
+  it("TListBox mempertahankan item terpilih yang masih ada", async () => {
+    const port = createPort();
+    const list = new TListBox({ id: "list", items: ["a", "b", "c"], selectedIndex: 1 });
+    list.bindEventHandler(port);
+
+    await list.setItems(["x", "b", "y", "z"]);
+    expect(list.selectedIndex).toBe(1);
+
+    await list.setItems(["c", "b"]);
+    expect(list.selectedIndex).toBe(1);
+    list.dispose();
+  });
+
+  it("TListBox kembali ke -1 (bukan item pertama) bila item terpilih hilang", async () => {
+    const port = createPort();
+    const list = new TListBox({ id: "list", items: ["a", "b"], selectedIndex: 0 });
+    list.bindEventHandler(port);
+
+    await list.setItems(["x", "y"]);
+    expect(list.selectedIndex).toBe(-1);
+    list.dispose();
+  });
+
+  it("TComboBox dan TListBox memakai aturan yang sama kecuali fallback", async () => {
+    const port = createPort();
+    const combo = new TComboBox({ id: "c", items: ["a", "b"], selectedIndex: 1 });
+    const list = new TListBox({ id: "l", items: ["a", "b"], selectedIndex: 1 });
+    combo.bindEventHandler(port);
+    list.bindEventHandler(port);
+
+    await combo.setItems(["b", "a"]);
+    await list.setItems(["b", "a"]);
+    expect([combo.selectedIndex, list.selectedIndex]).toEqual([0, 0]);
+
+    await combo.setItems(["q"]);
+    await list.setItems(["q"]);
+    expect([combo.selectedIndex, list.selectedIndex]).toEqual([0, -1]);
+  });
+
+  it("indeks tanpa item valid dipertahankan selama masih dalam jangkauan", async () => {
+    const combo = new TComboBox({ id: "c" });
+    combo.selectedIndex = 2; // diset sebelum items ada
+    await combo.setItems(["a", "b", "c"]);
+    expect(combo.selectedIndex).toBe(2);
+
+    const list = new TListBox({ id: "l" });
+    list.selectedIndex = 5;
+    await list.setItems(["a", "b"]);
+    expect(list.selectedIndex).toBe(-1);
+  });
+});
