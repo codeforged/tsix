@@ -6,6 +6,18 @@
 
 ## 2026-11-23
 
+### Improve plan P1-3 — properti tampilan widget bisa diubah runtime
+
+- **File:** `pistachio/widgets.ts`, `pistachio-widgets.test.ts`,
+  `pistachio-contract.test.ts`, nutshell.
+- 48 field `private readonly` di 10 widget kini punya getter/setter yang
+  me-render ulang (`caption`, `color`, `unit`, `icon`, `size`, `min`/`max`,
+  `digits`, ...). `TSlider.min/max/step` menjepit ulang `value`.
+  `TProgressBar.color/track/height` memperbarui elemennya langsung.
+- Tes kontrak otomatis memeriksa setiap setter baru: sinkron ke UI setelah bind
+  dan tidak menghasilkan unhandled rejection saat host gagal.
+- **Oleh:** Claude
+
 ### Improve plan P1-2 — widget `label` → `caption` (breaking)
 
 - **File:** `pistachio/widgets.ts`, `pistachio-widgets.test.ts`,

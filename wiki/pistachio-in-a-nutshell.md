@@ -377,7 +377,11 @@ Judul widget memakai `caption`, sama dengan `TButton`/`TCheckBox`/`TGroupBox`
 (K3). `label` ditolak dengan `UNKNOWN_PROP`.
 
 Semua widget menerima opsi di konstruktor dan memperbarui tampilan saat
-propertinya di-assign (`gauge.value = 64`).
+propertinya di-assign (`gauge.value = 64`). Opsi tampilan juga bisa diubah
+setelah tampil, sama seperti kontrol dasar: `card.caption = "Suhu Ruang"`,
+`gauge.color = "#e53935"`, `slider.max = 50` (nilai ikut dijepit ulang). Yang
+tetap sejak konstruksi hanya `id` dan `TToggleSwitch.controlled` (perilaku,
+bukan tampilan).
 
 | Kelas | Opsi utama | Properti / event |
 | :-- | :-- | :-- |

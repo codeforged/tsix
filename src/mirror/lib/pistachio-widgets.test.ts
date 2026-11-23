@@ -329,3 +329,51 @@ describe("K3: judul widget = caption (P1-2)", () => {
     });
   }
 });
+
+describe("K2.4: properti tampilan widget bisa diubah runtime (P1-3)", () => {
+  const flushAll = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("caption dan color yang di-set setelah bind memicu render ulang", async () => {
+    const port = {
+      mount: vi.fn(async (_node: unknown, _parentId?: string) => {}),
+      update: vi.fn(async () => {}),
+      on: vi.fn(),
+      off: vi.fn(),
+      unmount: vi.fn(async () => {}),
+      setContent: vi.fn(async () => {}),
+    };
+    const card = new TSensorCard({ id: "rt", caption: "Suhu", value: 20 });
+    card.bindEventHandler(port);
+    await card.refresh();
+    await flushAll();
+    port.mount.mockClear();
+
+    card.caption = "Suhu Ruang";
+    card.color = "#ff0000";
+    await flushAll();
+
+    expect(card.caption).toBe("Suhu Ruang");
+    expect(card.color).toBe("#ff0000");
+    const lastView = JSON.stringify(port.mount.mock.calls.at(-1)?.[0]);
+    expect(lastView).toContain("Suhu Ruang");
+    expect(lastView).toContain("#ff0000");
+  });
+
+  it("TSlider: mengubah min/max menjepit ulang value", () => {
+    const slider = new TSlider({ min: 0, max: 100, value: 80 });
+    slider.max = 50;
+    expect(slider.value).toBe(50);
+    slider.max = 100;
+    slider.min = 70;
+    expect(slider.value).toBe(70);
+  });
+
+  it("TProgressBar: color diterapkan ke bar isi", async () => {
+    const update = vi.fn(async () => {});
+    const bar = new TProgressBar({ id: "pb" });
+    bar.bindEventHandler({ mount: vi.fn(), update, on: vi.fn() });
+    bar.color = "#123456";
+    expect(update).toHaveBeenCalledWith("pb_fill", { style: { background: "#123456" } });
+    expect(JSON.stringify(bar.build())).toContain("#123456");
+  });
+});

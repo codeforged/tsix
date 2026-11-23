@@ -337,7 +337,7 @@ mengikuti konvensi §3 sejak awal.
 
 - [x] P1-1 Event K1 + migrasi 5 konsumen
 - [x] P1-2 `label` → `caption`
-- [ ] P1-3 Properti tampilan widget runtime
+- [x] P1-3 Properti tampilan widget runtime
 - [ ] P1-4 Error K4
 - [ ] P1-5 Dialog file non-visual
 - [ ] P1-6 `onError` seragam

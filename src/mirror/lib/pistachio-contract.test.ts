@@ -260,6 +260,7 @@ function publicSetters(C: Function): string[] {
 function nextValue(name: string, prop: string, current: unknown): unknown {
   switch (prop) {
     case "style":
+    case "viewStyle":
       return { outline: "1px solid red" };
     case "items":
       return ["p", "q", "r"];

@@ -444,9 +444,9 @@ const PROGRESSBAR_PROPS = defineProps<TProgressBarOptions>()([
 /** Bar progres 0–100. */
 export class TProgressBar extends TComponent {
   private _value: number;
-  private readonly _color: string;
-  private readonly _track: string;
-  private readonly _height: number;
+  private _color: string;
+  private _track: string;
+  private _height: number;
 
   constructor(
     idOrOpts?: string | TProgressBarOptions,
@@ -458,6 +458,33 @@ export class TProgressBar extends TComponent {
     this._color = o.color ?? "var(--accent, #4caf50)";
     this._track = o.track ?? "rgba(255,255,255,0.08)";
     this._height = o.height ?? 8;
+  }
+
+  get color(): string {
+    return this._color;
+  }
+  set color(value: string) {
+    if (value === this._color) return;
+    this._color = value;
+    if (this.host) this.background(this.host.update(`${this.id}_fill`, { style: { background: value } }), "update");
+  }
+
+  get track(): string {
+    return this._track;
+  }
+  set track(value: string) {
+    if (value === this._track) return;
+    this._track = value;
+    if (this.host) this.background(this.host.update(this.id, { style: this.barStyle() }), "update");
+  }
+
+  get height(): number {
+    return this._height;
+  }
+  set height(value: number) {
+    if (value === this._height) return;
+    this._height = value;
+    if (this.host) this.background(this.host.update(this.id, { style: this.barStyle() }), "update");
   }
 
   get value(): number {
@@ -472,20 +499,22 @@ export class TProgressBar extends TComponent {
     }
   }
 
+  private barStyle(): Record<string, any> {
+    return {
+      background: this._track,
+      borderRadius: "6px",
+      overflow: "hidden",
+      height: `${this._height}px`,
+      width: "100%",
+      ...this.style,
+    };
+  }
+
   build(): TNode {
     return {
       id: this.id,
       tag: "div",
-      props: {
-        style: {
-          background: this._track,
-          borderRadius: "6px",
-          overflow: "hidden",
-          height: `${this._height}px`,
-          width: "100%",
-          ...this.style,
-        },
-      },
+      props: { style: this.barStyle() },
       children: [
         {
           id: `${this.id}_fill`,
@@ -522,9 +551,9 @@ const INDICATORLAMP_PROPS = defineProps<TIndicatorLampOptions>()([
 
 export class TIndicatorLamp extends TCardWidget {
   private _on: boolean;
-  private readonly _color: string;
-  private readonly _caption: string;
-  private readonly _size: number;
+  private _color: string;
+  private _caption: string;
+  private _size: number;
 
   constructor(
     idOrOpts?: string | TIndicatorLampOptions,
@@ -536,6 +565,33 @@ export class TIndicatorLamp extends TCardWidget {
     this._color = o.color ?? "var(--accent, #4caf50)";
     this._caption = o.caption ?? "";
     this._size = o.size ?? 36;
+  }
+
+  get color(): string {
+    return this._color;
+  }
+  set color(value: string) {
+    if (value === this._color) return;
+    this._color = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get caption(): string {
+    return this._caption;
+  }
+  set caption(value: string) {
+    if (value === this._caption) return;
+    this._caption = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get size(): number {
+    return this._size;
+  }
+  set size(value: number) {
+    if (value === this._size) return;
+    this._size = value;
+    this.background(this.rerender(), "render");
   }
 
   get on(): boolean {
@@ -579,9 +635,9 @@ export class TToggleSwitch extends TCardWidget {
   /** User menggeser switch; mode `controlled` hanya meminta `on` baru. */
   public onChange: ((on: boolean) => void) | null = null;
   private _on: boolean;
-  private readonly _color: string;
-  private readonly _caption: string;
-  private readonly _size: number;
+  private _color: string;
+  private _caption: string;
+  private _size: number;
   private readonly _controlled: boolean;
 
   constructor(
@@ -595,6 +651,33 @@ export class TToggleSwitch extends TCardWidget {
     this._color = o.color ?? "var(--accent, #4caf50)";
     this._caption = o.caption ?? "";
     this._size = o.size ?? 48;
+  }
+
+  get color(): string {
+    return this._color;
+  }
+  set color(value: string) {
+    if (value === this._color) return;
+    this._color = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get caption(): string {
+    return this._caption;
+  }
+  set caption(value: string) {
+    if (value === this._caption) return;
+    this._caption = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get size(): number {
+    return this._size;
+  }
+  set size(value: number) {
+    if (value === this._size) return;
+    this._size = value;
+    this.background(this.rerender(), "render");
   }
 
   get on(): boolean {
@@ -650,9 +733,9 @@ export class TRelayCard extends TCardWidget {
   /** User menekan kartu relay. */
   public onChange: ((active: boolean) => void) | null = null;
   private _active: boolean;
-  private readonly _color: string;
-  private readonly _caption: string;
-  private readonly _icon: string;
+  private _color: string;
+  private _caption: string;
+  private _icon: string;
 
   constructor(
     idOrOpts?: string | TRelayCardOptions,
@@ -664,6 +747,33 @@ export class TRelayCard extends TCardWidget {
     this._color = o.color ?? "var(--accent, #4caf50)";
     this._caption = o.caption ?? "Relay";
     this._icon = o.icon ?? "⚡";
+  }
+
+  get color(): string {
+    return this._color;
+  }
+  set color(value: string) {
+    if (value === this._color) return;
+    this._color = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get caption(): string {
+    return this._caption;
+  }
+  set caption(value: string) {
+    if (value === this._caption) return;
+    this._caption = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get icon(): string {
+    return this._icon;
+  }
+  set icon(value: string) {
+    if (value === this._icon) return;
+    this._icon = value;
+    this.background(this.rerender(), "render");
   }
 
   get active(): boolean {
@@ -720,12 +830,12 @@ const SENSORCARD_PROPS = defineProps<TSensorCardOptions>()([
 
 export class TSensorCard extends TCardWidget {
   private _value: number;
-  private readonly _caption: string;
-  private readonly _unit: string;
-  private readonly _icon: string;
-  private readonly _color: string;
-  private readonly _min: number;
-  private readonly _max: number;
+  private _caption: string;
+  private _unit: string;
+  private _icon: string;
+  private _color: string;
+  private _min: number;
+  private _max: number;
 
   constructor(
     idOrOpts?: string | TSensorCardOptions,
@@ -740,6 +850,60 @@ export class TSensorCard extends TCardWidget {
     this._color = o.color ?? "var(--accent, #4caf50)";
     this._min = o.min ?? 0;
     this._max = o.max ?? 100;
+  }
+
+  get caption(): string {
+    return this._caption;
+  }
+  set caption(value: string) {
+    if (value === this._caption) return;
+    this._caption = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get unit(): string {
+    return this._unit;
+  }
+  set unit(value: string) {
+    if (value === this._unit) return;
+    this._unit = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get icon(): string {
+    return this._icon;
+  }
+  set icon(value: string) {
+    if (value === this._icon) return;
+    this._icon = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get color(): string {
+    return this._color;
+  }
+  set color(value: string) {
+    if (value === this._color) return;
+    this._color = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get min(): number {
+    return this._min;
+  }
+  set min(value: number) {
+    if (value === this._min) return;
+    this._min = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get max(): number {
+    return this._max;
+  }
+  set max(value: number) {
+    if (value === this._max) return;
+    this._max = value;
+    this.background(this.rerender(), "render");
   }
 
   get value(): number {
@@ -791,14 +955,14 @@ const LINECHART_PROPS = defineProps<TLineChartOptions>()([
 
 export class TLineChart extends TViewWidget {
   private _data: number[];
-  private readonly _color: string;
-  private readonly _spline: boolean;
-  private readonly _fill: boolean;
-  private readonly _width: number;
-  private readonly _height: number;
-  private readonly _viewStyle: Record<string, any>;
-  private readonly _showXAxisLabels: boolean;
-  private readonly _showYAxisLabels: boolean;
+  private _color: string;
+  private _spline: boolean;
+  private _fill: boolean;
+  private _width: number;
+  private _height: number;
+  private _viewStyle: Record<string, any>;
+  private _showXAxisLabels: boolean;
+  private _showYAxisLabels: boolean;
 
   constructor(
     idOrOpts?: string | TLineChartOptions,
@@ -815,6 +979,78 @@ export class TLineChart extends TViewWidget {
     this._viewStyle = { ...(o.viewStyle ?? {}) };
     this._showXAxisLabels = o.showXAxisLabels ?? true;
     this._showYAxisLabels = o.showYAxisLabels ?? true;
+  }
+
+  get color(): string {
+    return this._color;
+  }
+  set color(value: string) {
+    if (value === this._color) return;
+    this._color = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get spline(): boolean {
+    return this._spline;
+  }
+  set spline(value: boolean) {
+    if (value === this._spline) return;
+    this._spline = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get fill(): boolean {
+    return this._fill;
+  }
+  set fill(value: boolean) {
+    if (value === this._fill) return;
+    this._fill = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get width(): number {
+    return this._width;
+  }
+  set width(value: number) {
+    if (value === this._width) return;
+    this._width = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get height(): number {
+    return this._height;
+  }
+  set height(value: number) {
+    if (value === this._height) return;
+    this._height = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get viewStyle(): Record<string, any> {
+    return this._viewStyle;
+  }
+  set viewStyle(value: Record<string, any>) {
+    if (value === this._viewStyle) return;
+    this._viewStyle = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get showXAxisLabels(): boolean {
+    return this._showXAxisLabels;
+  }
+  set showXAxisLabels(value: boolean) {
+    if (value === this._showXAxisLabels) return;
+    this._showXAxisLabels = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get showYAxisLabels(): boolean {
+    return this._showYAxisLabels;
+  }
+  set showYAxisLabels(value: boolean) {
+    if (value === this._showYAxisLabels) return;
+    this._showYAxisLabels = value;
+    this.background(this.rerender(), "render");
   }
 
   get data(): readonly number[] {
@@ -871,12 +1107,12 @@ const RADIALGAUGE_PROPS = defineProps<TRadialGaugeOptions>()([
 
 export class TRadialGauge extends TCardWidget {
   private _value: number;
-  private readonly _min: number;
-  private readonly _max: number;
-  private readonly _color: string;
-  private readonly _size: number;
-  private readonly _caption: string;
-  private readonly _unit: string;
+  private _min: number;
+  private _max: number;
+  private _color: string;
+  private _size: number;
+  private _caption: string;
+  private _unit: string;
 
   constructor(
     idOrOpts?: string | TRadialGaugeOptions,
@@ -891,6 +1127,60 @@ export class TRadialGauge extends TCardWidget {
     this._size = o.size ?? 92;
     this._caption = o.caption ?? "";
     this._unit = o.unit ?? "";
+  }
+
+  get min(): number {
+    return this._min;
+  }
+  set min(value: number) {
+    if (value === this._min) return;
+    this._min = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get max(): number {
+    return this._max;
+  }
+  set max(value: number) {
+    if (value === this._max) return;
+    this._max = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get color(): string {
+    return this._color;
+  }
+  set color(value: string) {
+    if (value === this._color) return;
+    this._color = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get size(): number {
+    return this._size;
+  }
+  set size(value: number) {
+    if (value === this._size) return;
+    this._size = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get caption(): string {
+    return this._caption;
+  }
+  set caption(value: string) {
+    if (value === this._caption) return;
+    this._caption = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get unit(): string {
+    return this._unit;
+  }
+  set unit(value: string) {
+    if (value === this._unit) return;
+    this._unit = value;
+    this.background(this.rerender(), "render");
   }
 
   get value(): number {
@@ -936,11 +1226,11 @@ const SEVENSEGMENT_PROPS = defineProps<TSevenSegmentOptions>()([
 
 export class TSevenSegment extends TViewWidget {
   private _value: number;
-  private readonly _digits: number;
-  private readonly _decimals: number;
-  private readonly _color: string;
-  private readonly _caption: string;
-  private readonly _scale: number;
+  private _digits: number;
+  private _decimals: number;
+  private _color: string;
+  private _caption: string;
+  private _scale: number;
 
   constructor(
     idOrOpts?: string | TSevenSegmentOptions,
@@ -954,6 +1244,51 @@ export class TSevenSegment extends TViewWidget {
     this._color = o.color ?? "var(--accent, #4caf50)";
     this._caption = o.caption ?? "";
     this._scale = o.scale ?? 1;
+  }
+
+  get digits(): number {
+    return this._digits;
+  }
+  set digits(value: number) {
+    if (value === this._digits) return;
+    this._digits = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get decimals(): number {
+    return this._decimals;
+  }
+  set decimals(value: number) {
+    if (value === this._decimals) return;
+    this._decimals = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get color(): string {
+    return this._color;
+  }
+  set color(value: string) {
+    if (value === this._color) return;
+    this._color = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get caption(): string {
+    return this._caption;
+  }
+  set caption(value: string) {
+    if (value === this._caption) return;
+    this._caption = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get scale(): number {
+    return this._scale;
+  }
+  set scale(value: number) {
+    if (value === this._scale) return;
+    this._scale = value;
+    this.background(this.rerender(), "render");
   }
 
   get value(): number {
@@ -998,11 +1333,11 @@ const VERTICALGAUGE_PROPS = defineProps<TVerticalGaugeOptions>()([
 
 export class TVerticalGauge extends TViewWidget {
   private _value: number;
-  private readonly _color: string;
-  private readonly _caption: string;
-  private readonly _unit: string;
-  private readonly _width: number;
-  private readonly _height: number;
+  private _color: string;
+  private _caption: string;
+  private _unit: string;
+  private _width: number;
+  private _height: number;
 
   constructor(
     idOrOpts?: string | TVerticalGaugeOptions,
@@ -1016,6 +1351,51 @@ export class TVerticalGauge extends TViewWidget {
     this._unit = o.unit ?? "%";
     this._width = o.width ?? 48;
     this._height = o.height ?? 160;
+  }
+
+  get color(): string {
+    return this._color;
+  }
+  set color(value: string) {
+    if (value === this._color) return;
+    this._color = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get caption(): string {
+    return this._caption;
+  }
+  set caption(value: string) {
+    if (value === this._caption) return;
+    this._caption = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get unit(): string {
+    return this._unit;
+  }
+  set unit(value: string) {
+    if (value === this._unit) return;
+    this._unit = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get width(): number {
+    return this._width;
+  }
+  set width(value: number) {
+    if (value === this._width) return;
+    this._width = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get height(): number {
+    return this._height;
+  }
+  set height(value: number) {
+    if (value === this._height) return;
+    this._height = value;
+    this.background(this.rerender(), "render");
   }
 
   get value(): number {
@@ -1148,12 +1528,12 @@ export class TSlider extends TViewWidget {
   public onChange: ((value: number) => void) | null = null;
 
   private _value: number;
-  private readonly _min: number;
-  private readonly _max: number;
-  private readonly _step: number;
-  private readonly _unit: string;
-  private readonly _caption: string;
-  private readonly _color: string;
+  private _min: number;
+  private _max: number;
+  private _step: number;
+  private _unit: string;
+  private _caption: string;
+  private _color: string;
 
   constructor(idOrOpts?: string | TSliderOptions, opts?: TSliderOptions) {
     super(idOrOpts, opts, SLIDER_PROPS);
@@ -1166,6 +1546,63 @@ export class TSlider extends TViewWidget {
     this._caption = o.caption ?? "";
     this._color = o.color ?? "#2196f3";
     this._value = this.clamp(o.value ?? this._min);
+  }
+
+  get min(): number {
+    return this._min;
+  }
+  set min(value: number) {
+    if (value === this._min) return;
+    this._min = value;
+    this._value = this.clamp(this._value);
+    this.background(this.rerender(), "render");
+  }
+
+  get max(): number {
+    return this._max;
+  }
+  set max(value: number) {
+    if (value === this._max) return;
+    this._max = value;
+    this._value = this.clamp(this._value);
+    this.background(this.rerender(), "render");
+  }
+
+  get step(): number {
+    return this._step;
+  }
+  set step(value: number) {
+    if (value === this._step) return;
+    this._step = value;
+    this._value = this.clamp(this._value);
+    this.background(this.rerender(), "render");
+  }
+
+  get unit(): string {
+    return this._unit;
+  }
+  set unit(value: string) {
+    if (value === this._unit) return;
+    this._unit = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get caption(): string {
+    return this._caption;
+  }
+  set caption(value: string) {
+    if (value === this._caption) return;
+    this._caption = value;
+    this.background(this.rerender(), "render");
+  }
+
+  get color(): string {
+    return this._color;
+  }
+  set color(value: string) {
+    if (value === this._color) return;
+    this._color = value;
+    this.background(this.rerender(), "render");
   }
 
   get value(): number {
