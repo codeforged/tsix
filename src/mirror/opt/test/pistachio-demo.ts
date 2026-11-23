@@ -150,12 +150,12 @@ export const main = Program(async () => {
     children: [grid],
   });
 
-  const lamp = new TIndicatorLamp({ id: "lamp", label: "Online", on: true });
-  const tglLamp = new TToggleSwitch({ id: "tgl-lamp", label: "Lampu" });
-  const relay = new TRelayCard({ id: "relay-fan", label: "FAN", icon: "🌀" });
+  const lamp = new TIndicatorLamp({ id: "lamp", caption: "Online", on: true });
+  const tglLamp = new TToggleSwitch({ id: "tgl-lamp", caption: "Lampu" });
+  const relay = new TRelayCard({ id: "relay-fan", caption: "FAN", icon: "🌀" });
   const sensor = new TSensorCard({
     id: "card-suhu",
-    label: "Suhu",
+    caption: "Suhu",
     unit: "°C",
     icon: "🌡️",
     value: 27.4,
@@ -164,7 +164,7 @@ export const main = Program(async () => {
   });
   const gauge = new TRadialGauge({
     id: "gauge-hum",
-    label: "Kelembaban",
+    caption: "Kelembaban",
     unit: "%",
     value: 61,
     max: 100,

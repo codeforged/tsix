@@ -373,26 +373,29 @@ angka (px) atau string CSS. Member lain: `setColumns()`, `selectedIndex`,
 
 ## 🌡️ Widget IoT
 
+Judul widget memakai `caption`, sama dengan `TButton`/`TCheckBox`/`TGroupBox`
+(K3). `label` ditolak dengan `UNKNOWN_PROP`.
+
 Semua widget menerima opsi di konstruktor dan memperbarui tampilan saat
 propertinya di-assign (`gauge.value = 64`).
 
 | Kelas | Opsi utama | Properti / event |
 | :-- | :-- | :-- |
-| `TSensorCard` | `value`, `label`, `unit`, `icon`, `color`, `min`, `max` | `value` |
-| `TRadialGauge` | `value`, `min`, `max`, `label`, `unit`, `color`, `size` | `value` |
-| `TVerticalGauge` | `value`, `label`, `unit`, `color`, `width`, `height` | `value` |
-| `TSevenSegment` | `value`, `digits`, `decimals`, `label`, `color`, `scale` | `value` |
+| `TSensorCard` | `value`, `caption`, `unit`, `icon`, `color`, `min`, `max` | `value` |
+| `TRadialGauge` | `value`, `min`, `max`, `caption`, `unit`, `color`, `size` | `value` |
+| `TVerticalGauge` | `value`, `caption`, `unit`, `color`, `width`, `height` | `value` |
+| `TSevenSegment` | `value`, `digits`, `decimals`, `caption`, `color`, `scale` | `value` |
 | `TLineChart` | `data`, `color`, `spline`, `fill`, `width`, `height`, `showXAxisLabels`, `showYAxisLabels` | `data`, `setData(values)` |
 | `TProgressBar` | `value` (0–100), `color`, `track`, `height` | `value` |
-| `TIndicatorLamp` | `on`, `label`, `color`, `size` | `on` |
-| `TToggleSwitch` | `on`, `controlled`, `label`, `color`, `size` | `on`, `onChange(on)` |
-| `TRelayCard` | `active`, `label`, `icon`, `color` | `active`, `onChange(active)` |
-| `TSlider` | `value`, `min`, `max`, `step`, `unit`, `label`, `color` | `value`, `onInput(value)` saat digeser, `onChange(value)` saat dilepas |
+| `TIndicatorLamp` | `on`, `caption`, `color`, `size` | `on` |
+| `TToggleSwitch` | `on`, `controlled`, `caption`, `color`, `size` | `on`, `onChange(on)` |
+| `TRelayCard` | `active`, `caption`, `icon`, `color` | `active`, `onChange(active)` |
+| `TSlider` | `value`, `min`, `max`, `step`, `unit`, `caption`, `color` | `value`, `onInput(value)` saat digeser, `onChange(value)` saat dilepas |
 | `TImage` | `src` (URL/data URI) atau `file` (path VFS), `alt`, `fit`, `width`, `height` | `src`, `alt`, `loadFile(path)`, `onClick()` |
 | `TStatusBar` | `leftText`, `rightText` | `leftText`, `rightText` |
 
 ```ts
-const suhu = new TSensorCard({ label: "Suhu", unit: "°C", icon: "🌡️", min: -40, max: 125 });
+const suhu = new TSensorCard({ caption: "Suhu", unit: "°C", icon: "🌡️", min: -40, max: 125 });
 const chart = new TLineChart({ spline: true, fill: true, height: 120 });
 
 onReading((v) => {
@@ -639,6 +642,7 @@ komponen keduanya dalam satu form.
 | `new TForm("Judul", 800, 600)` | `new TForm({ title: "Judul", width: 800, height: 600 })` |
 | `form.onSetup = async (screen) => …` | `form.onSetup = async (form) => …` (Screen: `form.screen`) |
 | `chk.onClick = (checked) => …`, `list.onClick = (i, item) => …`, `toggle.onClick` | `onChange(...)` dengan argumen sama (event nilai selalu `onChange`) |
+| `new TSensorCard({ label: "Suhu" })` (widget IoT) | `new TSensorCard({ caption: "Suhu" })` |
 | `form.alert(title, msg)` | `TDialogs.alert(form, title, msg)` |
 | `form.update(id, props)` | set properti komponennya (`lbl.text = …`) |
 | `new TPanel("p1", { padding: "8px" })` | `new TPanel({ id: "p1", style: { padding: "8px" } })` |

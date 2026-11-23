@@ -509,21 +509,21 @@ export class TProgressBar extends TComponent {
 export interface TIndicatorLampOptions extends TOptions {
   on?: boolean;
   color?: string;
-  label?: string;
+  caption?: string;
   size?: number;
 }
 
 const INDICATORLAMP_PROPS = defineProps<TIndicatorLampOptions>()([
   "on",
   "color",
-  "label",
+  "caption",
   "size",
 ]);
 
 export class TIndicatorLamp extends TCardWidget {
   private _on: boolean;
   private readonly _color: string;
-  private readonly _label: string;
+  private readonly _caption: string;
   private readonly _size: number;
 
   constructor(
@@ -534,7 +534,7 @@ export class TIndicatorLamp extends TCardWidget {
     const o = this.options as TIndicatorLampOptions;
     this._on = Boolean(o.on);
     this._color = o.color ?? "var(--accent, #4caf50)";
-    this._label = o.label ?? "";
+    this._caption = o.caption ?? "";
     this._size = o.size ?? 36;
   }
 
@@ -552,7 +552,7 @@ export class TIndicatorLamp extends TCardWidget {
       id: this.id,
       on: this._on,
       color: this._color,
-      label: this._label,
+      label: this._caption,
       size: this._size,
     });
   }
@@ -563,7 +563,7 @@ export interface TToggleSwitchOptions extends TOptions {
   /** Jangan ubah indikator saat diklik; tunggu state dari pemilik data. */
   controlled?: boolean;
   color?: string;
-  label?: string;
+  caption?: string;
   size?: number;
 }
 
@@ -571,7 +571,7 @@ const TOGGLESWITCH_PROPS = defineProps<TToggleSwitchOptions>()([
   "on",
   "controlled",
   "color",
-  "label",
+  "caption",
   "size",
 ]);
 
@@ -580,7 +580,7 @@ export class TToggleSwitch extends TCardWidget {
   public onChange: ((on: boolean) => void) | null = null;
   private _on: boolean;
   private readonly _color: string;
-  private readonly _label: string;
+  private readonly _caption: string;
   private readonly _size: number;
   private readonly _controlled: boolean;
 
@@ -593,7 +593,7 @@ export class TToggleSwitch extends TCardWidget {
     this._on = Boolean(o.on);
     this._controlled = Boolean(o.controlled);
     this._color = o.color ?? "var(--accent, #4caf50)";
-    this._label = o.label ?? "";
+    this._caption = o.caption ?? "";
     this._size = o.size ?? 48;
   }
 
@@ -611,7 +611,7 @@ export class TToggleSwitch extends TCardWidget {
       id: this.id,
       on: this._on,
       color: this._color,
-      label: this._label,
+      label: this._caption,
       size: this._size,
       onClickId: `ts-${this.id}`,
     });
@@ -635,14 +635,14 @@ export class TToggleSwitch extends TCardWidget {
 export interface TRelayCardOptions extends TOptions {
   active?: boolean;
   color?: string;
-  label?: string;
+  caption?: string;
   icon?: string;
 }
 
 const RELAYCARD_PROPS = defineProps<TRelayCardOptions>()([
   "active",
   "color",
-  "label",
+  "caption",
   "icon",
 ]);
 
@@ -651,7 +651,7 @@ export class TRelayCard extends TCardWidget {
   public onChange: ((active: boolean) => void) | null = null;
   private _active: boolean;
   private readonly _color: string;
-  private readonly _label: string;
+  private readonly _caption: string;
   private readonly _icon: string;
 
   constructor(
@@ -662,7 +662,7 @@ export class TRelayCard extends TCardWidget {
     const o = this.options as TRelayCardOptions;
     this._active = Boolean(o.active);
     this._color = o.color ?? "var(--accent, #4caf50)";
-    this._label = o.label ?? "Relay";
+    this._caption = o.caption ?? "Relay";
     this._icon = o.icon ?? "⚡";
   }
 
@@ -680,7 +680,7 @@ export class TRelayCard extends TCardWidget {
       id: this.id,
       active: this._active,
       color: this._color,
-      label: this._label,
+      label: this._caption,
       icon: this._icon,
     });
     view.props.onClickId = view.id;
@@ -700,7 +700,7 @@ export class TRelayCard extends TCardWidget {
 
 export interface TSensorCardOptions extends TOptions {
   value?: number;
-  label?: string;
+  caption?: string;
   unit?: string;
   icon?: string;
   color?: string;
@@ -710,7 +710,7 @@ export interface TSensorCardOptions extends TOptions {
 
 const SENSORCARD_PROPS = defineProps<TSensorCardOptions>()([
   "value",
-  "label",
+  "caption",
   "unit",
   "icon",
   "color",
@@ -720,7 +720,7 @@ const SENSORCARD_PROPS = defineProps<TSensorCardOptions>()([
 
 export class TSensorCard extends TCardWidget {
   private _value: number;
-  private readonly _label: string;
+  private readonly _caption: string;
   private readonly _unit: string;
   private readonly _icon: string;
   private readonly _color: string;
@@ -734,7 +734,7 @@ export class TSensorCard extends TCardWidget {
     super(idOrOpts, opts, SENSORCARD_PROPS);
     const o = this.options as TSensorCardOptions;
     this._value = o.value ?? 0;
-    this._label = o.label ?? "Sensor";
+    this._caption = o.caption ?? "Sensor";
     this._unit = o.unit ?? "";
     this._icon = o.icon ?? "📡";
     this._color = o.color ?? "var(--accent, #4caf50)";
@@ -755,7 +755,7 @@ export class TSensorCard extends TCardWidget {
     return sensorCard({
       id: this.id,
       value: this._value,
-      label: this._label,
+      label: this._caption,
       unit: this._unit,
       icon: this._icon,
       color: this._color,
@@ -855,7 +855,7 @@ export interface TRadialGaugeOptions extends TOptions {
   max?: number;
   color?: string;
   size?: number;
-  label?: string;
+  caption?: string;
   unit?: string;
 }
 
@@ -865,7 +865,7 @@ const RADIALGAUGE_PROPS = defineProps<TRadialGaugeOptions>()([
   "max",
   "color",
   "size",
-  "label",
+  "caption",
   "unit",
 ]);
 
@@ -875,7 +875,7 @@ export class TRadialGauge extends TCardWidget {
   private readonly _max: number;
   private readonly _color: string;
   private readonly _size: number;
-  private readonly _label: string;
+  private readonly _caption: string;
   private readonly _unit: string;
 
   constructor(
@@ -889,7 +889,7 @@ export class TRadialGauge extends TCardWidget {
     this._max = o.max ?? 100;
     this._color = o.color ?? "var(--accent, #4caf50)";
     this._size = o.size ?? 92;
-    this._label = o.label ?? "";
+    this._caption = o.caption ?? "";
     this._unit = o.unit ?? "";
   }
 
@@ -910,7 +910,7 @@ export class TRadialGauge extends TCardWidget {
       max: this._max,
       color: this._color,
       size: this._size,
-      label: this._label,
+      label: this._caption,
       unit: this._unit,
     });
   }
@@ -921,7 +921,7 @@ export interface TSevenSegmentOptions extends TOptions {
   digits?: number;
   decimals?: number;
   color?: string;
-  label?: string;
+  caption?: string;
   scale?: number;
 }
 
@@ -930,7 +930,7 @@ const SEVENSEGMENT_PROPS = defineProps<TSevenSegmentOptions>()([
   "digits",
   "decimals",
   "color",
-  "label",
+  "caption",
   "scale",
 ]);
 
@@ -939,7 +939,7 @@ export class TSevenSegment extends TViewWidget {
   private readonly _digits: number;
   private readonly _decimals: number;
   private readonly _color: string;
-  private readonly _label: string;
+  private readonly _caption: string;
   private readonly _scale: number;
 
   constructor(
@@ -952,7 +952,7 @@ export class TSevenSegment extends TViewWidget {
     this._digits = o.digits ?? 4;
     this._decimals = o.decimals ?? 0;
     this._color = o.color ?? "var(--accent, #4caf50)";
-    this._label = o.label ?? "";
+    this._caption = o.caption ?? "";
     this._scale = o.scale ?? 1;
   }
 
@@ -972,7 +972,7 @@ export class TSevenSegment extends TViewWidget {
       digits: this._digits,
       decimals: this._decimals,
       color: this._color,
-      label: this._label,
+      label: this._caption,
       scale: this._scale,
     });
   }
@@ -981,7 +981,7 @@ export class TSevenSegment extends TViewWidget {
 export interface TVerticalGaugeOptions extends TOptions {
   value?: number;
   color?: string;
-  label?: string;
+  caption?: string;
   unit?: string;
   width?: number;
   height?: number;
@@ -990,7 +990,7 @@ export interface TVerticalGaugeOptions extends TOptions {
 const VERTICALGAUGE_PROPS = defineProps<TVerticalGaugeOptions>()([
   "value",
   "color",
-  "label",
+  "caption",
   "unit",
   "width",
   "height",
@@ -999,7 +999,7 @@ const VERTICALGAUGE_PROPS = defineProps<TVerticalGaugeOptions>()([
 export class TVerticalGauge extends TViewWidget {
   private _value: number;
   private readonly _color: string;
-  private readonly _label: string;
+  private readonly _caption: string;
   private readonly _unit: string;
   private readonly _width: number;
   private readonly _height: number;
@@ -1012,7 +1012,7 @@ export class TVerticalGauge extends TViewWidget {
     const o = this.options as TVerticalGaugeOptions;
     this._value = clampPercent(o.value ?? 0);
     this._color = o.color ?? "#2196f3";
-    this._label = o.label ?? "";
+    this._caption = o.caption ?? "";
     this._unit = o.unit ?? "%";
     this._width = o.width ?? 48;
     this._height = o.height ?? 160;
@@ -1033,7 +1033,7 @@ export class TVerticalGauge extends TViewWidget {
       id: this.id,
       value: this._value,
       color: this._color,
-      label: this._label,
+      label: this._caption,
       unit: this._unit,
       w: this._width,
       h: this._height,
@@ -1126,7 +1126,7 @@ export interface TSliderOptions extends TOptions {
   max?: number;
   step?: number;
   unit?: string;
-  label?: string;
+  caption?: string;
   color?: string;
 }
 
@@ -1136,7 +1136,7 @@ const SLIDER_PROPS = defineProps<TSliderOptions>()([
   "max",
   "step",
   "unit",
-  "label",
+  "caption",
   "color",
 ]);
 
@@ -1152,7 +1152,7 @@ export class TSlider extends TViewWidget {
   private readonly _max: number;
   private readonly _step: number;
   private readonly _unit: string;
-  private readonly _label: string;
+  private readonly _caption: string;
   private readonly _color: string;
 
   constructor(idOrOpts?: string | TSliderOptions, opts?: TSliderOptions) {
@@ -1163,7 +1163,7 @@ export class TSlider extends TViewWidget {
     this._max = o.max ?? 100;
     this._step = o.step ?? 1;
     this._unit = o.unit ?? "";
-    this._label = o.label ?? "";
+    this._caption = o.caption ?? "";
     this._color = o.color ?? "#2196f3";
     this._value = this.clamp(o.value ?? this._min);
   }
@@ -1204,7 +1204,7 @@ export class TSlider extends TViewWidget {
       step: this._step,
       value: this._value,
       unit: this._unit,
-      label: this._label,
+      label: this._caption,
       color: this._color,
     });
     // Builder emerald hanya memasang `onInputId`; `change` = saat dilepas.

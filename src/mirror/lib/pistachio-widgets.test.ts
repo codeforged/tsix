@@ -71,7 +71,7 @@ describe("TViewWidget", () => {
   });
 
   it("TToggleSwitch toggles on click and reports the new state", async () => {
-    const toggle = new TToggleSwitch({ id: "tgl", on: false, label: "Lampu" });
+    const toggle = new TToggleSwitch({ id: "tgl", on: false, caption: "Lampu" });
     const port = createPort();
     toggle.build();
     toggle.bindEventHandler(port);
@@ -87,7 +87,7 @@ describe("TViewWidget", () => {
   });
 
   it("TRelayCard toggles active state and reports it", async () => {
-    const relay = new TRelayCard({ id: "relay", label: "FAN" });
+    const relay = new TRelayCard({ id: "relay", caption: "FAN" });
     const port = createPort();
     relay.build();
     relay.bindEventHandler(port);
@@ -102,7 +102,7 @@ describe("TViewWidget", () => {
   });
 
   it("TSensorCard remounts when the value changes", async () => {
-    const card = new TSensorCard({ id: "suhu", label: "Suhu", unit: "°C" });
+    const card = new TSensorCard({ id: "suhu", caption: "Suhu", unit: "°C" });
     const port = createPort();
     const viewId = card.build().children[0].id;
     card.bindEventHandler(port);
@@ -303,4 +303,29 @@ describe("TImage", () => {
       src: "data:image/png;base64,BBB",
     });
   });
+});
+
+describe("K3: judul widget = caption (P1-2)", () => {
+  const WIDGETS = {
+    TIndicatorLamp,
+    TToggleSwitch,
+    TRelayCard,
+    TSensorCard,
+    TRadialGauge,
+    TSevenSegment,
+    TVerticalGauge,
+    TSlider,
+  } as const;
+
+  for (const [name, C] of Object.entries(WIDGETS)) {
+    it(`${name}: caption tampil di view, label ditolak`, () => {
+      const widget = new (C as any)({ id: `w-${name}`, caption: "Judul-Uji" });
+      const view = JSON.stringify((widget as any).createView());
+      expect(view).toContain("Judul-Uji");
+
+      expect(() => new (C as any)({ label: "x" })).toThrow(
+        expect.objectContaining({ code: "UNKNOWN_PROP" }),
+      );
+    });
+  }
 });

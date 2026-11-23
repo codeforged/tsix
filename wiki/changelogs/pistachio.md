@@ -6,6 +6,15 @@
 
 ## 2026-11-23
 
+### Improve plan P1-2 — widget `label` → `caption` (breaking)
+
+- **File:** `pistachio/widgets.ts`, `pistachio-widgets.test.ts`,
+  `pistachio-demo.ts`, `azalea-dashboard.ts`, nutshell.
+- `TIndicatorLamp`, `TToggleSwitch`, `TRelayCard`, `TSensorCard`, `TRadialGauge`,
+  `TSevenSegment`, `TVerticalGauge`, `TSlider` menerima `caption`; `label` kini
+  `UNKNOWN_PROP` (K3: satu nama untuk judul kontrol).
+- **Oleh:** Claude
+
 ### Improve plan P1-1 — event K1 (breaking)
 
 - **File:** `pistachio/controls.ts`, `widgets.ts`, `dbcontrols.ts`, `treeview.ts`,

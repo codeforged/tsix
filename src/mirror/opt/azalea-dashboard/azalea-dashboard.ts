@@ -405,7 +405,7 @@ export const main = Program(async () => {
     if (item.type === "text" && typeof item.value === "number") {
       const sensor = new TSensorCard({
         id,
-        label: item.title,
+        caption: item.title,
         icon: item.icon,
         value: item.value,
         unit: item.unit,
@@ -449,7 +449,7 @@ export const main = Program(async () => {
     if (item.type === "radialGauge") {
       const gauge = new TRadialGauge({
         id,
-        label: item.title,
+        caption: item.title,
         value: asNumber(item.value) ?? 0,
         min: item.min ?? 0,
         max: item.max ?? 100,
@@ -532,7 +532,7 @@ export const main = Program(async () => {
     if (item.type === "switchIndicator") {
       const lamp = new TIndicatorLamp({
         id: `${id}-lamp`,
-        label: item.title,
+        caption: item.title,
         on: asBoolean(item.value) ?? false,
         style: CARD_STYLE,
       });
@@ -543,7 +543,7 @@ export const main = Program(async () => {
 
     const toggle = new TToggleSwitch({
       id: `${id}-toggle`,
-      label: item.title,
+      caption: item.title,
       on: asBoolean(item.value) ?? false,
       controlled: true,
       style: CARD_STYLE,
