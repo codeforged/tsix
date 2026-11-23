@@ -6,6 +6,28 @@
 
 ## 2026-11-23
 
+### Improve plan P2 — guard & tooling
+
+- **File:** `tsconfig.pistachio.json`, `scripts/typecheck-pistachio.ts`,
+  `package.json`, `src/mirror/lib/pistachio-contract.test.ts` (baru), semua
+  `src/mirror/lib/pistachio/*.ts`.
+- **P2-2:** `npm run typecheck:pistachio` — typecheck Pistachio + 6 konsumen,
+  gagal bila ada error di cakupan itu (saat ini 0).
+- **P2-3:** tes kontrak untuk setiap kelas di barrel: tiga bentuk konstruktor,
+  `UNKNOWN_PROP`, `isVisual`, `dispose()` idempoten, setter → UI, nama event K1.
+  13 pelanggaran yang sudah diketahui ditandai `it.fails` sampai P1 memperbaikinya.
+- **P2-1:** `defineProps<T, TBase>()` — daftar props tiap kelas dicek terhadap
+  interface opsinya saat compile. Perbaikan: `TDBTextOptions` tidak lagi
+  menawarkan `parseValue` (sebelumnya lolos typecheck tapi `UNKNOWN_PROP`).
+- **P2-4:** `TComponent.background()`/`reportError()`: kegagalan async dari
+  setter dan event diteruskan ke `onError` atau `console.error`, tidak lagi
+  menjadi unhandled rejection. Kegagalan auto-load `TImage.file` kini dilog.
+- **Verifikasi:** 590 tes Pistachio lolos + 13 `it.fails`; setiap guard diuji
+  dengan mutasi (setter tanpa sinkron, event salah nama, `isVisual` salah,
+  `defineProps` longgar, `push()` dengan `void`) dan gagal sesuai harapan.
+  Typecheck repo tetap di baseline 87 error.
+- **Oleh:** Claude
+
 ### Improve plan P0 — bug & kebenaran
 
 - **File:** `src/mirror/lib/pistachio/controls.ts`, `dbcontrols.ts`, `core.ts`,

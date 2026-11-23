@@ -136,6 +136,54 @@ Komponen non-visual (`TKeyboard`, `TDBConnection`, `TDataSource`, ...) punya
 Keduanya punya `code` untuk dicek program, jadi aplikasi tidak perlu mem-parsing
 pesan error.
 
+**Error async dari setter.** Setter tidak ditunggu (`label.text = "..."`
+langsung kembali), jadi kegagalan render di belakangnya, misalnya karena window
+sudah ditutup, tidak bisa dilempar ke pemanggil. Kegagalan itu tidak menjadi
+unhandled rejection. Pistachio meneruskannya ke `onError` milik komponen bila
+ada (kontrol DB), dan selain itu menulisnya ke `console.error` sebagai
+`[Pistachio] TLabel "status" update failed: ...`. Pakai varian `async setX()`
+bila perlu menunggu dan menangkap error sendiri.
+
+### Membuat kelas komponen
+
+Komponen baru mengikuti pola yang sama dengan komponen bawaan:
+
+```ts
+import { defineProps, TComponent, type TOptions } from "@tsix/pistachio";
+
+export interface TBadgeOptions extends TOptions {
+  text?: string;
+  color?: string;
+}
+
+// Satu sumber props (K5): compile gagal bila array dan interface berbeda.
+const BADGE_PROPS = defineProps<TBadgeOptions>()(["text", "color"]);
+
+export class TBadge extends TComponent {
+  constructor(idOrOpts?: string | TBadgeOptions, opts?: TBadgeOptions) {
+    super(idOrOpts, opts, BADGE_PROPS);
+    const o = this.options as TBadgeOptions;
+    this.props.text = o.text ?? "";
+  }
+
+  get text(): string {
+    return this.props.text;
+  }
+  set text(value: string) {
+    this.props.text = value;
+    this.push({ text: value }); // sinkron ke UI; error async dilaporkan otomatis
+  }
+}
+```
+
+- Subclass mendaftarkan **tambahannya saja**:
+  `defineProps<TChildOptions, TParentOptions>()(["extra"])`.
+- Tugas async yang tidak ditunggu dijalankan lewat `this.background(promise, "konteks")`,
+  bukan `void promise`.
+- Kelas yang diekspor dari barrel otomatis diuji `pistachio-contract.test.ts`
+  (konstruktor, `UNKNOWN_PROP`, `isVisual`, `dispose()`, setter → UI, nama event,
+  host gagal). Kelas yang butuh opsi wajib didaftarkan di `FIXTURES` tes itu.
+
 ---
 
 ## 🪟 TForm — Window
@@ -700,6 +748,8 @@ form.onSetup = async () => {
 | `src/mirror/lib/pistachio.ts` | Barrel publik `@tsix/pistachio` |
 | `src/mirror/lib/pistachio/*.ts` | `core`, `layout`, `controls`, `treeview`, `widgets`, `dialogs`, `keyboard`, `form`, `data`, `dbcontrols` |
 | `src/mirror/lib/pistachio*.test.ts` | Tes perilaku (kontrak core, kontrol, dataset, DB controls) |
+| `src/mirror/lib/pistachio-contract.test.ts` | Tes kontrak lintas-komponen; pelanggaran yang diketahui ditandai `it.fails` |
+| `npm run typecheck:pistachio` | Typecheck Pistachio + konsumennya; harus 0 error |
 | `/opt/test/pistachio-demo.ts` | Demo kontrol, layout, widget, dialog, shortcut |
 | `/opt/test/pistachio-dbdemo.ts` | Demo stack DB dari CLI (konfigurasi lewat environment) |
 | `/opt/test/pistachio-dbcontrols-demo.ts` | DB Browser: grid, navigator, pager, editor record |

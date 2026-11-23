@@ -1,6 +1,6 @@
 # Pistachio — Rencana Penyempurnaan
 
-**Improvement Plan** | **Version 1.0** | **2026-11-23** | **Status: Disetujui — P0 selesai, berikutnya P2 (guard)**
+**Improvement Plan** | **Version 1.0** | **2026-11-23** | **Status: Disetujui — P0 & P2 selesai, berikutnya P1 (API breaking)**
 
 Pistachio baru dibangun beberapa hari, dan fondasinya sudah sesuai
 [pistachio-plan.md](./pistachio-plan.md): satu kontrak konstruktor, props vs
@@ -48,6 +48,7 @@ paket kerja dengan bukti (`file:baris`) dan kriteria terima.
 ```bash
 npx vitest run src/mirror/lib/pistachio*.test.ts src/mirror/lib/pistachio/   # baseline: 110 lolos
 npm run typecheck                                                            # baseline repo: 87 error
+npm run typecheck:pistachio                                                  # harus 0 error
 ```
 
 > ⚠️ **Jangan bungkus `tsc` dengan `timeout`.** Perintah itu tidak ada di macOS;
@@ -208,7 +209,7 @@ Estimasi dalam jam fokus, termasuk tes dan dokumen.
 
 | ID | Pekerjaan | Temuan | Kriteria terima | Est. |
 | :-- | :-- | :-- | :-- | :-- |
-| P1-1 | Terapkan K1: `onChange` untuk perubahan nilai, `onSelect` untuk koleksi, `onActivate` untuk aktivasi baris, `onInput`/`onChange` di `TEdit`/`TMemo`/`TSlider`. Wiring internal komponen (mis. `TDBGrid`) memakai hook `protected`, bukan event publik | T1, T14 | tabel K1 terpenuhi; nama lama tidak ada; 5 konsumen dimigrasi dan jalan | 5–7 |
+| P1-1 | Terapkan K1: `onChange` untuk perubahan nilai, `onSelect` untuk koleksi, `onActivate` untuk aktivasi baris, `onInput`/`onChange` di `TEdit`/`TMemo`/`TSlider`. Wiring internal komponen (mis. `TDBGrid`) memakai hook `protected`, bukan event publik; `TDBGrid.onRecordDoubleClick` → `onActivate` | T1, T14 | tabel K1 terpenuhi; entri P1-1 di `KNOWN_VIOLATIONS` kosong; 5 konsumen dimigrasi dan jalan | 5–7 |
 | P1-2 | Terapkan K3: widget `label` → `caption` | T4 | semua widget menerima `caption`; `label` → `UNKNOWN_PROP` | 2–3 |
 | P1-3 | Terapkan K2.4: properti tampilan widget bisa di-set runtime (hapus `readonly` `_label`/`_color`/...) | T5 | tes: ubah `caption`/`color` setelah bind memicu render | 3–4 |
 | P1-4 | Terapkan K4: kode error baru, hapus `throw new Error`, pesan berbahasa Inggris | T6, T7 | `grep "new Error(" src/mirror/lib/pistachio` kosong; tes memeriksa `code` | 2–3 |
@@ -308,10 +309,29 @@ mengikuti konvensi §3 sejak awal.
 
 ### P2 (fondasi guard)
 
-- [ ] P2-2 `typecheck:pistachio` 0 error
-- [ ] P2-3 Tes kontrak lintas-komponen
-- [ ] P2-1 Satu sumber props
-- [ ] P2-4 Fire-and-forget terpusat
+- [x] P2-2 `typecheck:pistachio` 0 error
+- [x] P2-3 Tes kontrak lintas-komponen
+- [x] P2-1 Satu sumber props
+- [x] P2-4 Fire-and-forget terpusat
+
+**Catatan pelaksanaan P2** (2026-11-23):
+
+- **P2-2:** `tsconfig.pistachio.json` mencakup `lib/pistachio*` + 6 file konsumen.
+  Dua error bawaan di inti OS yang ikut terimpor (`IProgram.ts`: `AuxLib` tidak
+  pernah didefinisikan; `RandomLib.ts`: path impor `SyscallCode` salah) berada di
+  luar cakupan: skrip melaporkannya sebagai catatan, bukan kegagalan.
+- **P2-3:** 13 pelanggaran yang diketahui tercatat di `KNOWN_VIOLATIONS` sebagai
+  `it.fails` (11 untuk P1-1, 2 untuk P1-5) dan menjadi ukuran progres P1. Temuan
+  baru: `TDBGrid.onRecordDoubleClick` juga melanggar K1 (masuk P1-1).
+  `TTabulatorGrid` menyinkronkan lewat IPC DOME, bukan `TScreenPort`; tes memeriksa
+  saluran itu.
+- **P2-1:** helper `defineProps<T, TBase>()` + `OwnProps`/`AssertExact` di
+  `core.ts`, diterapkan di 40 deklarasi props (semua kelas ber-props). Langsung menemukan drift: `TDBTextOptions`
+  mewarisi `parseValue` yang ditolak runtime (`UNKNOWN_PROP`); kini di-`Omit`.
+- **P2-4:** `TComponent.background()` / `reportError()` menggantikan ~40
+  `void promise` dan `reportAsyncError` milik DB controls. Auto-load `TImage.file`
+  yang dulu menelan error diam-diam kini melaporkannya. Tanpa P2-4, 43 tes kontrak
+  gagal karena unhandled rejection.
 
 ### P1
 
