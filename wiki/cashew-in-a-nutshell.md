@@ -3,10 +3,10 @@
 **Cashew** adalah framework GUI deklaratif untuk TSIX yang mengadopsi pola komponen ala **Delphi / Turbo Pascal**. Tujuannya: bikin kode GUI lebih flat, mudah dibaca, dan bebas dari nesting berlebihan.
 
 > **Status:** Cashew tetap didukung untuk aplikasi yang sudah ada, tetapi kini
-> masuk mode **maintenance** (bugfix saja). Set komponen pengganti yang bersih
-> dan tidak backward compatible sedang dirancang di
-> [pistachio-plan.md](./pistachio-plan.md). Aplikasi baru disarankan menunggu
-> Pistachio siap.
+> masuk mode **maintenance** (bugfix saja). Aplikasi baru memakai
+> [Pistachio](./pistachio-in-a-nutshell.md), set komponen pengganti yang tidak
+> backward compatible. Panduan berpindah:
+> [Panduan Migrasi dari Cashew](./pistachio-in-a-nutshell.md#-panduan-migrasi-dari-cashew).
 
 ---
 

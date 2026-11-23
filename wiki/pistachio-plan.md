@@ -445,7 +445,7 @@ menyediakan buffer/cursor `TClientDataset` dan binding notifikasi
 - [x] Widget lanjutan — `TImage`, `TSlider`, `TStatusBar`, `TTabulatorGrid`
 - [x] Dialog — `TDialogs` (alert/confirm/input), `TOpenDialog`, `TSaveDialog`
 - [x] `TKeyboard` — shortcut hanya aktif saat window fokus
-- [ ] Dokumentasi `pistachio-in-a-nutshell.md` + panduan migrasi
+- [x] Dokumentasi [pistachio-in-a-nutshell.md](./pistachio-in-a-nutshell.md) + panduan migrasi
 
 ---
 

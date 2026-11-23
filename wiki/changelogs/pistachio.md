@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-11-23
+
+### Dokumentasi `pistachio-in-a-nutshell.md` + panduan migrasi
+
+- **File:** `wiki/pistachio-in-a-nutshell.md` (baru), `wiki/pistachio-plan.md`,
+  `wiki/cashew-in-a-nutshell.md`, `wiki/Home.md`.
+- **Isi:** konsep inti (konstruktor, props vs style, tree, lifecycle, error),
+  `TForm`, layout, kontrol dasar, `TTreeView`, grid manual, widget IoT, dialog,
+  shortcut, stack database (koneksi → kontrol DB, alur edit, paging, error),
+  daftar batasan saat ini, dan panduan migrasi dari Cashew (pemetaan API, contoh
+  sebelum/sesudah termasuk pengganti `TTimer`, checklist).
+- **Verifikasi:** semua contoh kode Pistachio di dokumen di-typecheck terhadap
+  `@tsix/pistachio`. Contoh di plan (`TClientDataset({ pageSize })`) tidak sesuai
+  kode; dokumen memakai `TDBPager({ pageSize })`.
+- **Banner Cashew** kini mengarah ke Pistachio, bukan "menunggu Pistachio siap".
+- **Oleh:** Claude
+
 ## 2026-11-22
 
 ### Paket `pistachio-demos` dan menu launcher
