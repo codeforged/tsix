@@ -241,12 +241,6 @@ export class TDBEdit extends TEdit {
     this._formatValue = options.formatValue;
     this._parseValue = options.parseValue;
     this._forcedReadOnly = Boolean(options.readOnly);
-    this.onInput = (text) => {
-      const value = this._parseValue
-        ? this._parseValue(text)
-        : parseFieldValue(this._dataSource, this._field, text);
-      this._dataSource.setField(this._field, value);
-    };
     this._unsubscribe = this._dataSource.subscribe(() => this.updateValue());
     this.updateValue();
   }
@@ -258,6 +252,15 @@ export class TDBEdit extends TEdit {
   override dispose(): void {
     this._unsubscribe();
     super.dispose();
+  }
+
+  /** Ketikan user langsung ditulis ke field; `onInput` tetap milik aplikasi. */
+  protected override handleInput(text: string): void {
+    const value = this._parseValue
+      ? this._parseValue(text)
+      : parseFieldValue(this._dataSource, this._field, text);
+    this._dataSource.setField(this._field, value);
+    super.handleInput(text);
   }
 
   private updateValue(): void {
@@ -307,12 +310,6 @@ export class TDBMemo extends TMemo {
     this._formatValue = options.formatValue;
     this._parseValue = options.parseValue;
     this._forcedReadOnly = Boolean(options.readOnly);
-    this.onInput = (text) => {
-      const value = this._parseValue
-        ? this._parseValue(text)
-        : parseFieldValue(this._dataSource, this._field, text);
-      this._dataSource.setField(this._field, value);
-    };
     this._unsubscribe = this._dataSource.subscribe(() => this.updateValue());
     this.updateValue();
   }
@@ -324,6 +321,15 @@ export class TDBMemo extends TMemo {
   override dispose(): void {
     this._unsubscribe();
     super.dispose();
+  }
+
+  /** Ketikan user langsung ditulis ke field; `onInput` tetap milik aplikasi. */
+  protected override handleInput(text: string): void {
+    const value = this._parseValue
+      ? this._parseValue(text)
+      : parseFieldValue(this._dataSource, this._field, text);
+    this._dataSource.setField(this._field, value);
+    super.handleInput(text);
   }
 
   private updateValue(): void {
@@ -374,18 +380,6 @@ export class TDBListBox extends TListBox {
     this._field = options.field;
     this._parseValue = options.parseValue;
     this._baseStyle = { ...this.style };
-    this.onClick = (_index, item) => {
-      if (this.readOnly) {
-        throw new EDatabaseError(
-          "DATASET_NOT_BROWSE",
-          "Call edit() or insert() before changing a field",
-        );
-      }
-      const value = this._parseValue
-        ? this._parseValue(item)
-        : parseFieldValue(this._dataSource, this._field, item);
-      this._dataSource.setField(this._field, value);
-    };
     this._unsubscribe = this._dataSource.subscribe(() => this.scheduleRefresh());
     this.updateSelection();
   }
@@ -397,6 +391,22 @@ export class TDBListBox extends TListBox {
   override async refresh(): Promise<void> {
     await this.setItems([...this.items]);
     this.updateSelection();
+  }
+
+  /** Pilihan user ditulis ke field; `onChange` tetap milik aplikasi. */
+  protected override handleSelect(index: number): void {
+    if (this.readOnly) {
+      throw new EDatabaseError(
+        "DATASET_NOT_BROWSE",
+        "Call edit() or insert() before changing a field",
+      );
+    }
+    const item = this.items[index] ?? "";
+    const value = this._parseValue
+      ? this._parseValue(item)
+      : parseFieldValue(this._dataSource, this._field, item);
+    this._dataSource.setField(this._field, value);
+    super.handleSelect(index);
   }
 
   override dispose(): void {
@@ -465,9 +475,6 @@ const DBGRID_PROPS = defineProps<TDBGridOptions, TTabulatorGridOptions>()([
 /** Tabulator-backed database grid; columns default to field metadata. */
 export class TDBGrid extends TTabulatorGrid {
   public onError: ((error: unknown) => void) | null = null;
-  public onRecordDoubleClick:
-    | ((record: Readonly<Record<string, unknown>>) => void)
-    | null = null;
 
   private readonly _dataSource: TDataSource;
   private readonly _automaticColumns: boolean;
@@ -482,24 +489,6 @@ export class TDBGrid extends TTabulatorGrid {
     super(resolved.options, undefined, DBGRID_PROPS);
     this._dataSource = resolved.options.dataSource;
     this._automaticColumns = resolved.automaticColumns;
-    this.onSort = (key, direction) => {
-      const order = direction === "asc" ? 1 : -1;
-      this._dataSource.setSort((left, right) =>
-        order * compareValues(left[key], right[key]),
-      );
-    };
-    this.onSelectionChange = (_key, record) => {
-      if (this._dataSource.state !== "dsBrowse") return;
-      const index = record?.[this._rowIndexKey];
-      if (typeof index === "number") this._dataSource.setCurrentIndex(index);
-    };
-    this.onRowDoubleClick = (_key, record) => {
-      if (this._dataSource.state !== "dsBrowse") return;
-      const index = record[this._rowIndexKey];
-      if (typeof index === "number") this._dataSource.setCurrentIndex(index);
-      const current = this._dataSource.currentRecord;
-      if (current) this.onRecordDoubleClick?.(current);
-    };
     this._unsubscribe = this._dataSource.subscribe((event) => {
       if (event.type === "data") {
         this.scheduleRefresh();
@@ -511,6 +500,33 @@ export class TDBGrid extends TTabulatorGrid {
 
   get dataSource(): TDataSource {
     return this._dataSource;
+  }
+
+  // Sinkronisasi grid ↔ dataset lewat hook protected (T14): event publik
+  // onSort/onSelect/onActivate tetap bebas dipakai aplikasi. Indeks dan record
+  // yang dikirim ke aplikasi adalah milik dataset, bukan baris tampilan grid.
+  protected override handleSort(key: string, dir: "asc" | "desc"): void {
+    const order = dir === "asc" ? 1 : -1;
+    this._dataSource.setSort((left, right) =>
+      order * compareValues(left[key], right[key]),
+    );
+    super.handleSort(key, dir);
+  }
+
+  protected override handleSelect(_key: number, record: Record<string, any> | null): void {
+    if (this._dataSource.state !== "dsBrowse") return;
+    const index = record?.[this._rowIndexKey];
+    if (typeof index === "number") this._dataSource.setCurrentIndex(index);
+    const current = this._dataSource.currentRecord;
+    super.handleSelect(current ? this._dataSource.currentIndex : -1, current);
+  }
+
+  protected override handleActivate(_key: number, record: Record<string, any>): void {
+    if (this._dataSource.state !== "dsBrowse") return;
+    const index = record[this._rowIndexKey];
+    if (typeof index === "number") this._dataSource.setCurrentIndex(index);
+    const current = this._dataSource.currentRecord;
+    if (current) super.handleActivate(this._dataSource.currentIndex, current);
   }
 
   // Isi grid hanya berasal dari TDataSource. API data manual yang diwarisi
@@ -862,14 +878,17 @@ export interface TDBPagerOptions extends TOptions {
 
 /** Edit nomor halaman: commit saat Enter atau saat field ditinggalkan. */
 class TPageEdit extends TEdit {
-  public onCommit: ((value: string) => void) | null = null;
-
   private _pageHost: TScreenPort | null = null;
+  /** Nilai yang baru di-commit lewat Enter; `change` susulan untuknya diabaikan. */
+  private _enterValue: string | null = null;
 
-  constructor(idOrOpts?: string | TEditOptions, opts?: TEditOptions) {
-    super(idOrOpts, opts);
+  /** `commit` = wiring internal pager; `onChange` tetap milik aplikasi. */
+  constructor(
+    opts: TEditOptions,
+    private readonly commit: (value: string) => void,
+  ) {
+    super(opts);
     this.props.onKeydownId = this.id;
-    this.props.onChangeId = this.id;
   }
 
   override bindEventHandler(host: TScreenPort): void {
@@ -877,15 +896,21 @@ class TPageEdit extends TEdit {
     this._pageHost = host;
     host.on(this.id, "keydown", (ev: any) => {
       if (ev?.value !== "Enter") return;
-      this.onCommit?.(this.text);
+      this._enterValue = this.text;
+      this.commit(this.text);
       // Kembalikan fokus ke window supaya panah langsung menggerakkan record.
       void Promise.resolve(this._pageHost?.keyboard?.focus?.()).catch(
         () => {},
       );
     });
-    host.on(this.id, "change", (ev: any) => {
-      this.onCommit?.(typeof ev?.value === "string" ? ev.value : this.text);
-    });
+  }
+
+  /** Browser juga mengirim `change` setelah Enter; jangan commit dua kali. */
+  protected override handleChange(value: string): void {
+    super.handleChange(value);
+    const duplicate = value === this._enterValue;
+    this._enterValue = null;
+    if (!duplicate) this.commit(value);
   }
 }
 
@@ -933,11 +958,14 @@ export class TDBPager extends THStack {
     this.priorButton = new TButton({ id: `${this.id}-prior`, caption: "<" });
     this.nextButton = new TButton({ id: `${this.id}-next`, caption: ">" });
     this.lastButton = new TButton({ id: `${this.id}-last`, caption: ">|" });
-    this.pageEdit = new TPageEdit({
-      id: `${this.id}-page`,
-      text: "",
-      style: { width: "56px", minWidth: "56px", textAlign: "center" },
-    });
+    this.pageEdit = new TPageEdit(
+      {
+        id: `${this.id}-page`,
+        text: "",
+        style: { width: "56px", minWidth: "56px", textAlign: "center" },
+      },
+      (value) => this.commitPageInput(value),
+    );
     this._pageCountLabel = new TLabel({
       id: `${this.id}-pagecount`,
       text: "of -",
@@ -963,7 +991,6 @@ export class TDBPager extends THStack {
       this.background(this.goToPage(this._query.pageIndex + 1), "goToPage");
     this.lastButton.onClick = () =>
       this.background(this.goToPage(Math.max(0, this.pageCount - 1)), "goToPage");
-    this.pageEdit.onCommit = (value) => this.commitPageInput(value);
 
     this._unsubscribe = this._dataSource.subscribe((event) => {
       const dirtyCount = this._dataSource.dirtyCount;

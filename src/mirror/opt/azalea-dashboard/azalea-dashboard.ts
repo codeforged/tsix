@@ -553,7 +553,7 @@ export const main = Program(async () => {
       kind: "switch",
       toggle,
     };
-    toggle.onClick = (requestedState) => {
+    toggle.onChange = (requestedState) => {
       void sendSwitchCommand(binding, requestedState);
     };
     grid.add(toggle);

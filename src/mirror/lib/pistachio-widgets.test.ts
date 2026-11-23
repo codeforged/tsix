@@ -75,14 +75,14 @@ describe("TViewWidget", () => {
     const port = createPort();
     toggle.build();
     toggle.bindEventHandler(port);
-    const onClick = vi.fn();
-    toggle.onClick = onClick;
+    const onChange = vi.fn();
+    toggle.onChange = onChange;
 
     handlerFor(port, "ts-tgl")();
     await flush();
 
     expect(toggle.on).toBe(true);
-    expect(onClick).toHaveBeenCalledWith(true);
+    expect(onChange).toHaveBeenCalledWith(true);
     expect(port.mount).toHaveBeenCalled();
   });
 
@@ -91,14 +91,14 @@ describe("TViewWidget", () => {
     const port = createPort();
     relay.build();
     relay.bindEventHandler(port);
-    const onToggle = vi.fn();
-    relay.onToggle = onToggle;
+    const onChange = vi.fn();
+    relay.onChange = onChange;
 
     handlerFor(port, "rc-relay")();
     await flush();
 
     expect(relay.active).toBe(true);
-    expect(onToggle).toHaveBeenCalledWith(true);
+    expect(onChange).toHaveBeenCalledWith(true);
   });
 
   it("TSensorCard remounts when the value changes", async () => {

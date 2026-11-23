@@ -258,7 +258,7 @@ export const main = Program(async () => {
     status.text = `Disimpan: ${memo.text.length} karakter`;
   };
 
-  chkAgree.onClick = (checked) => {
+  chkAgree.onChange = (checked) => {
     status.text = checked ? "Setuju dicentang" : "Setuju dibatalkan";
   };
 
@@ -266,17 +266,17 @@ export const main = Program(async () => {
     status.text = `Mode: ${item}`;
   };
 
-  prioLow.onClick = () => {
+  prioLow.onChange = () => {
     status.text = "Prioritas: Rendah";
   };
-  prioMid.onClick = () => {
+  prioMid.onChange = () => {
     status.text = "Prioritas: Sedang";
   };
-  prioHigh.onClick = () => {
+  prioHigh.onChange = () => {
     status.text = "Prioritas: Tinggi";
   };
 
-  list.onClick = (_index, item) => {
+  list.onChange = (_index, item) => {
     status.text = `List: ${item}`;
   };
 
@@ -288,12 +288,12 @@ export const main = Program(async () => {
     status.text = `Urut ${key} (${dir})`;
   };
 
-  tglLamp.onClick = (on) => {
+  tglLamp.onChange = (on) => {
     lamp.on = on;
     status.text = `Lampu: ${on ? "ON" : "OFF"}`;
   };
 
-  relay.onToggle = (active) => {
+  relay.onChange = (active) => {
     status.text = `Relay FAN: ${active ? "ON" : "OFF"}`;
   };
 

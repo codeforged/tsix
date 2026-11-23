@@ -17,6 +17,7 @@ import {
   TTabulatorGrid,
   TRadioButton,
   TScrollBox,
+  TSlider,
   TSpacer,
   TTreeView,
   TVStack,
@@ -159,14 +160,14 @@ describe("controls", () => {
   it("TCheckBox toggles and updates its symbol", () => {
     const check = new TCheckBox({ id: "chk", caption: "Aktif" });
     const port = createPort();
-    const onClick = vi.fn();
-    check.onClick = onClick;
+    const onChange = vi.fn();
+    check.onChange = onChange;
     check.bindEventHandler(port);
 
     clickHandler(port, "chk")();
 
     expect(check.checked).toBe(true);
-    expect(onClick).toHaveBeenCalledWith(true);
+    expect(onChange).toHaveBeenCalledWith(true);
     expect(port.update).toHaveBeenCalledWith("chk_sym", { text: "☑ " });
     expect(check.build().children[1].props.text).toBe("Aktif");
   });
@@ -214,14 +215,18 @@ describe("controls", () => {
   it("TListBox selects a row and restyles rows", () => {
     const list = new TListBox({ id: "list", items: ["a", "b"] });
     const port = createPort();
-    const onClick = vi.fn();
-    list.onClick = onClick;
+    const onChange = vi.fn();
+    list.onChange = onChange;
     list.bindEventHandler(port);
 
     clickHandler(port, "list_item_1")();
 
     expect(list.selectedIndex).toBe(1);
-    expect(onClick).toHaveBeenCalledWith(1, "b");
+    expect(onChange).toHaveBeenCalledWith(1, "b");
+
+    // Klik item yang sudah terpilih bukan perubahan nilai (K1).
+    clickHandler(port, "list_item_1")();
+    expect(onChange).toHaveBeenCalledTimes(1);
     expect(port.update).toHaveBeenCalledWith(
       "list_item_1",
       expect.objectContaining({ style: expect.any(Object) }),
@@ -336,15 +341,15 @@ describe("TDataGrid", () => {
     expect(grid.data).toHaveLength(2);
   });
 
-  it("routes Tabulator row double-clicks to the public callback", async () => {
+  it("routes Tabulator row double-clicks to onActivate", async () => {
     const { port, bindHandler } = createGridPort();
     const grid = new TTabulatorGrid({
       id: "tbg-double-click",
       columns: [{ key: "no", label: "No" }],
       data: [{ no: 1 }],
     });
-    const onRowDoubleClick = vi.fn();
-    grid.onRowDoubleClick = onRowDoubleClick;
+    const onActivate = vi.fn();
+    grid.onActivate = onActivate;
     grid.bindEventHandler(port);
 
     const call = bindHandler.mock.calls.find(
@@ -354,7 +359,7 @@ describe("TDataGrid", () => {
     if (!call) throw new Error("row double-click handler not bound");
     call[2]({ value: JSON.stringify({ key: 1 }) });
 
-    expect(onRowDoubleClick).toHaveBeenCalledWith(1, { no: 1 });
+    expect(onActivate).toHaveBeenCalledWith(1, { no: 1 });
   });
 
   it("routes header clicks to onSort", () => {
@@ -675,14 +680,14 @@ describe("setter items me-render ulang (P0-1)", () => {
   it("TListBox: baris baru dari setter bisa diklik", async () => {
     const port = createPort();
     const list = new TListBox({ id: "list", items: ["a"] });
-    const onClick = vi.fn();
-    list.onClick = onClick;
+    const onChange = vi.fn();
+    list.onChange = onChange;
     list.bindEventHandler(port);
 
     list.items = ["a", "b"];
     await Promise.resolve();
     lastClickHandler(port, "list_item_1")();
-    expect(onClick).toHaveBeenCalledWith(1, "b");
+    expect(onChange).toHaveBeenCalledWith(1, "b");
   });
 });
 
@@ -690,18 +695,18 @@ describe("TRadioButton grup (P0-3, Q6)", () => {
   const radio = (id: string, group?: string, checked = false) =>
     new TRadioButton({ id, caption: id, checked, ...(group ? { group } : {}) });
 
-  it("checked = true lewat kode mematikan anggota grup lain tanpa memicu onClick", () => {
+  it("checked = true lewat kode mematikan anggota grup lain tanpa memicu onChange", () => {
     const a = radio("a", "g", true);
     const b = radio("b", "g");
     new THStack({ children: [a, b] });
-    const onClick = vi.fn();
-    a.onClick = onClick;
-    b.onClick = onClick;
+    const onChange = vi.fn();
+    a.onChange = onChange;
+    b.onChange = onChange;
 
     b.checked = true;
 
     expect([a.checked, b.checked]).toEqual([false, true]);
-    expect(onClick).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("grup eksplisit berlaku di seluruh form, lintas parent", () => {
@@ -755,5 +760,85 @@ describe("TRadioButton grup (P0-3, Q6)", () => {
 
     a.checked = false;
     expect([a.checked, b.checked]).toEqual([false, false]);
+  });
+});
+
+function eventHandlerOf(port: ReturnType<typeof createPort>, id: string, event: string) {
+  const calls = port.on.mock.calls.filter(([target, ev]) => target === id && ev === event);
+  const call = calls[calls.length - 1];
+  if (!call) throw new Error(`no ${event} handler for ${id}`);
+  return call[2] as (ev: any) => void;
+}
+
+describe("event K1 (P1-1)", () => {
+  for (const [name, make] of [
+    ["TEdit", () => new TEdit({ id: "e" })],
+    ["TMemo", () => new TMemo({ id: "e" })],
+  ] as const) {
+    it(`${name}: onInput tiap ketikan, onChange untuk nilai final`, () => {
+      const control = make();
+      const port = createPort();
+      const onInput = vi.fn();
+      const onChange = vi.fn();
+      control.onInput = onInput;
+      control.onChange = onChange;
+      control.bindEventHandler(port);
+
+      expect(control.build().props.onChangeId).toBe("e");
+      eventHandlerOf(port, "e", "input")({ value: "ha" });
+      expect(onInput).toHaveBeenCalledWith("ha");
+      expect(onChange).not.toHaveBeenCalled();
+
+      eventHandlerOf(port, "e", "change")({ value: "halo" });
+      expect(onChange).toHaveBeenCalledWith("halo");
+      expect(control.text).toBe("halo");
+    });
+  }
+
+  it("TSlider: onInput saat digeser, onChange saat dilepas", () => {
+    const slider = new TSlider({ id: "sl", min: 0, max: 10 });
+    const port = createPort();
+    const onInput = vi.fn();
+    const onChange = vi.fn();
+    slider.onInput = onInput;
+    slider.onChange = onChange;
+    slider.bindEventHandler(port);
+
+    const find = (node: any): any =>
+      node.id === "sl-input-sl" ? node : node.children?.map(find).find(Boolean);
+    expect(find((slider as any).createView()).props.onChangeId).toBe("sl-input-sl");
+
+    eventHandlerOf(port, "sl-input-sl", "input")({ value: "4" });
+    expect(onInput).toHaveBeenCalledWith(4);
+    expect(onChange).not.toHaveBeenCalled();
+    eventHandlerOf(port, "sl-input-sl", "change")({ value: "42" });
+    expect(onChange).toHaveBeenCalledWith(10);
+  });
+
+  it("TTreeView: perubahan lewat kode tidak memicu onSelect/onToggle; klik user memicu", async () => {
+    const tree = new TTreeView({
+      id: "tree",
+      nodes: [{ id: "a", label: "A", children: [{ id: "a1", label: "A1" }] }],
+    });
+    const port = createPort();
+    tree.bindEventHandler(port);
+    const onSelect = vi.fn();
+    const onToggle = vi.fn();
+    tree.onSelect = onSelect;
+    tree.onToggle = onToggle;
+
+    await tree.select("a1");
+    await tree.collapse("a");
+    await tree.expand("a");
+    await tree.toggle("a");
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onToggle).not.toHaveBeenCalled();
+
+    await tree.select("a1", true);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "a1" }));
+
+    const row = tree.build().children[0];
+    lastClickHandler(port, row.children[0].id)();
+    await vi.waitFor(() => expect(onToggle).toHaveBeenCalledTimes(1));
   });
 });

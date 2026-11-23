@@ -181,7 +181,10 @@ export interface TEditOptions extends TOptions {
 const EDIT_PROPS = defineProps<TEditOptions>()(["text", "placeholder", "readOnly"]);
 
 export class TEdit extends TComponent {
+  /** Setiap ketikan. */
   public onInput: ((value: string) => void) | null = null;
+  /** Nilai final: Enter atau field ditinggalkan. */
+  public onChange: ((value: string) => void) | null = null;
 
   constructor(
     idOrOpts?: string | TEditOptions,
@@ -192,6 +195,7 @@ export class TEdit extends TComponent {
     this.tag = "input";
     this.props.type = "text";
     this.props.onInputId = this.id;
+    this.props.onChangeId = this.id;
     const o = this.options as TEditOptions;
     this.style = { ...INPUT_STYLE, ...this.style };
     if (o.text !== undefined) this.text = o.text;
@@ -227,11 +231,20 @@ export class TEdit extends TComponent {
 
   bindEventHandler(host: TScreenPort): void {
     super.bindEventHandler(host);
-    host.on(this.id, "input", (ev: any) => {
-      const value = ev?.value ?? "";
-      this.props.value = value;
-      this.onInput?.(value);
-    });
+    host.on(this.id, "input", (ev: any) => this.handleInput(ev?.value ?? ""));
+    host.on(this.id, "change", (ev: any) => this.handleChange(ev?.value ?? this.text));
+  }
+
+  /** Hook ketikan user; subclass (mis. kontrol DB) override, bukan `onInput`. */
+  protected handleInput(value: string): void {
+    this.props.value = value;
+    this.onInput?.(value);
+  }
+
+  /** Hook nilai final dari user. */
+  protected handleChange(value: string): void {
+    this.props.value = value;
+    this.onChange?.(value);
   }
 }
 
@@ -245,7 +258,10 @@ export interface TMemoOptions extends TOptions {
 const MEMO_PROPS = defineProps<TMemoOptions>()(["text", "rows", "readOnly"]);
 
 export class TMemo extends TComponent {
+  /** Setiap ketikan. */
   public onInput: ((value: string) => void) | null = null;
+  /** Nilai final: field ditinggalkan. */
+  public onChange: ((value: string) => void) | null = null;
 
   constructor(
     idOrOpts?: string | TMemoOptions,
@@ -255,6 +271,7 @@ export class TMemo extends TComponent {
     super(idOrOpts, opts, [...MEMO_PROPS, ...knownProps]);
     this.tag = "textarea";
     this.props.onInputId = this.id;
+    this.props.onChangeId = this.id;
     const o = this.options as TMemoOptions;
     this.style = { ...MEMO_STYLE, ...this.style };
     this.rows = o.rows ?? 5;
@@ -290,11 +307,20 @@ export class TMemo extends TComponent {
 
   bindEventHandler(host: TScreenPort): void {
     super.bindEventHandler(host);
-    host.on(this.id, "input", (ev: any) => {
-      const value = ev?.value ?? "";
-      this.props.text = value;
-      this.onInput?.(value);
-    });
+    host.on(this.id, "input", (ev: any) => this.handleInput(ev?.value ?? ""));
+    host.on(this.id, "change", (ev: any) => this.handleChange(ev?.value ?? this.text));
+  }
+
+  /** Hook ketikan user; subclass (mis. kontrol DB) override, bukan `onInput`. */
+  protected handleInput(value: string): void {
+    this.props.text = value;
+    this.onInput?.(value);
+  }
+
+  /** Hook nilai final dari user. */
+  protected handleChange(value: string): void {
+    this.props.text = value;
+    this.onChange?.(value);
   }
 }
 
@@ -307,7 +333,8 @@ export interface TCheckBoxOptions extends TOptions {
 const CHECKBOX_PROPS = defineProps<TCheckBoxOptions>()(["caption", "checked"]);
 
 export class TCheckBox extends TComponent {
-  public onClick: ((checked: boolean) => void) | null = null;
+  /** User mengubah centang (bukan lewat kode). */
+  public onChange: ((checked: boolean) => void) | null = null;
   private _caption: string = "";
 
   constructor(
@@ -348,7 +375,7 @@ export class TCheckBox extends TComponent {
   /** Perilaku klik default: toggle. Radio meng-override jadi pilih tunggal. */
   protected handleClick(): void {
     this.checked = !this.checked;
-    this.onClick?.(this.checked);
+    this.onChange?.(this.checked);
   }
 
   build(): TNode {
@@ -414,7 +441,7 @@ export class TRadioButton extends TCheckBox {
   /**
    * Menyalakan radio (lewat klik atau kode) mematikan anggota grup lain.
    * Grup eksplisit berlaku untuk seluruh form; tanpa `group` hanya untuk
-   * saudara satu parent. Perubahan lewat kode tidak memicu `onClick`.
+   * saudara satu parent. Perubahan lewat kode tidak memicu `onChange`.
    */
   override set checked(value: boolean) {
     super.checked = value;
@@ -426,7 +453,7 @@ export class TRadioButton extends TCheckBox {
   protected handleClick(): void {
     if (this.checked) return;
     this.checked = true;
-    this.onClick?.(true);
+    this.onChange?.(true);
   }
 
   /** Radio lain yang satu grup (konstruktor: belum ada tree, jadi kosong). */
@@ -559,7 +586,8 @@ export interface TListBoxOptions extends TOptions {
 const LISTBOX_PROPS = defineProps<TListBoxOptions>()(["items", "selectedIndex"]);
 
 export class TListBox extends TComponent {
-  public onClick: ((index: number, item: string) => void) | null = null;
+  /** User memilih item lain (klik item yang sudah terpilih tidak memicu). */
+  public onChange: ((index: number, item: string) => void) | null = null;
   private _items: string[] = [];
   private _selectedIndex: number = -1;
 
@@ -644,14 +672,16 @@ export class TListBox extends TComponent {
     if (!host) return;
 
     this._items.forEach((_, index) => {
-      host.on(`${this.id}_item_${index}`, "click", () => this.select(index));
+      host.on(`${this.id}_item_${index}`, "click", () => this.handleSelect(index));
     });
   }
 
-  private select(index: number): void {
+  /** Hook pilihan user; subclass (mis. kontrol DB) override, bukan `onChange`. */
+  protected handleSelect(index: number): void {
+    if (index === this._selectedIndex) return;
     this._selectedIndex = index;
     this.applySelection();
-    this.onClick?.(index, this._items[index] ?? "");
+    this.onChange?.(index, this._items[index] ?? "");
   }
 
   private applySelection(): void {

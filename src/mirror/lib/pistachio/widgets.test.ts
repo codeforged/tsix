@@ -28,7 +28,7 @@ describe("Pistachio widget state handling", () => {
     const requestedStates: boolean[] = [];
     const toggleViewId = toggle.build().children[0].id;
 
-    toggle.onClick = (state) => requestedStates.push(state);
+    toggle.onChange = (state) => requestedStates.push(state);
     toggle.bindEventHandler(host);
     handlers.get("ts-controlled-switch")?.({});
 

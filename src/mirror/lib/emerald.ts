@@ -4893,12 +4893,14 @@ export class Screen {
   // ============================================================
   async on(
     targetId: string,
-    event: "click" | "input" | "keydown" | "close",
+    event: "click" | "input" | "keydown" | "change" | "close",
     cb: (ev: IGUIEventIPC) => void,
   ) {
     if (event === "click") this.win.onClick(targetId, cb);
     else if (event === "input") this.win.onInput(targetId, cb);
     else if (event === "keydown") this.win.onKeydown(targetId, cb);
+    // "change" = nilai final (Enter/blur); dikirim klien DOME untuk `onChangeId`.
+    else if (event === "change") this.win.bindHandler(targetId, "change", cb);
     else if (event === "close") this.win.onClose(cb);
     await this.win.flush();
   }

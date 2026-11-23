@@ -109,6 +109,25 @@ abstract class TGridBase<TG extends TEmbeddedGrid> extends TComponent {
   protected abstract createGrid(): TG;
   protected abstract mountGrid(host: TScreenPort): void;
 
+  // Hook event dari UI. Wiring internal subclass (mis. TDBGrid) meng-override
+  // hook ini, bukan meng-assign event publik milik aplikasi.
+  protected handleSort(key: string, dir: "asc" | "desc"): void {
+    this.onSort?.(key, dir);
+  }
+
+  protected handleRowClick(index: number, record: Record<string, any>): void {
+    this.onRowClick?.(index, record);
+  }
+
+  protected handleRowContextMenu(
+    index: number,
+    record: Record<string, any>,
+    x: number,
+    y: number,
+  ): void {
+    this.onRowContextMenu?.(index, record, x, y);
+  }
+
   get columns(): readonly DataGridColumn[] {
     return this._columns;
   }
@@ -205,9 +224,9 @@ export class TDataGrid extends TGridBase<ConnectedDataGrid> {
   protected mountGrid(host: TScreenPort): void {
     this.background(this._grid.mount(
       host as unknown as Screen,
-      (key, dir) => this.onSort?.(key, dir),
-      (index, record) => this.onRowClick?.(index, record),
-      (index, record, x, y) => this.onRowContextMenu?.(index, record, x, y),
+      (key, dir) => this.handleSort(key, dir),
+      (index, record) => this.handleRowClick(index, record),
+      (index, record, x, y) => this.handleRowContextMenu(index, record, x, y),
     ), "grid mount");
   }
 }
@@ -220,13 +239,14 @@ const TABULATOR_PROPS = defineProps<TTabulatorGridOptions, TGridOptions>()([
  * Grid data manual berbasis Tabulator (virtualized, cocok untuk banyak baris).
  */
 export class TTabulatorGrid extends TGridBase<ConnectedTabulator> {
-  public onRowDoubleClick:
-    | ((index: number, record: Record<string, any>) => void)
+  /** Seleksi berubah; `record` null bila seleksi dikosongkan. */
+  public onSelect:
+    | ((index: number, record: Record<string, any> | null) => void)
     | null = null;
 
-  /** Dipanggil saat seleksi berubah; `record` null bila seleksi dikosongkan. */
-  public onSelectionChange:
-    | ((index: number, record: Record<string, any> | null) => void)
+  /** Baris diaktifkan (double-click). */
+  public onActivate:
+    | ((index: number, record: Record<string, any>) => void)
     | null = null;
 
   constructor(
@@ -252,13 +272,30 @@ export class TTabulatorGrid extends TGridBase<ConnectedTabulator> {
   protected mountGrid(host: TScreenPort): void {
     this.background(this._grid.mount(
       host as unknown as Screen,
-      (key, dir) => this.onSort?.(key, dir),
-      (index, record) => this.onRowClick?.(index, record),
-      (index, record, x, y) => this.onRowContextMenu?.(index, record, x, y),
-      (index, record) => this.onSelectionChange?.(index, record),
-      (index, record) => this.onRowDoubleClick?.(index, record),
+      (key, dir) => this.handleSort(key, dir),
+      (index, record) => this.handleRowClick(index, record),
+      (index, record, x, y) => this.handleRowContextMenu(index, record, x, y),
+      (index, record) => this.handleSelect(index, record),
+      (index, record) => this.handleActivate(index, record),
     ), "grid mount");
   }
+
+  protected handleSelect(index: number, record: Record<string, any> | null): void {
+    this.onSelect?.(index, record);
+  }
+
+  protected handleActivate(index: number, record: Record<string, any>): void {
+    this.onActivate?.(index, record);
+  }
+}
+
+function findNode(node: TNode, id: string): TNode | null {
+  if (node.id === id) return node;
+  for (const child of node.children ?? []) {
+    const found = findNode(child, id);
+    if (found) return found;
+  }
+  return null;
 }
 
 // ================================================================
@@ -539,7 +576,8 @@ const TOGGLESWITCH_PROPS = defineProps<TToggleSwitchOptions>()([
 ]);
 
 export class TToggleSwitch extends TCardWidget {
-  public onClick: ((on: boolean) => void) | null = null;
+  /** User menggeser switch; mode `controlled` hanya meminta `on` baru. */
+  public onChange: ((on: boolean) => void) | null = null;
   private _on: boolean;
   private readonly _color: string;
   private readonly _label: string;
@@ -584,11 +622,11 @@ export class TToggleSwitch extends TCardWidget {
     host.on(`ts-${this.id}`, "click", () => {
       const requestedState = !this._on;
       if (this._controlled) {
-        this.onClick?.(requestedState);
+        this.onChange?.(requestedState);
         return;
       }
       this._on = requestedState;
-      this.onClick?.(requestedState);
+      this.onChange?.(requestedState);
       this.background(this.rerender(), "render");
     });
   }
@@ -609,7 +647,8 @@ const RELAYCARD_PROPS = defineProps<TRelayCardOptions>()([
 ]);
 
 export class TRelayCard extends TCardWidget {
-  public onToggle: ((active: boolean) => void) | null = null;
+  /** User menekan kartu relay. */
+  public onChange: ((active: boolean) => void) | null = null;
   private _active: boolean;
   private readonly _color: string;
   private readonly _label: string;
@@ -653,7 +692,7 @@ export class TRelayCard extends TCardWidget {
     super.bindEventHandler(host);
     host.on(`rc-${this.id}`, "click", () => {
       this._active = !this._active;
-      this.onToggle?.(this._active);
+      this.onChange?.(this._active);
       this.background(this.rerender(), "render");
     });
   }
@@ -1103,7 +1142,10 @@ const SLIDER_PROPS = defineProps<TSliderOptions>()([
 
 /** Slider rentang dengan nilai tampil di bawahnya. */
 export class TSlider extends TViewWidget {
+  /** Selama digeser. */
   public onInput: ((value: number) => void) | null = null;
+  /** Nilai final saat slider dilepas. */
+  public onChange: ((value: number) => void) | null = null;
 
   private _value: number;
   private readonly _min: number;
@@ -1146,10 +1188,16 @@ export class TSlider extends TViewWidget {
       this.background(host.update(`sl-val-${this.id}`, { text: this.displayValue() }), "update");
       this.onInput?.(this._value);
     });
+    host.on(`sl-input-${this.id}`, "change", (ev: any) => {
+      const parsed = Number.parseFloat(ev?.value);
+      if (Number.isNaN(parsed)) return;
+      this._value = this.clamp(parsed);
+      this.onChange?.(this._value);
+    });
   }
 
   protected buildView(): TNode {
-    return slider({
+    const view = slider({
       id: this.id,
       min: this._min,
       max: this._max,
@@ -1159,6 +1207,10 @@ export class TSlider extends TViewWidget {
       label: this._label,
       color: this._color,
     });
+    // Builder emerald hanya memasang `onInputId`; `change` = saat dilepas.
+    const input = findNode(view, `sl-input-${this.id}`);
+    if (input) input.props.onChangeId = input.id;
+    return view;
   }
 
   private clamp(value: number): number {

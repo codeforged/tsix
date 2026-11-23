@@ -117,8 +117,11 @@ export class TTreeView extends TComponent {
     await this.rerender();
   }
 
-  /** Pilih simpul (dan buka induknya) tanpa mengubah data pohon. */
-  async select(id: string | null, notify = true): Promise<void> {
+  /**
+   * Pilih simpul (dan buka induknya) tanpa mengubah data pohon. Seperti
+   * perubahan lewat kode lainnya, `onSelect` hanya dipicu bila `notify`.
+   */
+  async select(id: string | null, notify = false): Promise<void> {
     if (id === null) {
       this._selectedId = null;
       this.applySelection();
@@ -140,27 +143,29 @@ export class TTreeView extends TComponent {
     if (notify) this.onSelect?.(node);
   }
 
-  async expand(id: string): Promise<void> {
+  /** Buka simpul. `onToggle` hanya dipicu bila `notify` (klik user). */
+  async expand(id: string, notify = false): Promise<void> {
     const node = this.findNode(id);
     if (!node?.children?.length || this._expanded.has(id)) return;
     this._expanded.add(id);
     await this.rerender();
-    this.onToggle?.(node, true);
+    if (notify) this.onToggle?.(node, true);
   }
 
-  async collapse(id: string): Promise<void> {
+  /** Tutup simpul. `onToggle` hanya dipicu bila `notify` (klik user). */
+  async collapse(id: string, notify = false): Promise<void> {
     const node = this.findNode(id);
     if (!node?.children?.length || !this._expanded.has(id)) return;
     this._expanded.delete(id);
     await this.rerender();
-    this.onToggle?.(node, false);
+    if (notify) this.onToggle?.(node, false);
   }
 
-  async toggle(id: string): Promise<void> {
+  async toggle(id: string, notify = false): Promise<void> {
     const node = this.findNode(id);
     if (!node?.children?.length) return;
-    if (this._expanded.has(id)) await this.collapse(id);
-    else await this.expand(id);
+    if (this._expanded.has(id)) await this.collapse(id, notify);
+    else await this.expand(id, notify);
   }
 
   async expandAll(): Promise<void> {
@@ -364,7 +369,7 @@ export class TTreeView extends TComponent {
       );
       if (row.node.children?.length) {
         host.on(this.toggleIdOf(row.node), "click", () =>
-          this.background(this.toggle(row.node.id), "toggle"),
+          this.background(this.toggle(row.node.id, true), "toggle"),
         );
       }
     }

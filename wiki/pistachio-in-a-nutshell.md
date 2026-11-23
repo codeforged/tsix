@@ -268,12 +268,12 @@ Callback event hanya untuk reaksi real-time.
 | :-- | :-- | :-- | :-- |
 | `TLabel` | `text` | `text` | — |
 | `TButton` | `caption`, `enabled` | `caption`, `enabled` | `onClick()` |
-| `TEdit` | `text`, `placeholder`, `readOnly` | sama | `onInput(value)` |
-| `TMemo` | `text`, `rows`, `readOnly` | sama | `onInput(value)` |
-| `TCheckBox` | `caption`, `checked` | `caption`, `checked` | `onClick(checked)` |
-| `TRadioButton` | `caption`, `checked`, `group` | sama | `onClick(checked)` |
+| `TEdit` | `text`, `placeholder`, `readOnly` | sama | `onInput(value)` tiap ketikan, `onChange(value)` saat Enter/keluar field |
+| `TMemo` | `text`, `rows`, `readOnly` | sama | `onInput(value)`, `onChange(value)` saat keluar field |
+| `TCheckBox` | `caption`, `checked` | `caption`, `checked` | `onChange(checked)` |
+| `TRadioButton` | `caption`, `checked`, `group` | sama | `onChange(true)` |
 | `TComboBox` | `items`, `selectedIndex` | `items`, `selectedIndex`, `setItems()` | `onChange(index, item)` |
-| `TListBox` | `items`, `selectedIndex` | `items`, `selectedIndex`, `setItems()` | `onClick(index, item)` |
+| `TListBox` | `items`, `selectedIndex` | `items`, `selectedIndex`, `setItems()` | `onChange(index, item)` (klik item yang sudah terpilih tidak memicu) |
 
 ```ts
 const edtName = new TEdit({ id: "edt-name", placeholder: "Nama..." });
@@ -290,7 +290,11 @@ ada tetap terpilih. Bila hilang, `TComboBox` memilih item pertama dan
 **Radio button:** radio dengan `group` yang sama saling meng-uncheck di
 seluruh form, walaupun berada di panel berbeda. Radio tanpa `group` hanya
 dikelompokkan dengan saudara satu parent. `rb.checked = true` lewat kode juga
-mematikan anggota grup lain, tanpa memicu `onClick`.
+mematikan anggota grup lain, tanpa memicu `onChange`.
+
+**Event dipicu oleh user, bukan oleh kode.** `cb.checked = true`,
+`list.selectedIndex = 2`, `tree.select(id)` dan sejenisnya tidak memanggil
+`onChange`/`onSelect`, sama seperti Delphi.
 
 `readOnly` di `TEdit`/`TMemo` bisa diubah setelah mount; field tetap bisa
 dipilih dan disalin, dengan tampilan embos.
@@ -321,8 +325,8 @@ tree.onToggle = (node, expanded) => { /* ... */ };
 | Member | Fungsi |
 | :-- | :-- |
 | `setNodes(nodes)` | Ganti seluruh pohon |
-| `select(id, notify = true)` | Pilih node (memicu `onSelect` bila `notify`) |
-| `expand(id)` / `collapse(id)` / `toggle(id)` | Buka/tutup satu node |
+| `select(id, notify = false)` | Pilih node; `onSelect` hanya dipicu bila `notify` |
+| `expand(id, notify = false)` / `collapse(…)` / `toggle(…)` | Buka/tutup satu node; `onToggle` hanya bila `notify` (klik chevron selalu memicu) |
 | `expandAll()` / `collapseAll()` | Buka/tutup semua |
 | `selectedId` / `selectedNode` / `expandedIds` | State saat ini |
 
@@ -339,7 +343,7 @@ Untuk tabel database pakai [`TDBGrid`](#kontrol-db).
 | Kelas | Render | Tambahan |
 | :-- | :-- | :-- |
 | `TDataGrid` | virtual-DOM di sisi aplikasi | — |
-| `TTabulatorGrid` | di browser oleh Tabulator (lebih ringan untuk data banyak) | `selectable`, `onRowDoubleClick`, `onSelectionChange` |
+| `TTabulatorGrid` | di browser oleh Tabulator (lebih ringan untuk data banyak) | `selectable`, `onSelect(index, record \| null)`, `onActivate(index, record)` (double-click) |
 
 ```ts
 const grid = new TTabulatorGrid({
@@ -381,9 +385,9 @@ propertinya di-assign (`gauge.value = 64`).
 | `TLineChart` | `data`, `color`, `spline`, `fill`, `width`, `height`, `showXAxisLabels`, `showYAxisLabels` | `data`, `setData(values)` |
 | `TProgressBar` | `value` (0–100), `color`, `track`, `height` | `value` |
 | `TIndicatorLamp` | `on`, `label`, `color`, `size` | `on` |
-| `TToggleSwitch` | `on`, `controlled`, `label`, `color`, `size` | `on`, `onClick(on)` |
-| `TRelayCard` | `active`, `label`, `icon`, `color` | `active`, `onToggle(active)` |
-| `TSlider` | `value`, `min`, `max`, `step`, `unit`, `label`, `color` | `value`, `onInput(value)` |
+| `TToggleSwitch` | `on`, `controlled`, `label`, `color`, `size` | `on`, `onChange(on)` |
+| `TRelayCard` | `active`, `label`, `icon`, `color` | `active`, `onChange(active)` |
+| `TSlider` | `value`, `min`, `max`, `step`, `unit`, `label`, `color` | `value`, `onInput(value)` saat digeser, `onChange(value)` saat dilepas |
 | `TImage` | `src` (URL/data URI) atau `file` (path VFS), `alt`, `fit`, `width`, `height` | `src`, `alt`, `loadFile(path)`, `onClick()` |
 | `TStatusBar` | `leftText`, `rightText` | `leftText`, `rightText` |
 
@@ -398,7 +402,7 @@ onReading((v) => {
 ```
 
 > **`TToggleSwitch` dengan `controlled: true`** tidak mengubah tampilannya
-> sendiri saat diklik. `onClick(requested)` dipanggil, lalu aplikasi meng-set
+> sendiri saat diklik. `onChange(requested)` dipanggil, lalu aplikasi meng-set
 > `on` setelah device mengonfirmasi. Cocok untuk relay yang statusnya
 > ditentukan perangkat, bukan UI.
 
@@ -571,7 +575,7 @@ tampilan). Menyediakan member yang sama dengan dataset untuk navigasi, edit, dan
 
 | Kelas | Opsi khusus | Catatan |
 | :-- | :-- | :-- |
-| `TDBGrid` | `dataSource`, `columns` (`"auto"` default atau daftar kolom) | Turunan `TTabulatorGrid`; cursor ikut baris terpilih; `onRecordDoubleClick(record)`, `onError`. Isi grid **hanya** dari dataset: `setData`/`appendData`/`data =` melempar `UNSUPPORTED`; kolom eksplisit boleh diganti, kolom `"auto"` tidak. Jangan meng-assign `onSort`/`onSelectionChange`/`onRowDoubleClick` (dipakai untuk sinkron dengan dataset) |
+| `TDBGrid` | `dataSource`, `columns` (`"auto"` default atau daftar kolom) | Turunan `TTabulatorGrid`; cursor ikut baris terpilih; `onSelect`/`onActivate(index, record)` memakai indeks dan record **dataset**, `onError`. Isi grid **hanya** dari dataset: `setData`/`appendData`/`data =` melempar `UNSUPPORTED`; kolom eksplisit boleh diganti, kolom `"auto"` tidak. Sinkronisasi dengan dataset memakai hook internal, jadi `onSort`/`onSelect`/`onActivate` bebas dipakai aplikasi |
 | `TDBNavigator` | `dataSource` | Tombol first/prior/next/last/insert/edit/delete/post/cancel/apply (bisa diakses: `navigator.applyButton`, dst.); `onError` |
 | `TDBPager` | `dataSource`, `pageSize` (default 100) | Paging **sisi server** (`COUNT` + `LIMIT/OFFSET`) untuk tabel besar; `goToPage()`, `pageIndex`, `pageCount`, `totalCount` |
 | `TDBText` | `dataSource`, `field`, `formatValue?` | Label read-only |
@@ -634,6 +638,7 @@ komponen keduanya dalam satu form.
 | :-- | :-- |
 | `new TForm("Judul", 800, 600)` | `new TForm({ title: "Judul", width: 800, height: 600 })` |
 | `form.onSetup = async (screen) => …` | `form.onSetup = async (form) => …` (Screen: `form.screen`) |
+| `chk.onClick = (checked) => …`, `list.onClick = (i, item) => …`, `toggle.onClick` | `onChange(...)` dengan argumen sama (event nilai selalu `onChange`) |
 | `form.alert(title, msg)` | `TDialogs.alert(form, title, msg)` |
 | `form.update(id, props)` | set properti komponennya (`lbl.text = …`) |
 | `new TPanel("p1", { padding: "8px" })` | `new TPanel({ id: "p1", style: { padding: "8px" } })` |

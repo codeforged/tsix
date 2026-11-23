@@ -171,8 +171,12 @@ describe("Pistachio DB controls", () => {
     expect(edit.readOnly).toBe(true);
     dataset.edit();
     expect(edit.readOnly).toBe(false);
+    // onInput milik aplikasi tidak menggantikan wiring ke field (T14).
+    const onInput = vi.fn();
+    edit.onInput = onInput;
     inputHandler(port, edit.id)({ value: "12.5" });
     expect(dataset.currentRecord?.value).toBe(12.5);
+    expect(onInput).toHaveBeenCalledWith("12.5");
     dataset.post();
     expect(edit.readOnly).toBe(true);
 
@@ -213,8 +217,11 @@ describe("Pistachio DB controls", () => {
     dataset.edit();
     await list.refresh();
     expect(list.readOnly).toBe(false);
-    list.onClick?.(1, "20");
+    const onChange = vi.fn();
+    list.onChange = onChange;
+    (list as any).handleSelect(1); // klik user pada item "20"
     expect(dataset.currentRecord?.value).toBe(20);
+    expect(onChange).toHaveBeenCalledWith(1, "20");
     list.dispose();
   });
 
@@ -232,24 +239,28 @@ describe("Pistachio DB controls", () => {
     expect(grid.data[1]).toMatchObject({ id: 2, value: 20 });
     expect(grid.selectedRecord).toMatchObject({ id: 1 });
 
-    const onRecordDoubleClick = vi.fn();
-    grid.onRecordDoubleClick = onRecordDoubleClick;
-    grid.onRowDoubleClick?.(1, grid.data[1]);
+    // Event publik milik aplikasi tidak memutus sinkronisasi grid ↔ dataset (T14).
+    const onActivate = vi.fn();
+    const onSelect = vi.fn();
+    grid.onActivate = onActivate;
+    grid.onSelect = onSelect;
+    (grid as any).handleActivate(1, grid.data[1]); // double-click baris kedua
     expect(dataset.currentIndex).toBe(1);
-    expect(onRecordDoubleClick).toHaveBeenCalledWith(dataset.currentRecord);
+    expect(onActivate).toHaveBeenCalledWith(1, dataset.currentRecord);
     expect(grid.selectedRecord).toMatchObject({ id: 2 });
 
     let cursorEvents = 0;
     const unsubscribe = dataSource.subscribe((event) => {
       if (event.type === "cursor") cursorEvents++;
     });
-    grid.onSelectionChange?.(grid.selectedIndex, grid.selectedRecord);
+    (grid as any).handleSelect(grid.selectedIndex, grid.selectedRecord);
     expect(cursorEvents).toBe(0);
+    expect(onSelect).toHaveBeenLastCalledWith(1, dataset.currentRecord);
     unsubscribe();
 
     dataset.first();
     dataset.edit();
-    grid.onSelectionChange?.(1, grid.data[1]);
+    (grid as any).handleSelect(1, grid.data[1]);
     expect(dataset.currentIndex).toBe(0);
     dataset.cancel();
     grid.dispose();
@@ -365,6 +376,12 @@ describe("Pistachio DB controls", () => {
     expect(pager.pageIndex).toBe(2);
     expect(pager.pageEdit.text).toBe("3");
     expect(focus).toHaveBeenCalled();
+
+    // Browser mengirim `change` susulan setelah Enter: tidak memuat ulang.
+    const queriesAfterEnter = vi.mocked(driver.execute).mock.calls.length;
+    eventHandler(port, pager.pageEdit.id, "change")({ value: "3" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(vi.mocked(driver.execute).mock.calls.length).toBe(queriesAfterEnter);
 
     inputHandler(port, pager.pageEdit.id)({ value: "1" });
     eventHandler(port, pager.pageEdit.id, "change")({ value: "1" });

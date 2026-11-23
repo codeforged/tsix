@@ -6,6 +6,32 @@
 
 ## 2026-11-23
 
+### Improve plan P1-1 — event K1 (breaking)
+
+- **File:** `pistachio/controls.ts`, `widgets.ts`, `dbcontrols.ts`, `treeview.ts`,
+  `lib/emerald.ts`, tes Pistachio, `pistachio-demo.ts`,
+  `pistachio-dbcontrols-demo.ts`, `azalea-dashboard.ts`.
+- **Ganti nama (tanpa alias):** `TCheckBox`/`TRadioButton`/`TListBox`/
+  `TToggleSwitch` `onClick` → `onChange`; `TRelayCard.onToggle` → `onChange`;
+  `TTabulatorGrid.onSelectionChange` → `onSelect`, `onRowDoubleClick` →
+  `onActivate`; `TDBGrid.onRecordDoubleClick(record)` →
+  `onActivate(index, record)`.
+- **Baru:** `onChange(value)` di `TEdit`/`TMemo` (Enter/keluar field) dan
+  `TSlider` (saat dilepas).
+- **Perilaku:** `TListBox.onChange` tidak dipicu bila item yang sama diklik lagi.
+  `TTreeView.select/expand/collapse/toggle` lewat kode tidak memicu event kecuali
+  `notify = true` (default `select` sebelumnya `true`).
+- **T14:** `TDBGrid`, `TDBEdit`, `TDBMemo`, `TDBListBox`, dan pager tidak lagi
+  memakai event publik untuk wiring internal; aplikasi bebas meng-assign
+  `onSort`/`onSelect`/`onActivate`/`onInput`/`onChange` tanpa memutus
+  sinkronisasi dataset.
+- **Perbaikan emerald:** `Screen.on()` kini meneruskan event `change`; sebelumnya
+  diabaikan diam-diam, sehingga commit nomor halaman `TDBPager` saat keluar field
+  tidak pernah jalan di DOME. Pager tidak commit dua kali untuk Enter + `change`.
+- **Migrasi konsumen:** demo Pistachio, DB Browser, dan Azalea dashboard. Klik
+  ulang tabel yang sama di DB Browser tidak lagi memuat ulang (pakai Refresh).
+- **Oleh:** Claude
+
 ### Improve plan P2 — guard & tooling
 
 - **File:** `tsconfig.pistachio.json`, `scripts/typecheck-pistachio.ts`,

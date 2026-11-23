@@ -181,7 +181,7 @@ export const main = Program(async () => {
     }
   }
 
-  tableNames.onClick = (_index, tableName) => {
+  tableNames.onChange = (_index, tableName) => {
     void loadTable(tableName);
   };
   refreshRows.onClick = () => {
@@ -334,7 +334,7 @@ export const main = Program(async () => {
     }
   }
 
-  grid.onRecordDoubleClick = () => openEditor(false);
+  grid.onActivate = () => openEditor(false);
   navigator.editButton.onClick = () => openEditor(false);
   navigator.insertButton.onClick = () => openEditor(true);
   navigator.firstButton.onClick = () => {

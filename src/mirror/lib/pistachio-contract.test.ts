@@ -140,19 +140,6 @@ const EVENT_RULES: Record<string, "*" | Function[]> = {
 
 /** `Kelas:cek` → paket kerja yang akan memperbaikinya. */
 const KNOWN_VIOLATIONS: Record<string, string> = {
-  // P1-1 (K1): onClick → onChange untuk kontrol bernilai.
-  "TCheckBox:event onClick": "P1-1",
-  "TRadioButton:event onClick": "P1-1",
-  "TListBox:event onClick": "P1-1",
-  "TDBListBox:event onClick": "P1-1",
-  "TToggleSwitch:event onClick": "P1-1",
-  "TRelayCard:event onToggle": "P1-1",
-  // P1-1 (K1, T14): nama event grid.
-  "TTabulatorGrid:event onRowDoubleClick": "P1-1",
-  "TTabulatorGrid:event onSelectionChange": "P1-1",
-  "TDBGrid:event onRowDoubleClick": "P1-1",
-  "TDBGrid:event onSelectionChange": "P1-1",
-  "TDBGrid:event onRecordDoubleClick": "P1-1",
   // P1-5 (K6): dialog file sebagai komponen non-visual.
   "TOpenDialog:is TComponent": "P1-5",
   "TSaveDialog:is TComponent": "P1-5",
