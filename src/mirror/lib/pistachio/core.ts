@@ -84,7 +84,8 @@ export type TComponentErrorCode =
   | "ALREADY_PARENTED"
   | "DUPLICATE_ID"
   | "NOT_A_CHILD"
-  | "DISPOSED";
+  | "DISPOSED"
+  | "UNSUPPORTED";
 
 export class EComponentError extends Error {
   public readonly code: TComponentErrorCode;

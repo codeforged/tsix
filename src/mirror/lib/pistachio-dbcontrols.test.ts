@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  EComponentError,
   EDatabaseError,
   TClientDataset,
   TComponent,
@@ -516,5 +517,61 @@ describe("Pistachio DB controls", () => {
     expect(
       () => new TDBText({ dataSource, field: "missing" }),
     ).toThrowError(EDatabaseError);
+  });
+});
+
+describe("TDBGrid hanya diisi dari TDataSource (P0-4)", () => {
+  const expectUnsupported = (fn: () => unknown) => {
+    try {
+      fn();
+    } catch (error) {
+      expect(error).toBeInstanceOf(EComponentError);
+      expect((error as EComponentError).code).toBe("UNSUPPORTED");
+      return;
+    }
+    throw new Error("expected UNSUPPORTED");
+  };
+
+  it("menolak setData/appendData dan setter data, tanpa mengubah isi grid", async () => {
+    const { dataSource } = await makeSource();
+    const grid = new TDBGrid({ id: "g", dataSource });
+    await grid.refresh();
+    const before = grid.data.map((row) => row.id);
+
+    await expect(grid.setData([{ id: 99 }])).rejects.toMatchObject({ code: "UNSUPPORTED" });
+    await expect(grid.appendData([{ id: 99 }])).rejects.toMatchObject({ code: "UNSUPPORTED" });
+    expectUnsupported(() => {
+      grid.data = [{ id: 99 }];
+    });
+
+    expect(grid.data.map((row) => row.id)).toEqual(before);
+  });
+
+  it("kolom auto tidak bisa diganti manual", async () => {
+    const { dataSource } = await makeSource();
+    const grid = new TDBGrid({ id: "g", dataSource });
+    await grid.refresh();
+
+    await expect(grid.setColumns([{ key: "id", label: "ID" }])).rejects.toMatchObject({
+      code: "UNSUPPORTED",
+    });
+    expectUnsupported(() => {
+      grid.columns = [{ key: "id", label: "ID" }];
+    });
+    expect(grid.columns.map((c) => c.key)).toEqual(["id", "value", "notes"]);
+  });
+
+  it("kolom eksplisit boleh diganti; data tetap dari dataset", async () => {
+    const { dataSource, dataset } = await makeSource();
+    const grid = new TDBGrid({ id: "g", dataSource, columns: [{ key: "id", label: "ID" }] });
+    await grid.refresh();
+
+    await grid.setColumns([{ key: "value", label: "Nilai" }]);
+    expect(grid.columns.map((c) => c.key)).toEqual(["value"]);
+
+    dataset.last();
+    await grid.refresh();
+    expect(grid.data).toHaveLength(2);
+    expect(grid.selectedRecord).toMatchObject({ id: 2 });
   });
 });

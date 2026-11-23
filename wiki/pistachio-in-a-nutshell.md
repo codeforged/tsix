@@ -130,7 +130,7 @@ Komponen non-visual (`TKeyboard`, `TDBConnection`, `TDataSource`, ...) punya
 
 | Kelas | Kapan | Contoh kode |
 | :-- | :-- | :-- |
-| `EComponentError` | kesalahan tree/opsi | `UNKNOWN_PROP`, `DUPLICATE_ID`, `ALREADY_PARENTED`, `CYCLE`, `NOT_A_CHILD`, `DISPOSED`, `INVALID_OPTIONS` |
+| `EComponentError` | kesalahan tree/opsi | `UNKNOWN_PROP`, `DUPLICATE_ID`, `ALREADY_PARENTED`, `CYCLE`, `NOT_A_CHILD`, `DISPOSED`, `INVALID_OPTIONS`, `UNSUPPORTED` |
 | `EDatabaseError` | kesalahan stack database | `CONNECTION_FAILED`, `QUERY_FAILED`, `PROVIDER_NOT_WRITABLE`, `DATASET_DIRTY`, ... (lihat [Stack Database](#-stack-database)) |
 
 Keduanya punya `code` untuk dicek program, jadi aplikasi tidak perlu mem-parsing
@@ -523,7 +523,7 @@ tampilan). Menyediakan member yang sama dengan dataset untuk navigasi, edit, dan
 
 | Kelas | Opsi khusus | Catatan |
 | :-- | :-- | :-- |
-| `TDBGrid` | `dataSource`, `columns` (`"auto"` default atau daftar kolom) | Turunan `TTabulatorGrid`; cursor ikut baris terpilih; `onRecordDoubleClick(record)`, `onError` |
+| `TDBGrid` | `dataSource`, `columns` (`"auto"` default atau daftar kolom) | Turunan `TTabulatorGrid`; cursor ikut baris terpilih; `onRecordDoubleClick(record)`, `onError`. Isi grid **hanya** dari dataset: `setData`/`appendData`/`data =` melempar `UNSUPPORTED`; kolom eksplisit boleh diganti, kolom `"auto"` tidak. Jangan meng-assign `onSort`/`onSelectionChange`/`onRowDoubleClick` (dipakai untuk sinkron dengan dataset) |
 | `TDBNavigator` | `dataSource` | Tombol first/prior/next/last/insert/edit/delete/post/cancel/apply (bisa diakses: `navigator.applyButton`, dst.); `onError` |
 | `TDBPager` | `dataSource`, `pageSize` (default 100) | Paging **sisi server** (`COUNT` + `LIMIT/OFFSET`) untuk tabel besar; `goToPage()`, `pageIndex`, `pageCount`, `totalCount` |
 | `TDBText` | `dataSource`, `field`, `formatValue?` | Label read-only |

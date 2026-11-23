@@ -105,6 +105,7 @@ npm run typecheck                                                            # b
 | **T10** | Radio: `checked = true` lewat kode tidak meng-uncheck saudara (hanya klik), dan grup dibatasi **parent yang sama** | `controls.ts:368` | state radio bisa ganda |
 | **T11** | Props didefinisikan dua kali: interface TS (`TButtonOptions`) dan array runtime (`["caption","enabled"]`), tanpa pemeriksaan silang | `controls.ts:86` vs `controls.ts:99` (pola di semua kelas) | bisa bergeser diam-diam |
 | **T12** | Tidak ada tes kontrak lintas-komponen; konvensi hanya dijaga disiplin manual | — | regresi konsistensi tak terdeteksi |
+| **T14** | `TDBGrid` menyambung dirinya ke dataset dengan meng-assign `onSort`, `onSelectionChange`, `onRowDoubleClick` miliknya sendiri; aplikasi yang meng-assign event itu memutus sinkronisasi tanpa error | `dbcontrols.ts` konstruktor `TDBGrid` | sinkron grid–dataset bisa putus diam-diam |
 | **T13** | Contoh di plan memakai `new TClientDataset({ provider, pageSize: 50 })`, padahal opsi itu tidak ada (paging via `TDBPager`) | `pistachio-plan.md` §6.6 | dokumen menyesatkan |
 
 ---
@@ -200,14 +201,14 @@ Estimasi dalam jam fokus, termasuk tes dan dokumen.
 | P0-1 | Setter `items` (`TComboBox`, `TListBox`) me-render ulang setelah mount, identik dengan `setItems()` | T2 | tes: setter setelah bind memanggil `host.setContent`; dokumen menghapus peringatan `setItems` | 1–2 |
 | P0-2 | `TListBox.setItems()` mempertahankan pilihan seperti `TComboBox` (K2.3) | T3 | tes kedua kelas dengan skenario sama: item tetap ada / hilang | 1 |
 | P0-3 | `TRadioButton`: `checked = true` lewat kode meng-uncheck anggota grup lain | T10 | tes: set programatik → tepat satu checked | 1 |
-| P0-4 | `TDBGrid` menolak `setData/appendData/setColumns` dan setter `data/columns` dengan `EComponentError("UNSUPPORTED")` | T9 | tes: tiap method melempar; grid tetap sinkron dataset | 1–2 |
+| P0-4 | `TDBGrid` menolak `setData/appendData` dan setter `data` dengan `EComponentError("UNSUPPORTED")`; `setColumns`/`columns` hanya ditolak bila kolom `"auto"` (kolom eksplisit boleh diganti, itu urusan tampilan) | T9 | tes: tiap method melempar; grid tetap sinkron dataset | 1–2 |
 | P0-5 | Perbaiki contoh plan §6.6 | T13 | contoh memakai `TDBPager({ pageSize })` | 0,5 |
 
 ### P1 — Konsistensi API (breaking, konsumen ikut dimigrasi)
 
 | ID | Pekerjaan | Temuan | Kriteria terima | Est. |
 | :-- | :-- | :-- | :-- | :-- |
-| P1-1 | Terapkan K1: `onChange` untuk perubahan nilai, `onSelect` untuk koleksi, `onActivate` untuk aktivasi baris, `onInput`/`onChange` di `TEdit`/`TMemo`/`TSlider` | T1 | tabel K1 terpenuhi; nama lama tidak ada; 5 konsumen dimigrasi dan jalan | 5–7 |
+| P1-1 | Terapkan K1: `onChange` untuk perubahan nilai, `onSelect` untuk koleksi, `onActivate` untuk aktivasi baris, `onInput`/`onChange` di `TEdit`/`TMemo`/`TSlider`. Wiring internal komponen (mis. `TDBGrid`) memakai hook `protected`, bukan event publik | T1, T14 | tabel K1 terpenuhi; nama lama tidak ada; 5 konsumen dimigrasi dan jalan | 5–7 |
 | P1-2 | Terapkan K3: widget `label` → `caption` | T4 | semua widget menerima `caption`; `label` → `UNKNOWN_PROP` | 2–3 |
 | P1-3 | Terapkan K2.4: properti tampilan widget bisa di-set runtime (hapus `readonly` `_label`/`_color`/...) | T5 | tes: ubah `caption`/`color` setelah bind memicu render | 3–4 |
 | P1-4 | Terapkan K4: kode error baru, hapus `throw new Error`, pesan berbahasa Inggris | T6, T7 | `grep "new Error(" src/mirror/lib/pistachio` kosong; tes memeriksa `code` | 2–3 |
@@ -298,7 +299,7 @@ mengikuti konvensi §3 sejak awal.
 - [x] P0-1 Setter `items` me-render ulang
 - [x] P0-2 `TListBox.setItems` mempertahankan pilihan
 - [x] P0-3 Radio programatik meng-uncheck grup (+ Q6: grup eksplisit lingkup form)
-- [ ] P0-4 `TDBGrid` menolak API data manual
+- [x] P0-4 `TDBGrid` menolak API data manual
 - [ ] P0-5 Contoh plan §6.6
 
 ### Keputusan

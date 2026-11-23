@@ -5,6 +5,7 @@
  */
 
 import {
+  EComponentError,
   resolveOptions,
   TComponent,
   TKeyEvent,
@@ -503,6 +504,37 @@ export class TDBGrid extends TTabulatorGrid {
     return this._dataSource;
   }
 
+  // Isi grid hanya berasal dari TDataSource. API data manual yang diwarisi
+  // dari TTabulatorGrid ditolak supaya grid tidak bisa keluar dari sinkron.
+  override get data(): readonly Record<string, any>[] {
+    return super.data;
+  }
+  override set data(_value: Record<string, any>[]) {
+    throw unsupportedDataApi(this.id, "data");
+  }
+
+  override async setData(_rows: Record<string, any>[]): Promise<void> {
+    throw unsupportedDataApi(this.id, "setData()");
+  }
+
+  override async appendData(_rows: Record<string, any>[]): Promise<void> {
+    throw unsupportedDataApi(this.id, "appendData()");
+  }
+
+  /** Kolom boleh diganti bila eksplisit; kolom "auto" selalu dari metadata. */
+  override get columns(): readonly DataGridColumn[] {
+    return super.columns;
+  }
+  override set columns(value: DataGridColumn[]) {
+    if (this._automaticColumns) throw unsupportedAutoColumns(this.id);
+    void super.setColumns(value);
+  }
+
+  override async setColumns(columns: DataGridColumn[]): Promise<void> {
+    if (this._automaticColumns) throw unsupportedAutoColumns(this.id);
+    await super.setColumns(columns);
+  }
+
   override handleKeyEvent(event: TKeyEvent): boolean {
     return (
       navigateDataSourceByKey(
@@ -518,7 +550,7 @@ export class TDBGrid extends TTabulatorGrid {
   override async refresh(): Promise<void> {
     const fields = this._dataSource.fields;
     if (this._automaticColumns) {
-      await this.setColumns(
+      await super.setColumns(
         fields.map((field) => ({
           key: field.name,
           label: field.name,
@@ -532,7 +564,7 @@ export class TDBGrid extends TTabulatorGrid {
     while (fields.some((field) => field.name === this._rowIndexKey)) {
       this._rowIndexKey += "_";
     }
-    await this.setData(
+    await super.setData(
       this._dataSource.records.map((record, index) => ({
         ...record,
         [this._rowIndexKey]: index,
@@ -563,6 +595,22 @@ export class TDBGrid extends TTabulatorGrid {
       this.data[this._dataSource.currentIndex] ?? null,
     );
   }
+}
+
+function unsupportedDataApi(id: string, api: string): EComponentError {
+  return new EComponentError(
+    "UNSUPPORTED",
+    `TDBGrid "${id}" is bound to a TDataSource; ${api} is not supported — change the dataset instead`,
+    id,
+  );
+}
+
+function unsupportedAutoColumns(id: string): EComponentError {
+  return new EComponentError(
+    "UNSUPPORTED",
+    `TDBGrid "${id}" uses automatic columns; pass columns: [...] to set them explicitly`,
+    id,
+  );
 }
 
 function compareValues(left: unknown, right: unknown): number {
