@@ -9,7 +9,7 @@
 
 **TSIX** is an **operating system simulator** built entirely in TypeScript on top of Node.js/V8 — complete with a custom kernel, syscall dispatcher, logical Unix-style permission layer (UID/GID, rwx), POSIX-like filesystem, signal handling, and device abstraction (HAL). It is **not a VM that emulates a CPU**; it simulates OS concepts — tasks/processes, permissions, filesystems, signals — directly within the Node.js runtime as an educational and experimental project, and follows **Unix fidelity** as its design north star (see [Philosophy](#philosophy)).
 
-Its flagship use case is a complete **IoT stack** — **Lantana** (the default IoT stack), the MQTNL protocol (MQTT-based), OTA firmware updates, real-time dashboards, and encrypted remote terminal access — all reachable with nothing more than an internet connection and a free MQTT broker. No VPS, no static public IP, no paid cloud service required.
+Its flagship use case is a complete **IoT stack** — the MQTNL protocol (MQTT-based), **Lantana** (the bundled, ready-to-use IoT stack; optional), OTA firmware updates, real-time dashboards, and encrypted remote terminal access — all reachable with nothing more than an internet connection and a free MQTT broker. No VPS, no static public IP, no paid cloud service required.
 
 **Where IoT fits (and where it doesn't):** the IoT stack is **not** part of the kernel. TSIX's core — kernel, VFS, drivers (rings 1–2) — is generic within the simulator's ecosystem: it has no idea what MQTT, OTA, or ESP32 are. The IoT stack is simply **one application running on top of the platform**, exactly like the window manager, the file browser, or the shell. That separation *is* the design's strength: one neutral, Unix-faithful core powers any generic simulated task — be it IoT, a desktop environment, or a command line.
 
@@ -168,13 +168,20 @@ tssh <hostname> -c "cat /etc/hostname"   # run a one-off remote command
 > behind NAT — from anywhere, using only a free public MQTT broker. No VPS to
 > rent, no firewall hole to open.
 
-### IoT Stack — Lantana (default)
+### IoT Stack — Lantana (bundled, optional)
 
-**Lantana** is TSIX's default IoT stack, built on MQTNL. ESP32/ESP8266 devices
-connect through the MQTT broker; the Lantana daemon authenticates them, checks
-permissions, validates every reading, and distributes the data to consumers and
-dashboards. Like everything above the kernel, it is a regular userland package
-(`sudo tpkg install lantana`), and it is preinstalled in **TSIX IoT Edition**.
+**Lantana** is the IoT stack that ships with TSIX — a ready-to-use reference
+implementation built on MQTNL. ESP32/ESP8266 devices connect through the MQTT
+broker; the Lantana daemon authenticates them, checks permissions, validates
+every reading, and distributes the data to consumers and dashboards. Like
+everything above the kernel, it is a regular userland package
+(`sudo tpkg install lantana`), preinstalled in **TSIX IoT Edition**.
+
+> **Lantana is a default, not a requirement.** The building blocks underneath —
+> MQTNL (transport, handshake, encryption), the `tsixlib` firmware library,
+> NetSocket, the device drivers, DOME/Emerald for UIs — are protocol-neutral and
+> usable on their own. You can build your own IoT backend on the same
+> infrastructure, or run it alongside Lantana.
 
 ```text
 ESP32 / ESP8266 (tsixlib) ──MQTNL (RSA/PSK + ChaCha20-Poly1305)──▶ MQTT broker ──▶ Lantana daemon
