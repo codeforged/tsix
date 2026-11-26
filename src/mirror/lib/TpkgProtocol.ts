@@ -51,19 +51,38 @@ export const TPKG_SBIN_MODE = 0o744;
 export const TPKG_SETUID_MODE = 0o4755;
 
 /**
- * Direktori yang isinya (.ts/.js) otomatis dianggap executable — SALINAN dari
- * `EXEC_DIRS` di `scripts/vfs-bootstrap.ts` + `install.ts`.
+ * Direktori executable (FHS). SUMBER TUNGGAL aturan mode eksekusi: dipakai
+ * `tpkg` (`resolveMode`), `transpile`, `apply-update`, dan — di sisi host —
+ * `scripts/lib/binary-mode.ts` (bootstrap/install/sync/pull/rootfs-chmod).
  *
- * Kenapa diduplikasi: bootstrap userland (`tpkg install`) harus menghasilkan mode
- * yang sama dengan bootstrap host. Kalau daftarnya tidak sinkron, ada file yang
- * executable setelah `npm run vfs:bootstrap` tapi tidak setelah `tpkg install`
- * (atau sebaliknya) — bug yang sulit dilacak.
+ * Dulu daftar ini disalin di empat tempat dengan aturan yang sedikit berbeda
+ * (mis. `transpile` mencocokkan direktori persis sehingga `/opt/<pkg>/x.js`
+ * jatuh ke 0644). Sekarang semuanya memanggil `execModeForPath()`.
  */
 export const TPKG_EXEC_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin", "/opt"];
 
-/** Binary istimewa SetUID — salinan dari `isSetuidBinary()` di `vfs-bootstrap.ts`. */
+/** Binary istimewa SetUID (login/passwd/sudo — butuh akses /etc/shadow). */
 export function isSetuidPath(path: string): boolean {
     return /\/bin\/(login|passwd|sudo)\.(ts|js)$/.test(String(path ?? ""));
+}
+
+/**
+ * execModeForPath(): Mode standar sebuah path executable, atau `null` kalau
+ * path itu tidak berada di direktori executable.
+ *
+ *   - SetUID (`/bin/login|passwd|sudo`) → 0o4755
+ *   - di bawah `/sbin/`                 → 0o744 (root-only)
+ *   - di bawah direktori exec lain      → 0o755 (termasuk `/opt/<pkg>/…`)
+ *
+ * Tidak memfilter ekstensi — pemanggil yang memutuskan (lihat `resolveMode`).
+ */
+export function execModeForPath(path: string): number | null {
+    const p = String(path ?? "");
+    if (isSetuidPath(p)) return TPKG_SETUID_MODE;
+    if (TPKG_EXEC_DIRS.some((d) => p.startsWith(d + "/"))) {
+        return p.startsWith("/sbin/") ? TPKG_SBIN_MODE : TPKG_EXEC_MODE;
+    }
+    return null;
 }
 
 /** Satu item (file) di dalam paket — bagian dari `packages.json`. */
@@ -102,13 +121,127 @@ export interface TpkgPackage {
     author?: string;
     /** Paket minta reboot setelah dipasang (informasi ke operator). */
     needReboot?: boolean;
-    /** Skrip yang dijalankan setelah instalasi berhasil. */
+    /** Skrip yang dijalankan setelah instalasi berhasil (dikonfirmasi operator). */
     onAfterDownload?: string;
-    /** Skrip yang dijalankan saat rollback (opsional). */
+    /** Skrip yang dijalankan saat `tpkg remove`, sebelum file dihapus (opsional). */
     undoScript?: string;
     /** Versi TSIX minimum (informasi; belum ditegakkan). */
     minVersion?: string;
+    /**
+     * Paket lain yang dibutuhkan: `"emerald"` atau `"emerald>=1.2.0"`.
+     * `tpkg install` menawarkan untuk memasangnya lebih dulu (lihat `planInstall`).
+     */
+    depends?: string[];
     items: TpkgItem[];
+}
+
+/** Entri katalog (`LIST_REPLY`) — ringkasan paket tanpa daftar file. */
+export interface TpkgCatalogEntry {
+    name: string;
+    version: string;
+    description?: string;
+    author?: string;
+    depends?: string[];
+}
+
+/** Satu dependensi hasil parsing `depends`. */
+export interface TpkgDependency {
+    name: string;
+    /** Versi minimum (inklusif), kalau ditulis `name>=x.y.z`. */
+    minVersion?: string;
+}
+
+/**
+ * parseDependency(): `"emerald"` → `{name}`, `"emerald>=1.2"` → `{name, minVersion}`.
+ * Return null kalau formatnya tidak dikenal.
+ */
+export function parseDependency(spec: string): TpkgDependency | null {
+    const m = /^\s*([A-Za-z0-9._-]+)\s*(?:>=\s*([0-9][0-9A-Za-z.+-]*))?\s*$/.exec(String(spec ?? ""));
+    if (!m) return null;
+    return m[2] ? { name: m[1], minVersion: m[2] } : { name: m[1] };
+}
+
+/** Satu langkah rencana instalasi, sudah terurut (dependensi lebih dulu). */
+export interface TpkgPlanStep {
+    name: string;
+    version: string;
+    reason: "requested" | "dependency";
+    /** Untuk dependensi: paket pertama yang membutuhkannya. */
+    requiredBy?: string;
+}
+
+export interface TpkgPlan {
+    steps: TpkgPlanStep[];
+    /** Masalah yang tidak bisa diselesaikan otomatis (siap ditampilkan). */
+    problems: string[];
+}
+
+/**
+ * planInstall(): Susun urutan instalasi `requested` + dependensinya.
+ *
+ * Murni (tanpa I/O) supaya bisa diuji: status "sudah terpasang" diputuskan oleh
+ * `isSatisfied`. Urutan post-order — dependensi selalu sebelum pemakainya.
+ * Siklus, paket yang tidak ada di katalog, spesifikasi rusak, atau versi katalog
+ * yang terlalu tua dilaporkan di `problems`, bukan dilempar.
+ */
+export function planInstall(
+    requested: string[],
+    catalog: TpkgCatalogEntry[],
+    isSatisfied: (dep: TpkgDependency) => boolean,
+): TpkgPlan {
+    const byName = new Map(catalog.map((p) => [p.name, p]));
+    const wanted = new Set(requested);
+    const steps: TpkgPlanStep[] = [];
+    const problems: string[] = [];
+    const done = new Set<string>();
+    const stack: string[] = [];
+
+    const visit = (name: string, requiredBy?: string) => {
+        if (done.has(name)) return;
+        if (stack.includes(name)) {
+            problems.push(`dependency cycle: ${[...stack.slice(stack.indexOf(name)), name].join(" -> ")}`);
+            return;
+        }
+        const entry = byName.get(name);
+        if (!entry) {
+            problems.push(`'${name}' is not in the catalog${requiredBy ? ` (required by ${requiredBy})` : ""}`);
+            return;
+        }
+
+        stack.push(name);
+        for (const spec of entry.depends ?? []) {
+            const dep = parseDependency(spec);
+            if (!dep) {
+                problems.push(`${name}: invalid dependency '${spec}'`);
+                continue;
+            }
+            if (wanted.has(dep.name) || isSatisfied(dep)) {
+                // Diminta juga → cukup pastikan urutannya benar.
+                if (wanted.has(dep.name)) visit(dep.name, name);
+                continue;
+            }
+            const candidate = byName.get(dep.name);
+            if (candidate && dep.minVersion && compareVersions(candidate.version, dep.minVersion) < 0) {
+                problems.push(
+                    `${name} requires ${dep.name}>=${dep.minVersion}, but the catalog only has ${candidate.version}`,
+                );
+                continue;
+            }
+            visit(dep.name, name);
+        }
+        stack.pop();
+
+        done.add(name);
+        steps.push({
+            name,
+            version: entry.version,
+            reason: wanted.has(name) ? "requested" : "dependency",
+            ...(wanted.has(name) || !requiredBy ? {} : { requiredBy }),
+        });
+    };
+
+    for (const name of requested) visit(name);
+    return { steps, problems };
 }
 
 /** Isi `packages.json` di node server. */
@@ -256,11 +389,8 @@ export function resolveMode(file: TpkgBundleFile): number | undefined {
     // TAPI hanya .ts/.js — supaya file data di bawah /opt (mis. kunci OTA)
     // tidak mendadak jadi 0o755 seperti yang dilakukan bootstrap.
     if (/\.(ts|js)$/.test(path)) {
-        for (const dir of TPKG_EXEC_DIRS) {
-            if (path.startsWith(dir + "/")) {
-                return path.startsWith("/sbin/") ? TPKG_SBIN_MODE : TPKG_EXEC_MODE;
-            }
-        }
+        const mode = execModeForPath(path);
+        if (mode !== null) return mode;
     }
     return undefined; // biarkan mode bawaan VFS (0o644 untuk file baru)
 }

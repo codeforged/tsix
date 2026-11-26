@@ -8,6 +8,7 @@ import {
     bundleDigest,
     formatBytes,
     isSafeHostDst,
+    parseDependency,
     sha256Hex,
     type TpkgBundleFile,
     type TpkgManifest,
@@ -76,6 +77,12 @@ export class Main {
         } catch (e: any) {
             await this.lib.std.print(`❌ ${e.message}\n`);
             await this.printHelp();
+            return;
+        }
+
+        // Validasi manifest lalu keluar — tanpa kunci, tanpa socket, tanpa daemon.
+        if (args.includes("--check")) {
+            await this.runCheck();
             return;
         }
 
@@ -176,6 +183,7 @@ export class Main {
         await this.lib.std.print(`  --port <n>          MQTNL port (default: ${TPKG_DEFAULT_PORT})\n`);
         await this.lib.std.print("  --repo <path>       Manifest repository (default: /etc/tpkg/packages.json)\n");
         await this.lib.std.print(`  --max-bundle <byte> Max bundle size (default: ${TPKG_DEFAULT_MAX_BUNDLE})\n`);
+        await this.lib.std.print("  --check             Validate the manifest (files, sizes, dependencies) and exit\n");
         await this.lib.std.print("  --help              Show this help\n");
         await this.lib.std.print("\n⚠️  tpkgd must be run as root (sudo) — it uses /etc/keys/rsa\n");
         await this.lib.std.print("    and serves system files, including the kernel.\n");
@@ -306,11 +314,14 @@ export class Main {
             this.stats.lists++;
             await this.lib.std.log(`[LIST] request from ${src}`, "tpkgd");
             const manifest = await this.getManifest();
+            // `depends` ikut dikirim (dan ditandatangani) supaya klien bisa
+            // menyusun rencana instalasi dari katalog lokal tanpa request ekstra.
             const packages = (manifest.packages ?? []).map((p) => ({
                 name: p.name,
                 version: p.version,
                 description: p.description,
                 author: p.author,
+                ...(Array.isArray(p.depends) && p.depends.length > 0 ? { depends: p.depends } : {}),
             }));
 
             const reply: any = {
@@ -396,6 +407,142 @@ export class Main {
                 "tpkgd",
             );
         }
+    }
+
+    /**
+     * runCheck(): `tpkgd --check` — validasi manifest sebelum diterbitkan.
+     *
+     * Tanpa ini, file sumber yang hilang atau bundle yang kebesaran baru ketahuan
+     * saat ada klien yang meminta paket itu. Bundle tiap paket dibangun lewat
+     * `buildBundle()` yang SAMA dengan jalur layanan, jadi hasil "OK" di sini
+     * berarti paket itu memang bisa dikirim.
+     *
+     * Error  : JSON rusak, field wajib hilang, nama ganda, file sumber hilang,
+     *          hostDst tidak aman, bundle melebihi batas, dependensi tidak
+     *          dikenal / rusak / siklus.
+     * Warning: file yang dikirim lebih dari satu paket, skrip post-install/undo
+     *          yang tidak dikirim paket mana pun dan tidak ada di node ini.
+     */
+    private async runCheck() {
+        await this.lib.std.print(`Checking ${this.repoPath} (max bundle ${formatBytes(this.maxBundle)})...\n\n`);
+
+        const content = await this.lib.fs.readFile(this.repoPath).catch(() => null);
+        if (content === null || content === undefined) {
+            await this.lib.std.print(`❌ Manifest not found: ${this.repoPath}\n`);
+            return;
+        }
+
+        let parsed: any;
+        try {
+            parsed = JSON.parse(content);
+        } catch (e: any) {
+            await this.lib.std.print(`❌ Manifest is not valid JSON: ${e.message}\n`);
+            return;
+        }
+        if (!Array.isArray(parsed?.packages)) {
+            await this.lib.std.print(`❌ Manifest has no 'packages' array.\n`);
+            return;
+        }
+
+        const packages: TpkgPackage[] = parsed.packages;
+        const errors: string[] = [];
+        const warnings: string[] = [];
+        const names = new Set<string>();
+        const owners = new Map<string, string[]>();
+        const shippedPaths = new Set<string>();
+
+        for (const pkg of packages) for (const item of pkg?.items ?? []) if (item?.dst) shippedPaths.add(item.dst);
+        const known = new Set(packages.map((p) => p?.name).filter(Boolean));
+
+        for (let i = 0; i < packages.length; i++) {
+            const pkg = packages[i];
+            const label = pkg?.name || `package #${i + 1}`;
+
+            if (!pkg?.name) errors.push(`${label}: missing 'name'`);
+            if (!pkg?.version) errors.push(`${label}: missing 'version'`);
+            if (pkg?.name && names.has(pkg.name)) errors.push(`${label}: duplicate package name`);
+            if (pkg?.name) names.add(pkg.name);
+
+            const items = Array.isArray(pkg?.items) ? pkg.items : [];
+            if (items.length === 0) errors.push(`${label}: no items`);
+            for (const item of items) {
+                if (!item?.src || !item?.dst) {
+                    errors.push(`${label}: item without 'src' or 'dst'`);
+                    continue;
+                }
+                if (!owners.has(item.dst)) owners.set(item.dst, []);
+                owners.get(item.dst)!.push(label);
+            }
+
+            if (pkg?.depends !== undefined && !Array.isArray(pkg.depends)) {
+                errors.push(`${label}: 'depends' must be an array`);
+            }
+            for (const spec of Array.isArray(pkg?.depends) ? pkg.depends : []) {
+                const dep = parseDependency(spec);
+                if (!dep) errors.push(`${label}: invalid dependency '${spec}'`);
+                else if (dep.name === pkg.name) errors.push(`${label}: depends on itself`);
+                else if (!known.has(dep.name)) errors.push(`${label}: depends on unknown package '${dep.name}'`);
+            }
+
+            for (const [field, script] of [
+                ["onAfterDownload", pkg?.onAfterDownload],
+                ["undoScript", pkg?.undoScript],
+            ] as const) {
+                if (!script) continue;
+                if (!shippedPaths.has(script) && !(await this.exists(script))) {
+                    warnings.push(`${label}: ${field} '${script}' is not shipped by any package and not found here`);
+                }
+            }
+
+            if (items.length > 0 && pkg?.name) {
+                try {
+                    await this.buildBundle(pkg);
+                } catch (e: any) {
+                    errors.push(`${label}: ${e.message}`);
+                }
+            }
+        }
+
+        // Siklus dependensi (a -> b -> a). Dilaporkan sekali per siklus.
+        const graph = new Map<string, string[]>();
+        for (const pkg of packages) {
+            if (!pkg?.name) continue;
+            const deps = (Array.isArray(pkg.depends) ? pkg.depends : [])
+                .map((s) => parseDependency(s)?.name)
+                .filter((n): n is string => !!n && known.has(n));
+            graph.set(pkg.name, deps);
+        }
+        const state = new Map<string, "visiting" | "done">();
+        const seenCycles = new Set<string>();
+        const walk = (name: string, path: string[]) => {
+            if (state.get(name) === "done") return;
+            if (state.get(name) === "visiting") {
+                const cycle = [...path.slice(path.indexOf(name)), name];
+                const key = [...cycle.slice(0, -1)].sort().join(",");
+                if (!seenCycles.has(key)) {
+                    seenCycles.add(key);
+                    errors.push(`dependency cycle: ${cycle.join(" -> ")}`);
+                }
+                return;
+            }
+            state.set(name, "visiting");
+            for (const dep of graph.get(name) ?? []) walk(dep, [...path, name]);
+            state.set(name, "done");
+        };
+        for (const name of graph.keys()) walk(name, []);
+
+        for (const [dst, who] of owners) {
+            const unique = [...new Set(who)];
+            if (unique.length > 1) {
+                warnings.push(`${dst} is shipped by several packages: ${unique.join(", ")}`);
+            }
+        }
+
+        for (const e of errors) await this.lib.std.print(`❌ ${e}\n`);
+        for (const w of warnings) await this.lib.std.print(`⚠️  ${w}\n`);
+
+        const summary = `${packages.length} package(s) checked — ${errors.length} error(s), ${warnings.length} warning(s).`;
+        await this.lib.std.print(`${errors.length || warnings.length ? "\n" : ""}${errors.length ? "❌" : "✅"} ${summary}\n`);
     }
 
     /**

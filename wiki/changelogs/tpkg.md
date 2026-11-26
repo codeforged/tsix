@@ -4,6 +4,49 @@
 
 ---
 
+## 2026-11-26
+
+### Dependensi, upgrade, konfirmasi skrip, `tpkgd --check`; `rollback` dihapus
+
+- **File:** `src/mirror/sbin/tpkg.ts`, `src/mirror/sbin/tpkgd.ts`,
+  `src/mirror/lib/TpkgProtocol.ts`, `src/mirror/sbin/transpile.ts`,
+  `src/mirror/sbin/apply-update.ts`, `scripts/lib/binary-mode.ts`,
+  `src/mirror/etc/tpkg/packages.json`, test `tpkg.test.ts` / `TpkgProtocol.test.ts`
+- **`tpkg remove`:** ikut menghapus sidecar `.js` di samping tiap `.ts` paket
+  (dulu tertinggal → program masih bisa dijalankan setelah paket dihapus); file
+  yang juga dipasang paket terpasang lain dibiarkan; peringatan bila paket masih
+  dibutuhkan; `undoScript` dijalankan di sini (dikonfirmasi).
+- **`tpkg rollback` dihapus:** rollback memulihkan `.ts` tapi meninggalkan sidecar
+  `.js` versi baru yang tetap dieksekusi. Pemulihan otomatis saat penulisan gagal
+  tetap ada.
+- **Baru:** `tpkg list --installed`, `tpkg upgrade [pkg...]`, `install` banyak paket
+  sekaligus, field `depends` (`name` / `name>=x.y.z`) dengan pilihan
+  `[Y]es / [i]gnore / [a]bort`. Dependensi yang filenya sudah ada di disk (node
+  dari image) dianggap terpenuhi. `depends` di `packages.json` diturunkan dari
+  import nyata antar paket.
+- **Skrip post-install wajib disetujui** (default tidak); skrip yang dikirim paket
+  sendiri ditandai. Opsi `-y/--yes`, `--no-scripts`, `--no-deps`. `--yes` sengaja
+  tidak berlaku untuk fingerprint repo dan tulis-host.
+- **`tpkgd --check`:** validasi manifest (file sumber, ukuran bundle, hostDst,
+  dependensi & siklus, file ganda, skrip yang hilang) tanpa membuka socket.
+- **Aturan mode tunggal:** `execModeForPath()` di `TpkgProtocol` dipakai `tpkg`,
+  `transpile`, `apply-update`, dan `scripts/lib/binary-mode.ts`. `transpile`
+  sekarang selalu memberi +x pada sidecar (dulu `/opt/<pkg>/*.js` jatuh ke 0644).
+- **Paket `tpkg`** ikut mengirim `/lib/TpkgProtocol.ts` supaya `tpkg`/`transpile`
+  yang dikirimnya tidak berjalan dengan protokol versi lama.
+- Semua output tpkg/tpkgd/transpile/apply-update kini berbahasa Inggris.
+- **Conffile `/etc`:** konfigurasi yang diubah operator (atau sudah ada sebelum
+  tpkg) tidak lagi ditimpa saat install/upgrade; versi paket disimpan sebagai
+  `<file>.tpkg-new`. Kasus nyata: reinstall `tpkg` mengembalikan `defaultRepo` ke
+  `antigonon` walau node sudah `--set-repo wintsix`.
+- **`tpkg -v` / `--version`:** versi klien (`1.1.0`), protokol, versi paket, repo default.
+- **Cache `/lib` saat boot:** transpile/apply-update tetap jalan dengan
+  TpkgProtocol lama di cache; tpkg memperingatkan reboot bila paket mengubah
+  `/lib/*.ts`; transpile keluar dengan kode ≠ 0 bila ada yang gagal; kegagalan
+  socket/bind tidak lagi diam.
+
+---
+
 ## 2026-09-22
 
 ### Fix loader lanjutan: `..` tidak boleh menembus root VFS (regresi `/common/...`)

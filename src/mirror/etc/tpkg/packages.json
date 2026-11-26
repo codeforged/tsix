@@ -805,7 +805,7 @@
         },
         {
             "name": "tpkg",
-            "version": "1.0.3",
+            "version": "1.1.0",
             "description": "Layanan server repository TPKG: daemon tpkgd, bootstrap demo, alat debug dan katalog. Klien tpkg tersedia di base-system.",
             "author": "TSIX",
             "needReboot": false,
@@ -837,6 +837,10 @@
                 {
                     "src": "/sbin/transpile.ts",
                     "dst": "/sbin/transpile.ts"
+                },
+                {
+                    "src": "/lib/TpkgProtocol.ts",
+                    "dst": "/lib/TpkgProtocol.ts"
                 }
             ],
             "onAfterDownload": "/sbin/transpile.ts"
@@ -968,6 +972,9 @@
             "description": "Asteracea desktop shell: launcher menu, panel, tema, wallpaper. File .menu dimiliki paket aplikasinya masing-masing.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald"
+            ],
             "items": [
                 {
                     "src": "/opt/asteracea/asteracea.ts",
@@ -1020,6 +1027,9 @@
             "description": "Cashew form toolkit di atas Emerald, beserta tiga contoh aplikasi dan menu-nya.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald"
+            ],
             "items": [
                 {
                     "src": "/lib/cashew.ts",
@@ -1058,6 +1068,9 @@
             "description": "Pistachio: toolkit kontrol native (TPanel, TForm, grid, dialog, treeview) dengan event loop sendiri di atas Emerald.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald"
+            ],
             "items": [
                 {
                     "src": "/lib/pistachio.ts",
@@ -1113,6 +1126,9 @@
             "author": "TSIX",
             "needReboot": false,
             "onAfterDownload": "/sbin/transpile.ts",
+            "depends": [
+                "pistachio"
+            ],
             "items": [
                 {
                     "src": "/opt/test/pistachio-demo.ts",
@@ -1154,6 +1170,10 @@
             "description": "Lantana IoT stack: core, device bank, ingest, dashboard server, control panel dan konfigurasi /etc/lantana.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "pistachio",
+                "cashew"
+            ],
             "items": [
                 {
                     "src": "/lib/lantana/account-manager.ts",
@@ -1316,6 +1336,9 @@
             "description": "Library DDC (Direct Drawing Canvas): primitif gambar, sprite dan framebuffer di atas DOME.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald"
+            ],
             "items": [
                 {
                     "src": "/lib/ddc.ts",
@@ -1330,6 +1353,10 @@
             "description": "Sebelas contoh aplikasi DDC beserta aset dan menu Asteracea-nya.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "cashew",
+                "ddc-lib"
+            ],
             "items": [
                 {
                     "src": "/opt/ddc-sample/balloons.js",
@@ -1558,6 +1585,9 @@
             "description": "Browser web Eucalyptus: renderer HTML + Emerald widget.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald"
+            ],
             "items": [
                 {
                     "src": "/opt/eucalyptus/eucalyptus.ts",
@@ -1576,6 +1606,9 @@
             "description": "Manajer berkas File Cruiser: navigasi VFS dua panel.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald"
+            ],
             "items": [
                 {
                     "src": "/opt/file-cruiser/file-cruiser.ts",
@@ -1594,6 +1627,10 @@
             "description": "Penampil gambar berbasis Emerald dan TImage Cashew.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald",
+                "cashew"
+            ],
             "items": [
                 {
                     "src": "/opt/image-viewer/image-viewer.ts",
@@ -1646,6 +1683,10 @@
             "description": "Dashboard Azalea: klien Lantana lewat NetSocket.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "pistachio",
+                "lantana"
+            ],
             "items": [
                 {
                     "src": "/opt/azalea-dashboard/azalea-dashboard.ts",
@@ -1660,6 +1701,10 @@
             "description": "Monitor lalu lintas jaringan real-time.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald",
+                "cashew"
+            ],
             "items": [
                 {
                     "src": "/opt/network-traffic/network-traffic.ts",
@@ -1678,6 +1723,9 @@
             "description": "Terminal grafis di atas DOME.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald"
+            ],
             "items": [
                 {
                     "src": "/opt/pixelterm/pixelterm.ts",
@@ -1696,6 +1744,9 @@
             "description": "Terminal bergaya retro CRT.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald"
+            ],
             "items": [
                 {
                     "src": "/opt/retroterm/retroterm.ts",
@@ -1714,6 +1765,9 @@
             "description": "Smart bulb: kontrol GPIO, scheduler, service dan web gateway + konfigurasi /etc/smartbulb.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "cashew"
+            ],
             "items": [
                 {
                     "src": "/opt/smartbulb/bulboff.png",
@@ -1756,6 +1810,9 @@
             "description": "Pengatur tema dan wallpaper Asteracea.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald"
+            ],
             "items": [
                 {
                     "src": "/opt/set-theme/set-theme.ts",
@@ -1774,6 +1831,9 @@
             "description": "Manajer proses: daftar task, CPU dan memori.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald"
+            ],
             "items": [
                 {
                     "src": "/opt/taskmgr/taskmgr.ts",
@@ -1792,6 +1852,9 @@
             "description": "Klien chat Telechat (TUI Cashew) + konfigurasi /etc/telechat.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "cashew"
+            ],
             "items": [
                 {
                     "src": "/opt/telechat/configure.ts",
@@ -1864,6 +1927,9 @@
             "description": "Emulator perangkat ESP32 untuk Lantana V2: meniru alur firmware HELLO -> KEYSET -> AUTH -> kirim bacaan terenkripsi.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "lantana"
+            ],
             "items": [
                 {
                     "src": "/opt/esp32-demo/esp32-demo.ts",
@@ -1974,6 +2040,9 @@
             "description": "Graphical MQTNL packet inspector.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "cashew"
+            ],
             "items": [
                 {
                     "src": "/usr/bin/bitshark.ts",
@@ -1992,6 +2061,10 @@
             "description": "Craving tracker desktop app.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald",
+                "cashew"
+            ],
             "items": [
                 {
                     "src": "/opt/craving-tracker/README.md",
@@ -2014,6 +2087,9 @@
             "description": "Lantana IoT dashboard.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald"
+            ],
             "items": [
                 {
                     "src": "/opt/iot-dashboard/iot-dashboard.ts",
@@ -2029,9 +2105,12 @@
         {
             "name": "krisan",
             "version": "1.0.0",
-            "description": "Krisan desktop environment sample and assets.",
+            "description": "Krisan desktop environment sample and assets. [ DISCONTINUED ]",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald"
+            ],
             "items": [
                 {
                     "src": "/opt/krisan/krisan.ts",
@@ -2090,6 +2169,9 @@
             "description": "PixelSpace traffic monitor.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "cashew"
+            ],
             "items": [
                 {
                     "src": "/opt/pixelspace-traffic/pixelspace-traffic.ts",
@@ -2108,6 +2190,10 @@
             "description": "PLCD display emulator and launcher.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "cashew",
+                "ddc-lib"
+            ],
             "items": [
                 {
                     "src": "/opt/plcd/launcher.ts",
@@ -2134,6 +2220,11 @@
             "description": "Optional TSIX test programs, examples, and their launcher menus.",
             "author": "TSIX",
             "needReboot": false,
+            "depends": [
+                "emerald",
+                "cashew",
+                "ddc-lib"
+            ],
             "items": [
                 {
                     "src": "/opt/test/TSD-Sample-Packages.md",

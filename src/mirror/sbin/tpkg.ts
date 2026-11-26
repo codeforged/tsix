@@ -8,13 +8,25 @@ import {
     compareVersions,
     formatBytes,
     isSafeHostDst,
+    parseDependency,
     parseHostPort,
+    planInstall,
     resolveMode,
     sha256Hex,
     verifyBundleFiles,
     type TpkgBundleFile,
+    type TpkgCatalogEntry,
+    type TpkgDependency,
     type TpkgHostPort,
+    type TpkgPlanStep,
 } from "@tsix/TpkgProtocol";
+
+/**
+ * Versi klien tpkg (yang dicetak `tpkg -v`). Naikkan setiap kali perilaku klien
+ * berubah. 1.1.0 = dependensi, upgrade, konfirmasi skrip, conffile `/etc`,
+ * `rollback` dihapus.
+ */
+const TPKG_CLIENT_VERSION = "1.1.0";
 
 /** Bentuk satu entri backup di `/var/lib/tpkg/backup/<pkg>/<ts>/index.json`. */
 interface BackupEntry {
@@ -39,8 +51,6 @@ interface BackupIndex {
     package: string;
     version: string;
     createdAt: number;
-    /** Skrip undo paket (kalau ada) — ikut dipulihkan saat rollback. */
-    undoScript?: string;
     entries: BackupEntry[];
 }
 
@@ -64,7 +74,27 @@ interface InstalledManifest {
     package: string;
     version: string;
     installedAt: number;
+    /** Skrip `undoScript` paket — dijalankan (dengan konfirmasi) saat `tpkg remove`. */
+    undoScript?: string;
     files: InstalledFile[];
+}
+
+/** Opsi baris perintah yang berlaku untuk semua subcommand. */
+interface CliOptions {
+    /** Nama paket (argumen posisi setelah subcommand). */
+    names: string[];
+    /** `--from <host[:port]>`. */
+    from?: string;
+    /** `--force`: pasang ulang walau versi lokal sama/lebih baru. */
+    force: boolean;
+    /** `-y` / `--yes`: jawab "ya" untuk konfirmasi biasa (BUKAN fingerprint & tulis-host). */
+    yes: boolean;
+    /** `--no-scripts`: jangan jalankan post-install / undo script. */
+    noScripts: boolean;
+    /** `--no-deps`: abaikan `depends`. */
+    noDeps: boolean;
+    /** `--installed` (untuk `list`). */
+    installed: boolean;
 }
 
 /**
@@ -89,25 +119,29 @@ const CONFIG_EXTENSIONS = [
  * TPKG — TSIX Package Manager (klien)
  *
  * Ambil paket dari repository MQTNL (`tpkgd`) lalu pasang ke VFS dengan
- * verifikasi + backup + rollback.
+ * verifikasi + backup + pemulihan otomatis bila penulisan gagal.
  *
  * Ikhtisar pengamanan berlapis:
  *   1. handshake RSA → session key ChaCha20 (transport terenkripsi);
  *   2. fingerprint repo disimpan di `/etc/tpkg/trusted_repos` (TOFU);
  *   3. signature server atas **metadata** bundle (path/hostDst/size/sha256);
  *   4. SHA-256 tiap file diperiksa SEBELUM ditulis (tamper/korupsi ketahuan);
- *   5. backup ke disk sebelum menimpa, restore otomatis kalau gagal;
+ *   5. backup ke disk sebelum menimpa, restore otomatis kalau penulisan gagal;
  *   6. paket yang menyentuh HOST FS (kernel & komponennya) WAJIB root dan
- *      dikonfirmasi eksplisit sebelum satu byte pun ditulis ke luar VFS.
+ *      dikonfirmasi eksplisit sebelum satu byte pun ditulis ke luar VFS;
+ *   7. skrip post-install/undo TIDAK dijalankan tanpa persetujuan operator
+ *      (skrip dari paket bisa saja jahat) — `--yes` / `--no-scripts` untuk otomasi.
  *
- * Semua perintah yang mengubah sistem (update/install/download/rollback) menolak
- * dijalankan sebagai non-root. Itu bukan sekadar sopan santun: `SYNC_TO_HOST` di
- * kernel juga menolak non-root, jadi paket ber-`hostDst` akan gagal di tengah
- * jalan kalau gerbang ini dilewati.
+ * Semua perintah yang mengubah sistem (update/install/upgrade/remove/download)
+ * menolak dijalankan sebagai non-root. Itu bukan sekadar sopan santun:
+ * `SYNC_TO_HOST` di kernel juga menolak non-root, jadi paket ber-`hostDst` akan
+ * gagal di tengah jalan kalau gerbang ini dilewati.
  *
- * Perbaikan dari versi lama: `host[:port]` di-parse (dulu port 80 hardcoded),
- * framing MQTNL di-pin ke JSON, paket yang tiba disaring berdasarkan tipe, dan
- * file baru bisa ditandai executable lewat manifest (dulu hanya path `/bin/*`).
+ * `tpkg rollback` sengaja DIHAPUS: rollback hanya memulihkan `.ts`, sementara
+ * sidecar `.js` hasil transpile versi baru tetap tinggal dan (karena `EXEC`
+ * mendahulukan `.js`) tetap dijalankan — pemulihan yang menipu. Untuk melepas
+ * paket pakai `tpkg remove`. Backup tetap dibuat untuk memulihkan instalasi
+ * yang gagal di tengah penulisan (sebelum ada sidecar baru).
  */
 export class Main {
     private lib!: UserLib;
@@ -125,11 +159,20 @@ export class Main {
      * supaya tidak meninggalkan jejak di root filesystem.
      */
     private hostStageDir: string = "/tmp/tpkg-stage";
-    private maxBackupsPerPkg: number = 3;
-    private metrics = { installs: 0, failed: 0, rolledBack: 0, verified: 0, downloads: 0 };
+    /**
+     * Backup hanya dipakai untuk memulihkan instalasi yang gagal ditulis (dan
+     * sebagai daftar file cadangan `remove` untuk paket lama) — cukup satu.
+     */
+    private maxBackupsPerPkg: number = 1;
+    private metrics = { installs: 0, failed: 0, restored: 0, verified: 0, downloads: 0 };
 
     async execute(lib: UserLib, args: string[]) {
         this.lib = lib;
+
+        if (args[0] === "-v" || args[0] === "--version" || args[0] === "version") {
+            await this.showVersion();
+            return;
+        }
 
         if (args.includes("--help") || args.includes("-h")) {
             await this.showHelp();
@@ -160,17 +203,31 @@ export class Main {
             return;
         }
 
+        // Kernel meng-compile `/lib/*.ts` ke cache HANYA saat boot. Setelah
+        // `tpkg install tpkg`/`base-system` (dan transpile), `/sbin/tpkg.js` sudah
+        // baru tapi `@tsix/TpkgProtocol` di cache masih versi boot. Beri pesan jelas
+        // alih-alih crash `planInstall is not a function` di tengah instalasi.
+        if (typeof planInstall !== "function" || typeof parseDependency !== "function") {
+            await this.lib.std.print(
+                "❌ tpkg was updated, but the running system still uses the old /lib/TpkgProtocol from boot.\n" +
+                "   Reboot to load the new framework libraries, then run tpkg again.\n",
+            );
+            return;
+        }
+
+        const opts = this.parseOptions(args.slice(1));
+
         await this.ensureCache();
 
         // GERBANG ROOT.
         //
-        // `install`/`rollback`/`update`/`download` semuanya mengubah node: menulis
-        // ke rootfs (BKFS), ke `/var/lib/tpkg`, dan untuk paket engine ke HOST FS
-        // (`syncToHost`). Kernel pun menolak `SYNC_TO_HOST` dari non-root, jadi
-        // membiarkan perintah ini jalan sebagai user biasa hanya menghasilkan
-        // kegagalan separuh jalan — lebih baik ditolak di depan dengan pesan jelas.
+        // Perintah ini mengubah node: menulis ke rootfs (BKFS), ke `/var/lib/tpkg`,
+        // dan untuk paket engine ke HOST FS (`syncToHost`). Kernel pun menolak
+        // `SYNC_TO_HOST` dari non-root, jadi membiarkan perintah ini jalan sebagai
+        // user biasa hanya menghasilkan kegagalan separuh jalan — lebih baik
+        // ditolak di depan dengan pesan jelas.
         const who = await this.lib.shell.whoami();
-        const rootRequired = ["install", "remove", "update", "rollback", "download"];
+        const rootRequired = ["install", "upgrade", "remove", "update", "download"];
         if (rootRequired.includes(cmd) && who.uid !== 0) {
             await this.lib.std.print(
                 `❌ Error: 'tpkg ${cmd}' requires root privileges (modifies the system & may write to the host FS). Use sudo.\n`,
@@ -180,28 +237,29 @@ export class Main {
 
         switch (cmd) {
             case "update":
-                await this.doUpdate(args[1]);
+                await this.doUpdate(opts.names[0] ?? opts.from);
                 break;
             case "list":
-                await this.doList();
+                if (opts.installed) await this.doListInstalled();
+                else await this.doList();
                 break;
             case "install":
-                await this.doInstall(args[1], args);
+                await this.doInstall(opts);
+                break;
+            case "upgrade":
+                await this.doUpgrade(opts);
                 break;
             case "remove":
-                await this.doRemove(args[1]);
+                await this.doRemove(opts);
                 break;
             case "download":
-                await this.doDownload(args[1], args);
+                await this.doDownload(opts.names[0], opts);
                 break;
             case "info":
-                await this.doInfo(args[1], args);
+                await this.doInfo(opts.names[0], opts);
                 break;
             case "verify":
-                await this.doVerify(args[1], args);
-                break;
-            case "rollback":
-                await this.doRollback(args[1]);
+                await this.doVerify(opts.names[0], opts);
                 break;
             case "metrics":
                 await this.showMetrics();
@@ -212,27 +270,68 @@ export class Main {
         }
     }
 
+    /** parseOptions(): pisahkan flag global dari nama paket. */
+    private parseOptions(rest: string[]): CliOptions {
+        const opts: CliOptions = {
+            names: [],
+            force: false,
+            yes: false,
+            noScripts: false,
+            noDeps: false,
+            installed: false,
+        };
+        for (let i = 0; i < rest.length; i++) {
+            const a = rest[i];
+            if (a === "--from") opts.from = rest[++i];
+            else if (a === "--force") opts.force = true;
+            else if (a === "-y" || a === "--yes") opts.yes = true;
+            else if (a === "--no-scripts") opts.noScripts = true;
+            else if (a === "--no-deps") opts.noDeps = true;
+            else if (a === "--installed") opts.installed = true;
+            else if (!a.startsWith("-")) opts.names.push(a);
+        }
+        return opts;
+    }
+
     private async showHelp() {
-        await this.lib.std.print("\x1b[1mTPKG - TSIX Package Manager\x1b[0m\n");
-        await this.lib.std.print("Usage:\n");
-        await this.lib.std.print("  tpkg update [host]                 - Update package catalog from host\n");
-        await this.lib.std.print("  tpkg list                          - List available packages\n");
-        await this.lib.std.print("  tpkg info <pkg> [--from <host>]    - Show detailed package information\n");
-        await this.lib.std.print(
-            "  tpkg install <pkg> [--from <host>] - Install a package (verify + backup + rollback)\n",
+        const p = (s: string) => this.lib.std.print(s);
+        await p("\x1b[1mTPKG - TSIX Package Manager\x1b[0m\n");
+        await p("Usage:\n");
+        await p("  tpkg update [host]                  - Update package catalog from host\n");
+        await p("  tpkg list [--installed]             - List available (or installed) packages\n");
+        await p("  tpkg info <pkg> [--from <host>]     - Show detailed package information\n");
+        await p("  tpkg install <pkg...> [--from <host>] - Install package(s) and their dependencies\n");
+        await p("  tpkg upgrade [pkg...]               - Upgrade installed packages to the catalog version\n");
+        await p("  tpkg remove <pkg...>                - Uninstall (asks before removing config files)\n");
+        await p("  tpkg download <pkg> [--from <host>] - Fetch & verify without installing\n");
+        await p("  tpkg verify <pkg> [--from <host>]   - Verify signature of a package\n");
+        await p("  tpkg metrics                        - Show statistics\n");
+        await p("  tpkg -v, --version                  - Show the tpkg version\n");
+        await p("  tpkg --set-repo <host[:port]>       - Set default repository\n");
+        await p("\nOptions:\n");
+        await p("  -y, --yes        Answer yes to confirmations (not to repo fingerprint / host FS writes)\n");
+        await p("  --no-scripts     Do not run post-install / undo scripts\n");
+        await p("  --no-deps        Ignore package dependencies\n");
+        await p("  --force          Reinstall even if the same or a newer version is installed\n");
+        await p(
+            "\n⚠️  update/install/upgrade/remove/download require root (sudo): they modify the system,\n" +
+            "    and engine packages (e.g. system-update) write to the HOST FS — kernel & lib.\n",
         );
-        await this.lib.std.print(
-            "  tpkg remove <pkg>                  - Uninstall a package (asks before removing config files)\n",
-        );
-        await this.lib.std.print("  tpkg download <pkg> [--from <host>] - Fetch & verify without installing\n");
-        await this.lib.std.print("  tpkg verify <pkg> [--from <host>]  - Verify signature of a package\n");
-        await this.lib.std.print("  tpkg rollback <pkg>                - Restore the last backup of a package\n");
-        await this.lib.std.print("  tpkg metrics                       - Show statistics\n");
-        await this.lib.std.print("  tpkg --set-repo <host[:port]>      - Set default repository\n");
-        await this.lib.std.print(
-            "\n⚠️  update/install/remove/download/rollback require root (sudo): they modify the system,\n" +
-                "    and engine packages (e.g. system-update) write to the HOST FS — kernel & lib.\n",
-        );
+    }
+
+    /**
+     * showVersion(): `tpkg -v`. Versi klien = konstanta di file ini (file tpkg
+     * dikirim oleh `base-system` DAN `tpkg`, jadi versi paket saja tidak bisa
+     * memastikan biner mana yang sedang jalan). Versi paket terpasang dan repo
+     * default ditampilkan sebagai konteks.
+     */
+    private async showVersion() {
+        await this.lib.std.print(`tpkg ${TPKG_CLIENT_VERSION} (protocol ${TPKG_PROTOCOL_VERSION})\n`);
+        const status = await this.loadStatus().catch(() => ({}) as Record<string, string>);
+        const pkgs = ["tpkg", "base-system"].filter((n) => status[n]).map((n) => `${n} ${status[n]}`);
+        if (pkgs.length > 0) await this.lib.std.print(`Installed packages: ${pkgs.join(", ")}\n`);
+        const config = await this.loadConfig().catch(() => ({}));
+        if (config?.defaultRepo) await this.lib.std.print(`Default repository: ${config.defaultRepo}\n`);
     }
 
     private async showMetrics() {
@@ -240,20 +339,32 @@ export class Main {
         await this.lib.std.print("------------------------------------------\n");
         await this.lib.std.print(`Installations:  ${this.metrics.installs}\n`);
         await this.lib.std.print(`Failed:         ${this.metrics.failed}\n`);
-        await this.lib.std.print(`Rolled back:    ${this.metrics.rolledBack}\n`);
+        await this.lib.std.print(`Restored:       ${this.metrics.restored}\n`);
         await this.lib.std.print(`Downloads:      ${this.metrics.downloads}\n`);
         await this.lib.std.print(`Verifications:  ${this.metrics.verified}\n`);
         await this.lib.std.print("------------------------------------------\n");
     }
 
     /**
+     * confirm(): Pertanyaan ya/tidak. `--yes` menjawab "ya" otomatis (dan
+     * mencetaknya, supaya log tetap menunjukkan apa yang disetujui).
+     */
+    private async confirm(prompt: string, opts: CliOptions, defaultYes: boolean): Promise<boolean> {
+        if (opts.yes) {
+            await this.lib.std.print(`${prompt}y (--yes)\n`);
+            return true;
+        }
+        const ans = (await this.lib.std.read(prompt)).toLowerCase().trim();
+        if (ans === "") return defaultYes;
+        return ans === "y" || ans === "yes";
+    }
+
+    /**
      * resolveRepo(): Tentukan host tujuan dari `--from` atau config default.
      * Mengembalikan string spec (boleh `host:port`) atau null (sudah di-print).
      */
-    private async resolveRepo(args: string[] | undefined, pkgName?: string): Promise<string | null> {
-        const list = args ?? [];
-        const fromIdx = list.indexOf("--from");
-        let host = fromIdx > -1 ? list[fromIdx + 1] : null;
+    private async resolveRepo(cmd: string, opts: CliOptions, pkgName?: string): Promise<string | null> {
+        let host = opts.from ?? null;
 
         if (!host) {
             const config = await this.loadConfig();
@@ -262,7 +373,7 @@ export class Main {
 
         if (!host) {
             await this.lib.std.print(
-                `Usage: tpkg ${list[0] ?? ""}${pkgName ? ` ${pkgName}` : ""} --from <host[:port]> (default port ${TPKG_DEFAULT_PORT}; or set with --set-repo)\n`,
+                `Usage: tpkg ${cmd}${pkgName ? ` ${pkgName}` : ""} --from <host[:port]> (default port ${TPKG_DEFAULT_PORT}; or set with --set-repo)\n`,
             );
             return null;
         }
@@ -276,7 +387,7 @@ export class Main {
         if (!(await this.exists("/etc/tpkg"))) await this.lib.fs.mkdir("/etc/tpkg");
     }
 
-    private async doUpdate(host: string) {
+    private async doUpdate(host: string | undefined) {
         if (!host) {
             const config = await this.loadConfig();
             host = config.defaultRepo;
@@ -323,8 +434,15 @@ export class Main {
 
             await this.lib.fs.writeFile(this.repoCache, JSON.stringify(data.packages, null, 2));
             await this.lib.std.print(`Successfully updated. ${data.packages.length} packages available. (Verified)\n`);
+
+            const upgradable = this.upgradable(data.packages, await this.loadStatus());
+            if (upgradable.length > 0) {
+                await this.lib.std.print(
+                    `⬆  ${upgradable.length} installed package(s) can be upgraded. Run 'sudo tpkg upgrade'.\n`,
+                );
+            }
         } finally {
-            await this.lib.net.close(fd).catch(() => {});
+            await this.lib.net.close(fd).catch(() => { });
         }
     }
 
@@ -334,86 +452,357 @@ export class Main {
             return;
         }
 
-        const content = await this.lib.fs.readFile(this.repoCache);
-        const pkgs = JSON.parse(content || "[]");
+        const pkgs = await this.loadCatalog();
+        const status = await this.loadStatus();
 
         await this.lib.std.print("\n\x1b[1;34mAvailable Packages:\x1b[0m\n");
         await this.lib.std.print("--------------------------------------------------\n");
         for (const p of pkgs) {
-            await this.lib.std.print(`\x1b[1m${p.name.padEnd(15)}\x1b[0m v${p.version}\n`);
-            await this.lib.std.print(`  ${p.description}\n\n`);
+            const local = status[p.name];
+            let tag = "";
+            if (local) {
+                tag =
+                    compareVersions(p.version, local) > 0
+                        ? `  \x1b[1;33m[installed ${local} → ${p.version} available]\x1b[0m`
+                        : "  \x1b[1;32m[installed]\x1b[0m";
+            }
+            await this.lib.std.print(`\x1b[1m${p.name.padEnd(15)}\x1b[0m v${p.version}${tag}\n`);
+            await this.lib.std.print(`  ${p.description ?? ""}\n`);
+            if (p.depends?.length) await this.lib.std.print(`  \x1b[2mdepends: ${p.depends.join(", ")}\x1b[0m\n`);
+            await this.lib.std.print("\n");
         }
     }
 
-    private async doInstall(pkgName: string | undefined, args: string[]) {
-        const force = (args ?? []).includes("--force");
-        const host = await this.resolveRepo(args, pkgName);
+    /** doListInstalled(): paket yang tercatat terpasang + versi katalog. */
+    private async doListInstalled() {
+        const status = await this.loadStatus();
+        const names = Object.keys(status).sort();
+        if (names.length === 0) {
+            await this.lib.std.print("No packages installed via tpkg.\n");
+            return;
+        }
+
+        const catalog = new Map((await this.loadCatalog()).map((p) => [p.name, p]));
+        let upgradable = 0;
+
+        await this.lib.std.print("\n\x1b[1;34mInstalled Packages:\x1b[0m\n");
+        await this.lib.std.print("--------------------------------------------------\n");
+        for (const name of names) {
+            const local = status[name];
+            const remote = catalog.get(name)?.version;
+            let note = "\x1b[2m(not in catalog)\x1b[0m";
+            if (remote) {
+                if (compareVersions(remote, local) > 0) {
+                    note = `\x1b[1;33m⬆ ${remote} available\x1b[0m`;
+                    upgradable++;
+                } else {
+                    note = "\x1b[2mup to date\x1b[0m";
+                }
+            }
+            await this.lib.std.print(`\x1b[1m${name.padEnd(20)}\x1b[0m ${local.padEnd(10)} ${note}\n`);
+        }
+        await this.lib.std.print(
+            `\n${names.length} installed${upgradable > 0 ? `, ${upgradable} upgradable — run 'sudo tpkg upgrade'` : ""}.\n`,
+        );
+    }
+
+    /** upgradable(): paket terpasang yang versinya di katalog lebih baru. */
+    private upgradable(catalog: TpkgCatalogEntry[], status: Record<string, string>): TpkgCatalogEntry[] {
+        return catalog.filter((p) => status[p.name] && compareVersions(p.version, status[p.name]) > 0);
+    }
+
+    private async doInstall(opts: CliOptions) {
+        const host = await this.resolveRepo("install", opts, opts.names[0]);
         if (!host) return;
-        if (!pkgName) {
-            await this.lib.std.print("Usage: tpkg install <pkg> --from <host[:port]>\n");
+        if (opts.names.length === 0) {
+            await this.lib.std.print("Usage: tpkg install <pkg...> --from <host[:port]>\n");
             return;
         }
 
         // --- VERSION CHECK (katalog lokal dari `tpkg update`) ---
         const catalog = await this.loadCatalog();
-        const remotePkg = catalog.find((p: any) => p.name === pkgName);
-        if (!remotePkg) {
-            await this.lib.std.print(`❌ Error: Package '${pkgName}' not found in catalog. Run 'tpkg update' first.\n`);
-            const suggestions = this.findSuggestions(
-                pkgName,
-                catalog.map((p: any) => p.name),
-            );
-            if (suggestions.length > 0) {
-                await this.lib.std.print(`💡 Did you mean: \x1b[1;36m${suggestions.join(", ")}\x1b[0m ?\n`);
-            }
-            return;
-        }
+        const status = await this.loadStatus();
+        const names: string[] = [];
 
-        const localStatus = await this.loadStatus();
-        const localVer = localStatus[pkgName];
-
-        if (localVer && !force) {
-            const cmp = compareVersions(localVer, remotePkg.version);
-            if (cmp >= 0) {
-                const msg = cmp === 0 ? "already the same version" : "already newer";
+        for (const pkgName of opts.names) {
+            const remotePkg = catalog.find((p) => p.name === pkgName);
+            if (!remotePkg) {
                 await this.lib.std.print(
-                    `⚠️  Local version of \x1b[1m${pkgName}\x1b[0m is ${msg} (\x1b[1;36m${localVer}\x1b[0m).\n`,
+                    `❌ Error: Package '${pkgName}' not found in catalog. Run 'tpkg update' first.\n`,
                 );
-                const confirm = await this.lib.std.read("Proceed with installation anyway? [y/N]: ");
-                if (confirm.toLowerCase().trim() !== "y") {
-                    await this.lib.std.print("Installation aborted.\n");
-                    return;
+                const suggestions = this.findSuggestions(
+                    pkgName,
+                    catalog.map((p) => p.name),
+                );
+                if (suggestions.length > 0) {
+                    await this.lib.std.print(`💡 Did you mean: \x1b[1;36m${suggestions.join(", ")}\x1b[0m ?\n`);
                 }
-            }
-        }
-
-        await this.lib.std.print(
-            `Preparing to install \x1b[1m${pkgName}\x1b[0m (v${remotePkg.version}) from \x1b[1m${host}\x1b[0m...\n`,
-        );
-        const session = await this.establishSecureSession(host);
-        if (!session) return;
-
-        try {
-            const reply = await this.fetchBundleWithRetry(session, pkgName);
-            if (!reply) return;
-            if (reply.type === "ERROR") {
-                await this.printServerError(reply);
                 return;
             }
 
-            const files = await this.verifyBundle(session.publicKey, reply);
-            if (!files) return;
+            const localVer = status[pkgName];
+            if (localVer && !opts.force) {
+                const cmp = compareVersions(localVer, remotePkg.version);
+                if (cmp >= 0) {
+                    const msg = cmp === 0 ? "already the same version" : "already newer";
+                    await this.lib.std.print(
+                        `⚠️  Local version of \x1b[1m${pkgName}\x1b[0m is ${msg} (\x1b[1;36m${localVer}\x1b[0m).\n`,
+                    );
+                    if (!(await this.confirm("Proceed with installation anyway? [y/N]: ", opts, false))) {
+                        await this.lib.std.print(`Skipping ${pkgName}.\n`);
+                        continue;
+                    }
+                }
+            }
+            names.push(pkgName);
+        }
 
-            const done = await this.installBundle(pkgName, reply, files, localStatus);
-            if (!done) return;
+        if (names.length === 0) {
+            await this.lib.std.print("Installation aborted.\n");
+            return;
+        }
 
-            if (reply.needReboot) {
+        const label = names.map((n) => `\x1b[1m${n}\x1b[0m (v${catalog.find((p) => p.name === n)!.version})`);
+        await this.lib.std.print(`Preparing to install ${label.join(", ")} from \x1b[1m${host}\x1b[0m...\n`);
+
+        const session = await this.establishSecureSession(host);
+        if (!session) return;
+        try {
+            const steps = await this.resolvePlan(session, names, catalog, status, opts);
+            if (!steps) return;
+            await this.installSteps(session, steps, status, opts);
+        } finally {
+            await this.lib.net.close(session.fd).catch(() => { });
+        }
+    }
+
+    /**
+     * doUpgrade(): pasang versi katalog untuk paket terpasang yang lebih tua.
+     * Tanpa argumen → semua paket terpasang; dengan argumen → hanya itu.
+     */
+    private async doUpgrade(opts: CliOptions) {
+        const catalog = await this.loadCatalog();
+        if (catalog.length === 0) {
+            await this.lib.std.print("No catalog found. Run 'tpkg update <host>' first.\n");
+            return;
+        }
+        const status = await this.loadStatus();
+
+        for (const name of opts.names) {
+            if (!status[name]) await this.lib.std.print(`⚠️  '${name}' is not installed — skipping.\n`);
+        }
+
+        let candidates = this.upgradable(catalog, status);
+        if (opts.names.length > 0) candidates = candidates.filter((p) => opts.names.includes(p.name));
+
+        if (candidates.length === 0) {
+            await this.lib.std.print(
+                "✅ All packages are up to date (according to the catalog from the last 'tpkg update').\n",
+            );
+            return;
+        }
+
+        await this.lib.std.print(`\n\x1b[1;34mPackages to upgrade:\x1b[0m\n`);
+        for (const p of candidates) {
+            await this.lib.std.print(`  • ${p.name.padEnd(20)} ${status[p.name]} → \x1b[1;36m${p.version}\x1b[0m\n`);
+        }
+        await this.lib.std.print("\x1b[2m  (based on the catalog from the last 'tpkg update')\x1b[0m\n");
+        if (!(await this.confirm(`\nUpgrade ${candidates.length} package(s)? [Y/n]: `, opts, true))) {
+            await this.lib.std.print("Upgrade aborted.\n");
+            return;
+        }
+
+        const host = await this.resolveRepo("upgrade", opts);
+        if (!host) return;
+
+        const session = await this.establishSecureSession(host);
+        if (!session) return;
+        try {
+            const steps = await this.resolvePlan(
+                session,
+                candidates.map((p) => p.name),
+                catalog,
+                status,
+                opts,
+            );
+            if (!steps) return;
+            await this.installSteps(session, steps, status, opts);
+        } finally {
+            await this.lib.net.close(session.fd).catch(() => { });
+        }
+    }
+
+    /**
+     * resolvePlan(): susun urutan instalasi + tanyakan dependensi yang kurang.
+     *
+     * Dependensi dianggap terpenuhi kalau (a) tercatat di status dengan versi
+     * cukup, atau (b) semua file-nya sudah ada di disk (node yang dibangun dari
+     * image tidak punya `status.json`, tapi emerald dkk. sudah ada) — dicek lewat
+     * INFO di session yang sama. Return null kalau operator membatalkan.
+     */
+    private async resolvePlan(
+        session: any,
+        names: string[],
+        catalog: TpkgCatalogEntry[],
+        status: Record<string, string>,
+        opts: CliOptions,
+    ): Promise<TpkgPlanStep[] | null> {
+        const requestedOnly = (): TpkgPlanStep[] =>
+            names.map((n) => ({
+                name: n,
+                version: catalog.find((p) => p.name === n)?.version ?? "?",
+                reason: "requested",
+            }));
+        if (opts.noDeps) return requestedOnly();
+
+        const onDisk = new Set<string>();
+        const probed = new Set<string>();
+        const satisfied = (dep: TpkgDependency) => {
+            const local = status[dep.name];
+            if (local) return !dep.minVersion || compareVersions(local, dep.minVersion) >= 0;
+            return onDisk.has(dep.name) && !dep.minVersion;
+        };
+
+        let plan = planInstall(names, catalog, satisfied);
+        for (; ;) {
+            const unprobed = plan.steps.filter((s) => s.reason === "dependency" && !probed.has(s.name));
+            if (unprobed.length === 0) break;
+            let found = false;
+            for (const step of unprobed) {
+                probed.add(step.name);
+                if (!status[step.name] && (await this.isPresentOnDisk(session, step.name))) {
+                    onDisk.add(step.name);
+                    found = true;
+                }
+            }
+            if (!found) break;
+            plan = planInstall(names, catalog, satisfied);
+        }
+
+        const deps = plan.steps.filter((s) => s.reason === "dependency");
+        if (deps.length === 0 && plan.problems.length === 0) return plan.steps;
+
+        if (deps.length > 0) {
+            await this.lib.std.print(`\n\x1b[1;34mAdditional packages required:\x1b[0m\n`);
+            for (const d of deps) {
+                const local = status[d.name];
+                const state = local ? `installed ${local}, needs upgrade` : "not installed";
                 await this.lib.std.print(
-                    "\x1b[1;33m⚠️  REBOOT REQUIRED: Run 'reboot' to apply system changes.\x1b[0m\n",
+                    `  • ${d.name.padEnd(20)} v${d.version.padEnd(8)} \x1b[2m(${state}; required by ${d.requiredBy})\x1b[0m\n`,
                 );
             }
-        } finally {
-            await this.lib.net.close(session.fd).catch(() => {});
+        }
+        for (const p of plan.problems) await this.lib.std.print(`  ⚠️  ${p}\n`);
+
+        if (deps.length === 0) {
+            // Hanya masalah yang tidak bisa dipasang otomatis.
+            if (await this.confirm("Continue without them? [y/N]: ", opts, false)) return plan.steps;
+            await this.lib.std.print("Installation aborted.\n");
+            return null;
+        }
+
+        if (opts.yes) {
+            await this.lib.std.print("Install dependencies? y (--yes)\n");
+            return plan.steps;
+        }
+        const ans = (await this.lib.std.read("Install dependencies? [Y]es / [i]gnore / [a]bort: ")).toLowerCase().trim();
+        if (ans === "" || ans === "y" || ans === "yes") return plan.steps;
+        if (ans === "i" || ans === "ignore") {
+            await this.lib.std.print("⚠️  Ignoring dependencies — the package may not work until they are installed.\n");
+            return plan.steps.filter((s) => s.reason === "requested");
+        }
+        await this.lib.std.print("Installation aborted.\n");
+        return null;
+    }
+
+    /**
+     * isPresentOnDisk(): apakah semua file VFS paket sudah ada (paket dipasang
+     * di luar tpkg, mis. dari image). File staging host (`/tmp/…`, `hostDst`)
+     * tidak dihitung karena memang tidak menetap di VFS.
+     */
+    private async isPresentOnDisk(session: any, pkgName: string): Promise<boolean> {
+        try {
+            await this.lib.net.sendto(
+                session.fd,
+                session.address,
+                session.port,
+                session.agent.securePacketOut(JSON.stringify({ type: "INFO", name: pkgName })),
+            );
+            const data = await this.recvExpect(session.fd, ["INFO_REPLY", "ERROR"], 5000, {
+                from: session.address,
+                agent: session.agent,
+            });
+            if (!data || data.type !== "INFO_REPLY") return false;
+            if (!SecurityAgent.verify(session.publicKey, JSON.stringify(data.package), data.signature)) return false;
+
+            const paths = (data.package?.items ?? [])
+                .filter((i: any) => !i.hostDst && typeof i.dst === "string" && !i.dst.startsWith("/tmp/"))
+                .map((i: any) => i.dst as string);
+            if (paths.length === 0) return false;
+            for (const p of paths) if (!(await this.exists(p))) return false;
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /** installSteps(): pasang rencana secara berurutan; berhenti di kegagalan pertama. */
+    private async installSteps(
+        session: any,
+        steps: TpkgPlanStep[],
+        status: Record<string, string>,
+        opts: CliOptions,
+    ) {
+        let needReboot = false;
+        /** Paket menulis `/lib/*.ts` → baru dipakai setelah reboot (cache kernel). */
+        let libChanged = false;
+        let installed = 0;
+
+        for (let i = 0; i < steps.length; i++) {
+            const step = steps[i];
+            if (steps.length > 1) {
+                await this.lib.std.print(
+                    `\n\x1b[1m[${i + 1}/${steps.length}] ${step.name}\x1b[0m (v${step.version})` +
+                    `${step.reason === "dependency" ? " \x1b[2m— dependency\x1b[0m" : ""}\n`,
+                );
+            }
+
+            const reply = await this.fetchBundleWithRetry(session, step.name);
+            const ok =
+                !!reply &&
+                reply.type !== "ERROR" &&
+                (await (async () => {
+                    const files = await this.verifyBundle(session.publicKey, reply);
+                    if (!files) return false;
+                    const done = await this.installBundle(step.name, reply, files, status, opts);
+                    if (done && files.some((f) => f.path.startsWith("/lib/") && f.path.endsWith(".ts"))) {
+                        libChanged = true;
+                    }
+                    return done;
+                })());
+
+            if (!ok) {
+                if (reply?.type === "ERROR") await this.printServerError(reply);
+                const rest = steps.slice(i + 1).map((s) => s.name);
+                if (rest.length > 0) {
+                    await this.lib.std.print(`❌ Stopping: '${step.name}' failed — not installed: ${rest.join(", ")}\n`);
+                }
+                break;
+            }
+            installed++;
+            if (reply.needReboot) needReboot = true;
+        }
+
+        if (steps.length > 1) {
+            await this.lib.std.print(`\n${installed === steps.length ? "✅" : "⚠️ "} ${installed}/${steps.length} package(s) installed.\n`);
+        }
+        if (needReboot) {
+            await this.lib.std.print("\x1b[1;33m⚠️  REBOOT REQUIRED: Run 'reboot' to apply system changes.\x1b[0m\n");
+        } else if (libChanged) {
+            await this.lib.std.print(
+                "\x1b[1;33m⚠️  REBOOT REQUIRED: framework libraries in /lib were updated; the kernel loads them at boot.\n" +
+                "   Until you reboot, programs keep using the old versions.\x1b[0m\n",
+            );
         }
     }
 
@@ -424,8 +813,8 @@ export class Main {
      * (Versi lama `tsd download` justru memanggil jalur install sehingga
      * post-install tetap jalan — di sini sengaja hanya mengunduh.)
      */
-    private async doDownload(pkgName: string | undefined, args: string[]) {
-        const host = await this.resolveRepo(args, pkgName);
+    private async doDownload(pkgName: string | undefined, opts: CliOptions) {
+        const host = await this.resolveRepo("download", opts, pkgName);
         if (!host) return;
         if (!pkgName) {
             await this.lib.std.print("Usage: tpkg download <pkg> --from <host[:port]>\n");
@@ -464,7 +853,7 @@ export class Main {
             this.metrics.downloads++;
             await this.lib.std.print(`✅ Saved (verified) to ${dir}\n`);
         } finally {
-            await this.lib.net.close(session.fd).catch(() => {});
+            await this.lib.net.close(session.fd).catch(() => { });
         }
     }
 
@@ -472,8 +861,8 @@ export class Main {
      * doVerify(): Periksa signature + integritas paket tanpa memasangnya.
      * Berguna sebelum `install` di node penting.
      */
-    private async doVerify(pkgName: string | undefined, args: string[]) {
-        const host = await this.resolveRepo(args, pkgName);
+    private async doVerify(pkgName: string | undefined, opts: CliOptions) {
+        const host = await this.resolveRepo("verify", opts, pkgName);
         if (!host) return;
         if (!pkgName) {
             await this.lib.std.print("Usage: tpkg verify <pkg> --from <host[:port]>\n");
@@ -494,48 +883,13 @@ export class Main {
 
             const files = await this.verifyBundle(session.publicKey, reply);
             if (files) {
-                await this.lib.std.print(`✅ Signature & integrity OK — ${files.length} file.\n`);
+                await this.lib.std.print(`✅ Signature & integrity OK — ${files.length} file(s).\n`);
             } else {
                 await this.lib.std.print("❌ Verification FAILED.\n");
             }
         } finally {
-            await this.lib.net.close(session.fd).catch(() => {});
+            await this.lib.net.close(session.fd).catch(() => { });
         }
-    }
-
-    /**
-     * doRollback(): Pulihkan file paket dari backup terakhir di disk.
-     * Backup ditulis `backupFiles()` SEBELUM instalasi — jadi rollback tetap
-     * bisa dilakukan setelah reboot/proses mati (dulu backup hanya di memori).
-     */
-    private async doRollback(pkgName: string | undefined) {
-        if (!pkgName) {
-            await this.lib.std.print("Usage: tpkg rollback <pkg>\n");
-            return;
-        }
-
-        const stamps = await this.listBackups(pkgName);
-        if (stamps.length === 0) {
-            await this.lib.std.print(`❌ No backup found for '${pkgName}'.\n`);
-            return;
-        }
-
-        const index = await this.loadBackupIndex(pkgName, stamps[0]);
-        if (!index) {
-            await this.lib.std.print(`❌ Backup ${pkgName}/${stamps[0]} is corrupt (index.json unreadable).\n`);
-            return;
-        }
-
-        await this.lib.std.print(
-            `Rolling back \x1b[1m${pkgName}\x1b[0m to backup ${new Date(index.createdAt).toISOString()}...\n`,
-        );
-        await this.restoreBackup(index);
-        await this.runUndoScript(index.undoScript);
-        this.metrics.rolledBack++;
-
-        const status = await this.loadStatus();
-        delete status[pkgName];
-        await this.saveStatus(status);
     }
 
     private async printServerError(reply: any) {
@@ -612,14 +966,14 @@ export class Main {
         this.metrics.verified++;
         const total = files.reduce((sum, f) => sum + f.size, 0);
         await this.lib.std.print(
-            `Received bundle: ${data.name} v${data.version} — ${files.length} file, ${formatBytes(total)} (Verified)\n`,
+            `Received bundle: ${data.name} v${data.version} — ${files.length} file(s), ${formatBytes(total)} (Verified)\n`,
         );
         return files;
     }
 
     /**
      * installBundle(): Tulis file + set mode + catat versi, dengan backup di
-     * depan dan rollback otomatis kalau ada yang gagal.
+     * depan dan pemulihan otomatis kalau ada yang gagal ditulis.
      *
      * Semua file sudah diverifikasi sebelum fungsi ini dipanggil.
      */
@@ -628,11 +982,13 @@ export class Main {
         data: any,
         files: TpkgBundleFile[],
         localStatus: Record<string, string>,
+        opts: CliOptions,
     ): Promise<boolean> {
         const hostFiles = files.filter((f) => !!f.hostDst);
 
         // Paket yang menyentuh HOST FS sangat berbahaya (bisa mengganti kernel),
         // jadi minta konfirmasi eksplisit walau sudah root. Default = TIDAK.
+        // Sengaja TIDAK ikut `--yes`.
         if (hostFiles.length > 0) {
             if (!(await this.confirmHostWrite(pkgName, hostFiles))) {
                 await this.lib.std.print("❌ Installation aborted — nothing was written.\n");
@@ -640,11 +996,16 @@ export class Main {
             }
         }
 
-        const backup = await this.backupFiles(pkgName, data.version, files, data.undoScript);
+        // Konfigurasi `/etc` yang sudah diubah operator TIDAK ditimpa — versi paket
+        // ditulis ke `<file>.tpkg-new`. Diputuskan SEBELUM backup supaya backup
+        // mencakup path yang benar-benar akan ditulis.
+        const { writes, extra } = await this.planConfigWrites(pkgName, files);
+
+        const backup = await this.backupFiles(pkgName, data.version, writes);
         if (!backup) return false; // gagal backup → jangan menyentuh apa pun
 
         try {
-            for (const file of files) {
+            for (const file of writes) {
                 const dir = file.path.substring(0, file.path.lastIndexOf("/"));
                 if (dir) await this.mkdirRecursive(dir);
 
@@ -677,15 +1038,75 @@ export class Main {
 
         // Catat manifest file terpasang + hash isi yang kita tulis. Inilah dasar
         // `tpkg remove` untuk mendeteksi berkas konfigurasi yang sudah diubah.
-        await this.saveInstalledManifest(pkgName, data.version, files);
+        // File `.tpkg-new` ikut dicatat supaya `tpkg remove` membersihkannya.
+        await this.saveInstalledManifest(pkgName, data.version, [...files, ...extra], data.undoScript);
 
         localStatus[pkgName] = data.version;
         await this.saveStatus(localStatus);
         this.metrics.installs++;
 
-        await this.runPostInstall(pkgName, data, backup, files);
+        await this.runPostInstall(pkgName, data, files, opts);
         await this.pruneBackups(pkgName);
         return true;
+    }
+
+    /**
+     * planConfigWrites(): perlakuan "conffile" ala dpkg untuk berkas di `/etc/`.
+     *
+     * Paket membawa konfigurasi default (mis. `/etc/tpkg/config.json`,
+     * `/etc/dome/dome.conf`). Dulu setiap reinstall/upgrade menimpanya — node yang
+     * sudah `tpkg --set-repo wintsix` kembali ke repo bawaan paket. Sekarang:
+     *
+     *   - belum ada                         → ditulis
+     *   - isinya = versi paket              → ditulis (tidak ada beda)
+     *   - isinya = yang dipasang dulu       → ditulis (tidak diubah operator → ikut upgrade)
+     *   - selain itu (diubah / bukan milik
+     *     tpkg, mis. dari image)            → DIBIARKAN; versi paket → `<file>.tpkg-new`
+     *
+     * Return `writes` (yang benar-benar ditulis, berurutan) dan `extra` (file
+     * `.tpkg-new` yang perlu dicatat di manifest).
+     */
+    private async planConfigWrites(
+        pkgName: string,
+        files: TpkgBundleFile[],
+    ): Promise<{ writes: TpkgBundleFile[]; extra: TpkgBundleFile[] }> {
+        const previous = await this.loadInstalledManifest(pkgName);
+        const installedSha = new Map((previous?.files ?? []).map((f) => [f.path, f.sha256]));
+        const writes: TpkgBundleFile[] = [];
+        const extra: TpkgBundleFile[] = [];
+
+        for (const file of files) {
+            if (!file.path.startsWith("/etc/") || !(await this.exists(file.path))) {
+                writes.push(file);
+                continue;
+            }
+            let current: string | null = null;
+            try {
+                current = await this.lib.fs.readFile(file.path);
+            } catch (e) {
+                current = null;
+            }
+            if (current === null || current === undefined) {
+                writes.push(file);
+                continue;
+            }
+            const sha = sha256Hex(current);
+            if (sha === file.sha256 || sha === installedSha.get(file.path)) {
+                writes.push(file);
+                continue;
+            }
+
+            const newPath = `${file.path}.tpkg-new`;
+            // Salinan `.tpkg-new` hanya untuk operator — tidak ikut dicerminkan ke host.
+            const alt: TpkgBundleFile = { ...file, path: newPath };
+            delete alt.hostDst;
+            writes.push(alt);
+            extra.push(alt);
+            await this.lib.std.print(
+                `  ~ ${file.path} kept \x1b[1;33m(locally modified)\x1b[0m — new version saved as ${newPath}\n`,
+            );
+        }
+        return { writes, extra };
     }
 
     /**
@@ -710,27 +1131,59 @@ export class Main {
         return answer.toLowerCase().trim() === "y";
     }
 
-    /** runPostInstall(): jalankan `onAfter`, tawarkan rollback bila gagal. */
-    private async runPostInstall(pkgName: string, data: any, backup: BackupIndex, files: TpkgBundleFile[]) {
+    /**
+     * runPostInstall(): jalankan `onAfter` SETELAH operator menyetujuinya.
+     *
+     * Skrip post-install berjalan sebagai root, jadi paket yang jahat (atau repo
+     * yang dibobol) bisa melakukan apa saja lewat skrip ini. Karena itu skrip
+     * ditampilkan lengkap dengan argumennya, ditandai bila skrip itu DIKIRIM oleh
+     * paket ini sendiri, dan defaultnya TIDAK dijalankan.
+     */
+    private async runPostInstall(pkgName: string, data: any, files: TpkgBundleFile[], opts: CliOptions) {
         if (!data.onAfter) {
             await this.lib.std.print("✅ Installation successful.\n");
-            return;
-        }
-
-        await this.lib.std.print(`\n✅ Package installed. Post-install script: \x1b[1;36m${data.onAfter}\x1b[0m\n`);
-        // const confirm = await this.lib.std.read("Run post-install script now? [Y/n]: ");
-        const confirm = "y"; // otomatis jalankan post-install (dulu manual) — karena banyak paket engine yang harus jalan sekarang juga
-        if (confirm.toLowerCase().trim() === "n") {
-            await this.lib.std.print(`Skipping post-install. You can run it manually: ${data.onAfter}\n`);
             return;
         }
 
         // Untuk hook transpile, kirim daftar berkas `.ts` yang baru ditulis supaya
         // hanya sidecar paket ini yang dibangun (bukan seluruh /bin,/sbin). Hook
         // lain (apply-update, app) tetap dipanggil tanpa argumen.
-        const hookArgs = String(data.onAfter).includes("transpile")
-            ? files.filter((f) => f.path.endsWith(".ts")).map((f) => f.path)
-            : [];
+        const isTranspile = String(data.onAfter).includes("transpile");
+        const hookArgs = isTranspile ? files.filter((f) => f.path.endsWith(".ts")).map((f) => f.path) : [];
+        const cmdLine = [data.onAfter, ...hookArgs].join(" ");
+
+        await this.lib.std.print(`\n✅ Package installed. Post-install script: \x1b[1;36m${data.onAfter}\x1b[0m\n`);
+        if (hookArgs.length > 0) {
+            await this.lib.std.print(`   \x1b[2margs: ${hookArgs.join(" ")}\x1b[0m\n`);
+        }
+        const shipped = files.some((f) => f.path === data.onAfter);
+        await this.lib.std.print(
+            shipped
+                ? "   \x1b[1;33m⚠️  This script is shipped by the package itself — run it only if you trust the source.\x1b[0m\n"
+                : "   \x1b[2m(system script, not part of this package)\x1b[0m\n",
+        );
+
+        const skip = async (why: string) => {
+            await this.lib.std.print(`Skipping post-install (${why}). Run it manually: sudo ${cmdLine}\n`);
+            if (!isTranspile) return;
+            // Sidecar lama tetap menang atas `.ts` baru (EXEC mendahulukan `.js`).
+            let stale = 0;
+            for (const ts of hookArgs) if (await this.exists(ts.replace(/\.ts$/, ".js"))) stale++;
+            if (stale > 0) {
+                await this.lib.std.print(
+                    `\x1b[1;33m⚠️  ${stale} existing .js sidecar(s) will keep running the OLD code until rebuilt.\x1b[0m\n`,
+                );
+            }
+        };
+
+        if (opts.noScripts) {
+            await skip("--no-scripts");
+            return;
+        }
+        if (!(await this.confirm("Run post-install script? [y/N]: ", opts, false))) {
+            await skip("not confirmed");
+            return;
+        }
 
         await this.lib.std.print(`Running ${data.onAfter}...\n`);
         try {
@@ -744,57 +1197,29 @@ export class Main {
         } catch (e: any) {
             await this.lib.std.print(`❌ Post-install failed: ${e.message}\n`);
         }
-
-        const rollback = await this.lib.std.read("Rollback installation? [y/N]: ");
-        if (rollback.toLowerCase().trim() === "y") {
-            await this.runUndoScript(data.undoScript);
-            await this.restoreBackup(backup);
-            this.metrics.rolledBack++;
-        }
-    }
-
-    /** runUndoScript(): jalankan `undoScript` manifest kalau ada. */
-    private async runUndoScript(script?: string) {
-        if (!script) return;
-        await this.lib.std.print(`Running undo script: ${script}\n`);
-        try {
-            const proc = await this.lib.shell.exec(script, []);
-            await this.lib.shell.waitpid(proc.pid);
-        } catch (e: any) {
-            await this.lib.std.print(`⚠️  Undo script failed: ${e.message}\n`);
-        }
+        await this.lib.std.print(
+            `   The package files are installed. Fix the problem and re-run: sudo ${cmdLine}\n` +
+            `   — or uninstall with 'tpkg remove ${pkgName}'.\n`,
+        );
     }
 
     /**
      * backupFiles(): Simpan isi file yang AKAN DITIMPA ke disk.
      *
-     * Berbeda dari implementasi lama (backup hanya di memori → hilang kalau
-     * proses/daemon mati), hasilnya ditulis ke
-     * `/var/lib/tpkg/backup/<pkg>/<timestamp>/` + `index.json`, sehingga
-     * `tpkg rollback` bisa memulihkan kapan pun.
+     * Hasilnya ditulis ke `/var/lib/tpkg/backup/<pkg>/<timestamp>/` + `index.json`
+     * dan dipakai `restoreBackup()` kalau penulisan gagal di tengah jalan.
      *
      * Return null kalau backup gagal — pemanggil WAJIB membatalkan instalasi.
      *
      * File host (ber-`hostDst`) dibackup dengan cara dibaca dulu ke VFS lewat
      * `syncFromHost`, lalu disimpan seperti file biasa. Isinya jadi bisa dipulihkan
-     * lewat `syncToHost` saat rollback — tanpa ini, rollback paket engine hanya
-     * mengembalikan sisi VFS dan meninggalkan kernel yang sudah tertimpa.
+     * lewat `syncToHost` — tanpa ini, kegagalan paket engine hanya mengembalikan
+     * sisi VFS dan meninggalkan kernel yang sudah tertimpa.
      */
-    private async backupFiles(
-        pkgName: string,
-        version: string,
-        files: TpkgBundleFile[],
-        undoScript?: string,
-    ): Promise<BackupIndex | null> {
+    private async backupFiles(pkgName: string, version: string, files: TpkgBundleFile[]): Promise<BackupIndex | null> {
         const createdAt = Date.now();
         const dir = `${this.backupDir}/${pkgName}/${createdAt}`;
-        const index: BackupIndex = {
-            package: pkgName,
-            version,
-            createdAt,
-            ...(undoScript ? { undoScript } : {}),
-            entries: [],
-        };
+        const index: BackupIndex = { package: pkgName, version, createdAt, entries: [] };
 
         try {
             await this.mkdirRecursive(dir);
@@ -843,7 +1268,7 @@ export class Main {
         }
     }
 
-    /** restoreBackup(): Kembalikan file ke kondisi sebelum instalasi. */
+    /** restoreBackup(): Kembalikan file ke kondisi sebelum instalasi yang gagal. */
     private async restoreBackup(backup: BackupIndex | null): Promise<boolean> {
         if (!backup) return false;
         const dir = `${this.backupDir}/${backup.package}/${backup.createdAt}`;
@@ -892,9 +1317,10 @@ export class Main {
             }
         }
 
+        this.metrics.restored++;
         await this.lib.std.print(
-            `✅ Rollback complete (${restored} restored, ${removed} removed` +
-                `${skippedHost > 0 ? `, ${skippedHost} host file(s) need manual removal` : ""}).\n`,
+            `↩️  Previous files restored (${restored} restored, ${removed} removed` +
+            `${skippedHost > 0 ? `, ${skippedHost} host file(s) need manual removal` : ""}).\n`,
         );
         return true;
     }
@@ -945,8 +1371,8 @@ export class Main {
         }
     }
 
-    private async doInfo(pkgName: string, args: string[]) {
-        const host = await this.resolveRepo(args, pkgName);
+    private async doInfo(pkgName: string | undefined, opts: CliOptions) {
+        const host = await this.resolveRepo("info", opts, pkgName);
         if (!host) return;
         if (!pkgName) {
             await this.lib.std.print("Usage: tpkg info <pkg> [--from <host[:port]>]\n");
@@ -976,10 +1402,7 @@ export class Main {
                 return;
             }
             if (data.type === "ERROR") {
-                await this.lib.std.print(`❌ Server Error: ${data.message}\n`);
-                if (data.suggestions && data.suggestions.length > 0) {
-                    await this.lib.std.print(`💡 Did you mean: \x1b[1;36m${data.suggestions.join(", ")}\x1b[0m ?\n`);
-                }
+                await this.printServerError(data);
                 return;
             }
 
@@ -990,13 +1413,18 @@ export class Main {
                 return;
             }
 
+            const local = (await this.loadStatus())[pkg.name];
             await this.lib.std.print(`\n\x1b[1;34mPackage Information:\x1b[0m\n`);
             await this.lib.std.print(`--------------------------------------------------\n`);
             await this.lib.std.print(`\x1b[1mName:\x1b[0m        ${pkg.name}\n`);
             await this.lib.std.print(`\x1b[1mVersion:\x1b[0m     ${pkg.version}\n`);
+            await this.lib.std.print(`\x1b[1mInstalled:\x1b[0m   ${local ?? "no"}\n`);
             await this.lib.std.print(`\x1b[1mDescription:\x1b[0m ${pkg.description}\n`);
             await this.lib.std.print(`\x1b[1mAuthor:\x1b[0m      ${pkg.author}\n`);
             await this.lib.std.print(`\x1b[1mReboot Req:\x1b[0m  ${pkg.needReboot ? "Yes" : "No"}\n`);
+            await this.lib.std.print(
+                `\x1b[1mDepends:\x1b[0m     ${Array.isArray(pkg.depends) && pkg.depends.length ? pkg.depends.join(", ") : "-"}\n`,
+            );
 
             if (pkg.onAfterDownload) {
                 await this.lib.std.print(`\x1b[1mPost-Install:\x1b[0m ${pkg.onAfterDownload}\n`);
@@ -1012,7 +1440,7 @@ export class Main {
             }
             await this.lib.std.print(`--------------------------------------------------\n`);
         } finally {
-            await this.lib.net.close(fd).catch(() => {});
+            await this.lib.net.close(fd).catch(() => { });
         }
     }
 
@@ -1035,12 +1463,18 @@ export class Main {
             return null;
         }
 
+        // Dua jalur gagal di bawah dulu `return null` tanpa pesan — tpkg berhenti
+        // diam-diam setelah "Preparing to install ...".
         const fd = await this.lib.net.socket();
-        if (fd < 0) return null;
+        if (fd < 0) {
+            await this.lib.std.print("❌ Failed to open MQTNL socket (is the network up?).\n");
+            return null;
+        }
 
         const bound = await this.lib.net.bind(fd, 0); // port ephemeral
         if (!bound) {
-            await this.lib.net.close(fd).catch(() => {});
+            await this.lib.std.print("❌ Failed to bind a local MQTNL port.\n");
+            await this.lib.net.close(fd).catch(() => { });
             return null;
         }
 
@@ -1065,22 +1499,24 @@ export class Main {
         const ack = await this.recvExpect(fd, ["handshake_ack"], 5000, { from: target.address });
         if (!ack) {
             await this.lib.std.print(`❌ Host ${target.address}:${target.port} did not respond to handshake.\n`);
-            await this.lib.net.close(fd).catch(() => {});
+            await this.lib.net.close(fd).catch(() => { });
             return null;
         }
 
         if (!ack.sessionKey || !ack.publicKey) {
             await this.lib.std.print("❌ Handshake failed (incomplete reply).\n");
-            await this.lib.net.close(fd).catch(() => {});
+            await this.lib.net.close(fd).catch(() => { });
             return null;
         }
 
+        // Fingerprint repo baru SENGAJA tidak ikut `--yes`: menerima kunci repo
+        // tanpa melihatnya membuka jalan bagi repo palsu.
         const fp = ack.fingerprint;
         if (!(await this.isTrusted(fp))) {
             await this.lib.std.print(`\x1b[1;33m⚠️  WARNING: Unknown Repository Fingerprint: ${fp}\x1b[0m\n`);
             const confirm = await this.lib.std.read("Accept and proceed? [y/N]: ");
             if (confirm.toLowerCase().trim() !== "y") {
-                await this.lib.net.close(fd).catch(() => {});
+                await this.lib.net.close(fd).catch(() => { });
                 return null;
             }
             await this.addTrusted(fp);
@@ -1172,11 +1608,12 @@ export class Main {
         throw lastErr;
     }
 
-    private async loadCatalog(): Promise<any[]> {
+    private async loadCatalog(): Promise<TpkgCatalogEntry[]> {
         if (!(await this.exists(this.repoCache))) return [];
         const content = await this.lib.fs.readFile(this.repoCache);
         try {
-            return JSON.parse(content || "[]");
+            const parsed = JSON.parse(content || "[]");
+            return Array.isArray(parsed) ? parsed : [];
         } catch (e) {
             return [];
         }
@@ -1189,11 +1626,17 @@ export class Main {
     }
 
     /** saveInstalledManifest(): catat tiap file yang ditulis + sha256 isinya. */
-    private async saveInstalledManifest(pkgName: string, version: string, files: TpkgBundleFile[]) {
+    private async saveInstalledManifest(
+        pkgName: string,
+        version: string,
+        files: TpkgBundleFile[],
+        undoScript?: string,
+    ) {
         const manifest: InstalledManifest = {
             package: pkgName,
             version,
             installedAt: Date.now(),
+            ...(undoScript ? { undoScript } : {}),
             files: files.map((f) => ({
                 path: f.path,
                 sha256: sha256Hex(f.content),
@@ -1212,6 +1655,31 @@ export class Main {
         } catch (e) {
             return null;
         }
+    }
+
+    /**
+     * filesOwnedByOthers(): path → paket lain yang JUGA memasangnya.
+     *
+     * Beberapa paket sengaja berbagi file (mis. `tpkg` dan `base-system` sama-sama
+     * mengirim `/sbin/tpkg.ts`). Menghapus satu paket tidak boleh merusak paket
+     * lain yang masih terpasang.
+     */
+    private async filesOwnedByOthers(pkgName: string): Promise<Map<string, string>> {
+        const owners = new Map<string, string>();
+        let items: any[] = [];
+        try {
+            items = (await this.lib.fs.ls(this.installedDir)) ?? [];
+        } catch (e) {
+            return owners;
+        }
+        for (const item of items) {
+            if (item.type !== "FILE" || !String(item.name).endsWith(".json")) continue;
+            const other = String(item.name).replace(/\.json$/, "");
+            if (other === pkgName) continue;
+            const manifest = await this.loadInstalledManifest(other);
+            for (const f of manifest?.files ?? []) if (!owners.has(f.path)) owners.set(f.path, other);
+        }
+        return owners;
     }
 
     /** isConfigPath(): heuristik berkas konfigurasi berdasarkan ekstensi. */
@@ -1236,9 +1704,18 @@ export class Main {
         }
     }
 
+    /** doRemove(): lepas satu atau beberapa paket. */
+    private async doRemove(opts: CliOptions) {
+        if (opts.names.length === 0) {
+            await this.lib.std.print("Usage: tpkg remove <pkg...>\n");
+            return;
+        }
+        for (const name of opts.names) await this.removeOne(name, opts);
+    }
+
     /**
-     * doRemove(): uninstall paket — hapus file yang pernah ditulis (manifest
-     * `/var/lib/tpkg/installed/<pkg>.json`).
+     * removeOne(): uninstall paket — hapus file yang pernah ditulis (manifest
+     * `/var/lib/tpkg/installed/<pkg>.json`) beserta sidecar `.js` hasil transpile.
      *
      * Berkas konfigurasi (`.conf`, `.json`, `.ini`, dst.) SELALU dikonfirmasi:
      *   - `remove`     → hapus berkas ini
@@ -1246,14 +1723,13 @@ export class Main {
      *   - `cancel`     → berhenti; sisa berkas dibiarkan, status paket tidak diubah
      *
      * Hash sha256 dari saat install dibandingkan dengan isi sekarang; bila beda,
-     * berkas ditandai "(dimodifikasi)" agar operator sadar sebelum menghapus.
+     * berkas ditandai "(modified)" agar operator sadar sebelum menghapus.
+     *
+     * Sidecar `.js`: dibuat `transpile` SETELAH instalasi, jadi tidak tercatat di
+     * manifest. Dulu tertinggal setelah remove — dan karena `EXEC` mendahulukan
+     * `.js`, programnya masih bisa dijalankan walau paketnya sudah "dihapus".
      */
-    private async doRemove(pkgName: string | undefined) {
-        if (!pkgName) {
-            await this.lib.std.print("Usage: tpkg remove <pkg>\n");
-            return;
-        }
-
+    private async removeOne(pkgName: string, opts: CliOptions) {
         const status = await this.loadStatus();
         const manifest = await this.loadInstalledManifest(pkgName);
         let files: InstalledFile[] = manifest?.files ?? [];
@@ -1284,16 +1760,59 @@ export class Main {
             return;
         }
 
+        // Paket terpasang lain yang membutuhkan paket ini (dari katalog).
+        const dependents = (await this.loadCatalog())
+            .filter(
+                (p) =>
+                    p.name !== pkgName &&
+                    status[p.name] &&
+                    !opts.names.includes(p.name) &&
+                    (p.depends ?? []).some((s) => parseDependency(s)?.name === pkgName),
+            )
+            .map((p) => p.name);
+        if (dependents.length > 0) {
+            await this.lib.std.print(
+                `\x1b[1;33m⚠️  '${pkgName}' is required by installed package(s): ${dependents.join(", ")}\x1b[0m\n`,
+            );
+            if (!(await this.confirm("Remove it anyway? [y/N]: ", opts, false))) {
+                await this.lib.std.print("Removal aborted.\n");
+                return;
+            }
+        }
+
         await this.lib.std.print(`\n\x1b[1;33m⚠️  Removing package '${pkgName}' (${files.length} file(s)).\x1b[0m\n`);
+
+        if (manifest?.undoScript) {
+            await this.lib.std.print(`Undo script: \x1b[1;36m${manifest.undoScript}\x1b[0m\n`);
+            if (opts.noScripts) {
+                await this.lib.std.print("Skipping undo script (--no-scripts).\n");
+            } else if (await this.confirm("Run undo script? [y/N]: ", opts, false)) {
+                await this.runScript(manifest.undoScript, []);
+            } else {
+                await this.lib.std.print("Skipping undo script.\n");
+            }
+        }
+
+        const owned = new Set(files.map((f) => f.path));
+        const others = await this.filesOwnedByOthers(pkgName);
 
         let removeAll = false;
         let removed = 0;
+        let sidecars = 0;
+        let shared = 0;
         let kept = 0;
         let failed = 0;
         let hostManual = 0;
         let cancelled = false;
 
         for (const f of files) {
+            const otherOwner = others.get(f.path);
+            if (otherOwner) {
+                shared++;
+                await this.lib.std.print(`   kept ${f.path} \x1b[2m(also installed by ${otherOwner})\x1b[0m\n`);
+                continue;
+            }
+
             if (this.isConfigPath(f.path) && !removeAll) {
                 const current = await this.lib.fs.readFile(f.path);
                 const modified =
@@ -1318,9 +1837,17 @@ export class Main {
             try {
                 if (await this.exists(f.path)) {
                     await this.lib.fs.unlink(f.path);
-                    await this.pruneEmptyParents(f.path);
                     removed++;
                 }
+                // Sidecar `.js` hasil transpile — bukan bagian manifest, tapi milik paket ini.
+                if (f.path.endsWith(".ts")) {
+                    const js = f.path.replace(/\.ts$/, ".js");
+                    if (!owned.has(js) && !others.has(js) && (await this.exists(js))) {
+                        await this.lib.fs.unlink(js);
+                        sidecars++;
+                    }
+                }
+                await this.pruneEmptyParents(f.path);
             } catch (e: any) {
                 failed++;
                 await this.lib.std.print(`⚠️  Failed to remove ${f.path}: ${e.message}\n`);
@@ -1336,7 +1863,7 @@ export class Main {
         if (cancelled) {
             await this.lib.std.print(
                 `\n⏹️  Cancelled. ${removed} file(s) removed, ${kept} skipped — package status NOT changed.\n` +
-                    `   Run 'tpkg remove ${pkgName}' again to continue.\n`,
+                `   Run 'tpkg remove ${pkgName}' again to continue.\n`,
             );
             return;
         }
@@ -1352,10 +1879,24 @@ export class Main {
 
         await this.lib.std.print(
             `\n✅ Package '${pkgName}' removed: ${removed} file(s)` +
-                `${kept > 0 ? `, ${kept} config file(s) kept` : ""}` +
-                `${failed > 0 ? `, ${failed} failed` : ""}` +
-                `${hostManual > 0 ? `, ${hostManual} host file(s) need manual removal` : ""}.\n`,
+            `${sidecars > 0 ? `, ${sidecars} .js sidecar(s)` : ""}` +
+            `${shared > 0 ? `, ${shared} shared file(s) kept` : ""}` +
+            `${kept > 0 ? `, ${kept} config file(s) kept` : ""}` +
+            `${failed > 0 ? `, ${failed} failed` : ""}` +
+            `${hostManual > 0 ? `, ${hostManual} host file(s) need manual removal` : ""}.\n`,
         );
+    }
+
+    /** runScript(): jalankan skrip paket (undo) dan laporkan hasilnya. */
+    private async runScript(script: string, args: string[]) {
+        await this.lib.std.print(`Running ${script}...\n`);
+        try {
+            const proc = await this.lib.shell.exec(script, args);
+            const code = await this.lib.shell.waitpid(proc.pid);
+            if (code !== 0) await this.lib.std.print(`⚠️  ${script} exited with code ${code}\n`);
+        } catch (e: any) {
+            await this.lib.std.print(`⚠️  ${script} failed: ${e.message}\n`);
+        }
     }
 
     private async loadStatus(): Promise<Record<string, string>> {

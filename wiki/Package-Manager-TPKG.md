@@ -33,22 +33,38 @@ graph LR
 
 ## Perintah TPKG
 
-| Perintah                                     | Fungsi                                                                  |
-| -------------------------------------------- | ----------------------------------------------------------------------- |
-| `tpkg update [host[:port]]`                  | Ambil katalog paket dari server → simpan ke `/var/cache/tpkg/repo.json` |
-| `tpkg list`                                  | Tampilkan paket yang tersedia di katalog lokal                          |
-| `tpkg info <pkg> [--from <host[:port]>]`     | Detail satu paket (versi, ukuran, daftar file)                          |
-| `tpkg install <pkg> [--from <host[:port]>]`  | Ambil → verifikasi → backup → tulis → post-install                      |
-| `tpkg remove <pkg>`                          | Hapus file paket; konfigurasi dikonfirmasi per berkas                   |
-| `tpkg download <pkg> [--from <host[:port]>]` | Ambil & verifikasi TANPA menulis ke VFS                                 |
-| `tpkg verify <pkg> [--from <host[:port]>]`   | Periksa signature paket dari server                                     |
-| `tpkg rollback <pkg>`                        | Pulihkan backup terbaru paket tersebut                                  |
-| `tpkg metrics`                               | Statistik client (jumlah install/download/rollback)                     |
-| `tpkg --set-repo <host[:port]>`              | Simpan repository default                                               |
+| Perintah                                        | Fungsi                                                                          |
+| ----------------------------------------------- | ------------------------------------------------------------------------------- |
+| `tpkg update [host[:port]]`                     | Ambil katalog paket dari server → simpan ke `/var/cache/tpkg/repo.json`         |
+| `tpkg list`                                     | Tampilkan paket di katalog lokal (+ penanda terpasang / versi baru)             |
+| `tpkg list --installed`                         | Paket yang terpasang lewat tpkg + versi katalog (`⬆ x.y.z available`)           |
+| `tpkg info <pkg> [--from <host[:port]>]`        | Detail satu paket (versi, dependensi, daftar file)                              |
+| `tpkg install <pkg...> [--from <host[:port]>]`  | Ambil → verifikasi → backup → tulis → post-install (+ dependensi, dikonfirmasi) |
+| `tpkg upgrade [pkg...]`                         | Pasang versi katalog untuk paket terpasang yang lebih tua                       |
+| `tpkg remove <pkg...>`                          | Hapus file paket + sidecar `.js`; konfigurasi dikonfirmasi per berkas           |
+| `tpkg download <pkg> [--from <host[:port]>]`    | Ambil & verifikasi TANPA menulis ke VFS                                         |
+| `tpkg verify <pkg> [--from <host[:port]>]`      | Periksa signature paket dari server                                             |
+| `tpkg metrics`                                  | Statistik client                                                                |
+| `tpkg -v`, `tpkg --version`                     | Versi klien tpkg + protokol, versi paket `tpkg`/`base-system`, repo default     |
+| `tpkg --set-repo <host[:port]>`                 | Simpan repository default                                                       |
 
-Semua perintah yang **mengubah sistem** — `update`, `install`, `remove`,
-`download`, `rollback` — **wajib root** (`sudo`). Yang boleh tanpa root: `list`, `info`,
+Opsi umum:
+
+| Opsi           | Fungsi                                                                                  |
+| -------------- | --------------------------------------------------------------------------------------- |
+| `-y`, `--yes`  | Jawab "ya" untuk konfirmasi biasa. **Tidak** berlaku untuk fingerprint repo & tulis-host |
+| `--no-scripts` | Jangan jalankan skrip post-install / undo                                               |
+| `--no-deps`    | Abaikan `depends`                                                                       |
+| `--force`      | Pasang ulang walau versi lokal sama/lebih baru                                          |
+
+Semua perintah yang **mengubah sistem** — `update`, `install`, `upgrade`, `remove`,
+`download` — **wajib root** (`sudo`). Yang boleh tanpa root: `list`, `info`,
 `verify`, `metrics`, `--set-repo`.
+
+> `tpkg rollback` **sudah dihapus** (2026-11-26). Rollback hanya memulihkan `.ts`,
+> sementara sidecar `.js` hasil transpile versi baru tetap tinggal — dan karena
+> `EXEC` mendahulukan `.js`, kode baru tetap yang jalan. Untuk melepas paket pakai
+> `tpkg remove`.
 
 Itu bukan sekadar sopan santun: paket **base-system** menulis ke HOST FS
 (kernel & komponennya), dan syscall `SYNC_TO_HOST` di kernel sendiri juga menolak
@@ -62,20 +78,21 @@ menyajikan file sistem (termasuk kernel) ke node lain.
 # Set repository sekali, lalu perintah lain tidak perlu --from lagi
 tpkg --set-repo pkgserver.local:8090
 
-# Ambil katalog, lihat isi, install
-tpkg update
+# Ambil katalog, lihat isi, install (dependensi ditawarkan otomatis)
+sudo tpkg update
 tpkg list
-sudo tpkg install hello-world
+sudo tpkg install retroterm
 
 # Cek dulu tanpa menyentuh VFS
-sudo tpkg download hello-world
-sudo tpkg verify hello-world
+sudo tpkg download retroterm
+tpkg verify retroterm
+
+# Apa yang terpasang & apa yang bisa di-upgrade
+tpkg list --installed
+sudo tpkg upgrade
 
 # Hapus paket bila sudah tidak dipakai (konfigurasi dikonfirmasi per berkas)
-sudo tpkg remove hello-world
-
-# Kalau hasil instalasi bermasalah
-sudo tpkg rollback hello-world
+sudo tpkg remove retroterm
 ```
 
 ### Port repository
@@ -94,14 +111,19 @@ sequenceDiagram
     U->>S: HANDSHAKE (public key klien)
     S->>U: sessionKey + publicKey server + fingerprint
     Note over U: TOFU: fingerprint baru → tanya operator
-    U->>S: GET_BUNDLE
-    S->>U: bundle + signature(bundleDigest)
-    Note over U: 1) verifikasi signature (RSA)<br/>2) verifikasi SHA-256 & ukuran per file
-    Note over U: 3) backup file tujuan yang akan ditimpa
-    U->>U: tulis ke VFS + chmod
-    U->>U: catat /var/lib/tpkg/status.json
-    U->>U: jalankan onAfterDownload
-    Note over U: post-install gagal → tawarkan rollback
+    Note over U: rencana dari katalog: dependensi yang kurang?
+    U->>S: INFO <dep> (cek: file sudah ada di disk?)
+    Note over U: tanya: [Y]es / [i]gnore / [a]bort
+    loop tiap paket (dependensi lebih dulu)
+        U->>S: GET_BUNDLE
+        S->>U: bundle + signature(bundleDigest)
+        Note over U: 1) verifikasi signature (RSA)<br/>2) verifikasi SHA-256 & ukuran per file
+        Note over U: 3) backup file tujuan yang akan ditimpa
+        U->>U: tulis ke VFS + chmod (gagal → pulihkan backup)
+        U->>U: catat status.json + installed/<pkg>.json
+        Note over U: tampilkan skrip post-install → tanya [y/N]
+        U->>U: jalankan onAfterDownload (bila disetujui)
+    end
 ```
 
 Empat lapis pengamanan sebelum satu byte pun ditulis:
@@ -117,6 +139,68 @@ Empat lapis pengamanan sebelum satu byte pun ditulis:
 
 Kalau salah satu gagal, instalasi dibatalkan dan pesannya menyebut file mana yang
 bermasalah.
+
+### Konfigurasi `/etc` tidak ditimpa (conffile)
+
+Paket boleh membawa konfigurasi default (mis. `/etc/tpkg/config.json`,
+`/etc/dome/dome.conf`). Saat install/upgrade, berkas di `/etc/` yang sudah ada:
+
+| Kondisi berkas di node                                   | Hasil                                             |
+| -------------------------------------------------------- | ------------------------------------------------- |
+| Isinya sama dengan versi paket                           | Ditulis (tidak ada beda)                          |
+| Isinya sama dengan yang dipasang tpkg dulu (tidak diubah) | Ditulis → ikut versi baru                         |
+| Diubah operator, atau sudah ada sebelum tpkg (image)     | **Dibiarkan**; versi paket → `<file>.tpkg-new`    |
+
+```
+  ~ /etc/tpkg/config.json kept (locally modified) — new version saved as /etc/tpkg/config.json.tpkg-new
+```
+
+Bandingkan sendiri lalu gabungkan bila perlu. `.tpkg-new` tercatat di manifest
+sehingga ikut terhapus oleh `tpkg remove`. (Dulu reinstall `tpkg` mengembalikan
+`defaultRepo` ke repo bawaan paket walau node sudah `tpkg --set-repo`.)
+
+### Skrip post-install wajib disetujui
+
+Skrip `onAfterDownload` berjalan sebagai **root** — paket jahat (atau repo yang
+dibobol) bisa melakukan apa saja lewat skrip ini. Karena itu tpkg **tidak**
+menjalankannya diam-diam:
+
+```
+✅ Package installed. Post-install script: /sbin/transpile.ts
+   args: /opt/retroterm/retroterm.ts
+   (system script, not part of this package)
+Run post-install script? [y/N]:
+```
+
+- Skrip yang **dikirim oleh paket itu sendiri** diberi peringatan kuning
+  (`shipped by the package itself`) — itu yang paling perlu dicurigai.
+- Default **tidak**. Kalau dilewati, tpkg mencetak perintah lengkap untuk dijalankan
+  manual, dan memperingatkan bila sidecar `.js` lama masih ada (kode lama tetap
+  yang jalan sampai di-transpile ulang).
+- Post-install gagal → file paket tetap terpasang; tpkg mencetak perintah untuk
+  mengulang, atau sarankan `tpkg remove`.
+- Otomasi: `-y` menyetujui, `--no-scripts` melewati.
+
+### Dependensi
+
+Paket boleh menyebut paket lain yang dibutuhkan lewat `depends`
+(`"emerald"` atau `"emerald>=1.2.0"`). Saat `install`/`upgrade`, tpkg menyusun
+urutan dari katalog (dependensi **lebih dulu**, transitif), lalu bertanya:
+
+```
+Additional packages required:
+  • emerald              v1.0.0   (not installed; required by retroterm)
+Install dependencies? [Y]es / [i]gnore / [a]bort:
+```
+
+- Dependensi dianggap terpenuhi bila tercatat di `status.json` dengan versi cukup,
+  **atau** semua file-nya sudah ada di disk — node yang dibangun dari image tidak
+  punya `status.json`, tapi emerald dkk. sudah ada; tpkg mengeceknya lewat `INFO`.
+- Siklus, paket yang tidak ada di katalog, atau versi katalog yang terlalu tua
+  dilaporkan dan operator memilih lanjut atau batal.
+- `tpkg remove` memperingatkan bila paket masih dibutuhkan paket terpasang lain.
+- Isi `depends` di `packages.json` diturunkan dari **import nyata** antar paket
+  (base-system tidak ditulis karena semua paket membutuhkannya).
 
 ---
 
@@ -159,11 +243,12 @@ Packages didefinisikan dalam `packages.json` di node server:
 | `version`         | Versi semver                                     |
 | `description`     | Deskripsi singkat                                |
 | `author`          | Opsional, informasi                              |
-| `needReboot`      | `true` → operator diminta reboot setelah install |
-| `onAfterDownload` | Skrip yang dijalankan setelah instalasi berhasil |
-| `undoScript`      | Opsional, dijalankan saat rollback               |
-| `minVersion`      | Versi TSIX minimum (informasi, belum ditegakkan) |
-| `items[]`         | Daftar file yang dikirim                         |
+| `needReboot`      | `true` → operator diminta reboot setelah install                          |
+| `onAfterDownload` | Skrip setelah instalasi berhasil (dikonfirmasi operator)                  |
+| `undoScript`      | Opsional, dijalankan saat `tpkg remove` sebelum file dihapus (dikonfirmasi) |
+| `depends`         | Opsional, paket yang dibutuhkan: `["emerald", "cashew>=1.1.0"]`           |
+| `minVersion`      | Versi TSIX minimum (informasi, belum ditegakkan)                          |
+| `items[]`         | Daftar file yang dikirim                                                  |
 
 ### Field item
 
@@ -177,8 +262,11 @@ Packages didefinisikan dalam `packages.json` di node server:
 
 Urutan penentuan mode: `permissions` → SetUID (`/bin/login|passwd|sudo` → `0o4755`)
 → `isExecutable` → direktori eksekusi (`/bin`, `/usr/bin`, `/opt` → `0o755`;
-`/sbin` → `0o744`) → mode bawaan VFS (`0o644`). Aturan ini **sama persis** dengan
-`scripts/vfs-bootstrap.ts`, jadi hasil `tpkg install` identik dengan hasil bootstrap.
+`/sbin` → `0o744`) → mode bawaan VFS (`0o644`). Aturan direktorinya punya **satu
+sumber**: `execModeForPath()` di `src/mirror/lib/TpkgProtocol.ts`, dipakai `tpkg`,
+`transpile`, `apply-update`, dan di sisi host `scripts/lib/binary-mode.ts`
+(bootstrap/install/sync/pull) — jadi hasil `tpkg install` identik dengan bootstrap.
+Sidecar `.js` buatan `transpile` selalu executable (`0o755` di luar direktori exec).
 
 > ⚠️ **Catatan penting:** file executable di luar direktori eksekusi **wajib** memakai
 > `isExecutable: true` atau `permissions`. Tanpa itu file ditulis `0o644` dan
@@ -270,13 +358,13 @@ keluar dari root proyek.
 - **Wajib root** (`sudo`) — gerbang di CLI, dan kernel juga menolak `SYNC_TO_HOST`
   dari non-root.
 - Daftar file host **ditampilkan lebih dulu** dan harus dikonfirmasi
-  (`Lanjutkan tulis ke host? [y/N]`, default **tidak**).
+  (`Proceed with writing to host? [y/N]`, default **tidak**; `-y` tidak berlaku).
 - `hostDst` divalidasi di **server dan klien** (`isSafeHostDst`): harus relatif,
   tanpa `..`, tanpa path absolut. Nilai yang tidak aman → paket ditolak.
 - `hostDst` **ikut ditandatangani** (masuk `bundleDigest`), jadi pihak ketiga tidak
   bisa membelokkan file base/kernel ke path lain walau signature tetap valid.
-- Backup mencakup **kedua sisi**: file VFS **dan** file host. `tpkg rollback` karena
-  itu bisa mengembalikan kernel yang sudah tertimpa.
+- Backup mencakup **kedua sisi**: file VFS **dan** file host, sehingga instalasi
+  yang gagal di tengah penulisan bisa mengembalikan kernel yang sudah tertimpa.
 - File host yang benar-benar baru tidak bisa dihapus otomatis (VFS tidak punya
   syscall untuk itu) → dilaporkan ke operator, bukan gagal diam-diam.
 
@@ -313,7 +401,7 @@ Yang tetap dikirim dari `/etc` hanya: `profile`, `rc.local`, `motd`, `motd.json`
 
 ---
 
-## Backup & Rollback
+## Backup (pemulihan instalasi yang gagal)
 
 Sebelum menimpa file, tpkg membackup isi lama ke disk:
 
@@ -322,40 +410,47 @@ Sebelum menimpa file, tpkg membackup isi lama ke disk:
 /var/lib/tpkg/backup/<pkg>/<timestamp>/index.json
 ```
 
-`index.json` mencatat per file: path tujuan, apakah file sudah ada sebelumnya,
-nama file backup, mode, dan skrip undo paket. Status versi terpasang ada di
-`/var/lib/tpkg/status.json`.
+`index.json` mencatat per file: path tujuan, apakah file sudah ada sebelumnya, dan
+nama file backup. Status versi terpasang ada di `/var/lib/tpkg/status.json`.
 
 - Gagal menulis backup → instalasi **dibatalkan** (tidak lanjut menimpa file).
-- Backup lama dipangkas otomatis (`pruneBackups`, simpan N terbaru per paket).
-- `tpkg rollback <pkg>` memulihkan backup terbaru, lalu menjalankan `undoScript`
-  kalau ada. Paket yang belum pernah diinstall akan ditolak.
-  Menghapus Paket (`tpkg remove`)
+- Penulisan gagal di tengah jalan → file dipulihkan otomatis
+  (`↩️  Previous files restored ...`) — terjadi **sebelum** ada sidecar baru, jadi
+  hasilnya konsisten.
+- Hanya backup terbaru yang disimpan per paket.
 
-`tpkg remove <pkg>` menghapus semua file yang pernah ditulis paket. Daftar file
+---
+
+## Menghapus Paket (`tpkg remove`)
+
+`tpkg remove <pkg...>` menghapus semua file yang pernah ditulis paket. Daftar file
 diambil dari manifest yang dibuat saat install:
 `/var/lib/tpkg/installed/<pkg>.json` (berisi path + sha256 tiap file). Untuk paket
 lama yang dipasang sebelum manifest ada, dipakai `index.json` backup terbaru.
+
+- **Sidecar `.js`** di samping tiap `.ts` paket ikut dihapus. Sidecar dibuat
+  `transpile` setelah instalasi sehingga tidak tercatat di manifest — dulu
+  tertinggal, dan programnya masih bisa dijalankan walau paketnya sudah dihapus.
+- **File bersama** (dipasang juga oleh paket terpasang lain, mis. `/sbin/tpkg.ts`
+  di `base-system` dan `tpkg`) **dibiarkan** — `kept … (also installed by …)`.
+- Paket yang masih **dibutuhkan** paket terpasang lain → peringatan + konfirmasi.
+- `undoScript` paket (kalau ada) ditampilkan dan dijalankan **setelah disetujui**.
 
 Berkas **konfigurasi** (`.conf`, `.cfg`, `.cnf`, `.ini`, `.json`, `.yaml`,
 `.yml`, `.toml`, `.env`, `.properties`, `.xml`) tidak dihapus diam-diam — selalu
 ditanya:
 
 ```
-Konfigurasi /etc/app.conf (dimodifikasi) — [r]emove / [a]ll / [c]ancel:
+Config file /etc/app.conf (modified) — [r]emove / [a]ll / [c]ancel:
 ```
 
 - `r` — hapus berkas ini saja
 - `a` — hapus berkas ini dan sisanya tanpa tanya lagi
 - `c` — berhenti; sisa berkas dibiarkan dan `status.json` tidak diubah
 
-Penanda `(dimodifikasi)` muncul bila sha256 isi sekarang berbeda dengan saat
+Penanda `(modified)` muncul bila sha256 isi sekarang berbeda dengan saat
 install — supaya perubahan lokal tidak hilang tanpa sadar. Berkas host
 (`hostDst`) tidak bisa dihapus lewat VFS dan akan dilaporkan untuk dihapus manual.
-
----
-
-##
 
 ---
 
@@ -364,14 +459,31 @@ install — supaya perubahan lokal tidak hilang tanpa sadar. Berkas host
 `tpkgd` adalah daemon server-side yang melayani package repository.
 
 ```bash
-tpkgd [--port <n>] [--repo <path>] [--max-bundle <bytes>] [--help]
+tpkgd [--port <n>] [--repo <path>] [--max-bundle <bytes>] [--check] [--help]
 ```
 
-| Opsi           | Default                   | Keterangan                       |
-| -------------- | ------------------------- | -------------------------------- |
-| `--port`       | `80`                      | Port UDP/MQTNL yang didengarkan  |
-| `--repo`       | `/etc/tpkg/packages.json` | Manifest paket                   |
-| `--max-bundle` | `4194304` (4 MB)          | Batas total bundle yang dilayani |
+| Opsi           | Default                   | Keterangan                                   |
+| -------------- | ------------------------- | -------------------------------------------- |
+| `--port`       | `80`                      | Port UDP/MQTNL yang didengarkan              |
+| `--repo`       | `/etc/tpkg/packages.json` | Manifest paket                               |
+| `--max-bundle` | `4194304` (4 MB)          | Batas total bundle yang dilayani             |
+| `--check`      | —                         | Validasi manifest lalu keluar (tanpa daemon) |
+
+### `tpkgd --check` — validasi manifest sebelum diterbitkan
+
+```bash
+sudo tpkgd --check
+```
+
+Bundle tiap paket dibangun lewat jalur yang **sama** dengan saat melayani klien,
+jadi hasil "OK" berarti paket memang bisa dikirim. Yang diperiksa:
+
+- **Error:** JSON rusak, `name`/`version`/`items` hilang, nama ganda, file sumber
+  tidak ada, `hostDst`/`/hostsrc` tidak aman, bundle melebihi `--max-bundle`,
+  dependensi tidak dikenal / rusak / bergantung pada diri sendiri / siklus.
+- **Warning:** file yang dikirim lebih dari satu paket, skrip
+  `onAfterDownload`/`undoScript` yang tidak dikirim paket mana pun dan tidak ada
+  di node ini.
 
 Perilaku:
 
@@ -393,21 +505,24 @@ Perilaku:
 | Gejala                                                  | Penyebab & solusi                                                                                                                                              |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `requires root privileges`                              | Jalankan dengan `sudo`                                                                                                                                         |
-| `tidak merespons handshake`                             | Server mati / port salah. Cek `--from host:port` dan `tpkgd --port`                                                                                            |
+| `did not respond to handshake`                          | Server mati / port salah. Cek `--from host:port` dan `tpkgd --port`                                                                                            |
 | `Package '<x>' not found in catalog`                    | Jalankan `tpkg update` dulu, atau server belum punya paket itu                                                                                                 |
 | Post-install error **126**                              | File tidak executable → tambahkan `isExecutable: true`                                                                                                         |
-| `melebihi batas` saat bundle                            | Paket > `--max-bundle` → naikkan batas atau pecah paket                                                                                                        |
+| `exceeds limit` saat bundle                             | Paket > `--max-bundle` → naikkan batas atau pecah paket                                                                                                        |
+| Program lama tetap jalan setelah install                | Post-install `transpile` dilewati → sidecar `.js` lama masih menang. Jalankan perintah `sudo /sbin/transpile.ts …` yang dicetak tpkg                           |
+| `… is not a function` setelah paket mengubah `/lib`     | Kernel meng-compile `/lib/*.ts` ke cache **hanya saat boot** → program memakai lib lama. Reboot; tpkg kini memperingatkan `framework libraries in /lib were updated` |
+| Masalah manifest baru ketahuan di klien                 | Jalankan `sudo tpkgd --check` di server sebelum menerbitkan                                                                                                    |
 | Fingerprint berubah                                     | Server di-reinstall/kunci diganti, atau MITM. Verifikasi dulu                                                                                                  |
 | `RATE_LIMITED`                                          | Terlalu banyak permintaan dari satu pengirim, tunggu 1 menit                                                                                                   |
 | `requires root privileges`                              | Jalankan dengan `sudo` — `base-system` dapat menulis ke host FS                                                                                                |
-| Update engine tidak berefek setelah reboot              | Sidecar `.js` belum dibangun ulang → pastikan `/sbin/apply-update.ts` jalan (dijalankan otomatis sebagai post-install)                                         |
-| `hostDst tidak aman`                                    | Manifest salah: `hostDst` harus relatif, tanpa `..`/absolut                                                                                                    |
+| Update engine tidak berefek setelah reboot              | Sidecar `.js` belum dibangun ulang → setujui post-install `/sbin/apply-update.ts`, atau jalankan manual `sudo /sbin/apply-update.ts`                           |
+| `unsafe hostDst`                                        | Manifest salah: `hostDst` harus relatif, tanpa `..`/absolut                                                                                                    |
 | Backup host gagal                                       | `syncFromHost` butuh root & file host harus bisa dibaca                                                                                                        |
 | `Local module scan failed: File not found: /common/...` | Bug loader lama (sudah dibetulkan 2026-09-22): resolver modul relatif menembus root VFS. Pastikan sidecar `src/userland/VfsModuleResolver.js` sudah di-rebuild |
 
 ---
 
-Changelog: [`changelogs/tpkg.md`](changelogs/tpkg.md) (2026-09-22).
+Changelog: [`changelogs/tpkg.md`](changelogs/tpkg.md) (2026-11-26).
 
 ---
 

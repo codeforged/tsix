@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import { BKFS } from "../../src/vfs/BKFS";
+import { TPKG_EXEC_DIRS, execModeForPath, isSetuidPath } from "../../src/mirror/lib/TpkgProtocol";
 
 /**
  * BINARY MODE — aturan bit eksekusi berkas executable TSIX (FHS).
@@ -24,13 +25,17 @@ import { BKFS } from "../../src/vfs/BKFS";
  *   - `SetUID`  → `/bin/login|passwd|sudo` (baca/tulis `/etc/shadow` 0640 root)
  *   - `/sbin`   → 0o744 (root-only)
  *   - sisanya   → 0o755
+ *
+ * SUMBER TUNGGAL: aturannya hidup di `src/mirror/lib/TpkgProtocol.ts`
+ * (`execModeForPath`), yang juga dipakai `tpkg`, `transpile`, dan `apply-update`
+ * di dalam TSIX. File ini hanya membungkusnya untuk alat host.
  */
 
 /**
- * Direktori executable standar (FHS) — semua file .ts/.js di sini diberi bit
- * execute saat sync agar bisa dijalankan dari PATH.
+ * Direktori executable standar (FHS) — semua file di sini diberi bit execute
+ * saat sync agar bisa dijalankan dari PATH.
  */
-export const EXEC_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin", "/opt"];
+export const EXEC_DIRS = TPKG_EXEC_DIRS;
 
 /**
  * Binary istimewa yang wajib berjalan sebagai pemilik file (SetUID root):
@@ -38,7 +43,7 @@ export const EXEC_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin", "/opt"]
  * Dikenali baik versi .ts maupun sidecar .js yang benar-benar dieksekusi runtime.
  */
 export function isSetuidBinary(vfsPath: string): boolean {
-    return /\/bin\/(login|passwd|sudo)\.(ts|js)$/.test(vfsPath);
+    return isSetuidPath(vfsPath);
 }
 
 export function isExecutableBinary(vfsPath: string): boolean {
@@ -50,11 +55,7 @@ export function isExecutableBinary(vfsPath: string): boolean {
  * path itu bukan executable (berkas biasa → biarkan mode apa adanya).
  */
 export function binaryModeFor(vfsPath: string): number | null {
-    if (isSetuidBinary(vfsPath)) return 0o4755;
-    if (isExecutableBinary(vfsPath)) {
-        return vfsPath.startsWith("/sbin/") ? 0o744 : 0o755;
-    }
-    return null;
+    return execModeForPath(vfsPath);
 }
 
 /** Terapkan mode eksekusi (dan SetUID untuk login/passwd/sudo) di VFS. */

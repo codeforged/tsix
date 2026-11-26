@@ -1,5 +1,6 @@
 import { Program, std, fs, shell } from "@tsix/Application";
 import { utf8ToVfsBytes, vfsBytesToUtf8 } from "@common/VfsText";
+import { TPKG_EXEC_MODE, execModeForPath } from "@tsix/TpkgProtocol";
 
 /**
  * TRANSPILE — bangun sidecar `.js` dari `.ts` pasca-instalasi paket.
@@ -21,21 +22,23 @@ import { utf8ToVfsBytes, vfsBytesToUtf8 } from "@common/VfsText";
  * WAJIB ROOT: menulis sidecar `.js` di lokasi sistem.
  */
 
-/** Mode eksekusi per direktori — sama dengan `apply-update` / `vfs-bootstrap`. */
-const EXEC_MODE_DIRS: Record<string, number> = {
-    "/bin": 0o755,
-    "/sbin": 0o744,
-    "/usr/bin": 0o755,
-    "/usr/local/bin": 0o755,
-};
-
 /**
  * Sidecar `.js` adalah hasil build yang dieksekusi `EXEC`/`tsh`, jadi SELALU +x.
- * Direktori sistem memakai mode bakunya; lokasi lain (mis. `/opt/<paket>/`) 0755.
+ * Aturan direktori (SetUID, `/sbin` 0744, dst.) dari sumber tunggal
+ * `execModeForPath`; di luar direktori exec tetap 0755.
+ *
+ * KENAPA ADA FALLBACK: kernel meng-compile `/lib/*.ts` ke cache HANYA saat boot.
+ * Ketika sebuah paket baru saja menulis `/lib/TpkgProtocol.ts` lalu menjalankan
+ * transpile sebagai post-install, proses ini masih memakai TpkgProtocol LAMA dari
+ * cache — yang belum punya `execModeForPath` (kejadian nyata: semua sidecar
+ * "gagal" dengan `execModeForPath is not a function`). Transpile justru alat
+ * yang dipakai untuk pulih dari keadaan itu, jadi ia tidak boleh ikut rusak.
  */
 function modeFor(path: string): number {
-    const dir = path.substring(0, path.lastIndexOf("/"));
-    return EXEC_MODE_DIRS[dir] ?? 0o755;
+    if (typeof execModeForPath === "function") return execModeForPath(path) ?? TPKG_EXEC_MODE;
+    if (/\/bin\/(login|passwd|sudo)\.js$/.test(path)) return 0o4755;
+    if (path.startsWith("/sbin/")) return 0o744;
+    return 0o755;
 }
 
 export const main = Program(async (args) => {
@@ -103,18 +106,34 @@ export const main = Program(async (args) => {
                 sourcefile: tsPath.split("/").pop(),
             });
             if (!out?.code) throw new Error("esbuild produced no output");
-            await fs.writeFile(jsPath, utf8ToVfsBytes(out.code));
-            const mode = modeFor(jsPath);
-            if (!(await fs.chmod(jsPath, mode))) {
-                await std.println(`⚠️  chmod ${mode.toString(8)} failed: ${jsPath}`);
+            if (!(await fs.writeFile(jsPath, utf8ToVfsBytes(out.code)))) {
+                throw new Error(`could not write ${jsPath}`);
             }
-            await std.println(`  -> ${jsPath} (mode ${mode.toString(8)})`);
-            done++;
         } catch (e: any) {
             failed++;
             await std.println(`⚠️  failed ${tsPath}: ${e.message}`);
+            continue;
         }
+
+        // Sidecar sudah tertulis — kegagalan chmod dilaporkan terpisah, bukan
+        // dihitung sebagai build gagal (dulu keduanya tercampur).
+        const mode = modeFor(jsPath);
+        let modeOk = false;
+        try {
+            modeOk = !!(await fs.chmod(jsPath, mode));
+        } catch (e) {
+            modeOk = false;
+        }
+        await std.println(`  -> ${jsPath} (mode ${mode.toString(8)})`);
+        if (!modeOk) {
+            failed++;
+            await std.println(`⚠️  chmod ${mode.toString(8)} failed: ${jsPath}`);
+        }
+        done++;
     }
 
-    await std.println(`✅ ${done} sidecar built${failed > 0 ? `, ${failed} failed` : ""}.`);
+    await std.println(`${failed > 0 ? "⚠️ " : "✅"} ${done} sidecar(s) built${failed > 0 ? `, ${failed} problem(s)` : ""}.`);
+    // Exit code ≠ 0 supaya pemanggil (tpkg post-install) tahu ada yang gagal —
+    // dulu transpile selalu keluar 0 dan tpkg melapor "Post-install finished".
+    if (failed > 0) await shell.exit(1);
 });

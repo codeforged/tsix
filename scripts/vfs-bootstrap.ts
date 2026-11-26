@@ -8,12 +8,6 @@ import { skipIfHostRoot } from "./lib/root-mode";
 import { peekBom, readBinaryFile, readTextFile, utf8ToVfsBytes, vfsBytesToUtf8 } from "./lib/text-file";
 
 /**
- * Direktori executable standar (FHS) — semua file .ts/.js di sini diberi bit
- * execute saat sync agar bisa dijalankan dari PATH.
- */
-const EXEC_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin", "/opt"];
-
-/**
 /**
  * BERKAS YANG DIBIARKAN — konfigurasi milik NODE, bukan milik image.
  *

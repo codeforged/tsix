@@ -41,7 +41,7 @@ describe("TpkgProtocol — util (P1)", () => {
     });
 
     it("P1.02 parseHostPort menolak yang tidak masuk akal (dulu diam-diam salah kirim)", () => {
-        expect(() => parseHostPort("")).toThrow(/kosong/i);
+        expect(() => parseHostPort("")).toThrow(/empty/i);
         expect(() => parseHostPort("jati:0")).toThrow(/port/i);
         expect(() => parseHostPort("jati:70000")).toThrow(/port/i);
         expect(() => parseHostPort("jati:abc")).toThrow(/port/i);
@@ -117,13 +117,13 @@ describe("TpkgProtocol — util (P1)", () => {
         const broken = file("/etc/a.conf", "asli");
         broken.size = 99; // ukuran bohong
         expect(verifyBundleFiles([broken])).toMatchObject({ ok: false });
-        expect(verifyBundleFiles([broken]).error).toMatch(/ukuran/i);
+        expect(verifyBundleFiles([broken]).error).toMatch(/size mismatch/i);
 
         const tampered = file("/etc/a.conf", "asli");
         tampered.sha256 = sha256Hex("palsu");
         expect(verifyBundleFiles([tampered]).error).toMatch(/SHA-256/i);
 
-        expect(verifyBundleFiles([]).error).toMatch(/kosong/i);
+        expect(verifyBundleFiles([]).error).toMatch(/empty/i);
         expect(verifyBundleFiles([{ path: "", size: 0, sha256: "", content: "" }]).error).toMatch(/path/i);
     });
 

@@ -1,5 +1,6 @@
 import { Program, std, fs, shell } from "@tsix/Application";
 import { utf8ToVfsBytes, vfsBytesToUtf8 } from "@common/VfsText";
+import { execModeForPath } from "@tsix/TpkgProtocol";
 
 /**
  * APPLY-UPDATE — hook pasca-instalasi paket engine (`system-update`)
@@ -37,16 +38,11 @@ const HOST_SIDECAR_SOURCES: Array<{ ts: string; hostDst: string }> = [
     { ts: "/tmp/tpkg-stage/userland/VfsModuleResolver.ts", hostDst: "src/userland/VfsModuleResolver.js" },
 ];
 
-/** Direktori eksekusi + mode-nya — salinan aturan `scripts/vfs-bootstrap.ts`. */
-const EXEC_MODE_DIRS: Array<{ dir: string; mode: number }> = [
-    { dir: "/bin", mode: 0o755 },
-    { dir: "/sbin", mode: 0o744 },
-    { dir: "/usr/bin", mode: 0o755 },
-    { dir: "/usr/local/bin", mode: 0o755 },
-];
-
-/** Binary yang wajib SetUID (baca /etc/shadow). */
-const SETUID_FILES = ["/bin/login", "/bin/passwd", "/bin/sudo"];
+/**
+ * Direktori yang mode file-nya ditegakkan ulang. Mode-nya sendiri (SetUID,
+ * `/sbin` 0744, sisanya 0755) diambil dari sumber tunggal `execModeForPath`.
+ */
+const MODE_ENFORCE_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin"];
 
 export const main = Program(async () => {
     const user = await shell.whoami();
@@ -61,11 +57,11 @@ export const main = Program(async () => {
     try {
         esbuild = (global as any).require("esbuild");
     } catch (e: any) {
-        await std.println(`❌ Error: apply-update butuh esbuild di host (${e.message}).`);
+        await std.println(`❌ Error: apply-update requires esbuild on the host (${e.message}).`);
         return;
     }
 
-    await std.println("\n[ENGINE UPDATE] Membangun ulang sidecar .js + menegakkan mode...\n");
+    await std.println("\n[ENGINE UPDATE] Rebuilding .js sidecars + enforcing file modes...\n");
 
     let compiled = 0;
     let failed = 0;
@@ -96,17 +92,17 @@ export const main = Program(async () => {
                     sourcemap: "inline",
                     sourcefile: entry.name,
                 });
-                if (!out?.code) throw new Error("esbuild tidak menghasilkan kode");
+                if (!out?.code) throw new Error("esbuild produced no output");
                 // Kembalikan ke byte sebelum ditulis ke VFS (kebalikan latin1).
                 await fs.writeFile(jsPath, utf8ToVfsBytes(out.code));
                 compiled++;
             } catch (e: any) {
                 failed++;
-                await std.println(`   ⚠️  gagal transpile ${tsPath}: ${e.message}`);
+                await std.println(`   ⚠️  failed to transpile ${tsPath}: ${e.message}`);
             }
         }
 
-        await std.println(`   ✅ ${dir} — ${sources.length} sidecar .js dibangun ulang`);
+        await std.println(`   ✅ ${dir} — ${sources.length} .js sidecar(s) rebuilt`);
     }
 
     // ----------------------------------------------------------------- HOST
@@ -123,7 +119,7 @@ export const main = Program(async () => {
                 sourcemap: "inline",
                 sourcefile: baseName,
             });
-            if (!out?.code) throw new Error("esbuild tidak menghasilkan kode");
+            if (!out?.code) throw new Error("esbuild produced no output");
 
             // syncToHost membaca isi dari VFS → tulis dulu ke staging, baru salin keluar.
             // Direktori staging WAJIB dibuat dulu: writeFile ke folder yang tidak ada
@@ -132,14 +128,14 @@ export const main = Program(async () => {
             await fs.mkdir(stageDir);
             const stage = `${stageDir}/${baseName.replace(/\.ts$/, ".js")}`;
             const wrote = await fs.writeFile(stage, utf8ToVfsBytes(out.code));
-            if (!wrote) throw new Error(`gagal menulis staging ${stage}`);
+            if (!wrote) throw new Error(`failed to write staging file ${stage}`);
             const ok = await fs.syncToHost(stage, src.hostDst);
             await fs.unlink(stage).catch(() => false);
-            if (!ok) throw new Error("syncToHost gagal");
-            await std.println(`   ✅ host: ${src.hostDst} (dimuat langsung oleh Node)`);
+            if (!ok) throw new Error("syncToHost failed");
+            await std.println(`   ✅ host: ${src.hostDst} (loaded directly by Node)`);
         } catch (e: any) {
             failed++;
-            await std.println(`   ⚠️  gagal sidecar host ${src.hostDst}: ${e.message}`);
+            await std.println(`   ⚠️  failed to build host sidecar ${src.hostDst}: ${e.message}`);
         }
     }
 
@@ -147,7 +143,7 @@ export const main = Program(async () => {
     // File baru sudah diberi mode lewat manifest; ini jaring pengaman kalau mode-nya
     // hilang (mis. file hasil pemulihan backup).
     let chmodded = 0;
-    for (const { dir, mode } of EXEC_MODE_DIRS) {
+    for (const dir of MODE_ENFORCE_DIRS) {
         let entries: any[] = [];
         try {
             entries = await fs.ls(dir);
@@ -157,17 +153,21 @@ export const main = Program(async () => {
         for (const entry of entries) {
             if (entry.type !== "FILE" || !/\.(ts|js)$/.test(entry.name)) continue;
             const full = `${dir}/${entry.name}`;
-            const base = full.replace(/\.(ts|js)$/, "");
-            const wanted = SETUID_FILES.includes(base) ? 0o4755 : mode;
-            if (entry.mode === wanted) continue;
+            // `/lib` di-cache kernel saat boot: tepat setelah base-system dipasang,
+            // proses ini masih memakai TpkgProtocol LAMA (bisa tanpa
+            // `execModeForPath`). Lewati penegakan mode daripada crash — sidecar
+            // di atas sudah dibangun, dan setelah reboot aturan baru berlaku.
+            if (typeof execModeForPath !== "function") break;
+            const wanted = execModeForPath(full);
+            if (wanted === null || entry.mode === wanted) continue;
             if (await fs.chmod(full, wanted)) chmodded++;
         }
     }
 
     await std.println(
-        `\n[ENGINE UPDATE] ${compiled} sidecar dibangun, ${chmodded} mode disesuaikan` +
-            `${failed > 0 ? `, ${failed} gagal` : ""}.`,
+        `\n[ENGINE UPDATE] ${compiled} sidecar(s) built, ${chmodded} mode(s) fixed` +
+            `${failed > 0 ? `, ${failed} failed` : ""}.`,
     );
-    await std.println("🚀 Sistem sudah versi baru — REBOOT untuk memuat kernel & init yang baru.\n");
+    await std.println("🚀 System updated — REBOOT to load the new kernel & init.\n");
     return "Engine update applied. Reboot required.";
 });

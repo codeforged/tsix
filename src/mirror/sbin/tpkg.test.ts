@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { Main as TpkgClient } from "./tpkg";
 import { Main as TpkgDaemon } from "./tpkgd";
-import type { TpkgPackage } from "@tsix/TpkgProtocol";
+import { execModeForPath, parseDependency, planInstall, type TpkgPackage } from "@tsix/TpkgProtocol";
 
 /**
  * TPKG end-to-end (P2) — klien `tpkg` ↔ daemon `tpkgd` lewat MQTNL TIRUAN.
@@ -257,6 +257,39 @@ function setupServer(world: World, pkg?: Partial<TpkgPackage>) {
     return entry;
 }
 
+/** mkPkg(): paket ringkas untuk repo multi-paket. */
+function mkPkg(name: string, version: string, dsts: string[], extra: Partial<TpkgPackage> = {}): TpkgPackage {
+    return {
+        name,
+        version,
+        description: `${name} package`,
+        author: "test",
+        items: dsts.map((d) => ({ src: d, dst: d })),
+        ...extra,
+    };
+}
+
+/**
+ * setupRepo(): manifest berisi beberapa paket + isi file sumbernya di server,
+ * dan katalog yang sama (termasuk `depends`) di klien.
+ */
+function setupRepo(world: World, pkgs: TpkgPackage[], files: Record<string, string>) {
+    const fs = world.fs(world.serverNode);
+    for (const [p, c] of Object.entries(files)) fs.files.set(p, c);
+    fs.files.set("/etc/tpkg/packages.json", JSON.stringify({ version: "1.0", packages: pkgs }, null, 2));
+    world.fs(world.clientNode).files.set(
+        "/var/cache/tpkg/repo.json",
+        JSON.stringify(
+            pkgs.map((p) => ({
+                name: p.name,
+                version: p.version,
+                description: p.description,
+                ...(p.depends ? { depends: p.depends } : {}),
+            })),
+        ),
+    );
+}
+
 /** startDaemon(): jalankan tpkgd di background (loop tak pernah selesai). */
 async function startDaemon(world: World, args: string[] = []) {
     const lib = world.makeLib(world.serverNode);
@@ -411,32 +444,10 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         expect(world.fs(world.clientNode).files.has("/opt/test/hello-pkg.ts")).toBe(false);
     });
 
-    it("P2.07 tpkg rollback memulihkan isi file sebelum instalasi", async () => {
-        setupServer(world);
-        await boot();
-
-        const lib = world.makeLib(world.clientNode) as any;
-
-        // Kondisi awal di klien (harus kembali seperti ini setelah rollback).
-        world.fs(world.clientNode).files.set("/etc/pkg-demo.conf", "SIDANG-LAMA");
-        world.fs(world.clientNode).files.set("/etc/hanya-lokal.conf", "jangan dihapus");
-
-        await new TpkgClient().execute(lib, ["install", "hello-world", "--from", "server"]);
-        expect(world.fs(world.clientNode).files.get("/etc/pkg-demo.conf")).toBe("version=1.0\nmode=demo");
-
-        world.prints.length = 0;
-        await new TpkgClient().execute(lib, ["rollback", "hello-world"]);
-
-        const fs = world.fs(world.clientNode);
-        expect(out(world)).toMatch(/Rollback complete/);
-        // File lama kembali…
-        expect(fs.files.get("/etc/pkg-demo.conf")).toBe("SIDANG-LAMA");
-        // …file yang tadinya tidak ada dihapus…
-        expect(fs.files.has("/opt/test/hello-pkg.ts")).toBe(false);
-        // …dan file lain tidak tersentuh.
-        expect(fs.files.get("/etc/hanya-lokal.conf")).toBe("jangan dihapus");
-        // status versi dibersihkan supaya instalasi berikutnya bersih
-        expect(JSON.parse(fs.files.get("/var/lib/tpkg/status.json")!)).toEqual({});
+    it("P2.07 'tpkg rollback' sudah dihapus (pakai 'tpkg remove')", async () => {
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["rollback", "hello-world"]);
+        expect(out(world)).toMatch(/Unknown command: rollback/);
+        expect(out(world)).not.toMatch(/tpkg rollback/);
     });
 
     it("P2.08 tpkg download menyimpan bundle terverifikasi TANPA post-install", async () => {
@@ -656,28 +667,6 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         expect(world.hostFiles.get("src/kernel/Kernel.ts")).toBe("// kernel LAMA");
     });
 
-    it("P2.15 rollback paket engine memulihkan file HOST juga", async () => {
-        setupServer(world, {
-            name: "engine",
-            version: "9.9.9",
-            onAfterDownload: undefined,
-            items: [{ src: "/bin/init.ts", dst: "/bin/init.ts", hostDst: "src/kernel/Kernel.ts" }],
-        });
-        world.fs(world.serverNode).files.set("/bin/init.ts", "// init BARU");
-        world.hostFiles.set("src/kernel/Kernel.ts", "// kernel LAMA");
-
-        await boot();
-        const lib = world.makeLib(world.clientNode) as any;
-        await new TpkgClient().execute(lib, ["install", "engine", "--from", "server"]);
-        expect(world.hostFiles.get("src/kernel/Kernel.ts")).toBe("// init BARU");
-
-        world.prints.length = 0;
-        await new TpkgClient().execute(lib, ["rollback", "engine"]);
-
-        expect(out(world)).toMatch(/Rollback complete/);
-        expect(world.hostFiles.get("src/kernel/Kernel.ts")).toBe("// kernel LAMA");
-    });
-
     it("P2.16 server menolak manifest dengan hostDst tidak aman", async () => {
         setupServer(world, {
             name: "jahat",
@@ -704,7 +693,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         setupServer(world);
         await boot();
 
-        for (const cmd of ["install", "remove", "update", "download", "rollback"]) {
+        for (const cmd of ["install", "upgrade", "remove", "update", "download"]) {
             world.prints.length = 0;
             await new TpkgClient().execute(world.makeLib(world.clientNode, { uid: 1000 }) as any, [
                 cmd,
@@ -775,5 +764,396 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         expect(JSON.parse(fs.files.get("/var/lib/tpkg/status.json")!)["hello-world"]).toBe("1.0.0");
         // …dan manifest masih ada untuk melanjutkan remove berikutnya.
         expect(fs.files.has("/var/lib/tpkg/installed/hello-world.json")).toBe(true);
+    });
+
+    // ========================================================================
+    // REMOVE — sidecar .js & file bersama
+    // ========================================================================
+
+    it("P2.21 tpkg remove ikut menghapus sidecar .js hasil transpile", async () => {
+        setupServer(world);
+        await boot();
+        const lib = world.makeLib(world.clientNode) as any;
+        const fs = world.fs(world.clientNode);
+
+        await new TpkgClient().execute(lib, ["install", "hello-world", "--from", "server"]);
+        // Disimulasikan: post-install `transpile` membangun sidecar di samping .ts.
+        fs.files.set("/opt/test/hello-pkg.js", "// built");
+        // File .js lain yang BUKAN pasangan .ts paket ini tidak boleh tersentuh.
+        fs.files.set("/opt/test/lain.js", "// milik orang lain");
+
+        world.prints.length = 0;
+        world.answers.push("r");
+        await new TpkgClient().execute(lib, ["remove", "hello-world"]);
+
+        expect(fs.files.has("/opt/test/hello-pkg.ts")).toBe(false);
+        expect(fs.files.has("/opt/test/hello-pkg.js")).toBe(false);
+        expect(fs.files.get("/opt/test/lain.js")).toBe("// milik orang lain");
+        expect(out(world)).toMatch(/1 \.js sidecar/);
+    });
+
+    it("P2.22 tpkg remove tidak menghapus file yang juga dipasang paket lain", async () => {
+        setupRepo(
+            world,
+            [
+                mkPkg("app", "1.0.0", ["/opt/app/app.ts", "/lib/shared.ts"]),
+                mkPkg("tool", "1.0.0", ["/opt/tool/tool.ts", "/lib/shared.ts"]),
+            ],
+            { "/opt/app/app.ts": "// app", "/opt/tool/tool.ts": "// tool", "/lib/shared.ts": "// shared" },
+        );
+        await boot();
+        const lib = world.makeLib(world.clientNode) as any;
+        const fs = world.fs(world.clientNode);
+
+        await new TpkgClient().execute(lib, ["install", "app", "tool", "--from", "server"]);
+        fs.files.set("/lib/shared.js", "// built");
+
+        world.prints.length = 0;
+        await new TpkgClient().execute(lib, ["remove", "tool"]);
+
+        expect(fs.files.has("/opt/tool/tool.ts")).toBe(false);
+        expect(fs.files.get("/lib/shared.ts")).toBe("// shared");
+        expect(fs.files.has("/lib/shared.js")).toBe(true);
+        expect(out(world)).toMatch(/also installed by app/);
+    });
+
+    // ========================================================================
+    // POST-INSTALL — wajib dikonfirmasi
+    // ========================================================================
+
+    it("P2.23 post-install ditolak → skrip TIDAK dijalankan, sidecar basi diperingatkan", async () => {
+        setupServer(world, { onAfterDownload: "/sbin/transpile.ts" });
+        await boot();
+        const fs = world.fs(world.clientNode);
+        fs.files.set("/opt/test/hello-pkg.js", "// sidecar versi lama");
+        world.answers = ["y", "n"]; // [0] fingerprint, [1] post-install
+
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, [
+            "install",
+            "hello-world",
+            "--from",
+            "server",
+        ]);
+
+        const text = out(world);
+        expect(world.execs).toHaveLength(0);
+        expect(text).toMatch(/system script, not part of this package/);
+        expect(text).toMatch(/Skipping post-install/);
+        expect(text).toMatch(/sudo \/sbin\/transpile\.ts \/opt\/test\/hello-pkg\.ts/);
+        expect(text).toMatch(/keep running the OLD code/);
+        // File tetap terpasang.
+        expect(fs.files.has("/opt/test/hello-pkg.ts")).toBe(true);
+    });
+
+    it("P2.24 skrip yang dikirim paket sendiri ditandai; --no-scripts & --yes", async () => {
+        setupServer(world);
+        await boot();
+        const lib = world.makeLib(world.clientNode) as any;
+
+        world.answers = ["y", "n"];
+        await new TpkgClient().execute(lib, ["install", "hello-world", "--from", "server"]);
+        expect(out(world)).toMatch(/shipped by the package itself/);
+        expect(world.execs).toHaveLength(0);
+
+        world.prints.length = 0;
+        await new TpkgClient().execute(lib, ["install", "hello-world", "--force", "--no-scripts", "--from", "server"]);
+        expect(out(world)).toMatch(/Skipping post-install \(--no-scripts\)/);
+        expect(world.execs).toHaveLength(0);
+
+        // --yes tidak membaca jawaban: "n" di antrean tidak terpakai, skrip jalan.
+        world.prints.length = 0;
+        world.answers = ["n"];
+        await new TpkgClient().execute(lib, ["install", "hello-world", "--force", "-y", "--from", "server"]);
+        expect(out(world)).toMatch(/Run post-install script\? \[y\/N\]: y \(--yes\)/);
+        expect(world.execs.map((e) => e.cmd)).toContain("/opt/test/hello-pkg.ts");
+        expect(world.answers).toEqual(["n"]);
+    });
+
+    // ========================================================================
+    // DEPENDENSI
+    // ========================================================================
+
+    function setupDepsRepo() {
+        setupRepo(
+            world,
+            [
+                mkPkg("libx", "1.0.0", ["/lib/libx.ts"]),
+                mkPkg("appx", "2.0.0", ["/opt/appx/appx.ts"], { depends: ["libx"] }),
+            ],
+            { "/lib/libx.ts": "// libx", "/opt/appx/appx.ts": "// appx" },
+        );
+    }
+
+    it("P2.25 dependensi dikonfirmasi lalu dipasang LEBIH DULU", async () => {
+        setupDepsRepo();
+        await boot();
+        world.answers = ["y", "y"]; // fingerprint, install dependencies
+
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["install", "appx", "--from", "server"]);
+
+        const text = out(world);
+        const status = JSON.parse(world.fs(world.clientNode).files.get("/var/lib/tpkg/status.json")!);
+        expect(text).toMatch(/Additional packages required/);
+        expect(text).toMatch(/libx.*required by appx/);
+        expect(status).toEqual({ libx: "1.0.0", appx: "2.0.0" });
+        expect(text.indexOf("[1/2] libx")).toBeGreaterThan(-1);
+        expect(text.indexOf("[1/2] libx")).toBeLessThan(text.indexOf("[2/2] appx"));
+    });
+
+    it("P2.26 dependensi diabaikan ([i]gnore) → hanya paket yang diminta", async () => {
+        setupDepsRepo();
+        await boot();
+        world.answers = ["y", "i"];
+
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["install", "appx", "--from", "server"]);
+
+        const fs = world.fs(world.clientNode);
+        expect(fs.files.has("/opt/appx/appx.ts")).toBe(true);
+        expect(fs.files.has("/lib/libx.ts")).toBe(false);
+        expect(out(world)).toMatch(/Ignoring dependencies/);
+    });
+
+    it("P2.27 dependensi dibatalkan ([a]bort) → tidak ada yang dipasang", async () => {
+        setupDepsRepo();
+        await boot();
+        world.answers = ["y", "a"];
+
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["install", "appx", "--from", "server"]);
+
+        const fs = world.fs(world.clientNode);
+        expect(fs.files.has("/opt/appx/appx.ts")).toBe(false);
+        expect(fs.files.has("/lib/libx.ts")).toBe(false);
+        expect(out(world)).toMatch(/Installation aborted/);
+    });
+
+    it("P2.28 dependensi yang sudah ada di disk (bukan dari tpkg) tidak ditawarkan lagi", async () => {
+        setupDepsRepo();
+        await boot();
+        // Node dari image: file libx ada, tapi status.json tidak mencatatnya.
+        world.fs(world.clientNode).files.set("/lib/libx.ts", "// libx dari image");
+
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["install", "appx", "--from", "server"]);
+
+        const fs = world.fs(world.clientNode);
+        expect(out(world)).not.toMatch(/Additional packages required/);
+        expect(fs.files.get("/lib/libx.ts")).toBe("// libx dari image");
+        expect(JSON.parse(fs.files.get("/var/lib/tpkg/status.json")!)).toEqual({ appx: "2.0.0" });
+    });
+
+    it("P2.34 paket yang menulis /lib/*.ts → peringatan reboot (cache /lib dibangun saat boot)", async () => {
+        setupRepo(world, [mkPkg("libonly", "1.0.0", ["/lib/Baru.ts"])], { "/lib/Baru.ts": "export const x = 1;" });
+        await boot();
+
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["install", "libonly", "--from", "server"]);
+        expect(out(world)).toMatch(/framework libraries in \/lib were updated/);
+
+        // Paket tanpa /lib → tidak ada peringatan.
+        world.prints.length = 0;
+        setupRepo(world, [mkPkg("app", "1.0.0", ["/opt/app/app.ts"])], { "/opt/app/app.ts": "//" });
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["install", "app", "--from", "server"]);
+        expect(out(world)).not.toMatch(/REBOOT REQUIRED/);
+    });
+
+    it("P2.35 konfigurasi /etc yang diubah operator TIDAK ditimpa saat reinstall", async () => {
+        setupRepo(world, [mkPkg("cfg", "1.0.0", ["/etc/cfg/config.json", "/opt/cfg/cfg.ts"])], {
+            "/etc/cfg/config.json": '{"defaultRepo":"antigonon"}',
+            "/opt/cfg/cfg.ts": "//",
+        });
+        await boot();
+        const lib = world.makeLib(world.clientNode) as any;
+        const fs = world.fs(world.clientNode);
+
+        await new TpkgClient().execute(lib, ["install", "cfg", "--from", "server"]);
+        fs.files.set("/etc/cfg/config.json", '{"defaultRepo":"wintsix"}'); // seperti `tpkg --set-repo`
+
+        world.prints.length = 0;
+        await new TpkgClient().execute(lib, ["install", "cfg", "--force", "--from", "server"]);
+
+        expect(fs.files.get("/etc/cfg/config.json")).toBe('{"defaultRepo":"wintsix"}');
+        expect(fs.files.get("/etc/cfg/config.json.tpkg-new")).toBe('{"defaultRepo":"antigonon"}');
+        expect(out(world)).toMatch(/\/etc\/cfg\/config\.json kept .*locally modified/);
+
+        // remove ikut membersihkan .tpkg-new (manifest mencatatnya).
+        world.answers = ["a"];
+        await new TpkgClient().execute(lib, ["remove", "cfg"]);
+        expect(fs.files.has("/etc/cfg/config.json.tpkg-new")).toBe(false);
+        expect(fs.files.has("/etc/cfg/config.json")).toBe(false);
+    });
+
+    it("P2.36 konfigurasi yang TIDAK diubah ikut ter-upgrade; file /etc dari image dibiarkan", async () => {
+        setupRepo(world, [mkPkg("cfg", "1.0.0", ["/etc/cfg/a.conf", "/etc/cfg/b.conf"])], {
+            "/etc/cfg/a.conf": "a=1",
+            "/etc/cfg/b.conf": "b=1",
+        });
+        await boot();
+        const lib = world.makeLib(world.clientNode) as any;
+        const fs = world.fs(world.clientNode);
+        // b.conf sudah ada sebelum tpkg (mis. dari image) dengan isi lain.
+        fs.files.set("/etc/cfg/b.conf", "b=lokal");
+
+        await new TpkgClient().execute(lib, ["install", "cfg", "--from", "server"]);
+        expect(fs.files.get("/etc/cfg/a.conf")).toBe("a=1");
+        expect(fs.files.get("/etc/cfg/b.conf")).toBe("b=lokal");
+        expect(fs.files.get("/etc/cfg/b.conf.tpkg-new")).toBe("b=1");
+
+        setupRepo(world, [mkPkg("cfg", "2.0.0", ["/etc/cfg/a.conf", "/etc/cfg/b.conf"])], {
+            "/etc/cfg/a.conf": "a=2",
+            "/etc/cfg/b.conf": "b=2",
+        });
+        await new TpkgClient().execute(lib, ["install", "cfg", "--from", "server"]);
+        expect(fs.files.get("/etc/cfg/a.conf")).toBe("a=2"); // tidak diubah → ikut versi baru
+        expect(fs.files.get("/etc/cfg/b.conf")).toBe("b=lokal");
+        expect(fs.files.get("/etc/cfg/b.conf.tpkg-new")).toBe("b=2");
+    });
+
+    it("P2.37 tpkg -v menampilkan versi klien, protokol, paket & repo", async () => {
+        const fs = world.fs(world.clientNode);
+        fs.files.set("/var/lib/tpkg/status.json", JSON.stringify({ tpkg: "1.0.3" }));
+        fs.files.set("/etc/tpkg/config.json", JSON.stringify({ defaultRepo: "wintsix" }));
+
+        await new TpkgClient().execute(world.makeLib(world.clientNode, { uid: 1000 }) as any, ["-v"]);
+
+        const text = out(world);
+        expect(text).toMatch(/^tpkg \d+\.\d+\.\d+ \(protocol 1\.0\)/);
+        expect(text).toMatch(/Installed packages: tpkg 1\.0\.3/);
+        expect(text).toMatch(/Default repository: wintsix/);
+    });
+
+    it("P2.29 --no-deps melewati resolusi dependensi", async () => {
+        setupDepsRepo();
+        await boot();
+
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, [
+            "install",
+            "appx",
+            "--no-deps",
+            "--from",
+            "server",
+        ]);
+
+        expect(out(world)).not.toMatch(/Additional packages required/);
+        expect(world.fs(world.clientNode).files.has("/lib/libx.ts")).toBe(false);
+    });
+
+    it("P2.30 remove memperingatkan bila paket masih dibutuhkan paket lain", async () => {
+        setupDepsRepo();
+        await boot();
+        const lib = world.makeLib(world.clientNode) as any;
+        await new TpkgClient().execute(lib, ["install", "appx", "--from", "server"]);
+
+        world.prints.length = 0;
+        world.answers = ["n"];
+        await new TpkgClient().execute(lib, ["remove", "libx"]);
+
+        expect(out(world)).toMatch(/required by installed package\(s\): appx/);
+        expect(out(world)).toMatch(/Removal aborted/);
+        expect(world.fs(world.clientNode).files.has("/lib/libx.ts")).toBe(true);
+    });
+
+    // ========================================================================
+    // LIST --INSTALLED & UPGRADE
+    // ========================================================================
+
+    it("P2.31 list --installed menandai versi baru, upgrade memasangnya", async () => {
+        setupRepo(world, [mkPkg("solo", "1.0.0", ["/opt/solo/solo.ts"])], { "/opt/solo/solo.ts": "// v1" });
+        await boot();
+        const lib = world.makeLib(world.clientNode) as any;
+        const fs = world.fs(world.clientNode);
+        await new TpkgClient().execute(lib, ["install", "solo", "--from", "server"]);
+        await new TpkgClient().execute(lib, ["--set-repo", "server"]);
+
+        // Rilis baru di repo + katalog klien sudah di-update.
+        setupRepo(world, [mkPkg("solo", "1.1.0", ["/opt/solo/solo.ts"])], { "/opt/solo/solo.ts": "// v1.1" });
+
+        world.prints.length = 0;
+        await new TpkgClient().execute(lib, ["list", "--installed"]);
+        expect(out(world)).toMatch(/solo.*1\.0\.0.*1\.1\.0 available/);
+        expect(out(world)).toMatch(/1 upgradable/);
+
+        world.prints.length = 0;
+        await new TpkgClient().execute(lib, ["upgrade"]);
+        expect(out(world)).toMatch(/1\.0\.0 → .*1\.1\.0/);
+        expect(fs.files.get("/opt/solo/solo.ts")).toBe("// v1.1");
+        expect(JSON.parse(fs.files.get("/var/lib/tpkg/status.json")!)).toEqual({ solo: "1.1.0" });
+
+        world.prints.length = 0;
+        await new TpkgClient().execute(lib, ["upgrade"]);
+        expect(out(world)).toMatch(/All packages are up to date/);
+    });
+
+    // ========================================================================
+    // TPKGD --CHECK
+    // ========================================================================
+
+    it("P2.32 tpkgd --check melaporkan masalah manifest tanpa membuka socket", async () => {
+        setupRepo(
+            world,
+            [
+                mkPkg("ok", "1.0.0", ["/opt/ok/ok.ts"]),
+                mkPkg("missing", "1.0.0", ["/opt/missing/gone.ts"]),
+                mkPkg("orphan", "1.0.0", ["/opt/orphan/o.ts"], { depends: ["nope"] }),
+                mkPkg("a", "1.0.0", ["/opt/a/a.ts"], { depends: ["b"] }),
+                mkPkg("b", "1.0.0", ["/opt/b/b.ts", "/opt/ok/ok.ts"], {
+                    depends: ["a"],
+                    onAfterDownload: "/sbin/tidak-ada.ts",
+                }),
+            ],
+            { "/opt/ok/ok.ts": "// ok", "/opt/orphan/o.ts": "//", "/opt/a/a.ts": "//", "/opt/b/b.ts": "//" },
+        );
+
+        await new TpkgDaemon().execute(world.makeLib(world.serverNode) as any, ["--check"]);
+
+        const text = out(world);
+        expect(text).toMatch(/missing: source file not found: \/opt\/missing\/gone\.ts/);
+        expect(text).toMatch(/orphan: depends on unknown package 'nope'/);
+        expect(text).toMatch(/dependency cycle: (a -> b -> a|b -> a -> b)/);
+        expect(text).toMatch(/\/opt\/ok\/ok\.ts is shipped by several packages: ok, b/);
+        expect(text).toMatch(/onAfterDownload '\/sbin\/tidak-ada\.ts' is not shipped/);
+        expect(text).toMatch(/5 package\(s\) checked — 3 error\(s\), 2 warning\(s\)/);
+        expect(world.ioctls).toHaveLength(0);
+    });
+
+    it("P2.33 tpkgd --check pada manifest bersih → 0 error", async () => {
+        setupDepsRepo();
+        await new TpkgDaemon().execute(world.makeLib(world.serverNode) as any, ["--check"]);
+        expect(out(world)).toMatch(/✅ 2 package\(s\) checked — 0 error\(s\), 0 warning\(s\)/);
+    });
+});
+
+describe("TpkgProtocol — mode & dependensi (murni)", () => {
+    it("execModeForPath: sumber tunggal aturan mode", () => {
+        expect(execModeForPath("/bin/ls.js")).toBe(0o755);
+        expect(execModeForPath("/sbin/tpkg.js")).toBe(0o744);
+        expect(execModeForPath("/bin/sudo.js")).toBe(0o4755);
+        expect(execModeForPath("/opt/retroterm/retroterm.js")).toBe(0o755);
+        expect(execModeForPath("/etc/x.conf")).toBeNull();
+    });
+
+    it("parseDependency: nama & versi minimum", () => {
+        expect(parseDependency("emerald")).toEqual({ name: "emerald" });
+        expect(parseDependency("emerald>=1.2.0")).toEqual({ name: "emerald", minVersion: "1.2.0" });
+        expect(parseDependency("emerald >= 1.2")).toEqual({ name: "emerald", minVersion: "1.2" });
+        expect(parseDependency("bad name")).toBeNull();
+    });
+
+    it("planInstall: urutan, transitif, versi minimum, siklus", () => {
+        const catalog = [
+            { name: "base", version: "1.0.0" },
+            { name: "mid", version: "1.0.0", depends: ["base"] },
+            { name: "top", version: "1.0.0", depends: ["mid", "base"] },
+            { name: "needsNew", version: "1.0.0", depends: ["base>=2.0"] },
+            { name: "x", version: "1.0.0", depends: ["y"] },
+            { name: "y", version: "1.0.0", depends: ["x"] },
+        ];
+        const none = () => false;
+
+        expect(planInstall(["top"], catalog, none).steps.map((s) => s.name)).toEqual(["base", "mid", "top"]);
+        expect(planInstall(["top"], catalog, (d) => d.name === "base").steps.map((s) => s.name)).toEqual([
+            "mid",
+            "top",
+        ]);
+        expect(planInstall(["needsNew"], catalog, none).problems[0]).toMatch(/requires base>=2\.0/);
+        expect(planInstall(["x"], catalog, none).problems[0]).toMatch(/dependency cycle/);
+        expect(planInstall(["ghost"], catalog, none).problems[0]).toMatch(/not in the catalog/);
     });
 });
