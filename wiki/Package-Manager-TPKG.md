@@ -77,6 +77,12 @@ paket "tinggal pakai" untuk end user, tanpa post-install `transpile`:
 - **Source → binary:** `.ts` lama milik paket itu dibuang, karena resolver import
   relatif mendahulukan `.ts` di atas `.js` (kode lama akan menang diam-diam). `.ts`
   yang sudah diubah operator dipindah ke `<file>.ts.tpkg-old`.
+- **Image produksi** (`/etc/tsix-release` berisi `VARIANT=production`, ditulis
+  `twrapper --no-mirror`): item dengan `hostDst` `src/mirror/<p>` dipasang ke VFS di
+  `/<p>` saja — tanpa sinkron ke host — lalu di-compile ke `.js`. Item kernel,
+  `src/common`, dan userland tetap ke host. Tanpa ini, `tpkg install base-system`
+  menghidupkan lagi `src/mirror/` di host dan `install.ts` salah mengira mode
+  development. Dilakukan setelah verifikasi signature (yang menutupi `hostDst` asli).
 - `onAfterDownload` di katalog memakai `/sbin/transpile.js`; `EXEC` juga melayani
   path `.ts` yang tidak ada dengan `.js`-nya (image produksi tidak punya `.ts`).
 

@@ -1176,7 +1176,86 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         expect(ifconfig.sha256).toMatch(/^[0-9a-f]{64}$/);
         expect(data.variant).toBe("binary");
         expect(data.onAfter).toBe("/usr/bin/setup.js");
-        expect(out(world)).toMatch(/older tpkgd\) — compiling to \.js locally/);
+        expect(out(world)).toMatch(/older tpkgd\) — compiling 2 file\(s\) to \.js locally/);
+    });
+
+    // ========================================================================
+    // IMAGE PRODUKSI (/etc/tsix-release VARIANT=production)
+    // ========================================================================
+
+    function setupBaseRepo() {
+        setupRepo(
+            world,
+            [
+                {
+                    name: "base",
+                    version: "2.0.0",
+                    description: "base",
+                    author: "test",
+                    items: [
+                        { src: "/bin/tool.ts", dst: "/bin/tool.ts", hostDst: "src/mirror/bin/tool.ts" },
+                        { src: "/lib/Base.ts", dst: "/lib/Base.ts", hostDst: "src/mirror/lib/Base.ts" },
+                        {
+                            src: "/tmp/tpkg-stage/kernel/K.ts",
+                            dst: "/tmp/tpkg-stage/kernel/K.ts",
+                            hostDst: "src/kernel/K.ts",
+                        },
+                    ],
+                },
+            ],
+            {
+                "/bin/tool.ts": "export const tool = (x: number): number => x * 2;",
+                "/lib/Base.ts": "export const base = 1;",
+                "/tmp/tpkg-stage/kernel/K.ts": "export const kernel = 2;",
+            },
+        );
+    }
+
+    it("P2.44 produksi: hostDst src/mirror/ → VFS saja (.js); kernel tetap ke host", async () => {
+        setupBaseRepo();
+        world.fs(world.clientNode).files.set(
+            "/etc/tsix-release",
+            '# test\nNAME="TSIX Imut"\nVERSION="1.0.0"\nVARIANT=production\n',
+        );
+        await boot();
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["install", "base", "--from", "server"]);
+
+        const fs = world.fs(world.clientNode);
+        const text = out(world);
+        // Tidak ada yang ditulis ke src/mirror/ di host…
+        const toHost = world.hostSyncs.filter((s) => s.op === "to").map((s) => s.hostPath);
+        expect(toHost).toEqual(["src/kernel/K.ts"]);
+        expect([...world.hostFiles.keys()].some((k) => k.startsWith("src/mirror/"))).toBe(false);
+        // …program mirror masuk ke VFS sebagai .js, /lib tetap .ts.
+        expect(fs.files.has("/bin/tool.ts")).toBe(false);
+        expect(fs.files.get("/bin/tool.js")).toMatch(/tool/);
+        expect(fs.files.get("/lib/Base.ts")).toBe("export const base = 1;");
+        // Hanya file kernel yang ditanyakan sebagai tulis-host.
+        expect(text).toMatch(/writes to the HOST FS \(1 file\(s\)\)/);
+        expect(text).toMatch(/Production image: 2 file\(s\) go to the system database only/);
+        // Manifest: item hasil lipatan tidak lagi tercatat sebagai file host.
+        const manifest = JSON.parse(fs.files.get("/var/lib/tpkg/installed/base.json")!);
+        expect(manifest.files.filter((f: any) => f.hostDst).map((f: any) => f.hostDst)).toEqual(["src/kernel/K.ts"]);
+    });
+
+    it("P2.45 development (tanpa penanda): hostDst src/mirror/ tetap disinkron ke host seperti dulu", async () => {
+        setupBaseRepo();
+        await boot();
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["install", "base", "--from", "server"]);
+
+        const toHost = world.hostSyncs.filter((s) => s.op === "to").map((s) => s.hostPath);
+        expect(toHost).toEqual(["src/mirror/bin/tool.ts", "src/mirror/lib/Base.ts", "src/kernel/K.ts"]);
+        expect(world.fs(world.clientNode).files.has("/bin/tool.ts")).toBe(true);
+        expect(out(world)).not.toMatch(/Production image/);
+    });
+
+    it("P2.46 tpkg -v menampilkan image produksi", async () => {
+        world.fs(world.clientNode).files.set(
+            "/etc/tsix-release",
+            'NAME="TSIX Imut"\nVERSION="1.0.0"\nVARIANT=production\n',
+        );
+        await new TpkgClient().execute(world.makeLib(world.clientNode, { uid: 1000 }) as any, ["-v"]);
+        expect(out(world)).toMatch(/Image: TSIX Imut 1\.0\.0 \(production\)/);
     });
 
     it("P2.29 --no-deps melewati resolusi dependensi", async () => {

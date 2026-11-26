@@ -570,6 +570,31 @@ function verifyOwnedOutput(outputDirectory: string, previous: PreviousState): vo
     }
 }
 
+/** Penanda identitas image di VFS (gaya /etc/os-release). */
+const RELEASE_PATH = "/etc/tsix-release";
+
+/**
+ * releaseFile(): isi `/etc/tsix-release` untuk image produksi.
+ *
+ * `VARIANT=production` = rootfs hanya ada di `system.db`, host TIDAK punya
+ * `src/mirror/`. tpkg memakainya untuk tidak menyinkronkan `hostDst` ber-awalan
+ * `src/mirror/` ke host (yang akan memunculkan lagi `src/mirror/` dan membuat
+ * install.ts salah mendeteksi mode) dan untuk memasang file itu sebagai `.js`.
+ */
+function releaseFile(recipe: Recipe, kernelVersion: string): string {
+    const quote = (v: string) => `"${String(v).replace(/["\\]/g, "\\$&")}"`;
+    return [
+        "# /etc/tsix-release — image identity (written by twrapper; do not edit).",
+        "# VARIANT=production: the root filesystem lives in system.db only (no src/mirror/ on the host).",
+        `NAME=${quote(recipe.distro.name)}`,
+        `ID=${recipe.distro.id}`,
+        `VERSION=${quote(recipe.distro.version)}`,
+        `KERNEL=${quote(kernelVersion)}`,
+        "VARIANT=production",
+        "",
+    ].join("\n");
+}
+
 /** pruneEmptyDirs(): hapus direktori kosong dari `start` naik sampai `stop` (eksklusif). */
 function pruneEmptyDirs(start: string, stop: string): void {
     let dir = start;
@@ -598,7 +623,11 @@ function removeDatabaseFiles(dbPath: string): void {
  * Akun root sengaja dibiarkan TERKUNCI; password ditetapkan oleh
  * `npm run tsix:install` di node tujuan.
  */
-function buildRootfsDatabase(outputDirectory: string, mirrorFiles: Array<[string, OutputFile]>): Buffer {
+function buildRootfsDatabase(
+    outputDirectory: string,
+    mirrorFiles: Array<[string, OutputFile]>,
+    release: string,
+): Buffer {
     const stage = fs.mkdtempSync(path.join(os.tmpdir(), "twrapper-rootfs-"));
     const dbPath = path.join(outputDirectory, DB_FILE);
     const temporary = `${dbPath}.twrapper-tmp`;
@@ -624,6 +653,9 @@ function buildRootfsDatabase(outputDirectory: string, mirrorFiles: Array<[string
             if (!rootPasswordSeeded) {
                 throw new Error("Production image must not ship /etc/shadow; root has to stay locked until install.");
             }
+            // Penanda image produksi — dibaca tpkg (VFS tidak bisa melihat apakah
+            // host punya src/mirror/). Lihat `releaseFile()`.
+            bkfs.touch(RELEASE_PATH, release, 0, 0, 0o644);
         } finally {
             // close() = checkpoint WAL → system.db kembali SATU file utuh.
             bkfs.close();
@@ -696,7 +728,7 @@ function writePlan(plan: ReturnType<typeof buildPlan>): void {
 
     // Setelah src/common tertulis (populateRootfs menyalinnya ke /lib/common).
     if (noMirror) {
-        const dbBytes = buildRootfsDatabase(outputDirectory, mirrorFiles);
+        const dbBytes = buildRootfsDatabase(outputDirectory, mirrorFiles, releaseFile(plan.recipe, readKernelVersion()));
         generatedFiles.push({ path: DB_FILE, sha256: sha256(dbBytes) });
         console.log(
             `[twrapper] rootfs: ${mirrorFiles.length} files -> ${DB_FILE} (${(dbBytes.length / 1024).toFixed(0)} KB)`,

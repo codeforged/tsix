@@ -205,6 +205,11 @@ VFS. `--no-mirror` membangun image seperti itu:
 | Akun root | terkunci sampai install | terkunci sampai install |
 
 - `install.ts` mendeteksi mode **otomatis**: tidak ada `src/mirror/` = produksi.
+- Image produksi membawa penanda `/etc/tsix-release` (`VARIANT=production`, nama,
+  versi distro & kernel). Dari dalam VFS, `tpkg` tidak bisa melihat apakah host punya
+  `src/mirror/`, jadi penanda inilah yang memberi tahu: update `base-system` di node
+  produksi memasang item `hostDst: src/mirror/…` ke `system.db` saja (sebagai `.js`),
+  bukan menghidupkan lagi `src/mirror/` di host. `tpkg -v` menampilkannya.
 - Image produksi untuk end user: sourcemap inline esbuild menyimpan source TS lengkap
   di dalam `.js` (mis. `tpkg.js` 240 KB vs 64 KB tanpa map), jadi keduanya dibuang.
   Contoh Imut: `system.db` 4044 KB → 1048 KB. `/var/lib/tpkg/repo/**` (sumber paket

@@ -31,6 +31,9 @@ import {
  */
 const TPKG_CLIENT_VERSION = "1.1.0";
 
+/** Penanda image (ditulis `twrapper --no-mirror`), gaya /etc/os-release. */
+const RELEASE_PATH = "/etc/tsix-release";
+
 /** Bentuk satu entri backup di `/var/lib/tpkg/backup/<pkg>/<ts>/index.json`. */
 interface BackupEntry {
     path: string;
@@ -340,6 +343,12 @@ export class Main {
         if (pkgs.length > 0) await this.lib.std.print(`Installed packages: ${pkgs.join(", ")}\n`);
         const config = await this.loadConfig().catch(() => ({}));
         if (config?.defaultRepo) await this.lib.std.print(`Default repository: ${config.defaultRepo}\n`);
+        const release = this.parseRelease(await this.readMaybe(RELEASE_PATH));
+        if (release.NAME || release.VARIANT) {
+            await this.lib.std.print(
+                `Image: ${release.NAME ?? "TSIX"}${release.VERSION ? ` ${release.VERSION}` : ""} (${release.VARIANT ?? "development"})\n`,
+            );
+        }
     }
 
     private async showMetrics() {
@@ -785,12 +794,7 @@ export class Main {
                 (await (async () => {
                     const verified = await this.verifyBundle(session.publicKey, reply);
                     if (!verified) return false;
-                    // Server lama (tanpa `variant`) selalu mengirim source → compile di
-                    // sini, SETELAH verifikasi, kecuali operator memang minta --source.
-                    const files =
-                        !opts.source && reply.variant === undefined
-                            ? await this.compileLocally(verified, reply)
-                            : verified;
+                    const files = await this.preparePayload(verified, reply, opts);
                     const done = await this.installBundle(step.name, reply, files, status, opts);
                     if (done && files.some((f) => f.path.startsWith("/lib/") && f.path.endsWith(".ts"))) {
                         libChanged = true;
@@ -1072,6 +1076,94 @@ export class Main {
     }
 
     /**
+     * preparePayload(): sesuaikan bundle yang SUDAH terverifikasi dengan node ini.
+     *
+     *   1. Image produksi → `hostDst` `src/mirror/…` dilipat ke VFS saja
+     *      (`foldMirrorHostDst`); item itu lalu ikut di-compile ke `.js`.
+     *   2. Compile lokal ke `.js` bila (a) repo lama yang tidak mengenal varian
+     *      binary, atau (b) image produksi punya item hasil lipatan. Tidak dilakukan
+     *      bila operator meminta `--source`.
+     */
+    private async preparePayload(verified: TpkgBundleFile[], data: any, opts: CliOptions): Promise<TpkgBundleFile[]> {
+        let files = verified;
+        let folded = 0;
+        if (await this.isProductionImage()) {
+            ({ files, folded } = this.foldMirrorHostDst(files));
+            if (folded > 0) {
+                await this.lib.std.print(
+                    `ℹ️  Production image: ${folded} file(s) go to the system database only (no src/mirror/ on the host).\n`,
+                );
+            }
+        }
+        if (opts.source) return files;
+        if (data.variant === undefined) return this.compileLocally(files, data);
+        if (folded > 0) return this.compileLocally(files, data, "Production image");
+        return files;
+    }
+
+    /**
+     * isProductionImage(): node ini image produksi (`twrapper --no-mirror`)?
+     *
+     * VFS tidak bisa melihat apakah host punya `src/mirror/`, jadi builder menulis
+     * penanda `/etc/tsix-release` (`VARIANT=production`). Dibaca sekali per proses.
+     */
+    private productionImage: boolean | undefined;
+    private async isProductionImage(): Promise<boolean> {
+        if (this.productionImage !== undefined) return this.productionImage;
+        const release = this.parseRelease(await this.readMaybe(RELEASE_PATH));
+        this.productionImage = release.VARIANT === "production";
+        return this.productionImage;
+    }
+
+    /** parseRelease(): `KEY=VALUE` / `KEY="VALUE"` per baris (gaya /etc/os-release). */
+    private parseRelease(text: string | null): Record<string, string> {
+        const out: Record<string, string> = {};
+        for (const raw of String(text ?? "").split(/\r?\n/)) {
+            const line = raw.trim();
+            if (!line || line.startsWith("#")) continue;
+            const eq = line.indexOf("=");
+            if (eq <= 0) continue;
+            let value = line.slice(eq + 1).trim();
+            if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+                value = value.slice(1, -1).replace(/\\(["\\])/g, "$1");
+            }
+            out[line.slice(0, eq).trim()] = value;
+        }
+        return out;
+    }
+
+    /**
+     * foldMirrorHostDst(): image produksi — item dengan `hostDst` `src/mirror/<p>`
+     * dipasang ke VFS di `/<p>` SAJA, tanpa sinkron ke host.
+     *
+     * Di produksi rootfs hanya ada di BKFS. Menyalin ke `src/mirror/` di host akan
+     * memunculkan lagi direktori itu (install.ts lalu salah mengira mode
+     * development) dan tidak dibaca siapa pun. Item kernel / `src/common` /
+     * userland tetap ke host — engine host membutuhkannya.
+     *
+     * Dilakukan SETELAH verifikasi signature (yang menutupi `hostDst` asli).
+     * Item yang kini tanpa `hostDst` otomatis menjadi kandidat `.js` (compileLocally).
+     */
+    private foldMirrorHostDst(files: TpkgBundleFile[]): { files: TpkgBundleFile[]; folded: number } {
+        const prefix = "src/mirror/";
+        let folded = 0;
+        const seen = new Set<string>();
+        const out: TpkgBundleFile[] = [];
+        for (const f of files) {
+            let file = f;
+            if (f.hostDst && f.hostDst.startsWith(prefix)) {
+                file = { ...f, path: "/" + f.hostDst.slice(prefix.length) };
+                delete file.hostDst;
+                folded++;
+            }
+            if (seen.has(file.path)) continue;
+            seen.add(file.path);
+            out.push(file);
+        }
+        return { files: out, folded };
+    }
+
+    /**
      * compileLocally(): ubah bundle source dari repo LAMA (tpkgd tanpa varian
      * binary) menjadi binary di klien — aturan sama dengan server
      * (`isBinaryCandidate`: bukan /lib, bukan item host).
@@ -1081,8 +1173,13 @@ export class Main {
      * benar-benar ditulis. Skrip post-install/undo yang ikut di-compile dipanggil
      * lewat `.js`-nya. esbuild tidak tersedia → bundle dipasang sebagai source.
      */
-    private async compileLocally(files: TpkgBundleFile[], data: any): Promise<TpkgBundleFile[]> {
-        if (!files.some((f) => isBinaryCandidate({ dst: f.path, hostDst: f.hostDst }))) {
+    private async compileLocally(
+        files: TpkgBundleFile[],
+        data: any,
+        reason: string = "The repository sent TypeScript sources (older tpkgd)",
+    ): Promise<TpkgBundleFile[]> {
+        const candidates = files.filter((f) => isBinaryCandidate({ dst: f.path, hostDst: f.hostDst })).length;
+        if (candidates === 0) {
             data.variant = "binary";
             return files;
         }
@@ -1094,14 +1191,12 @@ export class Main {
             esbuild = null;
         }
         if (!esbuild) {
-            await this.lib.std.print(
-                "⚠️  The repository sent TypeScript sources (older tpkgd) and esbuild is not available here — installing sources.\n",
-            );
+            await this.lib.std.print(`⚠️  ${reason}, but esbuild is not available here — installing sources.\n`);
             return files;
         }
 
         await this.lib.std.print(
-            "ℹ️  The repository sent TypeScript sources (older tpkgd) — compiling to .js locally (use --source to keep them).\n",
+            `ℹ️  ${reason} — compiling ${candidates} file(s) to .js locally (use --source to keep sources).\n`,
         );
         const compiled = new Map<string, string>();
         const out: TpkgBundleFile[] = files.map((f) => {
