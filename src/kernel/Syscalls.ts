@@ -1060,11 +1060,15 @@ export class SyscallDispatcher {
 
                 // Prioritize .js over .ts for performance
                 if (!node) {
-                    const extensions = [".js", ".ts"];
-                    for (const ext of extensions) {
-                        if (absoluteExecPath.endsWith(ext)) continue;
-
-                        const altPath = absoluteExecPath + ext;
+                    // Image/paket "binary" (produksi) hanya berisi `.js`: path `.ts`
+                    // yang diminta (mis. `/sbin/transpile.ts` dari manifest lama)
+                    // dilayani oleh sidecar `.js`-nya.
+                    const candidates = absoluteExecPath.endsWith(".ts")
+                        ? [absoluteExecPath.slice(0, -3) + ".js"]
+                        : [".js", ".ts"]
+                              .filter((ext) => !absoluteExecPath.endsWith(ext))
+                              .map((ext) => absoluteExecPath + ext);
+                    for (const altPath of candidates) {
                         const { vfs: altVfs, relativePath: altRelativePath } = this.mountManager.resolve(altPath);
                         const altNode = await altVfs.stat(altRelativePath);
                         if (altNode) {

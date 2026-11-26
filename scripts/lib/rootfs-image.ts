@@ -69,8 +69,35 @@ const CRITICAL_ETC: Array<{
     { name: "shadow", mode: 0o640 },
 ];
 
+export interface ImageOptions {
+    /**
+     * Image PRODUKSI ("binary"): program disimpan sebagai `.js` SAJA, tanpa
+     * sourcemap dan tanpa `.ts`-nya. Sourcemap inline esbuild menyimpan source TS
+     * lengkap (base64) — `tpkg.js` 240 KB vs 64 KB tanpa map — jadi tanpa ini
+     * membuang `.ts` hampir tidak menghemat apa pun.
+     *
+     * Pengecualian (tetap `.ts`, lihat `keepsSource`): `/lib/**` — kernel
+     * meng-compile `/lib/*.ts` ke cache saat boot (`@tsix/X` → `/lib/X.ts`) — dan
+     * `/var/lib/tpkg/repo/**` (sumber paket yang dilayani tpkgd node ini).
+     */
+    binaryOnly?: boolean;
+}
+
+/** Lokasi yang WAJIB tetap berisi `.ts` walau image produksi. */
+const KEEP_SOURCE_PREFIXES = ["/lib/", "/var/lib/tpkg/repo/"];
+
+export function keepsSource(vfsPath: string): boolean {
+    return KEEP_SOURCE_PREFIXES.some((prefix) => vfsPath.startsWith(prefix));
+}
+
 /** Sync rekursif direktori host → VFS (transpile TS → JS + mode executable). */
-export function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string, label: string = "INSTALL"): void {
+export function syncDir(
+    bkfs: BKFS,
+    hostDir: string,
+    vfsDir: string,
+    label: string = "INSTALL",
+    options: ImageOptions = {},
+): void {
     if (!bkfs.exists(vfsDir)) {
         // Sync generik: semua direktori 0o755. Setup permission khusus aplikasi
         // (mis. /etc/air-type → 0o777) dilakukan oleh configure.ts aplikasi tsb.
@@ -78,13 +105,14 @@ export function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string, label: stri
         console.log(`[${label}] mkdir ${vfsDir}`);
     }
 
-    for (const item of fs.readdirSync(hostDir)) {
+    const entries = fs.readdirSync(hostDir);
+    for (const item of entries) {
         const fullHostPath = path.join(hostDir, item);
         const fullVfsPath = path.join(vfsDir, item).replace(/\\/g, "/");
         const stats = fs.statSync(fullHostPath);
 
         if (stats.isDirectory()) {
-            syncDir(bkfs, fullHostPath, fullVfsPath, label);
+            syncDir(bkfs, fullHostPath, fullVfsPath, label, options);
             continue;
         }
 
@@ -92,6 +120,21 @@ export function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string, label: stri
         // runtime, tapi kalau ikut disalin dia masuk ke cache pre-compile `/lib`
         // yang dikirim ke SETIAP worker. Jadi lebih baik dilewati di sini.
         if (item.endsWith(".test.ts") || item.endsWith(".spec.ts")) continue;
+
+        // Image binary: `.js` dibangun dari `.ts` di bawah — sidecar `.js` lama
+        // yang kebetulan ada di mirror (bisa basi) jangan ikut menimpa.
+        const keepSource = keepsSource(fullVfsPath);
+        const binary = !!options.binaryOnly && !keepSource;
+        if (binary && item.endsWith(".js") && entries.includes(item.slice(0, -3) + ".ts")) continue;
+        if (binary && item.endsWith(".ts")) {
+            compileBinary(bkfs, fullHostPath, fullVfsPath, label);
+            continue;
+        }
+        // Image binary, lokasi yang tetap source (/lib, repo tpkgd): `.ts` saja.
+        // Sidecar `.js` di sini tidak pernah dimuat — kernel & resolver memakai
+        // `/lib/*.ts` — jadi hanya beban (plus sourcemap berisi source lengkap).
+        const sourceOnly = !!options.binaryOnly && keepSource;
+        if (sourceOnly && item.endsWith(".js") && entries.includes(item.slice(0, -3) + ".ts")) continue;
 
         const isBinary = BINARY_EXT.some((ext) => item.endsWith(ext));
         // `.conf` penting: tanpa itu `/etc/fstab.conf`, `/etc/dome/dome.conf`
@@ -112,7 +155,7 @@ export function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string, label: stri
         bkfs.touch(fullVfsPath, content);
 
         // Transpile TS -> JS sidecar (yang dieksekusi runtime)
-        if (fullVfsPath.endsWith(".ts")) {
+        if (fullVfsPath.endsWith(".ts") && !sourceOnly) {
             try {
                 // `content` = BYTE berkas; esbuild butuh TEKS (lihat `VfsText.ts`).
                 const result = esbuild.transformSync(vfsBytesToUtf8(content), {
@@ -135,6 +178,30 @@ export function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string, label: stri
         if (needsBinaryMode(fullVfsPath) && (fullVfsPath.endsWith(".ts") || fullVfsPath.endsWith(".js"))) {
             applyBinaryMode(bkfs, fullVfsPath, label);
         }
+    }
+}
+
+/**
+ * compileBinary(): `.ts` → `.js` saja (tanpa sourcemap, tanpa menyimpan `.ts`).
+ * Kalau compile gagal, `.ts` disimpan apa adanya supaya program tidak hilang
+ * dari image (dan kegagalannya terlihat di log build).
+ */
+function compileBinary(bkfs: BKFS, hostPath: string, vfsPath: string, label: string): void {
+    const content = readTextFile(hostPath);
+    try {
+        const result = esbuild.transformSync(vfsBytesToUtf8(content), {
+            loader: "ts",
+            format: "cjs",
+            target: "node18",
+            sourcefile: path.basename(vfsPath),
+        });
+        const jsPath = vfsPath.slice(0, -3) + ".js";
+        bkfs.touch(jsPath, utf8ToVfsBytes(result.code));
+        if (needsBinaryMode(jsPath)) applyBinaryMode(bkfs, jsPath, label);
+    } catch (e: any) {
+        console.error(`[${label}] Warning: failed to compile ${vfsPath} — keeping the .ts source: ${e.message}`);
+        bkfs.touch(vfsPath, content);
+        if (needsBinaryMode(vfsPath)) applyBinaryMode(bkfs, vfsPath, label);
     }
 }
 
@@ -166,15 +233,18 @@ export function populateRootfs(
     mirrorRoot: string,
     commonRoot: string,
     label: string = "INSTALL",
+    options: ImageOptions = {},
 ): PopulateResult {
-    console.log(`[${label}] Copying rootfs from ${mirrorRoot} ...`);
+    console.log(
+        `[${label}] Copying rootfs from ${mirrorRoot}${options.binaryOnly ? " (binary: .js only, no sourcemaps)" : ""} ...`,
+    );
     bkfs.batch(() => {
-        syncDir(bkfs, mirrorRoot, "/", label);
+        syncDir(bkfs, mirrorRoot, "/", label, options);
         // Framework @common/* (SyscallCode, IPCTypes, ExecMode, dll) dipakai
         // WorkerEntry via /lib/common.
         if (fs.existsSync(commonRoot)) {
             console.log(`[${label}] Copying common framework from ${commonRoot} ...`);
-            syncDir(bkfs, commonRoot, "/lib/common", label);
+            syncDir(bkfs, commonRoot, "/lib/common", label, options);
         }
     });
     console.log(`[${label}] Rootfs synchronized.`);

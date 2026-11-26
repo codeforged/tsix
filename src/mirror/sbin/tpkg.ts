@@ -1,12 +1,15 @@
 import { UserLib } from "../lib/UserLib";
 import { SecurityAgent } from "@common/SecurityAgent";
 import { SMQTNL_IOCTL } from "../lib/NetworkLib";
+import { utf8ToVfsBytes, vfsBytesToUtf8 } from "@common/VfsText";
 import {
     TPKG_DEFAULT_PORT,
     TPKG_PROTOCOL_VERSION,
+    binaryPath,
     bundleDigest,
     compareVersions,
     formatBytes,
+    isBinaryCandidate,
     isSafeHostDst,
     parseDependency,
     parseHostPort,
@@ -93,6 +96,8 @@ interface CliOptions {
     noScripts: boolean;
     /** `--no-deps`: abaikan `depends`. */
     noDeps: boolean;
+    /** `--source`: minta varian source (`.ts`) alih-alih binary (`.js`). */
+    source: boolean;
     /** `--installed` (untuk `list`). */
     installed: boolean;
 }
@@ -278,6 +283,7 @@ export class Main {
             yes: false,
             noScripts: false,
             noDeps: false,
+            source: false,
             installed: false,
         };
         for (let i = 0; i < rest.length; i++) {
@@ -287,6 +293,7 @@ export class Main {
             else if (a === "-y" || a === "--yes") opts.yes = true;
             else if (a === "--no-scripts") opts.noScripts = true;
             else if (a === "--no-deps") opts.noDeps = true;
+            else if (a === "--source") opts.source = true;
             else if (a === "--installed") opts.installed = true;
             else if (!a.startsWith("-")) opts.names.push(a);
         }
@@ -312,6 +319,7 @@ export class Main {
         await p("  -y, --yes        Answer yes to confirmations (not to repo fingerprint / host FS writes)\n");
         await p("  --no-scripts     Do not run post-install / undo scripts\n");
         await p("  --no-deps        Ignore package dependencies\n");
+        await p("  --source         Get TypeScript sources (default: prebuilt .js for end users)\n");
         await p("  --force          Reinstall even if the same or a newer version is installed\n");
         await p(
             "\n⚠️  update/install/upgrade/remove/download require root (sudo): they modify the system,\n" +
@@ -739,7 +747,10 @@ export class Main {
                 .filter((i: any) => !i.hostDst && typeof i.dst === "string" && !i.dst.startsWith("/tmp/"))
                 .map((i: any) => i.dst as string);
             if (paths.length === 0) return false;
-            for (const p of paths) if (!(await this.exists(p))) return false;
+            // Paket bisa terpasang sebagai binary: `x.ts` di manifest = `x.js` di disk.
+            for (const p of paths) {
+                if (!(await this.exists(p)) && !(await this.exists(binaryPath(p)))) return false;
+            }
             return true;
         } catch (e) {
             return false;
@@ -767,13 +778,19 @@ export class Main {
                 );
             }
 
-            const reply = await this.fetchBundleWithRetry(session, step.name);
+            const reply = await this.fetchBundleWithRetry(session, step.name, opts.source);
             const ok =
                 !!reply &&
                 reply.type !== "ERROR" &&
                 (await (async () => {
-                    const files = await this.verifyBundle(session.publicKey, reply);
-                    if (!files) return false;
+                    const verified = await this.verifyBundle(session.publicKey, reply);
+                    if (!verified) return false;
+                    // Server lama (tanpa `variant`) selalu mengirim source → compile di
+                    // sini, SETELAH verifikasi, kecuali operator memang minta --source.
+                    const files =
+                        !opts.source && reply.variant === undefined
+                            ? await this.compileLocally(verified, reply)
+                            : verified;
                     const done = await this.installBundle(step.name, reply, files, status, opts);
                     if (done && files.some((f) => f.path.startsWith("/lib/") && f.path.endsWith(".ts"))) {
                         libChanged = true;
@@ -826,7 +843,7 @@ export class Main {
         if (!session) return;
 
         try {
-            const reply = await this.fetchBundleWithRetry(session, pkgName);
+            const reply = await this.fetchBundleWithRetry(session, pkgName, opts.source);
             if (!reply) return;
             if (reply.type === "ERROR") {
                 await this.printServerError(reply);
@@ -874,7 +891,7 @@ export class Main {
         if (!session) return;
 
         try {
-            const reply = await this.fetchBundleWithRetry(session, pkgName);
+            const reply = await this.fetchBundleWithRetry(session, pkgName, opts.source);
             if (!reply) return;
             if (reply.type === "ERROR") {
                 await this.printServerError(reply);
@@ -900,12 +917,12 @@ export class Main {
     }
 
     /** fetchBundle(): GET_BUNDLE sekali jalan (tanpa retry). */
-    private async fetchBundle(session: any, pkgName: string): Promise<any | null> {
+    private async fetchBundle(session: any, pkgName: string, source: boolean = false): Promise<any | null> {
         await this.lib.net.sendto(
             session.fd,
             session.address,
             session.port,
-            session.agent.securePacketOut(JSON.stringify({ type: "GET_BUNDLE", name: pkgName })),
+            session.agent.securePacketOut(JSON.stringify({ type: "GET_BUNDLE", name: pkgName, ...(source ? { source: true } : {}) })),
         );
         // Timeout longgar: bundle besar butuh waktu kirim (banyak fragmen MQTNL).
         return await this.recvExpect(session.fd, ["BUNDLE_REPLY", "ERROR"], 20000, {
@@ -915,11 +932,11 @@ export class Main {
     }
 
     /** fetchBundleWithRetry(): ulangi pengambilan bundle dengan backoff. */
-    private async fetchBundleWithRetry(session: any, pkgName: string): Promise<any | null> {
+    private async fetchBundleWithRetry(session: any, pkgName: string, source: boolean = false): Promise<any | null> {
         try {
             return await this.withRetry(
                 async () => {
-                    const reply = await this.fetchBundle(session, pkgName);
+                    const reply = await this.fetchBundle(session, pkgName, source);
                     if (!reply) throw new Error("timeout waiting for bundle");
                     return reply;
                 },
@@ -966,7 +983,7 @@ export class Main {
         this.metrics.verified++;
         const total = files.reduce((sum, f) => sum + f.size, 0);
         await this.lib.std.print(
-            `Received bundle: ${data.name} v${data.version} — ${files.length} file(s), ${formatBytes(total)} (Verified)\n`,
+            `Received bundle: ${data.name} v${data.version} — ${files.length} file(s), ${formatBytes(total)} (Verified${data.variant ? `, ${data.variant}` : ""})\n`,
         );
         return files;
     }
@@ -1036,6 +1053,10 @@ export class Main {
             return false;
         }
 
+        // Source → binary: `.ts` lama (dari instalasi --source sebelumnya) harus
+        // pergi SEBELUM manifest lama tertimpa — lihat `retireStaleSources`.
+        await this.retireStaleSources(pkgName, files, await this.loadInstalledManifest(pkgName));
+
         // Catat manifest file terpasang + hash isi yang kita tulis. Inilah dasar
         // `tpkg remove` untuk mendeteksi berkas konfigurasi yang sudah diubah.
         // File `.tpkg-new` ikut dicatat supaya `tpkg remove` membersihkannya.
@@ -1048,6 +1069,107 @@ export class Main {
         await this.runPostInstall(pkgName, data, files, opts);
         await this.pruneBackups(pkgName);
         return true;
+    }
+
+    /**
+     * compileLocally(): ubah bundle source dari repo LAMA (tpkgd tanpa varian
+     * binary) menjadi binary di klien — aturan sama dengan server
+     * (`isBinaryCandidate`: bukan /lib, bukan item host).
+     *
+     * Dipanggil SETELAH signature + SHA-256 diverifikasi atas isi asli, jadi
+     * keaslian paket tetap terjamin; manifest terpasang mencatat hash `.js` yang
+     * benar-benar ditulis. Skrip post-install/undo yang ikut di-compile dipanggil
+     * lewat `.js`-nya. esbuild tidak tersedia → bundle dipasang sebagai source.
+     */
+    private async compileLocally(files: TpkgBundleFile[], data: any): Promise<TpkgBundleFile[]> {
+        if (!files.some((f) => isBinaryCandidate({ dst: f.path, hostDst: f.hostDst }))) {
+            data.variant = "binary";
+            return files;
+        }
+        let esbuild: any;
+        try {
+            const req = (globalThis as any).require ?? (typeof require === "function" ? require : undefined);
+            esbuild = req?.("esbuild");
+        } catch (e) {
+            esbuild = null;
+        }
+        if (!esbuild) {
+            await this.lib.std.print(
+                "⚠️  The repository sent TypeScript sources (older tpkgd) and esbuild is not available here — installing sources.\n",
+            );
+            return files;
+        }
+
+        await this.lib.std.print(
+            "ℹ️  The repository sent TypeScript sources (older tpkgd) — compiling to .js locally (use --source to keep them).\n",
+        );
+        const compiled = new Map<string, string>();
+        const out: TpkgBundleFile[] = files.map((f) => {
+            if (!isBinaryCandidate({ dst: f.path, hostDst: f.hostDst })) return f;
+            try {
+                const result = esbuild.transformSync(vfsBytesToUtf8(f.content), {
+                    loader: "ts",
+                    format: "cjs",
+                    target: "node18",
+                    sourcefile: f.path.split("/").pop(),
+                });
+                const content = utf8ToVfsBytes(result.code);
+                const jsPath = binaryPath(f.path);
+                compiled.set(f.path, jsPath);
+                return { ...f, path: jsPath, content, size: content.length, sha256: sha256Hex(content) };
+            } catch (e) {
+                return f; // dibangun `transpile` seperti paket source
+            }
+        });
+        // Sidecar `.js` yang juga dikirim server untuk `.ts` yang sama: hasil compile menang.
+        const targets = new Set(compiled.values());
+        const unique = out.filter((f, i) => !(targets.has(f.path) && !compiled.has(files[i].path)));
+
+        if (data.onAfter && compiled.has(data.onAfter)) data.onAfter = compiled.get(data.onAfter);
+        if (data.undoScript && compiled.has(data.undoScript)) data.undoScript = compiled.get(data.undoScript);
+        data.variant = "binary";
+        return unique;
+    }
+
+    /**
+     * retireStaleSources(): hapus `.ts` lama milik paket ini yang kini dikirim
+     * sebagai `.js` (bundle binary).
+     *
+     * KENAPA WAJIB: resolver import relatif mendahulukan `.ts` di atas `.js`
+     * (`VfsModuleResolver`), jadi `.ts` versi lama yang tertinggal akan MENANG
+     * atas `.js` baru — kode lama yang jalan, diam-diam.
+     *
+     * Hanya `.ts` yang tercatat di manifest instalasi SEBELUMNYA (milik paket ini,
+     * bukan paket lain). Yang sudah diubah operator tidak dibuang: dipindah ke
+     * `<file>.ts.tpkg-old`.
+     */
+    private async retireStaleSources(
+        pkgName: string,
+        files: TpkgBundleFile[],
+        previous: InstalledManifest | null,
+    ): Promise<void> {
+        const owned = new Map((previous?.files ?? []).map((f) => [f.path, f.sha256]));
+        if (owned.size === 0) return;
+        const written = new Set(files.map((f) => f.path));
+        const others = await this.filesOwnedByOthers(pkgName);
+
+        for (const file of files) {
+            if (!file.path.endsWith(".js")) continue;
+            const ts = file.path.slice(0, -3) + ".ts";
+            if (written.has(ts) || !owned.has(ts) || others.has(ts)) continue;
+            const current = await this.readMaybe(ts);
+            if (current === null) continue;
+            try {
+                if (sha256Hex(current) !== owned.get(ts)) {
+                    await this.lib.fs.writeFile(`${ts}.tpkg-old`, current);
+                    await this.lib.std.print(`  ~ ${ts} was modified locally — moved to ${ts}.tpkg-old\n`);
+                }
+                await this.lib.fs.unlink(ts);
+                await this.lib.std.print(`  - ${ts} (old source, now prebuilt ${file.path})\n`);
+            } catch (e: any) {
+                await this.lib.std.print(`⚠️  Could not remove old source ${ts}: ${e.message}\n`);
+            }
+        }
     }
 
     /**
@@ -1149,7 +1271,18 @@ export class Main {
         // hanya sidecar paket ini yang dibangun (bukan seluruh /bin,/sbin). Hook
         // lain (apply-update, app) tetap dipanggil tanpa argumen.
         const isTranspile = String(data.onAfter).includes("transpile");
-        const hookArgs = isTranspile ? files.filter((f) => f.path.endsWith(".ts")).map((f) => f.path) : [];
+        let hookArgs = isTranspile ? files.filter((f) => f.path.endsWith(".ts")).map((f) => f.path) : [];
+
+        // Bundle BINARY: program sudah `.js` hasil compile server. `.ts` yang tersisa
+        // di /lib dibaca kernel langsung (cache boot), jadi tidak perlu sidecar.
+        // Yang masih perlu di-build hanya `.ts` yang gagal di-compile server.
+        if (isTranspile && data.variant === "binary") {
+            hookArgs = hookArgs.filter((p) => !p.startsWith("/lib/"));
+            if (hookArgs.length === 0) {
+                await this.lib.std.print("✅ Installation successful (prebuilt .js — no build step needed).\n");
+                return;
+            }
+        }
         const cmdLine = [data.onAfter, ...hookArgs].join(" ");
 
         await this.lib.std.print(`\n✅ Package installed. Post-install script: \x1b[1;36m${data.onAfter}\x1b[0m\n`);

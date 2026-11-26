@@ -409,7 +409,10 @@ function readme(recipe: Recipe, noMirror: boolean = false): Buffer {
     const productionNote =
         `> **Production image.** The root filesystem is prebuilt in \`${DB_FILE}\` (BKFS); ` +
         "there is no `src/mirror/`. `npm run tsix:install` detects this and only configures " +
-        "the node (hostname, users, root password) — it does not ask for a database file.";
+        "the node (hostname, users, root password) — it does not ask for a database file. " +
+        "Programs are shipped as compiled `.js` only (no TypeScript sources, no sourcemaps), " +
+        "except the framework libraries in `/lib`; install a package with `tpkg install <pkg> --source` " +
+        "to get its sources.";
     const text = [
         `# ${recipe.distro.name}`,
         "",
@@ -609,11 +612,14 @@ function buildRootfsDatabase(outputDirectory: string, mirrorFiles: Array<[string
         removeDatabaseFiles(temporary);
         const bkfs = new BKFS(temporary);
         try {
+            // Image produksi = untuk end user: program `.js` saja tanpa sourcemap
+            // (kecuali /lib & /var/lib/tpkg/repo — lihat rootfs-image `keepsSource`).
             const { rootPasswordSeeded } = populateRootfs(
                 bkfs,
                 stage,
                 path.join(outputDirectory, "src", "common"),
                 "TWRAPPER",
+                { binaryOnly: true },
             );
             if (!rootPasswordSeeded) {
                 throw new Error("Production image must not ship /etc/shadow; root has to stay locked until install.");

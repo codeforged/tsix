@@ -198,11 +198,17 @@ VFS. `--no-mirror` membangun image seperti itu:
 | | Development (default) | Produksi (`--no-mirror`) |
 | --- | --- | --- |
 | Rootfs | File di `src/mirror/**` | Sudah di dalam `system.db` |
+| Program (`/bin`, `/sbin`, `/opt`, …) | `.ts` + sidecar `.js` (sourcemap inline) | **`.js` saja**, tanpa sourcemap |
+| Framework `/lib/**` | `.ts` + sidecar `.js` | **`.ts` saja** (kernel meng-compile `/lib/*.ts` ke cache saat boot) |
 | `src/sysconfig.conf` | apa adanya | dipaksa `database = system.db`, `rootType = bkfs` |
 | `npm run tsix:install` | membuat DB baru dari `src/mirror` (tanya nama file DB) | **tidak** tanya nama DB, tidak sync ulang — hanya hostname, user, broker, password root |
 | Akun root | terkunci sampai install | terkunci sampai install |
 
 - `install.ts` mendeteksi mode **otomatis**: tidak ada `src/mirror/` = produksi.
+- Image produksi untuk end user: sourcemap inline esbuild menyimpan source TS lengkap
+  di dalam `.js` (mis. `tpkg.js` 240 KB vs 64 KB tanpa map), jadi keduanya dibuang.
+  Contoh Imut: `system.db` 4044 KB → 1048 KB. `/var/lib/tpkg/repo/**` (sumber paket
+  yang dilayani `tpkgd` node itu) tetap `.ts`. Butuh source? `tpkg install <pkg> --source`.
 - Isi `system.db` dibuat oleh `scripts/lib/rootfs-image.ts` — implementasi yang
   **sama** dengan install mode development (sidecar `.js`, mode/SetUID, `/etc`
   penting, fstab & crontab bersih), jadi kedua mode menghasilkan image identik.

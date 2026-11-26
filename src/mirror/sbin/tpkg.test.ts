@@ -1,4 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { createRequire } from "module";
+
+// Di VFS, program memuat esbuild host lewat `global.require` (disediakan
+// WorkerEntry). tpkgd memakainya untuk meng-compile bundle binary.
+(globalThis as any).require ??= createRequire(import.meta.url);
 import { Main as TpkgClient } from "./tpkg";
 import { Main as TpkgDaemon } from "./tpkgd";
 import { execModeForPath, parseDependency, planInstall, type TpkgPackage } from "@tsix/TpkgProtocol";
@@ -387,7 +392,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         const fs = world.fs(world.clientNode);
         const text = out(world);
 
-        expect(text).toContain("(Verified)");
+        expect(text).toContain("(Verified");
         // Ada post-install → pesan suksesnya lewat jalur post-install.
         expect(text).toContain("Package installed");
         expect(text).toContain("Post-install finished");
@@ -914,7 +919,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["install", "appx", "--from", "server"]);
 
         const fs = world.fs(world.clientNode);
-        expect(fs.files.has("/opt/appx/appx.ts")).toBe(true);
+        expect(fs.files.has("/opt/appx/appx.js")).toBe(true);
         expect(fs.files.has("/lib/libx.ts")).toBe(false);
         expect(out(world)).toMatch(/Ignoring dependencies/);
     });
@@ -1025,6 +1030,155 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         expect(text).toMatch(/Default repository: wintsix/);
     });
 
+    // ========================================================================
+    // VARIAN BUNDLE: binary (default, .js) vs source (--source, .ts)
+    // ========================================================================
+
+    function setupAppRepo(version = "1.0.0", code = "export const greet = (n: string): string => `hi ${n}`;") {
+        setupRepo(
+            world,
+            [
+                mkPkg("app", version, ["/opt/app/app.ts", "/opt/app/setup.ts", "/lib/applib.ts"], {
+                    onAfterDownload: "/sbin/transpile.ts",
+                }),
+            ],
+            {
+                "/opt/app/app.ts": code,
+                "/opt/app/setup.ts": "export const setup = (): number => 1;",
+                "/lib/applib.ts": "export const lib = (): number => 2;",
+            },
+        );
+    }
+
+    it("P2.38 default = binary: .js tanpa sourcemap, tanpa .ts; /lib tetap .ts; tanpa transpile", async () => {
+        setupAppRepo();
+        await boot();
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["install", "app", "--from", "server"]);
+
+        const fs = world.fs(world.clientNode);
+        const text = out(world);
+        expect(text).toMatch(/\(Verified, binary\)/);
+        expect(fs.files.has("/opt/app/app.ts")).toBe(false);
+        expect(fs.files.get("/opt/app/app.js")).toMatch(/greet/);
+        expect(fs.files.get("/opt/app/app.js")).not.toMatch(/sourceMappingURL/);
+        expect(fs.files.get("/opt/app/app.js")).not.toMatch(/: string/); // tipe TS sudah dibuang
+        expect(fs.modes.get("/opt/app/app.js")).toBe(0o755);
+        // Kernel membaca /lib/*.ts langsung → tetap source.
+        expect(fs.files.has("/lib/applib.ts")).toBe(true);
+        // Tidak ada yang perlu di-build → transpile tidak ditanyakan / dijalankan.
+        expect(text).toMatch(/prebuilt \.js — no build step needed/);
+        expect(text).not.toMatch(/Run post-install script/);
+        expect(world.execs).toHaveLength(0);
+        // Manifest mencatat .js → tpkg remove membersihkan yang benar.
+        const manifest = JSON.parse(fs.files.get("/var/lib/tpkg/installed/app.json")!);
+        expect(manifest.files.map((f: any) => f.path)).toContain("/opt/app/app.js");
+    });
+
+    it("P2.39 --source: .ts apa adanya + transpile dengan daftar berkasnya", async () => {
+        setupAppRepo();
+        await boot();
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, [
+            "install",
+            "app",
+            "--source",
+            "--from",
+            "server",
+        ]);
+
+        const fs = world.fs(world.clientNode);
+        expect(out(world)).toMatch(/\(Verified, source\)/);
+        expect(fs.files.get("/opt/app/app.ts")).toMatch(/: string/);
+        expect(fs.files.has("/opt/app/app.js")).toBe(false);
+        expect(world.execs.map((e) => e.cmd)).toEqual(["/sbin/transpile.ts"]);
+        expect(out(world)).toMatch(/args: \/opt\/app\/app\.ts \/opt\/app\/setup\.ts \/lib\/applib\.ts/);
+    });
+
+    it("P2.40 source → binary: .ts lama dibuang (resolver mendahulukan .ts), yang diubah → .tpkg-old", async () => {
+        setupAppRepo();
+        await boot();
+        const lib = world.makeLib(world.clientNode) as any;
+        const fs = world.fs(world.clientNode);
+        await new TpkgClient().execute(lib, ["install", "app", "--source", "--from", "server"]);
+        fs.files.set("/opt/app/setup.ts", "export const setup = (): number => 42; // lokal");
+
+        world.prints.length = 0;
+        await new TpkgClient().execute(lib, ["install", "app", "--force", "--from", "server"]);
+
+        expect(fs.files.has("/opt/app/app.ts")).toBe(false);
+        expect(fs.files.has("/opt/app/app.js")).toBe(true);
+        expect(fs.files.has("/opt/app/setup.ts")).toBe(false);
+        expect(fs.files.get("/opt/app/setup.ts.tpkg-old")).toMatch(/42/);
+        expect(fs.files.has("/lib/applib.ts")).toBe(true); // /lib tetap
+        expect(out(world)).toMatch(/\/opt\/app\/setup\.ts was modified locally/);
+    });
+
+    it("P2.41 skrip post-install yang di-compile dipanggil lewat .js-nya", async () => {
+        setupRepo(
+            world,
+            [mkPkg("cfgapp", "1.0.0", ["/opt/cfgapp/configure.ts"], { onAfterDownload: "/opt/cfgapp/configure.ts" })],
+            { "/opt/cfgapp/configure.ts": "export const main = (): number => 0;" },
+        );
+        await boot();
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, [
+            "install",
+            "cfgapp",
+            "--from",
+            "server",
+        ]);
+
+        expect(world.execs.map((e) => e.cmd)).toEqual(["/opt/cfgapp/configure.js"]);
+        expect(out(world)).toMatch(/shipped by the package itself/);
+    });
+
+    it("P2.42 dependensi yang terpasang sebagai binary (.js di disk) dianggap ada", async () => {
+        setupRepo(
+            world,
+            [
+                mkPkg("tool", "1.0.0", ["/opt/tool/tool.ts"]),
+                mkPkg("user", "1.0.0", ["/opt/user/user.ts"], { depends: ["tool"] }),
+            ],
+            { "/opt/tool/tool.ts": "export const t = 1;", "/opt/user/user.ts": "export const u = 1;" },
+        );
+        // tool dari image produksi: hanya .js, tidak tercatat di status.json.
+        world.fs(world.clientNode).files.set("/opt/tool/tool.js", "exports.t = 1;");
+        await boot();
+
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["install", "user", "--from", "server"]);
+        expect(out(world)).not.toMatch(/Additional packages required/);
+    });
+
+    it("P2.43 repo LAMA (bundle source tanpa `variant`) → klien compile sendiri ke .js", async () => {
+        const client = new TpkgClient() as any;
+        client.lib = world.makeLib(world.clientNode);
+        const file = (p: string, content: string, extra: any = {}) => ({
+            path: p,
+            content,
+            size: content.length,
+            sha256: "",
+            ...extra,
+        });
+        const data: any = { name: "nettools", version: "1.0.0", onAfter: "/usr/bin/setup.ts" };
+        const result = await client.compileLocally(
+            [
+                file("/usr/bin/ifconfig.ts", "export const up = (i: string): string => i;"),
+                file("/usr/bin/setup.ts", "export const s = 1;"),
+                file("/lib/netlib.ts", "export const n = 1;"),
+                file("/tmp/tpkg-stage/kernel/K.ts", "export const k = 1;", { hostDst: "src/kernel/K.ts" }),
+            ],
+            data,
+        );
+
+        const paths = result.map((f: any) => f.path);
+        expect(paths).toEqual(["/usr/bin/ifconfig.js", "/usr/bin/setup.js", "/lib/netlib.ts", "/tmp/tpkg-stage/kernel/K.ts"]);
+        const ifconfig = result[0];
+        expect(ifconfig.content).not.toMatch(/: string/);
+        expect(ifconfig.size).toBe(ifconfig.content.length);
+        expect(ifconfig.sha256).toMatch(/^[0-9a-f]{64}$/);
+        expect(data.variant).toBe("binary");
+        expect(data.onAfter).toBe("/usr/bin/setup.js");
+        expect(out(world)).toMatch(/older tpkgd\) — compiling to \.js locally/);
+    });
+
     it("P2.29 --no-deps melewati resolusi dependensi", async () => {
         setupDepsRepo();
         await boot();
@@ -1061,7 +1215,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
     // ========================================================================
 
     it("P2.31 list --installed menandai versi baru, upgrade memasangnya", async () => {
-        setupRepo(world, [mkPkg("solo", "1.0.0", ["/opt/solo/solo.ts"])], { "/opt/solo/solo.ts": "// v1" });
+        setupRepo(world, [mkPkg("solo", "1.0.0", ["/opt/solo/solo.ts"])], { "/opt/solo/solo.ts": "export const v = 1;" });
         await boot();
         const lib = world.makeLib(world.clientNode) as any;
         const fs = world.fs(world.clientNode);
@@ -1069,7 +1223,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         await new TpkgClient().execute(lib, ["--set-repo", "server"]);
 
         // Rilis baru di repo + katalog klien sudah di-update.
-        setupRepo(world, [mkPkg("solo", "1.1.0", ["/opt/solo/solo.ts"])], { "/opt/solo/solo.ts": "// v1.1" });
+        setupRepo(world, [mkPkg("solo", "1.1.0", ["/opt/solo/solo.ts"])], { "/opt/solo/solo.ts": "export const v = 11;" });
 
         world.prints.length = 0;
         await new TpkgClient().execute(lib, ["list", "--installed"]);
@@ -1079,7 +1233,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         world.prints.length = 0;
         await new TpkgClient().execute(lib, ["upgrade"]);
         expect(out(world)).toMatch(/1\.0\.0 → .*1\.1\.0/);
-        expect(fs.files.get("/opt/solo/solo.ts")).toBe("// v1.1");
+        expect(fs.files.get("/opt/solo/solo.js")).toMatch(/v = 11/);
         expect(JSON.parse(fs.files.get("/var/lib/tpkg/status.json")!)).toEqual({ solo: "1.1.0" });
 
         world.prints.length = 0;

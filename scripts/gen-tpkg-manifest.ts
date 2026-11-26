@@ -195,7 +195,7 @@ function reconcilePackages(manifest: any): void {
     // `transpile` hanya membangun sidecar `.js` untuk file paket ini.
     const tpkgPkg = manifest.packages.find((pkg: any) => pkg.name === "tpkg");
     if (tpkgPkg) {
-        tpkgPkg.onAfterDownload = "/sbin/transpile.ts";
+        tpkgPkg.onAfterDownload = "/sbin/transpile.js";
         // TpkgProtocol + ExecMode ikut: tpkg/transpile baru memakai fungsi baru di
         // keduanya, jadi klien dengan base-system lama tidak boleh tertinggal.
         for (const sharedPath of TPKG_SHARED_PATHS) {

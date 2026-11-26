@@ -5,15 +5,19 @@ import {
     TPKG_DEFAULT_MAX_BUNDLE,
     TPKG_DEFAULT_PORT,
     TPKG_PROTOCOL_VERSION,
+    binaryPath,
     bundleDigest,
     formatBytes,
+    isBinaryCandidate,
     isSafeHostDst,
     parseDependency,
     sha256Hex,
     type TpkgBundleFile,
+    type TpkgBundleVariant,
     type TpkgManifest,
     type TpkgPackage,
 } from "@tsix/TpkgProtocol";
+import { utf8ToVfsBytes, vfsBytesToUtf8 } from "@common/VfsText";
 
 /**
  * TPKGD — TSIX Package Repository Daemon
@@ -376,24 +380,34 @@ export class Main {
                 return;
             }
 
-            let files: TpkgBundleFile[];
+            // Default = binary (`.js` hasil compile server); `source: true` dari
+            // `tpkg install --source`. Klien lama tidak mengirim field ini → binary,
+            // tetapi `variant` di balasan memberi tahu klien apa yang diterima.
+            const variant: TpkgBundleVariant = request.source === true ? "source" : "binary";
+            let built: { files: TpkgBundleFile[]; notes: string[]; compiled: Map<string, string> };
             try {
-                files = await this.buildBundle(pkg);
+                built = await this.buildBundle(pkg, variant);
             } catch (e: any) {
                 // Paket setengah jadi TIDAK boleh dikirim — klien akan menolaknya
                 // karena digest tidak cocok, dan pesannya jadi membingungkan.
                 await this.sendError(fd, src, srcPort, session.agent, e.message);
                 return;
             }
+            const { files, notes, compiled } = built;
+            for (const note of notes) await this.lib.std.log(`[BUNDLE] ${pkg.name}: ${note}`, "tpkgd");
+
+            // Skrip yang ikut di-compile dipanggil lewat `.js`-nya.
+            const script = (p?: string) => (p ? (compiled.get(p) ?? p) : p);
 
             const total = files.reduce((sum, f) => sum + f.size, 0);
             const reply: any = {
                 type: "BUNDLE_REPLY",
                 name: pkg.name,
                 version: pkg.version,
+                variant,
                 files,
-                onAfter: pkg.onAfterDownload,
-                undoScript: pkg.undoScript,
+                onAfter: script(pkg.onAfterDownload),
+                undoScript: script(pkg.undoScript),
                 needReboot: pkg.needReboot === true,
                 // Yang ditandatangani = METADATA bundle (path/size/sha256), bukan
                 // seluruh konten: payload tanda tangan kecil, integritas konten
@@ -403,7 +417,7 @@ export class Main {
 
             await this.lib.net.sendto(fd, src, srcPort, session.agent.securePacketOut(JSON.stringify(reply)));
             await this.lib.std.log(
-                `[BUNDLE] ${pkg.name} v${pkg.version}: ${files.length} file (${formatBytes(total)}) → ${src}`,
+                `[BUNDLE] ${pkg.name} v${pkg.version} (${variant}): ${files.length} file(s) (${formatBytes(total)}) -> ${src}`,
                 "tpkgd",
             );
         }
@@ -451,7 +465,14 @@ export class Main {
         const owners = new Map<string, string[]>();
         const shippedPaths = new Set<string>();
 
-        for (const pkg of packages) for (const item of pkg?.items ?? []) if (item?.dst) shippedPaths.add(item.dst);
+        // `.ts` program dikirim sebagai `.js` di bundle binary → skrip `x.js` juga "dikirim".
+        for (const pkg of packages) {
+            for (const item of pkg?.items ?? []) {
+                if (!item?.dst) continue;
+                shippedPaths.add(item.dst);
+                if (isBinaryCandidate(item)) shippedPaths.add(binaryPath(item.dst));
+            }
+        }
         const known = new Set(packages.map((p) => p?.name).filter(Boolean));
 
         for (let i = 0; i < packages.length; i++) {
@@ -496,7 +517,9 @@ export class Main {
 
             if (items.length > 0 && pkg?.name) {
                 try {
-                    await this.buildBundle(pkg);
+                    // Varian default (binary) — sama dengan yang diterima klien.
+                    const { notes } = await this.buildBundle(pkg, "binary");
+                    for (const note of notes) warnings.push(`${label}: ${note}`);
                 } catch (e: any) {
                     errors.push(`${label}: ${e.message}`);
                 }
@@ -551,10 +574,21 @@ export class Main {
      * Melempar Error dengan pesan manusiawi kalau ada file sumber yang tidak ada
      * atau total melewati `maxBundle` — supaya klien menerima ERROR yang jelas,
      * bukan bundle tidak lengkap yang gagal verifikasi.
+     *
+     * Varian `binary`: item `.ts` program (lihat `isBinaryCandidate`) di-compile
+     * ke `.js` tanpa sourcemap dan dikirim dengan path `.js`. Compile yang gagal
+     * (atau esbuild tidak tersedia) → item itu dikirim sebagai `.ts` (dicatat di
+     * `notes`), supaya paket tetap utuh. `compiled` memetakan `.ts` → `.js`.
      */
-    private async buildBundle(pkg: TpkgPackage): Promise<TpkgBundleFile[]> {
+    private async buildBundle(
+        pkg: TpkgPackage,
+        variant: TpkgBundleVariant = "binary",
+    ): Promise<{ files: TpkgBundleFile[]; notes: string[]; compiled: Map<string, string> }> {
         const files: TpkgBundleFile[] = [];
+        const notes: string[] = [];
+        const compiled = new Map<string, string>();
         const items = pkg.items ?? [];
+        const esbuild = variant === "binary" ? this.loadEsbuild(notes) : null;
         let total = 0;
 
         for (const item of items) {
@@ -599,6 +633,24 @@ export class Main {
                 );
             }
 
+            let dst = item.dst;
+            if (esbuild && isBinaryCandidate(item)) {
+                try {
+                    // Isi VFS = BYTE (latin1); esbuild butuh TEKS UTF-8.
+                    const out = esbuild.transformSync(vfsBytesToUtf8(content), {
+                        loader: "ts",
+                        format: "cjs",
+                        target: "node18",
+                        sourcefile: item.dst.split("/").pop(),
+                    });
+                    content = utf8ToVfsBytes(out.code);
+                    dst = binaryPath(item.dst);
+                    compiled.set(item.dst, dst);
+                } catch (e: any) {
+                    notes.push(`compile failed for ${item.dst} — sent as .ts (${String(e?.message ?? e).split("\n")[0]})`);
+                }
+            }
+
             total += content.length;
             if (total > this.maxBundle) {
                 throw new Error(
@@ -607,7 +659,7 @@ export class Main {
                 );
             }
             files.push({
-                path: item.dst,
+                path: dst,
                 size: content.length,
                 sha256: sha256Hex(content),
                 content,
@@ -617,8 +669,32 @@ export class Main {
             });
         }
 
-        if (files.length === 0) throw new Error("package has no files");
-        return files;
+        // Paket yang juga mendaftarkan sidecar `.js`-nya sendiri: hasil compile menang
+        // (satu path = satu file di bundle; kalau ganda, digest/instalasi jadi ambigu).
+        const compiledTargets = new Set(compiled.values());
+        const unique = files.filter(
+            (f, i) =>
+                !(compiledTargets.has(f.path) && !compiled.has(items[i]?.dst ?? "")) &&
+                files.findIndex((g) => g.path === f.path) === i,
+        );
+
+        if (unique.length === 0) throw new Error("package has no files");
+        return { files: unique, notes, compiled };
+    }
+
+    /**
+     * loadEsbuild(): esbuild milik host (sama dengan `transpile`). Tidak tersedia →
+     * null + catatan; bundle lalu dikirim sebagai source.
+     */
+    private loadEsbuild(notes: string[]): any {
+        try {
+            const req = (globalThis as any).require ?? (typeof require === "function" ? require : undefined);
+            if (!req) throw new Error("require is not available");
+            return req("esbuild");
+        } catch (e: any) {
+            notes.push(`esbuild not available (${e?.message ?? e}) — sending sources`);
+            return null;
+        }
     }
 
     /** sendError(): Balasan ERROR standar (opsional dengan saran nama terdekat). */

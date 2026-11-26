@@ -99,6 +99,37 @@ export interface TpkgPackage {
     items: TpkgItem[];
 }
 
+/**
+ * Varian bundle:
+ *   - `binary` (default) — `.ts` program di-compile SERVER ke `.js` (tanpa
+ *     sourcemap); klien tidak perlu post-install `transpile`. Untuk end user.
+ *   - `source` (`tpkg install --source`) — `.ts` apa adanya + transpile di klien,
+ *     untuk yang ingin membaca / memodifikasi.
+ */
+export type TpkgBundleVariant = "binary" | "source";
+
+/**
+ * isBinaryCandidate(): apakah item `.ts` ini dikirim sebagai `.js` di varian binary.
+ *
+ * TIDAK di-compile (tetap `.ts`):
+ *   - `/lib/**` — kernel meng-compile `/lib/*.ts` ke cache saat boot
+ *     (`@tsix/X` → `/lib/X.ts`); tanpa `.ts` import framework gagal;
+ *   - item host (`hostDst`, `/hostsrc/…`) — engine di host dijalankan dari `.ts`;
+ *   - `.d.ts` dan file test.
+ */
+export function isBinaryCandidate(item: { src?: string; dst: string; hostDst?: string }): boolean {
+    const dst = String(item?.dst ?? "");
+    if (!dst.endsWith(".ts") || dst.endsWith(".d.ts") || /\.(test|spec)\.ts$/.test(dst)) return false;
+    if (dst.startsWith("/lib/")) return false;
+    if (item.hostDst !== undefined || String(item.src ?? "").startsWith("/hostsrc/")) return false;
+    return true;
+}
+
+/** binaryPath(): `/opt/app/app.ts` → `/opt/app/app.js`. */
+export function binaryPath(tsPath: string): string {
+    return tsPath.endsWith(".ts") ? tsPath.slice(0, -3) + ".js" : tsPath;
+}
+
 /** Entri katalog (`LIST_REPLY`) — ringkasan paket tanpa daftar file. */
 export interface TpkgCatalogEntry {
     name: string;

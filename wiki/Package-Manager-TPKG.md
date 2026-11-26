@@ -56,6 +56,29 @@ Opsi umum:
 | `--no-scripts` | Jangan jalankan skrip post-install / undo                                               |
 | `--no-deps`    | Abaikan `depends`                                                                       |
 | `--force`      | Pasang ulang walau versi lokal sama/lebih baru                                          |
+| `--source`     | Minta varian **source** (`.ts`) — default **binary** (`.js` hasil compile server)        |
+
+### Varian bundle: binary (default) vs source
+
+`tpkgd` meng-compile `.ts` program ke `.js` (tanpa sourcemap) saat membuat bundle —
+paket "tinggal pakai" untuk end user, tanpa post-install `transpile`:
+
+| | binary (default) | source (`--source`) |
+| --- | --- | --- |
+| Program `.ts` | dikirim sebagai `.js` | dikirim `.ts` + `transpile` di klien |
+| `/lib/**`, item host (`hostDst`/`/hostsrc`) | tetap `.ts` | `.ts` |
+| Post-install `transpile` | dilewati (`prebuilt .js — no build step needed`) | ditanyakan seperti biasa |
+
+- Signature tetap menutupi isi yang benar-benar dikirim (digest dihitung dari `.js`).
+- Skrip post-install/undo yang ikut di-compile dipanggil lewat `.js`-nya
+  (`/opt/app/configure.ts` → `/opt/app/configure.js`).
+- Compile gagal untuk satu berkas → berkas itu dikirim `.ts` (dicatat di log tpkgd
+  dan sebagai warning `tpkgd --check`), lalu di-build `transpile` di klien.
+- **Source → binary:** `.ts` lama milik paket itu dibuang, karena resolver import
+  relatif mendahulukan `.ts` di atas `.js` (kode lama akan menang diam-diam). `.ts`
+  yang sudah diubah operator dipindah ke `<file>.ts.tpkg-old`.
+- `onAfterDownload` di katalog memakai `/sbin/transpile.js`; `EXEC` juga melayani
+  path `.ts` yang tidak ada dengan `.js`-nya (image produksi tidak punya `.ts`).
 
 Semua perintah yang **mengubah sistem** — `update`, `install`, `upgrade`, `remove`,
 `download` — **wajib root** (`sudo`). Yang boleh tanpa root: `list`, `info`,
