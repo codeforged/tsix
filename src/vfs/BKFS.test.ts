@@ -694,3 +694,21 @@ describe("BKFS — ketahanan operasional & penyimpanan blok (B3)", () => {
         wipe(dbPath);
     });
 });
+
+describe("BKFS chown — -1 berarti 'tidak diubah' (POSIX)", () => {
+    it("chgrp (chown path, -1, gid) tidak menimpa uid jadi -1", () => {
+        const bkfs = new BKFS(":memory:");
+        bkfs.mkdir("/mnt", 0, 0, 0o755);
+        bkfs.mkdir("/mnt/shared", 1000, 0, 0o775);
+
+        expect(bkfs.chown("/mnt/shared", -1, 100)).toBe(true);
+        let st = bkfs.stat("/mnt/shared");
+        expect(st.uid).toBe(1000);
+        expect(st.gid).toBe(100);
+
+        bkfs.chown("/mnt/shared", 0, -1);
+        st = bkfs.stat("/mnt/shared");
+        expect(st.uid).toBe(0);
+        expect(st.gid).toBe(100);
+    });
+});

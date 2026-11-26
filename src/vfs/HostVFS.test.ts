@@ -184,3 +184,47 @@ describe("HostVFS", () => {
         expect(file.mode & 0o0777).toBeGreaterThan(0); // izin tetap terbaca
     });
 });
+
+// ============================================================
+// B3.30+: titik mount host bisa dimasuki user biasa (/mnt/shared)
+//
+// Kasus nyata: `sudo chgrp users /mnt/shared` lalu `cd /mnt/shared` tetap
+// "permission denied" untuk user biasa. Di Windows Node melaporkan direktori
+// 0o666 (tanpa `x` = tidak bisa `cd`), dan chown/chmod di titik mount tidak
+// berefek karena host menolak / override mount selalu menang.
+// ============================================================
+describe("HostVFS — titik mount (B3.30+)", () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tsix-hostvfs-mnt-"));
+    });
+    afterEach(() => {
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { }
+    });
+
+    it("B3.30 direktori selalu punya bit x (Windows: dulu 0o666)", () => {
+        const vfs = new HostVFS(tmpDir);
+        vfs.mkdir("/sub");
+        expect(vfs.stat("/").mode & 0o111).not.toBe(0);
+        expect(vfs.stat("/sub").mode & 0o111).not.toBe(0);
+        expect(vfs.ls("/").find((i: any) => i.name === "sub").mode & 0o111).not.toBe(0);
+    });
+
+    it("B3.31 chgrp di titik mount mengubah grup mount (-1 = uid tidak diubah)", () => {
+        const vfs = new HostVFS(tmpDir, false, 0, 0, 0o775);
+        expect(vfs.chown("/", -1, 100)).toBe(true);
+        const st = vfs.stat("/");
+        expect(st.gid).toBe(100);
+        expect(st.uid).toBe(0);
+        // ls di dalam mount konsisten dengan stat (override mount).
+        vfs.touch("/f.txt", "x");
+        expect(vfs.ls("/").find((i: any) => i.name === "f.txt").gid).toBe(100);
+    });
+
+    it("B3.32 chmod di titik mount ber-mode mengubah mode mount", () => {
+        const vfs = new HostVFS(tmpDir, false, 0, 100, 0o750);
+        vfs.chmod("/", 0o775);
+        expect(vfs.stat("/").mode).toBe(0o775);
+    });
+});

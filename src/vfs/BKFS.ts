@@ -657,7 +657,11 @@ export class BKFS implements IVFS {
         const node = this.stat(path);
         if (!node) return false;
 
-        this.db.prepare("UPDATE vnodes SET uid = ?, gid = ? WHERE id = ?").run(uid, gid, node.id);
+        // POSIX: -1 = jangan ubah. `chgrp` memanggil chown(path, -1, gid); dulu -1
+        // ikut tersimpan sebagai uid sehingga pemilik jadi "-1" di `ls -l`.
+        const newUid = uid === -1 ? node.uid : uid;
+        const newGid = gid === -1 ? node.gid : gid;
+        this.db.prepare("UPDATE vnodes SET uid = ?, gid = ? WHERE id = ?").run(newUid, newGid, node.id);
         return true;
     }
 

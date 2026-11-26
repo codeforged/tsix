@@ -488,7 +488,28 @@ export class SyscallDispatcher {
                 if (!this.satpam.check(pcb, lsNode, Permission.READ)) {
                     throw new Error(`ls: cannot open directory '${absoluteLsPath}': Permission denied`);
                 }
-                return await vfs.ls(relativePath);
+                const entries = await vfs.ls(relativePath);
+
+                // Entri yang merupakan TITIK MOUNT: tampilkan atribut root mount-nya
+                // (seperti Linux), bukan direktori placeholder di bawahnya. Dulu
+                // `ls -l /mnt` menunjukkan placeholder BKFS (755), padahal `cd` diperiksa
+                // terhadap root mount host (di Windows 666, tanpa `x`) — keduanya
+                // tidak cocok dan izin yang terlihat menyesatkan.
+                const children = this.mountManager.childMounts(absoluteLsPath);
+                if (children.size === 0) return entries;
+                return await Promise.all(
+                    (entries ?? []).map(async (entry: any) => {
+                        const mounted = children.get(entry?.name);
+                        if (!mounted) return entry;
+                        try {
+                            const root = await mounted.stat("/");
+                            if (!root) return entry;
+                            return { ...entry, type: "DIRECTORY", uid: root.uid, gid: root.gid, mode: root.mode };
+                        } catch {
+                            return entry; // driver jaringan mati → tetap tampilkan placeholder
+                        }
+                    }),
+                );
             }
 
             case SyscallCode.OPEN: {
@@ -1816,13 +1837,15 @@ export class SyscallDispatcher {
 
             case SyscallCode.MOUNT: {
                 if (!this.isRoot(pcb)) throw new Error("Permission Denied: Only root or root group members can mount.");
-                const { vfsPath, hostPath, readOnly, type, uid, gid } = args as {
+                const { vfsPath, hostPath, readOnly, type, uid, gid, mode } = args as {
                     vfsPath: string;
                     hostPath: string;
                     readOnly?: boolean;
                     type?: string;
                     uid?: number;
                     gid?: number;
+                    /** Mode titik mount (`mount --mode 0o775`), setara `mode` di fstab. */
+                    mode?: number;
                 };
 
                 const fullVfsPath = PathResolver.resolve(pcb.cwd, vfsPath);
@@ -1847,11 +1870,11 @@ export class SyscallDispatcher {
                     this.logger.info(
                         `Mounting secondary BKFS: ${hostPath} -> ${fullVfsPath}${readOnly ? " (Read-Only)" : ""}`,
                     );
-                    driver = new BKFS(path.resolve(process.cwd(), hostPath), readOnly || false);
+                    driver = new BKFS(path.resolve(process.cwd(), hostPath), readOnly || false, uid, gid, mode);
                 } else if (fsType === "ramfs") {
                     this.logger.info(`Mounting RamFS: ${fullVfsPath}`);
                     const label = fullVfsPath.replace(/\//g, "_").replace(/^_/, "");
-                    driver = new RamFS(label, uid, gid);
+                    driver = new RamFS(label, uid, gid, mode);
                 } else if (fsType === "netfs") {
                     // --- NETFS: filesystem milik node TSIX lain, lewat MQTNL ---
                     // hostPath = spec peer storage host, mis. "tsix_2:7777".
@@ -1922,7 +1945,7 @@ export class SyscallDispatcher {
                     return true;
                 } else {
                     this.logger.info(`Mounting Host Path: ${hostPath} -> ${fullVfsPath}`);
-                    driver = new HostVFS(hostPath, readOnly || false, uid, gid);
+                    driver = new HostVFS(hostPath, readOnly || false, uid, gid, mode);
                 }
 
                 this.mountManager.mount(fullVfsPath, driver, fsType, hostPath, readOnly || false, uid, gid);

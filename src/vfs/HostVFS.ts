@@ -37,6 +37,29 @@ export class HostVFS implements IVFS {
     }
   }
 
+  /**
+   * permissionBits(): bit izin (0o777) sebuah berkas host.
+   *
+   * WINDOWS: Node melaporkan DIREKTORI sebagai 0o666 (tanpa bit `x`) karena
+   * NTFS tidak punya bit eksekusi POSIX. Di TSIX, `x` pada direktori = izin
+   * masuk (`cd`, traversal), jadi tanpa koreksi ini mount host tanpa `mode`
+   * (mis. `mount /mnt/shared shared`) TIDAK bisa dimasuki user biasa sama
+   * sekali — `chgrp`/`chmod` pun tidak menolong. Direktori dilaporkan 0o755
+   * (0o555 bila read-only), seperti mount vfat/ntfs di Linux.
+   */
+  private permissionBits(s: fs.Stats): number {
+    const bits = s.mode & 0o777;
+    if (process.platform === "win32" && s.isDirectory()) {
+      return bits & 0o200 ? 0o755 : 0o555;
+    }
+    return bits;
+  }
+
+  /** isRoot(): path menunjuk root mount ini. */
+  private isRoot(vfsPath: string): boolean {
+    return vfsPath === "" || vfsPath === "/" || vfsPath === ".";
+  }
+
   private toHostPath(vfsPath: string): string {
     // Normalisasi path agar tidak bisa escape dari hostRoot (basic security)
     const relative = vfsPath.startsWith("/") ? vfsPath.substring(1) : vfsPath;
@@ -67,9 +90,9 @@ export class HostVFS implements IVFS {
         // S_IFDIR 0o040000) di atas bit izin. BKFS menyimpan bit izin saja
         // (0o644 = 420), jadi tanpa mask ini `ls -l` di userland menampilkan
         // "100644" dan pembanding mode (mis. `mode === 0o644`) meleset.
-        mode: s.mode & 0o777,
-        uid: s.uid,
-        gid: s.gid,
+        mode: this.ownerMode ?? this.permissionBits(s),
+        uid: this.ownerUid ?? s.uid,
+        gid: this.ownerGid ?? s.gid,
         modified_at: s.mtimeMs,
       };
     });
@@ -135,7 +158,7 @@ export class HostVFS implements IVFS {
       gid: this.ownerGid ?? s.gid,
       // MASK 0o777 (lihat `ls()`): buang bit tipe S_IF* supaya bentuknya sama
       // dengan mode di BKFS (bit izin saja).
-      mode: this.ownerMode ?? (s.mode & 0o777),
+      mode: this.ownerMode ?? this.permissionBits(s),
       modified_at: s.mtimeMs,
       created_at: s.birthtimeMs,
     };
@@ -144,6 +167,14 @@ export class HostVFS implements IVFS {
   public chmod(vfsPath: string, mode: number): boolean {
     if (this.readOnly) throw new Error("Read-only filesystem");
     const hostPath = this.toHostPath(vfsPath);
+    // Mode mount (fstab `mode` / `mount --mode`) berlaku untuk SELURUH mount dan
+    // menang atas mode host. `chmod` pada titik mount mengubahnya (sampai reboot;
+    // simpan permanen di /etc/fstab.conf). Tanpa ini chmod di sana tidak berefek.
+    // Windows: chmod host hanya mengubah atribut read-only, jadi di sana mode
+    // titik mount SELALU disimpan sebagai mode mount.
+    if (this.isRoot(vfsPath) && (this.ownerMode !== undefined || process.platform === "win32")) {
+      this.ownerMode = mode & 0o7777;
+    }
     fs.chmodSync(hostPath, mode);
     return true;
   }
@@ -151,6 +182,18 @@ export class HostVFS implements IVFS {
   public chown(vfsPath: string, uid: number, gid: number): boolean {
     if (this.readOnly) throw new Error("Read-only filesystem");
     const hostPath = this.toHostPath(vfsPath);
+
+    // `chown`/`chgrp` pada TITIK MOUNT mengubah kepemilikan mount itu sendiri
+    // (seperti `uid=`/`gid=` mount vfat). Kepemilikan host sering tidak bisa
+    // diubah (Windows: chown no-op; Linux non-root: EPERM), dan override mount
+    // selalu menang di `stat()`, jadi dulu `sudo chgrp users /mnt/shared` tidak
+    // berefek sama sekali. -1 = tidak diubah (POSIX). Berlaku sampai reboot;
+    // simpan permanen di /etc/fstab.conf (`uid`/`gid`).
+    if (this.isRoot(vfsPath)) {
+      if (uid !== -1) this.ownerUid = uid;
+      if (gid !== -1) this.ownerGid = gid;
+    }
+
     try {
       fs.chownSync(hostPath, uid, gid);
       return true;
@@ -169,7 +212,8 @@ export class HostVFS implements IVFS {
         this.logger.debug(
           `chown ${vfsPath} → ${uid}:${gid} diabaikan (${e.code}) — kepemilikan mengikuti berkas host`,
         );
-        return false;
+        // Titik mount: kepemilikan mount sudah diubah di atas → tetap sukses.
+        return this.isRoot(vfsPath);
       }
       throw e;
     }

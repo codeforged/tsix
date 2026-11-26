@@ -16,7 +16,7 @@ function valueOf(args: string[], flag: string): string | undefined {
 export default Program(async (args) => {
   if (args.includes("--help") || args.includes("-h")) {
     await std.print(
-      "Usage: mount [vfs_path host_path] [--ro] [--bkfs] [--ramfs] [--netfs] [--uid N] [--gid N]\n" +
+      "Usage: mount [vfs_path host_path] [--ro] [--bkfs] [--ramfs] [--netfs] [--uid N] [--gid N] [--mode 0oNNN]\n" +
         "  mount <path> --ramfs                  Mount RAM-only filesystem (no host path needed)\n" +
         "  mount <path> <source> --bkfs          Mount BKFS (SQLite) database\n" +
         "  mount <path> <source>                 Mount host directory\n" +
@@ -30,6 +30,7 @@ export default Program(async (args) => {
         "     --iface <nama>     Interface MQTNL lokal (default: interface default)\n" +
         "  mount <path> <source> --uid 1000      Mount with specific owner UID\n" +
         "  mount <path> <source> --gid 1000      Mount with specific group GID\n" +
+        "  mount <path> <source> --mode 0o775    Mount with specific permissions (like fstab 'mode')\n" +
         "List mounts if no arguments provided.\n",
     );
     return;
@@ -83,6 +84,18 @@ export default Program(async (args) => {
   const gidIdx = args.indexOf("--gid");
   const uid = uidIdx !== -1 ? parseInt(args[uidIdx + 1], 10) : undefined;
   const gid = gidIdx !== -1 ? parseInt(args[gidIdx + 1], 10) : undefined;
+
+  // --mode: oktal seperti fstab (`0o775`, `775`, `0775`).
+  const modeRaw = valueOf(args, "--mode");
+  let mode: number | undefined;
+  if (modeRaw !== undefined) {
+    const digits = modeRaw.replace(/^0o/i, "");
+    mode = /^[0-7]{3,4}$/.test(digits) ? parseInt(digits, 8) : NaN;
+    if (!Number.isInteger(mode)) {
+      await std.print(`mount: invalid --mode: ${modeRaw} (example: --mode 0o775)\n`);
+      return;
+    }
+  }
 
   let fsType: string;
   if (isRamfs) {
@@ -157,7 +170,7 @@ export default Program(async (args) => {
       fsType,
       uid,
       gid,
-      netfsOptions,
+      { ...netfsOptions, ...(mode !== undefined ? { mode } : {}) },
     );
     if (ok) {
       const viaInfo = netfsOptions.via

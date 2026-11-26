@@ -149,6 +149,23 @@ export class MountManager {
     throw new Error(`Path not found in any mounted filesystem: ${path}`);
   }
 
+  /**
+   * childMounts(): titik mount yang merupakan anak LANGSUNG `dir` (mis. `/mnt` →
+   * `/mnt/shared`). Dipakai `ls` supaya entri titik mount menampilkan atribut
+   * root mount-nya, bukan direktori placeholder di bawahnya.
+   */
+  public childMounts(dir: string): Map<string, IVFS> {
+    const parent = PathResolver.resolve("/", dir);
+    const prefix = parent === "/" ? "/" : parent + "/";
+    const out = new Map<string, IVFS>();
+    for (const m of this.mounts) {
+      if (m.vfsPath === parent || !m.vfsPath.startsWith(prefix)) continue;
+      const name = m.vfsPath.slice(prefix.length);
+      if (name && !name.includes("/")) out.set(name, m.vfs);
+    }
+    return out;
+  }
+
   public listMounts() {
     return this.mounts.map((m) => ({
       vfsPath: m.vfsPath,

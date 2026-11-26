@@ -317,3 +317,19 @@ describe("MountManager", () => {
         expect(mountManager.resolve("/mnt/db/f").vfs).toBe(dataVFS);
     });
 });
+
+describe("MountManager.childMounts — titik mount anak langsung (untuk ls)", () => {
+    it("hanya anak langsung, bukan cucu / diri sendiri", async () => {
+        const { MountManager } = await import("./MountManager");
+        const mm = new MountManager();
+        const fake = (name: string) => ({ name } as any);
+        mm.mount("/", fake("root"));
+        mm.mount("/mnt/shared", fake("shared"));
+        mm.mount("/mnt/deep/x", fake("deep"));
+        mm.mount("/tmp", fake("tmp"));
+
+        expect([...mm.childMounts("/mnt").keys()]).toEqual(["shared"]);
+        expect([...mm.childMounts("/").keys()].sort()).toEqual(["tmp"]);
+        expect(mm.childMounts("/mnt/shared").size).toBe(0);
+    });
+});
