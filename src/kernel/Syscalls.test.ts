@@ -549,12 +549,15 @@ describe("SyscallDispatcher (A1)", () => {
             expect(vfs.exists("/home/newdir")).toBe(true);
         });
 
-        it("A1.54 MKDIR – path already exists returns false", async () => {
+        // Semua driver (VFS/RamFS, BKFS, HostVFS) memakai semantik `mkdir -p`:
+        // direktori yang sudah ada = sukses (idempoten). Pemanggil seperti
+        // `mkdirRecursive` di tpkg mengandalkan ini.
+        it("A1.54 MKDIR – path already exists is idempotent (mkdir -p semantics)", async () => {
             const pcb = createTestProcess();
-            // First mkdir succeeds
             await dispatcher.dispatch(pcb.pid, SyscallCode.MKDIR, "/home/existingdir");
             const result = await dispatcher.dispatch(pcb.pid, SyscallCode.MKDIR, "/home/existingdir");
-            expect(result).toBe(false); // VFS now returns false for existing mkdir
+            expect(result).toBe(true);
+            expect(vfs.exists("/home/existingdir")).toBe(true);
         });
 
         it("A1.55 MKDIR – parent doesn't exist (Auto-create in VFS)", async () => {
@@ -834,7 +837,8 @@ describe("SyscallDispatcher (A1)", () => {
             expect(result).toBe("2345");
         });
 
-        it("A1.86 READ_CHUNK – offset beyond file end returns empty string", async () => {
+        // Kontrak EOF = `null` di semua driver dan di UserLib (`Promise<string | null>`).
+        it("A1.86 READ_CHUNK – offset beyond file end returns null (EOF)", async () => {
             vfs.touch("/home/chunk2.bin", "abc", 1000, 1000, 420);
             const pcb = createTestProcess({
                 uid: 1000,
@@ -847,7 +851,7 @@ describe("SyscallDispatcher (A1)", () => {
                 offset: 100,
                 length: 10,
             });
-            expect(result).toBe("");
+            expect(result).toBeNull();
         });
 
         it("A1.87 READ_CHUNK – negative offset returns empty string", async () => {
@@ -1048,10 +1052,11 @@ describe("SyscallDispatcher (A1)", () => {
             expect(result).toBe(true);
         });
 
-        it("A1.99 KILL – invalid PID", async () => {
+        // Seperti ESRCH di POSIX: PID yang tidak ada = error yang menjelaskan
+        // (userland `kill` mencetaknya), bukan `false` diam-diam.
+        it("A1.99 KILL – invalid PID throws 'No such process'", async () => {
             const pcb = createTestProcess();
-            const result = await dispatcher.dispatch(pcb.pid, SyscallCode.KILL, 99999);
-            expect(result).toBe(false);
+            await expect(dispatcher.dispatch(pcb.pid, SyscallCode.KILL, 99999)).rejects.toThrow(/No such process/);
         });
 
         it("A1.100 KILL – kill self", async () => {
@@ -1418,10 +1423,14 @@ describe("SyscallDispatcher (A1)", () => {
             expect(typeof exitCode).toBe("number");
         });
 
-        it("A1.40 WAITPID – no children returns false", async () => {
+        // Scheduler.waitpid(): PID yang tidak (lagi) ada diperlakukan sebagai proses
+        // yang sudah selesai & di-reap → exit code tersimpan, atau 0. Disengaja
+        // supaya anak yang selesai SEBELUM parent sempat menunggu tidak membuat
+        // waitpid menggantung.
+        it("A1.40 WAITPID – unknown PID resolves immediately with exit code 0", async () => {
             const pcb = createTestProcess({ pid: 50 });
             const result = await dispatcher.dispatch(pcb.pid, SyscallCode.WAITPID, 99999);
-            expect(result).toBe(false);
+            expect(result).toBe(0);
         });
     });
 
@@ -1533,6 +1542,8 @@ describe("SyscallDispatcher (A1)", () => {
 
         it("SCREEN_INFO – return screen dimensions", async () => {
             const pcb = createTestProcess();
+            // Tanpa TTY, kernel memakai fb0 — tiru bentuk ScreenDevice.read() asli.
+            kernel.devices.fb0.read = vi.fn().mockReturnValue({ lines: 24, columns: 80 });
             const result = await dispatcher.dispatch(pcb.pid, SyscallCode.SCREEN_INFO, null);
             expect(result).toBeDefined();
             expect(typeof result.columns).toBe("number");

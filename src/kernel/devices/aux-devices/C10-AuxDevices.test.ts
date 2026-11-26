@@ -17,9 +17,11 @@ describe("MCP23017Device (C10.08-C10.09)", () => {
         expect(dev.name).toBe("mcp0");
     });
 
-    it("C10.08b default name is mcp23017", () => {
+    // Default sengaja "MCP23017" sejak 10a4ff0 (smartbulb); instance nyata selalu
+    // diberi nama eksplisit dari konfigurasi (mcp-bulb, mcp-sw).
+    it("C10.08b default name is MCP23017", () => {
         const dev = new MCP23017Device();
-        expect(dev.name).toBe("mcp23017");
+        expect(dev.name).toBe("MCP23017");
     });
 
     it("C10.08c uid/gid/mode defaults", () => {

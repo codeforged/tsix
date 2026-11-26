@@ -57,7 +57,18 @@ export class Logger {
         const timestamp = new Date().toLocaleTimeString();
         const logLine = `[${timestamp}] [${level}] ${this.prefix} ${message}`;
 
-        const cfg = require("./Config").Config.get();
+        // Logging TIDAK BOLEH membuat pemanggil crash. Config dimuat malas (hindari
+        // import melingkar) dan bisa tidak tersedia (lingkungan test, proses tanpa
+        // sysconfig) — dulu `require` di sini melempar dan setiap `logger.info()`
+        // ikut melempar. Tanpa config: tidak ada output (default enableConsole=false,
+        // dan tidak ada path log file).
+        let cfg: any;
+        try {
+            cfg = require("./Config").Config.get();
+        } catch (_) {
+            return;
+        }
+        if (!cfg?.logger) return;
 
         // Cetak ke layar host (Hanya jika diaktifkan di config)
         if (cfg.logger.enableConsole) {

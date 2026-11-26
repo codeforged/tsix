@@ -251,7 +251,9 @@ describe("BKFS (SQLite-based)", () => {
             const u = await local.getUsage();
             expect(u.size).toBe(10);
         } finally {
-            fs.rmSync(dbPath, { force: true });
+            // Tutup dulu: Windows menolak menghapus DB yang masih terbuka (EBUSY).
+            local.close();
+            for (const suffix of ["", "-wal", "-shm"]) fs.rmSync(dbPath + suffix, { force: true });
         }
     });
 

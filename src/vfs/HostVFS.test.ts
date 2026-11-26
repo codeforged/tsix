@@ -161,12 +161,18 @@ describe("HostVFS", () => {
     // meleset — makanya HostVFS mem-mask 0o777. Khusus penting saat HostVFS
     // dipakai sebagai ROOT (`rootType = "host"`).
     // ============================================================
+    // NTFS tidak menyimpan bit izin POSIX: di Windows `chmod` hanya mengubah atribut
+    // read-only (berkas jadi 0o666/0o444). Bagian "mode tersimpan persis" diuji di
+    // Linux/macOS; bagian "tanpa bit tipe" berlaku di semua OS.
+    const posixModes = process.platform !== "win32";
+
     it("B3.26 stat – mode hanya bit izin (tanpa bit tipe S_IF*)", () => {
         vfs.touch("/mode.txt", "x");
         fs.chmodSync(path.join(tmpDir, "mode.txt"), 0o644);
 
         const st = vfs.stat("/mode.txt");
-        expect(st.mode).toBe(0o644);
+        expect(st.mode & ~0o777).toBe(0); // tidak ada S_IFREG
+        if (posixModes) expect(st.mode).toBe(0o644);
 
         vfs.mkdir("/modedir");
         fs.chmodSync(path.join(tmpDir, "modedir"), 0o755);
@@ -176,7 +182,8 @@ describe("HostVFS", () => {
     it("B3.27 ls – mode juga ter-mask, dan mkdir menghormati `mode` saat membuat", () => {
         vfs.mkdir("/fresh", 0, 0, 0o750);
         const dir = vfs.ls("/").find((i: any) => i.name === "fresh");
-        expect(dir.mode).toBe(0o750);
+        expect(dir.mode & ~0o777).toBe(0); // tidak ada S_IFDIR
+        if (posixModes) expect(dir.mode).toBe(0o750);
 
         vfs.touch("/listed.txt", "x");
         const file = vfs.ls("/").find((i: any) => i.name === "listed.txt");

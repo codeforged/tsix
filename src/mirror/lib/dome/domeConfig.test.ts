@@ -192,7 +192,10 @@ describe("domeConfig (C11.80+)", () => {
     const mirrorPath = fileURLToPath(
       new URL("../../etc/dome/dome.conf", import.meta.url),
     );
-    expect(readFileSync(mirrorPath, "utf8")).toBe(formatDomeConfig());
+    // Bandingkan ISI, bukan gaya EOL: di Windows `core.autocrlf` men-checkout
+    // berkas repo (LF) sebagai CRLF, sedangkan template selalu LF.
+    const eol = (s: string) => s.replace(/\r\n/g, "\n");
+    expect(eol(readFileSync(mirrorPath, "utf8"))).toBe(eol(formatDomeConfig()));
   });
 
   it("C11.89b toPort() hanya menerima port yang sah", () => {
