@@ -2,7 +2,7 @@
     "schemaVersion": 1,
     "distro": {
         "id": "imut",
-        "name": "TSIX Imut",
+        "name": "Imut",
         "version": "0.1.0",
         "status": "draft",
         "description": "Distro minimal TSIX untuk menguji instalasi paket TPKG.",
@@ -16,6 +16,10 @@
         ]
     },
     "outputDirectory": "distro/imut",
-    "installedPackages": ["base-system", "coreutils", "tpkg"],
+    "installedPackages": [
+        "base-system",
+        "coreutils",
+        "tpkg"
+    ],
     "repositoryPackages": []
 }
