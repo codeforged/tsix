@@ -66,7 +66,7 @@ export class Main {
         const who = await this.lib.shell.whoami();
         if (who.uid !== 0) {
             await this.lib.std.print(
-                "❌ Error: tpkgd requires root privileges (membaca /etc/keys/rsa & menyajikan file sistem). Use sudo.\n",
+                "❌ Error: tpkgd requires root privileges (reads /etc/keys/rsa & serves system files). Use sudo.\n",
             );
             return;
         }
@@ -122,7 +122,7 @@ export class Main {
             try {
                 if (!this.checkRateLimit(src)) {
                     this.stats.denied++;
-                    await this.lib.std.log(`rate limit: ${src} ditolak`, "tpkgd");
+                    await this.lib.std.log(`rate limit: ${src} denied`, "tpkgd");
                     continue;
                 }
 
@@ -154,7 +154,7 @@ export class Main {
             if (args[i] === "--port" && next) {
                 const p = Number(next);
                 if (!Number.isInteger(p) || p <= 0 || p > 65535) {
-                    throw new Error(`--port tidak valid: '${next}'`);
+                    throw new Error(`invalid --port: '${next}'`);
                 }
                 this.port = p;
             } else if (args[i] === "--repo" && next) {
@@ -162,7 +162,7 @@ export class Main {
             } else if (args[i] === "--max-bundle" && next) {
                 const n = Number(next);
                 if (!Number.isFinite(n) || n <= 0) {
-                    throw new Error(`--max-bundle tidak valid: '${next}'`);
+                    throw new Error(`invalid --max-bundle: '${next}'`);
                 }
                 this.maxBundle = n;
             }
@@ -175,10 +175,10 @@ export class Main {
         await this.lib.std.print("Options:\n");
         await this.lib.std.print(`  --port <n>          MQTNL port (default: ${TPKG_DEFAULT_PORT})\n`);
         await this.lib.std.print("  --repo <path>       Manifest repository (default: /etc/tpkg/packages.json)\n");
-        await this.lib.std.print(`  --max-bundle <byte> Batas ukuran bundle (default: ${TPKG_DEFAULT_MAX_BUNDLE})\n`);
+        await this.lib.std.print(`  --max-bundle <byte> Max bundle size (default: ${TPKG_DEFAULT_MAX_BUNDLE})\n`);
         await this.lib.std.print("  --help              Show this help\n");
-        await this.lib.std.print("\n⚠️  tpkgd wajib dijalankan sebagai root (sudo) — memakai /etc/keys/rsa\n");
-        await this.lib.std.print("    dan menyajikan file sistem termasuk kernel.\n");
+        await this.lib.std.print("\n⚠️  tpkgd must be run as root (sudo) — it uses /etc/keys/rsa\n");
+        await this.lib.std.print("    and serves system files, including the kernel.\n");
     }
 
     private async ensureKeys() {
@@ -208,12 +208,12 @@ export class Main {
         try {
             data = JSON.parse(text);
         } catch (e) {
-            await this.lib.std.log(`handshake bukan JSON valid dari ${packet.src}`, "tpkgd");
+            await this.lib.std.log(`handshake is not valid JSON from ${packet.src}`, "tpkgd");
             return;
         }
 
         if (data.type !== "handshake" || typeof data.publicKey !== "string" || !data.publicKey) {
-            await this.lib.std.log(`handshake tidak lengkap dari ${packet.src}`, "tpkgd");
+            await this.lib.std.log(`incomplete handshake from ${packet.src}`, "tpkgd");
             return;
         }
 
@@ -425,7 +425,7 @@ export class Main {
                     hostRelative.includes("\\") ||
                     hostRelative.split("/").some((part) => part === "" || part === "." || part === "..")
                 ) {
-                    throw new Error(`hostsrc path tidak aman: ${item.src}`);
+                    throw new Error(`unsafe hostsrc path: ${item.src}`);
                 }
 
                 const hostPath = `src/${hostRelative}`;
@@ -438,22 +438,22 @@ export class Main {
                 }
             }
             if (content === null || content === undefined) {
-                throw new Error(`file sumber tidak ada: ${item.src}`);
+                throw new Error(`source file not found: ${item.src}`);
             }
 
             // Tujuan host divalidasi di sisi server supaya manifest yang salah
             // ketahuan saat itu juga (bukan setelah klien menulis setengah paket).
             if (item.hostDst !== undefined && !isSafeHostDst(item.hostDst)) {
                 throw new Error(
-                    `hostDst tidak aman di paket '${pkg.name}': '${item.hostDst}' (harus relatif, tanpa '..')`,
+                    `unsafe hostDst in package '${pkg.name}': '${item.hostDst}' (must be relative, without '..')`,
                 );
             }
 
             total += content.length;
             if (total > this.maxBundle) {
                 throw new Error(
-                    `bundle ${formatBytes(total)} melebihi batas ${formatBytes(this.maxBundle)} ` +
-                        `— kecilkan paket atau jalankan tpkgd dengan --max-bundle`,
+                    `bundle ${formatBytes(total)} exceeds limit ${formatBytes(this.maxBundle)} ` +
+                        `— shrink the package or run tpkgd with --max-bundle`,
                 );
             }
             files.push({
@@ -467,7 +467,7 @@ export class Main {
             });
         }
 
-        if (files.length === 0) throw new Error("paket tidak punya file");
+        if (files.length === 0) throw new Error("package has no files");
         return files;
     }
 
@@ -506,7 +506,7 @@ export class Main {
                 packages: Array.isArray(parsed?.packages) ? (parsed.packages as TpkgPackage[]) : [],
             };
         } catch (e: any) {
-            await this.lib.std.log(`manifest rusak (${this.repoPath}): ${e.message}`, "tpkgd");
+            await this.lib.std.log(`corrupt manifest (${this.repoPath}): ${e.message}`, "tpkgd");
             return { version: TPKG_PROTOCOL_VERSION, packages: [] };
         }
     }

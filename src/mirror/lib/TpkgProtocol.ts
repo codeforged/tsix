@@ -217,24 +217,24 @@ export function bundleDigest(files: TpkgBundleFile[]): string {
  */
 export function verifyBundleFiles(files: TpkgBundleFile[]): TpkgVerifyResult {
     if (!Array.isArray(files) || files.length === 0) {
-        return { ok: false, error: "bundle kosong" };
+        return { ok: false, error: "empty bundle" };
     }
     for (const f of files) {
         if (!f || typeof f.path !== "string" || f.path.trim() === "") {
-            return { ok: false, error: "entri tanpa path" };
+            return { ok: false, error: "entry without path" };
         }
         if (typeof f.content !== "string") {
-            return { ok: false, error: `${f.path}: konten bukan string` };
+            return { ok: false, error: `${f.path}: content is not a string` };
         }
         if (typeof f.size !== "number" || f.content.length !== f.size) {
             return {
                 ok: false,
-                error: `${f.path}: ukuran tidak cocok (dikirim ${f.content.length}, manifest ${f.size})`,
+                error: `${f.path}: size mismatch (received ${f.content.length}, manifest ${f.size})`,
             };
         }
         const actual = sha256Hex(f.content);
         if (actual !== f.sha256) {
-            return { ok: false, error: `${f.path}: SHA-256 tidak cocok (data berubah di jalan?)` };
+            return { ok: false, error: `${f.path}: SHA-256 mismatch (data altered in transit?)` };
         }
     }
     return { ok: true };
@@ -280,7 +280,7 @@ export interface TpkgHostPort {
  */
 export function parseHostPort(spec: string, defaultPort: number = TPKG_DEFAULT_PORT): TpkgHostPort {
     const raw = String(spec ?? "").trim();
-    if (!raw) throw new Error("alamat repository kosong");
+    if (!raw) throw new Error("empty repository address");
 
     const withoutScheme = raw.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
     const idx = withoutScheme.lastIndexOf(":");
@@ -290,12 +290,12 @@ export function parseHostPort(spec: string, defaultPort: number = TPKG_DEFAULT_P
     const portStr = withoutScheme.slice(idx + 1);
     const port = Number(portStr);
     if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-        throw new Error(`port tidak valid: '${portStr}' (contoh: node:8090)`);
+        throw new Error(`invalid port: '${portStr}' (example: node:8090)`);
     }
 
     const address = withoutScheme.slice(0, idx).trim();
     if (!address || /\s/.test(address)) {
-        throw new Error(`alamat tidak valid: '${raw}'`);
+        throw new Error(`invalid address: '${raw}'`);
     }
     return { address, port };
 }

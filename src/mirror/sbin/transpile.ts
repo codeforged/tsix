@@ -27,12 +27,15 @@ const EXEC_MODE_DIRS: Record<string, number> = {
     "/sbin": 0o744,
     "/usr/bin": 0o755,
     "/usr/local/bin": 0o755,
-    "/opt": 0o755,
 };
 
+/**
+ * Sidecar `.js` adalah hasil build yang dieksekusi `EXEC`/`tsh`, jadi SELALU +x.
+ * Direktori sistem memakai mode bakunya; lokasi lain (mis. `/opt/<paket>/`) 0755.
+ */
 function modeFor(path: string): number {
     const dir = path.substring(0, path.lastIndexOf("/"));
-    return EXEC_MODE_DIRS[dir] ?? 0o644;
+    return EXEC_MODE_DIRS[dir] ?? 0o755;
 }
 
 export const main = Program(async (args) => {
@@ -52,7 +55,7 @@ export const main = Program(async (args) => {
     try {
         esbuild = (global as any).require("esbuild");
     } catch (e: any) {
-        await std.println(`❌ Error: transpile butuh esbuild di host (${e.message}).`);
+        await std.println(`❌ Error: transpile requires esbuild on the host (${e.message}).`);
         return;
     }
 
@@ -80,7 +83,7 @@ export const main = Program(async (args) => {
 
     const unique = [...new Set(files)];
     if (unique.length === 0) {
-        await std.println("Tidak ada berkas .ts untuk di-transpile.");
+        await std.println("No .ts files to transpile.");
         return;
     }
 
@@ -99,14 +102,17 @@ export const main = Program(async (args) => {
                 sourcemap: "inline",
                 sourcefile: tsPath.split("/").pop(),
             });
-            if (!out?.code) throw new Error("esbuild tidak menghasilkan kode");
+            if (!out?.code) throw new Error("esbuild produced no output");
             await fs.writeFile(jsPath, utf8ToVfsBytes(out.code));
-            await fs.chmod(jsPath, modeFor(jsPath));
-            await std.println(`  -> ${jsPath}`);
+            const mode = modeFor(jsPath);
+            if (!(await fs.chmod(jsPath, mode))) {
+                await std.println(`⚠️  chmod ${mode.toString(8)} failed: ${jsPath}`);
+            }
+            await std.println(`  -> ${jsPath} (mode ${mode.toString(8)})`);
             done++;
         } catch (e: any) {
             failed++;
-            await std.println(`⚠️  gagal ${tsPath}: ${e.message}`);
+            await std.println(`⚠️  failed ${tsPath}: ${e.message}`);
         }
     }
 

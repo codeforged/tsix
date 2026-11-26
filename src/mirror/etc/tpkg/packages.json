@@ -704,7 +704,8 @@
                     "src": "/usr/bin/img2b64.ts",
                     "dst": "/usr/bin/img2b64.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "procutils",
@@ -725,7 +726,8 @@
                     "src": "/bin/kill.ts",
                     "dst": "/bin/kill.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "nettools",
@@ -798,7 +800,8 @@
                     "src": "/sbin/vpns.ts",
                     "dst": "/sbin/vpns.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "tpkg",
@@ -875,7 +878,8 @@
                     "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/plcdFont5x7.ts",
                     "hostDst": "src/kernel/devices/aux-devices/plcdFont5x7.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "joystick-driver",
@@ -889,7 +893,8 @@
                     "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/joystick.ts",
                     "hostDst": "src/kernel/devices/aux-devices/joystick.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "dome",
@@ -954,7 +959,8 @@
                     "src": "/etc/dome/dome.conf",
                     "dst": "/etc/dome/dome.conf"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "asteracea",
@@ -991,7 +997,8 @@
                     "src": "/etc/asteracea/wallpaper.json",
                     "dst": "/etc/asteracea/wallpaper.json"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "emerald",
@@ -1004,7 +1011,8 @@
                     "src": "/lib/emerald.ts",
                     "dst": "/lib/emerald.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "cashew",
@@ -1041,7 +1049,8 @@
                     "src": "/etc/asteracea/menu/cashew-demo3.menu",
                     "dst": "/etc/asteracea/menu/cashew-demo3.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "pistachio",
@@ -1094,7 +1103,8 @@
                     "src": "/lib/pistachio/widgets.ts",
                     "dst": "/lib/pistachio/widgets.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "pistachio-demos",
@@ -1297,7 +1307,8 @@
                     "src": "/etc/asteracea/menu/lantana-control-panel.menu",
                     "dst": "/etc/asteracea/menu/lantana-control-panel.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "ddc-lib",
@@ -1310,7 +1321,8 @@
                     "src": "/lib/ddc.ts",
                     "dst": "/lib/ddc.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "ddc-sample",
@@ -1475,7 +1487,8 @@
                     "src": "/etc/asteracea/menu/ddc-sample9.menu",
                     "dst": "/etc/asteracea/menu/ddc-sample9.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "netsocket-sample",
@@ -1536,7 +1549,8 @@
                     "src": "/opt/test/netsocket-tx.ts",
                     "dst": "/opt/test/netsocket-tx.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "eucalyptus",
@@ -1553,7 +1567,8 @@
                     "src": "/etc/asteracea/menu/eucalyptus.menu",
                     "dst": "/etc/asteracea/menu/eucalyptus.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "file-cruiser",
@@ -1570,7 +1585,8 @@
                     "src": "/etc/asteracea/menu/file-cruiser.menu",
                     "dst": "/etc/asteracea/menu/file-cruiser.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "image-viewer",
@@ -1587,7 +1603,8 @@
                     "src": "/etc/asteracea/menu/image-viewer.menu",
                     "dst": "/etc/asteracea/menu/image-viewer.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "esp-ota",
@@ -1620,7 +1637,8 @@
                     "src": "/usr/bin/esp-send.ts",
                     "dst": "/usr/bin/esp-send.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "azalea-dashboard",
@@ -1633,7 +1651,8 @@
                     "src": "/opt/azalea-dashboard/azalea-dashboard.ts",
                     "dst": "/opt/azalea-dashboard/azalea-dashboard.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "network-traffic",
@@ -1650,7 +1669,8 @@
                     "src": "/etc/asteracea/menu/network-traffic.menu",
                     "dst": "/etc/asteracea/menu/network-traffic.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "pixelterm",
@@ -1667,7 +1687,8 @@
                     "src": "/etc/asteracea/menu/pixelterm.menu",
                     "dst": "/etc/asteracea/menu/pixelterm.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "retroterm",
@@ -1726,7 +1747,8 @@
                     "src": "/etc/smartbulb/config.json",
                     "dst": "/etc/smartbulb/config.json"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "set-theme",
@@ -1743,7 +1765,8 @@
                     "src": "/etc/asteracea/menu/set-theme.menu",
                     "dst": "/etc/asteracea/menu/set-theme.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "taskmgr",
@@ -1760,7 +1783,8 @@
                     "src": "/etc/asteracea/menu/taskmgr.menu",
                     "dst": "/etc/asteracea/menu/taskmgr.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "telechat",
@@ -1781,7 +1805,8 @@
                     "src": "/etc/asteracea/menu/telechat.menu",
                     "dst": "/etc/asteracea/menu/telechat.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "telechatd",
@@ -1802,7 +1827,8 @@
                     "src": "/etc/telechatd/config.json",
                     "dst": "/etc/telechatd/config.json"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "tssh",
@@ -1829,7 +1855,8 @@
                     "src": "/opt/tssh/tsshd.ts",
                     "dst": "/opt/tssh/tsshd.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "esp32-lantana-emu",
@@ -1842,7 +1869,8 @@
                     "src": "/opt/esp32-demo/esp32-demo.ts",
                     "dst": "/opt/esp32-demo/esp32-demo.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "mysqld",
@@ -1855,26 +1883,8 @@
                     "src": "/opt/mysqld/mysqld.ts",
                     "dst": "/opt/mysqld/mysqld.ts"
                 }
-            ]
-        },
-        {
-            "name": "hello-world",
-            "version": "1.0.0",
-            "description": "Sample package for TPKG testing",
-            "author": "Antigravity",
-            "needReboot": false,
-            "onAfterDownload": "/opt/test/hello-pkg.ts",
-            "items": [
-                {
-                    "src": "/opt/test/hello-pkg.ts",
-                    "dst": "/opt/test/hello-pkg.ts",
-                    "isExecutable": true
-                },
-                {
-                    "src": "/etc/pkg-demo.conf",
-                    "dst": "/root/bucket/pkg-demo.conf"
-                }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "filesystem-tools",
@@ -1887,7 +1897,8 @@
                     "src": "/usr/bin/bkfs.ts",
                     "dst": "/usr/bin/bkfs.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "scheduler",
@@ -1904,7 +1915,8 @@
                     "src": "/usr/bin/crontab.ts",
                     "dst": "/usr/bin/crontab.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "ipc-tools",
@@ -1921,7 +1933,8 @@
                     "src": "/usr/bin/ipc-send.ts",
                     "dst": "/usr/bin/ipc-send.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "key-tools",
@@ -1938,7 +1951,8 @@
                     "src": "/usr/bin/ssh-keygen.ts",
                     "dst": "/usr/bin/ssh-keygen.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "dev-tools",
@@ -1951,7 +1965,8 @@
                     "src": "/sbin/userlib-update.ts",
                     "dst": "/sbin/userlib-update.ts"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "bitshark",
@@ -1968,7 +1983,8 @@
                     "src": "/etc/asteracea/menu/bitshark.menu",
                     "dst": "/etc/asteracea/menu/bitshark.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "craving-tracker",
@@ -1989,7 +2005,8 @@
                     "src": "/etc/asteracea/menu/craving-tracker.menu",
                     "dst": "/etc/asteracea/menu/craving-tracker.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "iot-dashboard",
@@ -2006,7 +2023,8 @@
                     "src": "/etc/asteracea/menu/iot-dashboard.menu",
                     "dst": "/etc/asteracea/menu/iot-dashboard.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "krisan",
@@ -2063,7 +2081,8 @@
                     "src": "/opt/krisan/wallpapers/default.b64",
                     "dst": "/opt/krisan/wallpapers/default.b64"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "pixelspace-traffic",
@@ -2080,7 +2099,8 @@
                     "src": "/etc/asteracea/menu/pixelspace-traffic.menu",
                     "dst": "/etc/asteracea/menu/pixelspace-traffic.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "plcd-emulator",
@@ -2105,7 +2125,8 @@
                     "src": "/etc/asteracea/menu/lcd-emulator.menu",
                     "dst": "/etc/asteracea/menu/lcd-emulator.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         },
         {
             "name": "test-lab",
@@ -2326,7 +2347,8 @@
                     "src": "/etc/asteracea/menu/hello-world.menu",
                     "dst": "/etc/asteracea/menu/hello-world.menu"
                 }
-            ]
+            ],
+            "onAfterDownload": "/sbin/transpile.ts"
         }
     ]
 }

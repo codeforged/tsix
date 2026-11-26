@@ -173,7 +173,7 @@ export class Main {
         const rootRequired = ["install", "remove", "update", "rollback", "download"];
         if (rootRequired.includes(cmd) && who.uid !== 0) {
             await this.lib.std.print(
-                `❌ Error: 'tpkg ${cmd}' requires root privileges (mengubah sistem & bisa menulis host FS). Use sudo.\n`,
+                `❌ Error: 'tpkg ${cmd}' requires root privileges (modifies the system & may write to the host FS). Use sudo.\n`,
             );
             return;
         }
@@ -222,7 +222,7 @@ export class Main {
             "  tpkg install <pkg> [--from <host>] - Install a package (verify + backup + rollback)\n",
         );
         await this.lib.std.print(
-            "  tpkg remove <pkg>                  - Uninstall: hapus file paket (konfirmasi konfigurasi)\n",
+            "  tpkg remove <pkg>                  - Uninstall a package (asks before removing config files)\n",
         );
         await this.lib.std.print("  tpkg download <pkg> [--from <host>] - Fetch & verify without installing\n");
         await this.lib.std.print("  tpkg verify <pkg> [--from <host>]  - Verify signature of a package\n");
@@ -230,8 +230,8 @@ export class Main {
         await this.lib.std.print("  tpkg metrics                       - Show statistics\n");
         await this.lib.std.print("  tpkg --set-repo <host[:port]>      - Set default repository\n");
         await this.lib.std.print(
-            "\n⚠️  update/install/remove/download/rollback wajib root (sudo): mengubah sistem,\n" +
-                "    dan paket engine (mis. system-update) menulis ke HOST FS — kernel & lib.\n",
+            "\n⚠️  update/install/remove/download/rollback require root (sudo): they modify the system,\n" +
+                "    and engine packages (e.g. system-update) write to the HOST FS — kernel & lib.\n",
         );
     }
 
@@ -375,9 +375,9 @@ export class Main {
         if (localVer && !force) {
             const cmp = compareVersions(localVer, remotePkg.version);
             if (cmp >= 0) {
-                const msg = cmp === 0 ? "already same version" : "already newer";
+                const msg = cmp === 0 ? "already the same version" : "already newer";
                 await this.lib.std.print(
-                    `⚠️  Version local for \x1b[1m${pkgName}\x1b[0m is ${msg} (\x1b[1;36m${localVer}\x1b[0m).\n`,
+                    `⚠️  Local version of \x1b[1m${pkgName}\x1b[0m is ${msg} (\x1b[1;36m${localVer}\x1b[0m).\n`,
                 );
                 const confirm = await this.lib.std.read("Proceed with installation anyway? [y/N]: ");
                 if (confirm.toLowerCase().trim() !== "y") {
@@ -462,7 +462,7 @@ export class Main {
             );
 
             this.metrics.downloads++;
-            await this.lib.std.print(`✅ Disimpan (terverifikasi) di ${dir}\n`);
+            await this.lib.std.print(`✅ Saved (verified) to ${dir}\n`);
         } finally {
             await this.lib.net.close(session.fd).catch(() => {});
         }
@@ -496,7 +496,7 @@ export class Main {
             if (files) {
                 await this.lib.std.print(`✅ Signature & integrity OK — ${files.length} file.\n`);
             } else {
-                await this.lib.std.print("❌ Verifikasi GAGAL.\n");
+                await this.lib.std.print("❌ Verification FAILED.\n");
             }
         } finally {
             await this.lib.net.close(session.fd).catch(() => {});
@@ -516,18 +516,18 @@ export class Main {
 
         const stamps = await this.listBackups(pkgName);
         if (stamps.length === 0) {
-            await this.lib.std.print(`❌ Tidak ada backup untuk '${pkgName}'.\n`);
+            await this.lib.std.print(`❌ No backup found for '${pkgName}'.\n`);
             return;
         }
 
         const index = await this.loadBackupIndex(pkgName, stamps[0]);
         if (!index) {
-            await this.lib.std.print(`❌ Backup ${pkgName}/${stamps[0]} rusak (index.json tidak terbaca).\n`);
+            await this.lib.std.print(`❌ Backup ${pkgName}/${stamps[0]} is corrupt (index.json unreadable).\n`);
             return;
         }
 
         await this.lib.std.print(
-            `Rolling back \x1b[1m${pkgName}\x1b[0m ke backup ${new Date(index.createdAt).toISOString()}...\n`,
+            `Rolling back \x1b[1m${pkgName}\x1b[0m to backup ${new Date(index.createdAt).toISOString()}...\n`,
         );
         await this.restoreBackup(index);
         await this.runUndoScript(index.undoScript);
@@ -566,12 +566,12 @@ export class Main {
             return await this.withRetry(
                 async () => {
                     const reply = await this.fetchBundle(session, pkgName);
-                    if (!reply) throw new Error("timeout menunggu bundle");
+                    if (!reply) throw new Error("timeout waiting for bundle");
                     return reply;
                 },
                 3,
                 1000,
-                "ambil bundle",
+                "fetch bundle",
             );
         } catch (e: any) {
             await this.lib.std.print(`❌ ${e.message}\n`);
@@ -604,7 +604,7 @@ export class Main {
         // konfigurasi tidak boleh membuat klien menulis di luar root proyek.
         for (const f of files) {
             if (f.hostDst !== undefined && !isSafeHostDst(f.hostDst)) {
-                await this.lib.std.print(`❌ ERROR: hostDst tidak aman di paket: '${f.hostDst}'\n`);
+                await this.lib.std.print(`❌ ERROR: unsafe hostDst in package: '${f.hostDst}'\n`);
                 return null;
             }
         }
@@ -635,7 +635,7 @@ export class Main {
         // jadi minta konfirmasi eksplisit walau sudah root. Default = TIDAK.
         if (hostFiles.length > 0) {
             if (!(await this.confirmHostWrite(pkgName, hostFiles))) {
-                await this.lib.std.print("❌ Instalasi dibatalkan — tidak ada yang ditulis.\n");
+                await this.lib.std.print("❌ Installation aborted — nothing was written.\n");
                 return false;
             }
         }
@@ -664,12 +664,12 @@ export class Main {
                 // perantara — salin keluar sekarang, SEBELUM laporan sukses.
                 if (file.hostDst) {
                     const ok = await this.lib.fs.syncToHost(file.path, file.hostDst);
-                    if (!ok) throw new Error(`gagal sync ke host: ${file.hostDst}`);
+                    if (!ok) throw new Error(`failed to sync to host: ${file.hostDst}`);
                     await this.lib.std.print(`     host: ${file.hostDst}\n`);
                 }
             }
         } catch (e: any) {
-            await this.lib.std.print(`❌ Gagal menulis: ${e.message}\n`);
+            await this.lib.std.print(`❌ Write failed: ${e.message}\n`);
             await this.restoreBackup(backup);
             this.metrics.failed++;
             return false;
@@ -696,17 +696,17 @@ export class Main {
      */
     private async confirmHostWrite(pkgName: string, hostFiles: TpkgBundleFile[]): Promise<boolean> {
         await this.lib.std.print(
-            `\n\x1b[1;33m⚠️  Paket '${pkgName}' menulis ke HOST FS (${hostFiles.length} file).\x1b[0m\n`,
+            `\n\x1b[1;33m⚠️  Package '${pkgName}' writes to the HOST FS (${hostFiles.length} file(s)).\x1b[0m\n`,
         );
-        await this.lib.std.print("   Ini mengubah file di luar VFS — termasuk kernel & komponen engine.\n");
+        await this.lib.std.print("   This modifies files outside the VFS — including the kernel & engine components.\n");
         for (const f of hostFiles.slice(0, 10)) {
             await this.lib.std.print(`   • ${f.hostDst}\n`);
         }
         if (hostFiles.length > 10) {
-            await this.lib.std.print(`   … dan ${hostFiles.length - 10} file lain\n`);
+            await this.lib.std.print(`   … and ${hostFiles.length - 10} more file(s)\n`);
         }
 
-        const answer = await this.lib.std.read("\nLanjutkan tulis ke host? [y/N]: ");
+        const answer = await this.lib.std.read("\nProceed with writing to host? [y/N]: ");
         return answer.toLowerCase().trim() === "y";
     }
 
@@ -808,7 +808,7 @@ export class Main {
                 if (existingStat) {
                     const existing = await this.lib.fs.readFile(file.path);
                     if (existing === null || existing === undefined) {
-                        throw new Error(`File ada tapi tidak bisa dibaca untuk backup: ${file.path}`);
+                        throw new Error(`File exists but cannot be read for backup: ${file.path}`);
                     }
                     seq++;
                     const name = `${String(seq).padStart(4, "0")}.bin`;
@@ -838,7 +838,7 @@ export class Main {
             await this.lib.fs.writeFile(`${dir}/index.json`, JSON.stringify(index, null, 2));
             return index;
         } catch (e: any) {
-            await this.lib.std.print(`❌ Backup gagal (${e.message}) — instalasi dibatalkan.\n`);
+            await this.lib.std.print(`❌ Backup failed (${e.message}) — installation aborted.\n`);
             return null;
         }
     }
@@ -861,17 +861,17 @@ export class Main {
                 try {
                     if (entry.hostExisted && entry.hostBackup) {
                         const ok = await this.lib.fs.syncToHost(`${dir}/${entry.hostBackup}`, entry.hostPath);
-                        if (!ok) throw new Error("syncToHost mengembalikan false");
+                        if (!ok) throw new Error("syncToHost returned false");
                         restored++;
                     } else {
                         // File host yang BARU dibuat paket ini. VFS tidak punya syscall
                         // untuk menghapus file host, jadi dilaporkan ke operator — lebih
                         // jujur daripada gagal diam-diam.
                         skippedHost++;
-                        await this.lib.std.print(`⚠️  File host baru tidak bisa dihapus otomatis: ${entry.hostPath}\n`);
+                        await this.lib.std.print(`⚠️  New host file cannot be removed automatically: ${entry.hostPath}\n`);
                     }
                 } catch (e: any) {
-                    await this.lib.std.print(`⚠️  Gagal memulihkan host ${entry.hostPath}: ${e.message}\n`);
+                    await this.lib.std.print(`⚠️  Failed to restore host file ${entry.hostPath}: ${e.message}\n`);
                 }
             }
 
@@ -888,13 +888,13 @@ export class Main {
                     removed++;
                 }
             } catch (e: any) {
-                await this.lib.std.print(`⚠️  Gagal memulihkan ${entry.path}: ${e.message}\n`);
+                await this.lib.std.print(`⚠️  Failed to restore ${entry.path}: ${e.message}\n`);
             }
         }
 
         await this.lib.std.print(
-            `✅ Rollback selesai (${restored} dipulihkan, ${removed} dihapus` +
-                `${skippedHost > 0 ? `, ${skippedHost} file host perlu dihapus manual` : ""}).\n`,
+            `✅ Rollback complete (${restored} restored, ${removed} removed` +
+                `${skippedHost > 0 ? `, ${skippedHost} host file(s) need manual removal` : ""}).\n`,
         );
         return true;
     }
@@ -1064,13 +1064,13 @@ export class Main {
 
         const ack = await this.recvExpect(fd, ["handshake_ack"], 5000, { from: target.address });
         if (!ack) {
-            await this.lib.std.print(`❌ Host ${target.address}:${target.port} tidak merespons handshake.\n`);
+            await this.lib.std.print(`❌ Host ${target.address}:${target.port} did not respond to handshake.\n`);
             await this.lib.net.close(fd).catch(() => {});
             return null;
         }
 
         if (!ack.sessionKey || !ack.publicKey) {
-            await this.lib.std.print("❌ Handshake gagal (balasan tidak lengkap).\n");
+            await this.lib.std.print("❌ Handshake failed (incomplete reply).\n");
             await this.lib.net.close(fd).catch(() => {});
             return null;
         }
@@ -1152,7 +1152,7 @@ export class Main {
         fn: () => Promise<T>,
         attempts: number = 3,
         baseMs: number = 1000,
-        label: string = "operasi",
+        label: string = "operation",
     ): Promise<T> {
         let lastErr: any;
 
@@ -1164,7 +1164,7 @@ export class Main {
                 if (attempt === attempts) break;
                 const wait = baseMs * Math.pow(2, attempt - 1);
                 await this.lib.std.print(
-                    `⏳ ${label} gagal (${e.message}) — ulang dalam ${wait}ms (${attempt}/${attempts})\n`,
+                    `⏳ ${label} failed (${e.message}) — retrying in ${wait}ms (${attempt}/${attempts})\n`,
                 );
                 await new Promise((r) => setTimeout(r, wait));
             }
@@ -1274,17 +1274,17 @@ export class Main {
         }
 
         if (files.length === 0 && !status[pkgName]) {
-            await this.lib.std.print(`❌ Paket '${pkgName}' tidak terpasang.\n`);
+            await this.lib.std.print(`❌ Package '${pkgName}' is not installed.\n`);
             return;
         }
         if (files.length === 0) {
             await this.lib.std.print(
-                `❌ Tidak ada daftar file untuk '${pkgName}' (manifest/backup hilang). Hapus manual bila perlu.\n`,
+                `❌ No file list for '${pkgName}' (manifest/backup missing). Remove its files manually if needed.\n`,
             );
             return;
         }
 
-        await this.lib.std.print(`\n\x1b[1;33m⚠️  Menghapus paket '${pkgName}' (${files.length} file).\x1b[0m\n`);
+        await this.lib.std.print(`\n\x1b[1;33m⚠️  Removing package '${pkgName}' (${files.length} file(s)).\x1b[0m\n`);
 
         let removeAll = false;
         let removed = 0;
@@ -1298,8 +1298,8 @@ export class Main {
                 const current = await this.lib.fs.readFile(f.path);
                 const modified =
                     current !== null && current !== undefined && f.sha256 !== "" && sha256Hex(current) !== f.sha256;
-                const tag = modified ? "\x1b[1;33m(dimodifikasi)\x1b[0m" : "\x1b[2m(tidak berubah)\x1b[0m";
-                const ans = (await this.lib.std.read(`Konfigurasi ${f.path} ${tag} — [r]emove / [a]ll / [c]ancel: `))
+                const tag = modified ? "\x1b[1;33m(modified)\x1b[0m" : "\x1b[2m(unchanged)\x1b[0m";
+                const ans = (await this.lib.std.read(`Config file ${f.path} ${tag} — [r]emove / [a]ll / [c]ancel: `))
                     .toLowerCase()
                     .trim();
                 if (ans === "c" || ans === "cancel") {
@@ -1323,20 +1323,20 @@ export class Main {
                 }
             } catch (e: any) {
                 failed++;
-                await this.lib.std.print(`⚠️  Gagal menghapus ${f.path}: ${e.message}\n`);
+                await this.lib.std.print(`⚠️  Failed to remove ${f.path}: ${e.message}\n`);
             }
 
             if (f.hostDst) {
                 // Kernel tidak punya syscall untuk menghapus file HOST; laporkan jujur.
                 hostManual++;
-                await this.lib.std.print(`⚠️  File host perlu dihapus manual: ${f.hostDst}\n`);
+                await this.lib.std.print(`⚠️  Host file must be removed manually: ${f.hostDst}\n`);
             }
         }
 
         if (cancelled) {
             await this.lib.std.print(
-                `\n⏹️  Dibatalkan. ${removed} file dihapus, ${kept} dilewati — status paket TIDAK diubah.\n` +
-                    `   Jalankan lagi 'tpkg remove ${pkgName}' untuk melanjutkan.\n`,
+                `\n⏹️  Cancelled. ${removed} file(s) removed, ${kept} skipped — package status NOT changed.\n` +
+                    `   Run 'tpkg remove ${pkgName}' again to continue.\n`,
             );
             return;
         }
@@ -1351,10 +1351,10 @@ export class Main {
         }
 
         await this.lib.std.print(
-            `\n✅ Paket '${pkgName}' dihapus: ${removed} file` +
-                `${kept > 0 ? `, ${kept} konfigurasi dibiarkan` : ""}` +
-                `${failed > 0 ? `, ${failed} gagal` : ""}` +
-                `${hostManual > 0 ? `, ${hostManual} file host perlu manual` : ""}.\n`,
+            `\n✅ Package '${pkgName}' removed: ${removed} file(s)` +
+                `${kept > 0 ? `, ${kept} config file(s) kept` : ""}` +
+                `${failed > 0 ? `, ${failed} failed` : ""}` +
+                `${hostManual > 0 ? `, ${hostManual} host file(s) need manual removal` : ""}.\n`,
         );
     }
 

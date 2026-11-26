@@ -313,7 +313,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         const lib = world.makeLib(world.serverNode);
         await new TpkgDaemon().execute(lib as any, ["--port", "abc"]);
 
-        expect(out(world)).toMatch(/--port tidak valid/);
+        expect(out(world)).toMatch(/invalid --port/);
         expect(world.ioctls).toHaveLength(0);
     });
 
@@ -389,7 +389,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         ]);
 
         const text = out(world);
-        expect(text).toMatch(/file sumber tidak ada/);
+        expect(text).toMatch(/source file not found/);
 
         const fs = world.fs(world.clientNode);
         expect(fs.files.has("/opt/test/hello-pkg.ts")).toBe(false);
@@ -407,7 +407,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
             "server",
         ]);
 
-        expect(out(world)).toMatch(/melebihi batas/);
+        expect(out(world)).toMatch(/exceeds limit/);
         expect(world.fs(world.clientNode).files.has("/opt/test/hello-pkg.ts")).toBe(false);
     });
 
@@ -428,7 +428,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         await new TpkgClient().execute(lib, ["rollback", "hello-world"]);
 
         const fs = world.fs(world.clientNode);
-        expect(out(world)).toMatch(/Rollback selesai/);
+        expect(out(world)).toMatch(/Rollback complete/);
         // File lama kembali…
         expect(fs.files.get("/etc/pkg-demo.conf")).toBe("SIDANG-LAMA");
         // …file yang tadinya tidak ada dihapus…
@@ -452,7 +452,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         ]);
 
         const text = out(world);
-        expect(text).toMatch(/Disimpan \(terverifikasi\)/);
+        expect(text).toMatch(/Saved \(verified\)/);
 
         const fs = world.fs(world.clientNode);
         expect(fs.files.has("/var/cache/tpkg/bundles/hello-world/1.0.0/files/opt/test/hello-pkg.ts")).toBe(true);
@@ -552,7 +552,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
 
         const text = out(world);
         // Konfirmasi tulis-host ditampilkan (bukan diam-diam menulis).
-        expect(text).toMatch(/menulis ke HOST FS/);
+        expect(text).toMatch(/writes to the HOST FS/);
         expect(text).toMatch(/src\/kernel\/Kernel\.ts/);
 
         // VFS ter-update…
@@ -625,7 +625,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
             "server",
         ]);
 
-        expect(out(world)).toMatch(/Instalasi dibatalkan/);
+        expect(out(world)).toMatch(/Installation aborted/);
         expect(world.hostFiles.get("src/mirror/bin/init.ts")).toBe("// init LAMA");
         expect(world.fs(world.clientNode).files.has("/bin/init.ts")).toBe(false);
     });
@@ -650,7 +650,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
             "server",
         ]);
 
-        expect(out(world)).toMatch(/Gagal menulis/);
+        expect(out(world)).toMatch(/Write failed/);
         // VFS kembali ke isi lama — bukan tertinggal versi baru tanpa host-nya.
         expect(world.fs(world.clientNode).files.get("/bin/init.ts")).toBe("// init LAMA");
         expect(world.hostFiles.get("src/kernel/Kernel.ts")).toBe("// kernel LAMA");
@@ -674,7 +674,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         world.prints.length = 0;
         await new TpkgClient().execute(lib, ["rollback", "engine"]);
 
-        expect(out(world)).toMatch(/Rollback selesai/);
+        expect(out(world)).toMatch(/Rollback complete/);
         expect(world.hostFiles.get("src/kernel/Kernel.ts")).toBe("// kernel LAMA");
     });
 
@@ -746,7 +746,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         await new TpkgClient().execute(lib, ["remove", "hello-world"]);
 
         const text = out(world);
-        expect(text).toContain("(dimodifikasi)");
+        expect(text).toContain("(modified)");
         // File biasa langsung dihapus tanpa tanya.
         expect(fs.files.has("/opt/test/hello-pkg.ts")).toBe(false);
         // Konfigurasi dihapus setelah konfirmasi `remove`.
@@ -768,7 +768,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         world.answers.push("c"); // cancel saat tiba di konfigurasi
         await new TpkgClient().execute(lib, ["remove", "hello-world"]);
 
-        expect(out(world)).toMatch(/Dibatalkan/);
+        expect(out(world)).toMatch(/Cancelled/);
         // Berkas konfigurasi tetap ada…
         expect(fs.files.has("/etc/pkg-demo.conf")).toBe(true);
         // …status paket tetap (belum benar-benar dilepas)…
