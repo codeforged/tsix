@@ -1,6 +1,9 @@
 import * as crypto from "crypto";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
+import { BKFS } from "../../src/vfs/BKFS";
+import { populateRootfs } from "../lib/rootfs-image";
 
 interface PackageItem {
     src: string;
@@ -57,6 +60,7 @@ const INSTALLER_FILES = [
     "scripts/lib/binary-mode.ts",
     "scripts/lib/fresh-accounts.ts",
     "scripts/lib/fresh-fstab.ts",
+    "scripts/lib/rootfs-image.ts",
     "scripts/lib/text-file.ts",
     "scripts/lib/user-account.ts",
     "src/main.ts",
@@ -65,6 +69,18 @@ const INSTALLER_FILES = [
     "src/userland/VfsModuleResolver.js",
 ];
 const STATE_FILE = ".twrapper-state.json";
+/** Database rootfs yang dibuat `--no-mirror` (relatif output; = `kernel.database`). */
+const DB_FILE = "system.db";
+const MIRROR_PREFIX = "src/mirror/";
+
+interface BuildOptions {
+    /**
+     * Mode PRODUKSI: rootfs (`src/mirror/**`) TIDAK ditulis sebagai file, tapi
+     * langsung ke `<output>/system.db` (BKFS). Distro tidak punya `src/mirror/`,
+     * dan `scripts/install.ts` mendeteksinya sebagai mode produksi.
+     */
+    noMirror: boolean;
+}
 
 function sha256(bytes: Buffer): string {
     return crypto.createHash("sha256").update(bytes).digest("hex");
@@ -289,15 +305,26 @@ function readKernelVersion(): string {
  * transformSysconfig(): selaraskan identitas kernel di `src/sysconfig.conf`.
  *
  * `version` ← versi kernel (`src/kernel/Kernel.ts`) dan `distroName` ← nama distro
- * pada recipe. Baris/komentar lain dan gaya EOL tidak diubah.
+ * pada recipe. Mode produksi (`--no-mirror`) juga memaksa `database`/`rootType`
+ * dan mematikan file log host (`[logger] logFile = none`). Baris/komentar lain
+ * dan gaya EOL tidak diubah.
  */
-function transformSysconfig(bytes: Buffer, recipe: Recipe, kernelVersion: string): Buffer {
+function transformSysconfig(bytes: Buffer, recipe: Recipe, kernelVersion: string, noMirror: boolean = false): Buffer {
     const text = bytes.toString("utf8");
     const eol = text.includes("\r\n") ? "\r\n" : "\n";
     const lines = text.split(/\r?\n/);
-    const updates: Record<string, string> = {
-        version: kernelVersion,
-        distroName: recipe.distro.name,
+    // Kunci yang diganti, per bagian.
+    const updates: Record<string, Record<string, string>> = {
+        kernel: {
+            version: kernelVersion,
+            distroName: recipe.distro.name,
+            // Produksi: root WAJIB dari database yang dibuat builder — tidak ada
+            // src/mirror untuk rootType `host`.
+            ...(noMirror ? { database: DB_FILE, rootType: "bkfs" } : {}),
+        },
+        // Produksi: log debug host (`jsix.log`) dimatikan — lihat
+        // `isLogFileDisabled()` di src/common/Logger.ts.
+        ...(noMirror ? { logger: { logFile: "none" } } : {}),
     };
     const seen = new Set<string>();
     let section = "";
@@ -308,18 +335,21 @@ function transformSysconfig(bytes: Buffer, recipe: Recipe, kernelVersion: string
             section = sectionMatch[1].trim().toLowerCase();
             return line;
         }
-        if (section !== "kernel") return line;
+        const sectionUpdates = updates[section];
+        if (!sectionUpdates) return line;
         const kv = line.match(/^(\s*)([A-Za-z0-9_.]+)(\s*=\s*)(.*)$/);
         if (!kv) return line;
         const key = kv[2];
-        if (!(key in updates)) return line;
-        seen.add(key);
-        return `${kv[1]}${key}${kv[3]}${updates[key]}`;
+        if (!(key in sectionUpdates)) return line;
+        seen.add(`${section}.${key}`);
+        return `${kv[1]}${key}${kv[3]}${sectionUpdates[key]}`;
     });
 
-    for (const key of Object.keys(updates)) {
-        if (!seen.has(key)) {
-            throw new Error(`sysconfig.conf: kunci '${key}' tidak ditemukan di bagian [kernel].`);
+    for (const [name, sectionUpdates] of Object.entries(updates)) {
+        for (const key of Object.keys(sectionUpdates)) {
+            if (!seen.has(`${name}.${key}`)) {
+                throw new Error(`sysconfig.conf: kunci '${key}' tidak ditemukan di bagian [${name}].`);
+            }
         }
     }
     return Buffer.from(out.join(eol), "utf8");
@@ -375,12 +405,17 @@ function transformProfile(bytes: Buffer, pathEntries: string[]): Buffer {
     return Buffer.from(out.join(eol), "utf8");
 }
 
-function readme(recipe: Recipe): Buffer {
+function readme(recipe: Recipe, noMirror: boolean = false): Buffer {
+    const productionNote =
+        `> **Production image.** The root filesystem is prebuilt in \`${DB_FILE}\` (BKFS); ` +
+        "there is no `src/mirror/`. `npm run tsix:install` detects this and only configures " +
+        "the node (hostname, users, root password) — it does not ask for a database file.";
     const text = [
         `# ${recipe.distro.name}`,
         "",
         recipe.distro.description,
         "",
+        ...(noMirror ? [productionNote, ""] : []),
         "## Install",
         "",
         "```sh",
@@ -442,7 +477,7 @@ function resolveOutputDirectory(relative: string): string {
     return absolute;
 }
 
-function buildPlan(recipePath: string) {
+function buildPlan(recipePath: string, options: BuildOptions = { noMirror: false }) {
     const recipe = parseRecipe(readJson(recipePath, "Twrapper recipe"));
     const sourceManifest = readJson(path.join(ROOT, PACKAGE_MANIFEST), "TPKG package manifest");
     const installed = selectedPackages(sourceManifest, recipe.installedPackages);
@@ -497,12 +532,17 @@ function buildPlan(recipePath: string) {
     if (!sysconfig) throw new Error("src/sysconfig.conf was not included.");
     outputs.set("src/sysconfig.conf", {
         ...sysconfig,
-        bytes: transformSysconfig(sysconfig.bytes, recipe, readKernelVersion()),
+        bytes: transformSysconfig(sysconfig.bytes, recipe, readKernelVersion(), options.noMirror),
     });
 
-    const readmeBytes = readme(recipe);
+    const readmeBytes = readme(recipe, options.noMirror);
     outputs.set("README.md", { bytes: readmeBytes, mode: 0o644, sourcePath: "generated" });
-    return { recipe, outputs, outputDirectory: resolveOutputDirectory(recipe.outputDirectory) };
+    return {
+        recipe,
+        outputs,
+        options,
+        outputDirectory: resolveOutputDirectory(recipe.outputDirectory),
+    };
 }
 
 function readPreviousState(outputDirectory: string): PreviousState | undefined {
@@ -527,8 +567,76 @@ function verifyOwnedOutput(outputDirectory: string, previous: PreviousState): vo
     }
 }
 
+/** pruneEmptyDirs(): hapus direktori kosong dari `start` naik sampai `stop` (eksklusif). */
+function pruneEmptyDirs(start: string, stop: string): void {
+    let dir = start;
+    while (dir.startsWith(`${stop}${path.sep}`) && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
+        fs.rmdirSync(dir);
+        dir = path.dirname(dir);
+    }
+}
+
+/** removeDatabaseFiles(): DB SQLite + sisa WAL/SHM-nya. */
+function removeDatabaseFiles(dbPath: string): void {
+    for (const suffix of ["", "-wal", "-shm"]) {
+        if (fs.existsSync(dbPath + suffix)) fs.unlinkSync(dbPath + suffix);
+    }
+}
+
+/**
+ * buildRootfsDatabase(): `--no-mirror` — tulis rootfs ke `<output>/system.db`.
+ *
+ * File `src/mirror/**` dari rencana build ditaruh di direktori staging
+ * sementara (di luar output), lalu diisikan ke BKFS baru dengan
+ * `populateRootfs()` — implementasi yang SAMA dengan `scripts/install.ts`,
+ * sehingga hasilnya identik dengan instalasi mode development. Ditulis ke file
+ * sementara lalu di-rename: build yang gagal tidak meninggalkan DB setengah jadi.
+ *
+ * Akun root sengaja dibiarkan TERKUNCI; password ditetapkan oleh
+ * `npm run tsix:install` di node tujuan.
+ */
+function buildRootfsDatabase(outputDirectory: string, mirrorFiles: Array<[string, OutputFile]>): Buffer {
+    const stage = fs.mkdtempSync(path.join(os.tmpdir(), "twrapper-rootfs-"));
+    const dbPath = path.join(outputDirectory, DB_FILE);
+    const temporary = `${dbPath}.twrapper-tmp`;
+    try {
+        for (const [relative, file] of mirrorFiles) {
+            const absolute = path.join(stage, ...relative.slice(MIRROR_PREFIX.length).split("/"));
+            fs.mkdirSync(path.dirname(absolute), { recursive: true });
+            fs.writeFileSync(absolute, file.bytes, { mode: file.mode });
+        }
+
+        removeDatabaseFiles(temporary);
+        const bkfs = new BKFS(temporary);
+        try {
+            const { rootPasswordSeeded } = populateRootfs(
+                bkfs,
+                stage,
+                path.join(outputDirectory, "src", "common"),
+                "TWRAPPER",
+            );
+            if (!rootPasswordSeeded) {
+                throw new Error("Production image must not ship /etc/shadow; root has to stay locked until install.");
+            }
+        } finally {
+            // close() = checkpoint WAL → system.db kembali SATU file utuh.
+            bkfs.close();
+        }
+
+        removeDatabaseFiles(dbPath);
+        fs.renameSync(temporary, dbPath);
+        return fs.readFileSync(dbPath);
+    } catch (error) {
+        removeDatabaseFiles(temporary);
+        throw error;
+    } finally {
+        fs.rmSync(stage, { recursive: true, force: true });
+    }
+}
+
 function writePlan(plan: ReturnType<typeof buildPlan>): void {
     const outputDirectory = plan.outputDirectory;
+    const noMirror = plan.options.noMirror;
     const exists = fs.existsSync(outputDirectory);
     const previous = exists ? readPreviousState(outputDirectory) : undefined;
     if (exists && !previous && fs.readdirSync(outputDirectory).length > 0) {
@@ -537,15 +645,35 @@ function writePlan(plan: ReturnType<typeof buildPlan>): void {
     if (previous) verifyOwnedOutput(outputDirectory, previous);
     fs.mkdirSync(outputDirectory, { recursive: true });
 
-    const nextPaths = new Set(plan.outputs.keys());
+    // --no-mirror: rootfs → system.db, bukan file di src/mirror/.
+    const mirrorFiles = noMirror ? [...plan.outputs].filter(([relative]) => relative.startsWith(MIRROR_PREFIX)) : [];
+    const fileOutputs = noMirror
+        ? new Map([...plan.outputs].filter(([relative]) => !relative.startsWith(MIRROR_PREFIX)))
+        : plan.outputs;
+
+    if (noMirror) {
+        const dbPath = path.join(outputDirectory, DB_FILE);
+        const owned = previous?.generatedFiles.some((entry) => entry.path === DB_FILE);
+        if (fs.existsSync(dbPath) && !owned) {
+            throw new Error(
+                `Refusing to overwrite unmanaged ${DB_FILE} in ${outputDirectory} (created by an install?). Move it away first.`,
+            );
+        }
+    }
+
+    const nextPaths = new Set(fileOutputs.keys());
+    if (noMirror) nextPaths.add(DB_FILE);
     for (const file of previous?.generatedFiles ?? []) {
         if (nextPaths.has(file.path)) continue;
         const absolute = path.join(outputDirectory, ...file.path.split("/"));
-        if (fs.existsSync(absolute)) fs.unlinkSync(absolute);
+        if (file.path === DB_FILE) removeDatabaseFiles(absolute);
+        else if (fs.existsSync(absolute)) fs.unlinkSync(absolute);
+        // Pindah dev → produksi: pohon src/mirror/ lama jangan tinggal sebagai folder kosong.
+        pruneEmptyDirs(path.dirname(absolute), outputDirectory);
     }
 
     const generatedFiles: PreviousState["generatedFiles"] = [];
-    for (const [relative, file] of plan.outputs) {
+    for (const [relative, file] of fileOutputs) {
         const absolute = path.join(outputDirectory, ...relative.split("/"));
         fs.mkdirSync(path.dirname(absolute), { recursive: true });
         if (fs.existsSync(absolute) && !previous?.generatedFiles.some((entry) => entry.path === relative)) {
@@ -559,6 +687,15 @@ function writePlan(plan: ReturnType<typeof buildPlan>): void {
         fs.renameSync(temporary, absolute);
         generatedFiles.push({ path: relative, sha256: sha256(file.bytes) });
     }
+
+    // Setelah src/common tertulis (populateRootfs menyalinnya ke /lib/common).
+    if (noMirror) {
+        const dbBytes = buildRootfsDatabase(outputDirectory, mirrorFiles);
+        generatedFiles.push({ path: DB_FILE, sha256: sha256(dbBytes) });
+        console.log(
+            `[twrapper] rootfs: ${mirrorFiles.length} files -> ${DB_FILE} (${(dbBytes.length / 1024).toFixed(0)} KB)`,
+        );
+    }
     const state = { generatedFiles };
     fs.writeFileSync(path.join(outputDirectory, STATE_FILE), `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
@@ -567,6 +704,7 @@ function main(): void {
     const args = process.argv.slice(2);
     let recipePath = "scripts/twrapper/imut.json";
     let check = false;
+    let noMirror = false;
     for (let index = 0; index < args.length; index++) {
         const arg = args[index];
         if (arg === "--recipe") {
@@ -575,21 +713,30 @@ function main(): void {
             recipePath = value;
         } else if (arg === "--check") {
             check = true;
+        } else if (arg === "--no-mirror") {
+            noMirror = true;
         } else if (arg === "--help" || arg === "-h") {
-            console.log("Usage: npm run distro:twrapper -- [--recipe <path>] [--check]");
+            console.log("Usage: npm run distro:twrapper -- [--recipe <path>] [--check] [--no-mirror]");
+            console.log("");
+            console.log("  --no-mirror  Production image: write the root filesystem straight into");
+            console.log(`               distro/<target>/${DB_FILE} (BKFS) instead of src/mirror/.`);
+            console.log("               install.ts then only configures the node (no database prompt).");
             return;
         } else {
             throw new Error(`Unknown option: ${arg}`);
         }
     }
     const absoluteRecipe = path.resolve(ROOT, recipePath);
-    const plan = buildPlan(absoluteRecipe);
+    const plan = buildPlan(absoluteRecipe, { noMirror });
     const fileCount = plan.outputs.size;
     const size = [...plan.outputs.values()].reduce((total, file) => total + file.bytes.length, 0);
     console.log(`[twrapper] ${plan.recipe.distro.name}: ${fileCount} files (${(size / 1024).toFixed(0)} KB)`);
     console.log(`[twrapper] installed packages: ${plan.recipe.installedPackages.join(", ")}`);
     console.log(`[twrapper] repository packages: ${plan.recipe.repositoryPackages.join(", ")}`);
     console.log(`[twrapper] output: ${path.relative(ROOT, plan.outputDirectory).replace(/\\/g, "/")}`);
+    console.log(
+        `[twrapper] mode: ${noMirror ? `production (--no-mirror -> ${DB_FILE})` : "development (src/mirror/)"}`,
+    );
     if (check) return;
     writePlan(plan);
     console.log("[twrapper] build complete");

@@ -11,6 +11,17 @@ export enum LogLevel {
 }
 
 /**
+ * isLogFileDisabled(): `logger.logFile` = `none` / `off` / kosong → TIDAK menulis
+ * file log host (mis. `jsix.log`). Dipakai image produksi
+ * (`twrapper --no-mirror` menulis `logFile = none`): log debug host tidak
+ * seharusnya tumbuh tanpa batas di node produksi.
+ */
+export function isLogFileDisabled(logFile: unknown): boolean {
+    const value = String(logFile ?? "").trim().toLowerCase();
+    return value === "" || value === "none" || value === "off";
+}
+
+/**
  * Logger: Kelas untuk membantu kita (pengembang) melihat apa yang terjadi di dalam OS.
  */
 export class Logger {
@@ -53,7 +64,9 @@ export class Logger {
             console.log(logLine);
         }
 
-        // Simpan ke file log (selalu taat pada filter tingkat kepentingan di atas)
+        // Simpan ke file log (selalu taat pada filter tingkat kepentingan di atas),
+        // kecuali dimatikan lewat `logFile = none` (image produksi).
+        if (isLogFileDisabled(cfg.logger.logFile)) return;
         try {
             const fs = require("fs");
             fs.appendFileSync(cfg.logger.logFile, logLine + "\n");

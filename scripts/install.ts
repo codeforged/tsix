@@ -1,12 +1,9 @@
 import { BKFS } from "../src/vfs/BKFS";
 import { createUserAccount } from "./lib/user-account";
-import { FRESH_FSTAB_INI } from "./lib/fresh-fstab";
 import { ensureFreshAccountFiles } from "./lib/fresh-accounts";
-import { applyBinaryMode, needsBinaryMode } from "./lib/binary-mode";
-import { peekBom, readBinaryFile, readTextFile, utf8ToVfsBytes, vfsBytesToUtf8 } from "./lib/text-file";
+import { isRootLocked, populateRootfs } from "./lib/rootfs-image";
 import * as fs from "fs";
 import * as path from "path";
-import * as esbuild from "esbuild";
 import * as readline from "readline/promises";
 import * as bcrypt from "bcryptjs";
 import type { SysConfig } from "../src/common/Config";
@@ -15,14 +12,22 @@ import { createDefaultSysConfig, formatSysConfigIni, parseSysConfigIni } from ".
 /**
  * INSTALL AGENT (Fresh Install TSIX)
  *
- * Membuat image sistem baru dari nol:
- *   1. Tanya konfigurasi ke user secara interaktif (hostname, distro, broker MQTT, dll).
- *   2. Tulis hasil konfigurasi ke src/sysconfig.conf (format key-value, gaya
- *      /etc/fstab.conf — lihat src/common/SysConfigIni.ts).
- *   3. Buat file database .db yang BENAR-BENAR BARU (file lama otomatis di-backup).
- *   4. Sinkronkan seluruh src/mirror (rootfs) ke database baru (transpile TS -> JS + SetUID).
- *   5. (Opsional) Buat akun user biasa (username + password + konfirmasi) + home directory.
- *   6. (Opsional) set password root ke /etc/shadow.
+ * DUA MODE, dideteksi otomatis dari ada/tidaknya `src/mirror/`:
+ *
+ *   DEVELOPMENT (ada `src/mirror/`) — checkout repo atau distro hasil
+ *   `npm run distro:twrapper`:
+ *     1. Tanya konfigurasi (hostname, user, broker MQTT, nama file database, root).
+ *     2. Tulis src/sysconfig.conf.
+ *     3. Buat file database .db yang BENAR-BENAR BARU (file lama di-backup).
+ *     4. Sinkronkan src/mirror (rootfs) + src/common ke database baru.
+ *     5. (Opsional) akun user biasa + home; password root.
+ *
+ *   PRODUKSI (TIDAK ada `src/mirror/`) — distro hasil
+ *   `npm run distro:twrapper -- --no-mirror`: rootfs SUDAH ada di `system.db`
+ *   (dibuat saat build), jadi:
+ *     - TIDAK ada prompt nama database dan TIDAK ada sinkronisasi rootfs;
+ *     - database yang ada (`kernel.database` di sysconfig.conf) dibuka apa adanya;
+ *     - konfigurasi node, akun user, dan password root tetap ditanyakan.
  *
  * Cara pakai (dari root project):
  *   npm run install                     -> interaktif dari checkout repo
@@ -39,6 +44,7 @@ interface InstallOptions {
 }
 
 const MIRROR_ROOT = path.resolve(__dirname, "../src/mirror");
+const COMMON_ROOT = path.resolve(__dirname, "../src/common");
 const CONFIG_PATH = path.resolve(__dirname, "../src/sysconfig.conf");
 
 /** Konfigurasi lama (JSON) — dimigrasi otomatis sekali, lalu tidak dipakai lagi. */
@@ -46,9 +52,10 @@ const LEGACY_CONFIG_PATH = path.resolve(__dirname, "../src/sysconfig.json");
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 
 /**
- * Mode executable (bit `x`, `/sbin` 0o744, SetUID login/passwd/sudo) diatur oleh
- * helper BERSAMA `scripts/lib/binary-mode.ts` — lihat berkas itu untuk alasannya.
+ * Mode produksi = tidak ada `src/mirror/`. Di sana semua baca/tulis rootfs
+ * sudah diarahkan ke VFS (`system.db`), yang dibuat oleh builder distro.
  */
+const PRODUCTION_MODE = !fs.existsSync(MIRROR_ROOT);
 
 function parseArgs(argv: string[]): InstallOptions {
   const opts: InstallOptions = {
@@ -66,141 +73,19 @@ function parseArgs(argv: string[]): InstallOptions {
     else if (a === "--help" || a === "-h") {
       console.log(`Usage: npm run install -- [options]
 
-  --path <db>    Path database baru (default: dari sysconfig.conf)
-  --force        Timpa database lama (otomatis di-backup)
-  --defaults     Non-interaktif: pakai semua nilai default
-  --no-config    Lewati penulisan src/sysconfig.conf`);
+  --path <db>    Database path (default: from sysconfig.conf)
+  --force        Overwrite an existing database (backed up automatically; development mode only)
+  --defaults     Non-interactive: use all default values
+  --no-config    Skip writing src/sysconfig.conf
+
+Mode is detected automatically:
+  development  src/mirror/ exists      -> a new database is created from it
+  production   src/mirror/ is absent   -> the existing database (built by
+                                          'distro:twrapper --no-mirror') is used`);
       process.exit(0);
     }
   }
   return opts;
-}
-
-/** Sync rekursif src/mirror -> VFS (sama seperti vfs-bootstrap). */
-function syncDir(bkfs: BKFS, hostDir: string, vfsDir: string): void {
-  if (!bkfs.exists(vfsDir)) {
-    // Sync generik: semua direktori 0o755. Setup permission khusus aplikasi
-    // (mis. /etc/air-type → 0o777) dilakukan oleh configure.ts aplikasi tsb.
-    bkfs.mkdir(vfsDir, 0, 0, 0o755);
-    console.log(`[INSTALL] mkdir ${vfsDir}`);
-  }
-
-  const items = fs.readdirSync(hostDir);
-  for (const item of items) {
-    const fullHostPath = path.join(hostDir, item);
-    const fullVfsPath = path.join(vfsDir, item).replace(/\\/g, "/");
-    const stats = fs.statSync(fullHostPath);
-
-    if (stats.isDirectory()) {
-      syncDir(bkfs, fullHostPath, fullVfsPath);
-      continue;
-    }
-
-    // Unit test (vitest) BUKAN bagian dari image sistem: tidak dieksekusi
-    // runtime, tapi kalau ikut disalin dia masuk ke cache pre-compile `/lib`
-    // yang dikirim ke SETIAP worker. Jadi lebih baik dilewati di sini.
-    if (item.endsWith(".test.ts") || item.endsWith(".spec.ts")) continue;
-
-    const isTarget =
-      item.endsWith(".ts") ||
-      item.endsWith(".js") ||
-      item.endsWith(".json") ||
-      // `/etc/fstab.conf`, `/etc/dome/dome.conf`, `/etc/test.conf` — tanpa ini
-      // berkas `.conf` di mirror DIAM-DIAM tidak ikut ter-sync ke image baru
-      // (jebakan yang sama pernah terjadi di `vfs-bootstrap`).
-      item.endsWith(".conf") ||
-      item.endsWith(".html") ||
-      item.endsWith(".css") ||
-      item.endsWith(".menu") ||
-      item.endsWith(".mp3") ||
-      item.endsWith(".wav") ||
-      item.endsWith(".jpg") ||
-      item.endsWith(".jpeg") ||
-      item.endsWith(".png") ||
-      item.endsWith(".gif") ||
-      item.endsWith(".bmp") ||
-      item.endsWith(".b64") ||
-      item.endsWith(".svg") ||
-      item.endsWith(".webp") ||
-      item.endsWith(".ico") ||
-      // Font bitmap (mis. /opt/retroterm/fonts/*.woff2)
-      item.endsWith(".woff2") ||
-      item.endsWith(".woff") ||
-      item.endsWith(".ttf") ||
-      item.endsWith(".otf") ||
-      item.endsWith(".eot");
-    if (!isTarget) continue;
-
-    // Binary assets (audio/gambar raster/font) disimpan sebagai latin1 string
-    // (1 byte = 1 char) — cocok dengan Buffer.from(raw,"latin1") di sisi app.
-    const isBinary =
-      item.endsWith(".mp3") ||
-      item.endsWith(".wav") ||
-      item.endsWith(".jpg") ||
-      item.endsWith(".jpeg") ||
-      item.endsWith(".png") ||
-      item.endsWith(".gif") ||
-      item.endsWith(".bmp") ||
-      item.endsWith(".b64") ||
-      item.endsWith(".webp") ||
-      item.endsWith(".ico") ||
-      item.endsWith(".woff2") ||
-      item.endsWith(".woff") ||
-      item.endsWith(".ttf") ||
-      item.endsWith(".otf") ||
-      item.endsWith(".eot");
-    const content = isBinary
-      ? readBinaryFile(fullHostPath)
-      : readTextFile(fullHostPath);
-
-    // BOM UTF-8 → `U+FEFF` → byte `0xFF` di VFS (latin1). Berkas JS yang diawali
-    // 0xFF ditolak browser, jadi BOM dibuang oleh `readTextFile()` dan dicatat.
-    const bom = isBinary ? null : peekBom(fullHostPath);
-    if (bom === "utf8") {
-      console.log(`[INSTALL]   -> BOM UTF-8 dibuang: ${fullVfsPath}`);
-    } else if (bom) {
-      console.warn(
-        `[INSTALL]   -> PERINGATAN: ${fullVfsPath} ber-BOM ${bom} — perbaiki berkas sumbernya.`,
-      );
-    }
-
-    bkfs.touch(fullVfsPath, content);
-
-    // Transpile TS -> JS sidecar (yang dieksekusi runtime)
-    if (fullVfsPath.endsWith(".ts")) {
-      try {
-        // `content` = BYTE berkas; esbuild butuh TEKS (lihat `VfsText.ts`).
-        const result = esbuild.transformSync(vfsBytesToUtf8(content), {
-          loader: "ts",
-          format: "cjs",
-          target: "node18",
-          sourcemap: "inline",
-        });
-        if (result.code) {
-          const jsPath =
-            fullVfsPath.substring(0, fullVfsPath.length - 3) + ".js";
-          // Hasil esbuild adalah TEKS → ubah ke byte sebelum masuk VFS.
-          bkfs.touch(jsPath, utf8ToVfsBytes(result.code));
-
-          if (needsBinaryMode(jsPath)) {
-            applyBinaryMode(bkfs, jsPath, "INSTALL");
-          }
-        }
-      } catch (e: any) {
-        console.error(
-          `[INSTALL] Warning: compile gagal ${fullVfsPath}: ${e.message}`,
-        );
-      }
-    }
-
-    // Auto-executable untuk file di direktori eksekusi (/bin, /sbin, dll)
-    if (
-      needsBinaryMode(fullVfsPath) &&
-      (fullVfsPath.endsWith(".ts") || fullVfsPath.endsWith(".js"))
-    ) {
-      applyBinaryMode(bkfs, fullVfsPath, "INSTALL");
-    }
-  }
 }
 
 /**
@@ -284,28 +169,6 @@ function saveConfig(cfg: SysConfig): void {
     "Pemilih backend root: kernel.rootType = bkfs | host (lihat wiki/Virtual-File-System.md).";
   fs.writeFileSync(CONFIG_PATH, formatSysConfigIni(cfg, header), "utf8");
   console.log(`[INSTALL] Konfigurasi ditulis ke: ${CONFIG_PATH}`);
-}
-
-/**
- * applyEtcMode(): Paksa mode berkas `CRITICAL_ETC` tepat seperti di tabel.
- *
- * `BKFS.touch()` menghormati `mode` hanya saat berkas BARU dibuat (semantik `touch`
- * Unix). Berkas yang SUDAH ADA di DB — kasus umum saat `--force` dipakai untuk
- * membuat image baru dari database lama — tidak ikut berubah, jadi mode di sini
- * ditegakkan terpisah supaya tidak bergantung pada riwayat DB.
- *
- * KENAPA PENTING: `/etc/rc.local` tanpa bit `x` dilewati init (boot berjalan tapi
- * tanpa daemon sama sekali), dan `/etc/shadow` harus tetap 0o640.
- */
-function applyEtcMode(bkfs: BKFS, name: string, mode?: number): void {
-  if (mode === undefined) return;
-  const vfsPath = `/etc/${name}`;
-  const st = bkfs.stat(vfsPath);
-  if (!st || st.mode === mode) return;
-  bkfs.chmod(vfsPath, mode);
-  console.log(
-    `[INSTALL] chmod ${mode.toString(8)} ${vfsPath} (mode lama ${(st.mode as number).toString(8)})`,
-  );
 }
 
 async function prompt(
@@ -426,8 +289,35 @@ async function promptPassword(
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const cfg = loadConfig();
-  const rootPasswordRequired = !fs.existsSync(path.join(MIRROR_ROOT, "etc", "shadow"));
   const defaultDbRel = opts.dbPath || cfg.kernel.database || "system.db";
+
+  console.log(
+    PRODUCTION_MODE
+      ? "[INSTALL] Production mode: src/mirror/ is absent — using the prebuilt system database."
+      : "[INSTALL] Development mode: src/mirror/ found — a new system database will be created from it.",
+  );
+
+  // Mode produksi: database WAJIB sudah ada (dibuat oleh builder distro).
+  // Dibuka di depan supaya status akun root diketahui sebelum bertanya.
+  let prebuilt: BKFS | null = null;
+  if (PRODUCTION_MODE) {
+    const existing = path.resolve(PROJECT_ROOT, defaultDbRel);
+    if (!fs.existsSync(existing)) {
+      console.error(`[INSTALL] Production image database not found: ${existing}`);
+      console.error(
+        "          Rebuild the distro with 'npm run distro:twrapper -- --no-mirror', or restore src/mirror/.",
+      );
+      process.exit(1);
+    }
+    if (opts.force) {
+      console.log("[INSTALL] --force is ignored in production mode (the prebuilt database is never replaced).");
+    }
+    prebuilt = new BKFS(existing);
+  }
+
+  const rootPasswordRequired = PRODUCTION_MODE
+    ? isRootLocked(prebuilt!)
+    : !fs.existsSync(path.join(MIRROR_ROOT, "etc", "shadow"));
 
   let dbRel = defaultDbRel;
   let rootPassword = "";
@@ -450,7 +340,7 @@ async function main() {
         cfg.shell.defaultHostname,
       );
 
-      // Akun user biasa (root sudah pasti dibuat otomatis dari src/mirror).
+      // Akun user biasa (root sudah pasti dibuat otomatis dari image).
       // Alur ala installer Ubuntu: username → password → konfirmasi password.
       // Kosongkan username untuk melewati (cukup akun root saja).
       while (true) {
@@ -504,16 +394,21 @@ async function main() {
         cfg.kernel.verbose ?? true,
       );
 
-      dbRel = await prompt(rl, "New database filename (e.g. system.db)", dbRel);
+      // Hanya mode development: di produksi database sudah ada (hasil build).
+      if (!PRODUCTION_MODE) {
+        dbRel = await prompt(rl, "New database filename (e.g. system.db)", dbRel);
+      }
 
-      // Root password: KOSONG = pertahankan default dari image (tidak diubah).
+      // Root password: KOSONG = pertahankan yang ada di image (tidak diubah).
       // Kalau diisi, WAJIB konfirmasi — sama seperti akun user biasa. Root tidak
       // bisa di-reset dari luar tanpa mengubah /etc/shadow manual, jadi salah
       // ketik di sini berarti kehilangan akses admin ke image baru.
       while (true) {
         rootPassword = await promptPassword(
           rl,
-          "Root password (required for a fresh distro image)",
+          rootPasswordRequired
+            ? "Root password (required for a fresh distro image)"
+            : "Root password (empty to keep the current one)",
         );
         if (!rootPassword) {
           if (rootPasswordRequired) {
@@ -548,129 +443,48 @@ async function main() {
       saveConfig(cfg);
     }
 
-    // ============ 3. BUAT DB BARU ============
-    if (fs.existsSync(dbPath)) {
-      if (!opts.force) {
-        console.error(`[INSTALL] Database sudah ada: ${dbPath}`);
-        console.error(
-          `          Pakai --force untuk menimpa (lama di-backup otomatis).`,
-        );
-        process.exit(1);
+    let bkfs: BKFS;
+    if (PRODUCTION_MODE) {
+      // ============ 3+4. IMAGE SIAP PAKAI (mode produksi) ============
+      bkfs = prebuilt!;
+      console.log(`[INSTALL] Using prebuilt database: ${dbPath}`);
+      // Hanya melengkapi berkas akun yang hilang — tidak menimpa apa pun.
+      ensureFreshAccountFiles(bkfs);
+    } else {
+      // ============ 3. BUAT DB BARU ============
+      if (fs.existsSync(dbPath)) {
+        if (!opts.force) {
+          console.error(`[INSTALL] Database sudah ada: ${dbPath}`);
+          console.error(
+            `          Pakai --force untuk menimpa (lama di-backup otomatis).`,
+          );
+          process.exit(1);
+        }
+        const bak = `${dbPath}.bak-${Date.now()}`;
+        fs.renameSync(dbPath, bak);
+        console.log(`[INSTALL] Database lama di-backup ke: ${bak}`);
       }
-      const bak = `${dbPath}.bak-${Date.now()}`;
-      fs.renameSync(dbPath, bak);
-      console.log(`[INSTALL] Database lama di-backup ke: ${bak}`);
-    }
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    const bkfs = new BKFS(dbPath);
-    console.log(`[INSTALL] Database baru dibuat: ${dbPath}`);
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+      bkfs = new BKFS(dbPath);
+      console.log(`[INSTALL] Database baru dibuat: ${dbPath}`);
 
-    // ============ 4. SYNC ROOTFS ============
-    //
-    // SATU TRANSAKSI untuk seluruh image sistem. Dua alasan:
-    //   - Kehandalan: kalau proses mati di tengah, hasilnya "tidak ada" — bukan
-    //     image setengah jadi yang kelihatan normal (mis. `/bin` terisi separuh),
-    //     yang justru paling sulit didiagnosis di lapangan.
-    //   - Kecepatan: ribuan `touch()` tanpa transaksi = ribuan fsync.
-    console.log(`[INSTALL] Menyalin rootfs dari ${MIRROR_ROOT} ...`);
-    bkfs.batch(() => {
-      syncDir(bkfs, MIRROR_ROOT, "/");
-
-      // Framework @common/* (SyscallCode, IPCTypes, dll) dipakai WorkerEntry via
-      // /lib/common. Sync src/common -> /lib/common (sama seperti vfs-bootstrap).
-      const COMMON_ROOT = path.resolve(__dirname, "../src/common");
-      if (fs.existsSync(COMMON_ROOT)) {
-        console.log(`[INSTALL] Menyalin framework common dari ${COMMON_ROOT} ...`);
-        syncDir(bkfs, COMMON_ROOT, "/lib/common");
+      // ============ 4. SYNC ROOTFS ============
+      // Implementasi bersama dengan builder distro (`--no-mirror`) supaya image
+      // hasil build dan hasil install identik — lihat scripts/lib/rootfs-image.ts.
+      const { rootPasswordSeeded } = populateRootfs(bkfs, MIRROR_ROOT, COMMON_ROOT, "INSTALL");
+      if (rootPasswordSeeded !== rootPasswordRequired) {
+        throw new Error("Installer root-account bootstrap did not match the source shadow file.");
       }
-    });
-    console.log("[INSTALL] Rootfs berhasil disinkronkan.");
-
-    // File /etc tanpa ekstensi tidak ikut filter ekstensi syncDir.
-    // Sync eksplisit agar image fresh lengkap & konsisten (passwd/group/shadow, dll).
-    const CRITICAL_ETC: Array<{
-      name: string;
-      mode?: number;
-      /** Jangan timpa file yang sudah ada — isinya milik admin (per-node). */
-      preserveExisting?: boolean;
-    }> = [
-      { name: "crontab" },
-      { name: "fstab.md" },
-      { name: "group" },
-      { name: "motd" },
-      { name: "passwd" },
-      { name: "pkg-demo.conf" },
-      { name: "profile" },
-      // Skrip boot gaya Unix (shebang `#!/bin/tsh`). Mode 0o755 penting: tanpa
-      // bit x, init akan MELEWATI-nya (dan melaporkan alasannya saat boot).
-      // TIDAK ditimpa kalau sudah ada: isinya khas node ini (daemon + export).
-      { name: "rc.local", mode: 0o755, preserveExisting: true },
-      { name: "shadow", mode: 0o640 },
-    ];
-    for (const entry of CRITICAL_ETC) {
-      const hostFile = path.join(MIRROR_ROOT, "etc", entry.name);
-      if (!fs.existsSync(hostFile)) continue;
-
-      if (entry.preserveExisting && bkfs.exists(`/etc/${entry.name}`)) {
-        console.log(
-          `[INSTALL] /etc/${entry.name} sudah ada — dibiarkan (milik admin)`,
-        );
-        // Isinya tidak disentuh, tapi MODE tetap dirapikan: image lama bisa saja
-        // dibuat sebelum `touch()` menghormati mode (semua berkas baru dulu 0o644),
-        // dan `/etc/rc.local` tanpa bit `x` akan DILEWATI init — boot berjalan
-        // "normal" tapi tanpa daemon sama sekali.
-        applyEtcMode(bkfs, entry.name, entry.mode);
-        continue;
-      }
-
-      // `readTextFile()` membuang BOM UTF-8 — BOM akan menjadi byte 0xFF di VFS
-      // (latin1) dan berkas skrip yang diawali 0xFF ditolak browser.
-      const content = readTextFile(hostFile);
-      bkfs.touch(`/etc/${entry.name}`, content, 0, 0, entry.mode ?? 0o644);
-      applyEtcMode(bkfs, entry.name, entry.mode);
-      console.log(`[INSTALL] sync /etc/${entry.name}`);
     }
 
-    const rootPasswordSeeded = ensureFreshAccountFiles(bkfs);
-    if (rootPasswordSeeded !== rootPasswordRequired) {
-      throw new Error("Installer root-account bootstrap did not match the source shadow file.");
-    }
-    if (rootPasswordSeeded && !opts.interactive) {
+    if (rootPasswordRequired && !opts.interactive) {
       console.warn(
         "[INSTALL] Akun root awal tetap terkunci; jalankan installer interaktif untuk menetapkan password.",
       );
     }
 
-    // Image fresh: fstab hanya berisi mount esensial.
-    //
-    // Isinya ada di `scripts/lib/fresh-fstab.ts` (bisa diuji: `FstabParser.test.ts`
-    // A4.09 memvalidasi templatnya diurai TANPA peringatan). Format INI
-    // (`/etc/fstab.conf`) adalah SATU-SATUNYA sumber kebenaran mount.
-    bkfs.touch("/etc/fstab.conf", FRESH_FSTAB_INI, 0, 0, 0o644);
-    console.log(
-      "[INSTALL] /etc/fstab.conf: /tmp + /var/run (ramfs); mount dev dihapus",
-    );
-
-    // `.json` dari image lama (kalau ada) dibuang: sudah bukan sumber konfigurasi
-    // (kernel hanya membaca `.conf`) — kalau dibiarkan hanya jadi decoy yang
-    // membingungkan admin (dua sumber kebenaran).
-    if (bkfs.exists("/etc/fstab.json")) {
-      bkfs.unlink("/etc/fstab.json");
-      console.log("[INSTALL] /etc/fstab.json lama dihapus (pindah ke .conf)");
-    }
-    // Crontab dikosongkan (tidak membawa jadwal bawaan developer).
-    bkfs.touch(
-      "/etc/crontab",
-      "# /etc/crontab — kosong untuk instalasi baru.\n" +
-      "# Isi jadwal dengan: crontab -e\n",
-      0,
-      0,
-      0o644,
-    );
-    console.log("[INSTALL] /etc/crontab dikosongkan");
-
     // ============ 4.5 AKUN USER BARU (OPSIONAL) ============
-    // Root dibuat otomatis dari src/mirror. Bagian ini menambah akun user
+    // Root dibuat otomatis dari image. Bagian ini menambah akun user
     // biasa + home directory-nya, sama seperti useradd (UID >= 1000, gid users).
     if (newUser) {
       createUserAccount(bkfs, newUser, newPass);
@@ -721,6 +535,7 @@ async function main() {
     bkfs.close();
 
     console.log("\n[INSTALL] Selesai! Image sistem siap.");
+    console.log(`           Mode     : ${PRODUCTION_MODE ? "production (no src/mirror)" : "development (src/mirror)"}`);
     console.log(`           DB       : ${dbPath}`);
     console.log(
       `           Hostname : ${cfg.shell.defaultHostname}  (lihat src/sysconfig.conf)`,

@@ -187,7 +187,31 @@ npm run distro:twrapper -- [opsi]
 | _(tanpa opsi)_    | Build recipe default `scripts/twrapper/imut.json`.                         |
 | `--recipe <path>` | Pakai recipe lain, mis. `--recipe scripts/twrapper/lab.json`.              |
 | `--check`         | Hanya tampilkan rencana (jumlah file + ukuran), **tidak menulis** apa pun. |
+| `--no-mirror`     | **Mode produksi**: rootfs ditulis langsung ke `distro/<id>/system.db` (BKFS), tanpa `src/mirror/`. |
 | `-h`, `--help`    | Tampilkan bantuan.                                                         |
+
+### Mode development vs produksi (`--no-mirror`)
+
+Di produksi TSIX tidak memakai `src/mirror/` — semua baca/tulis rootfs diarahkan ke
+VFS. `--no-mirror` membangun image seperti itu:
+
+| | Development (default) | Produksi (`--no-mirror`) |
+| --- | --- | --- |
+| Rootfs | File di `src/mirror/**` | Sudah di dalam `system.db` |
+| `src/sysconfig.conf` | apa adanya | dipaksa `database = system.db`, `rootType = bkfs` |
+| `npm run tsix:install` | membuat DB baru dari `src/mirror` (tanya nama file DB) | **tidak** tanya nama DB, tidak sync ulang — hanya hostname, user, broker, password root |
+| Akun root | terkunci sampai install | terkunci sampai install |
+
+- `install.ts` mendeteksi mode **otomatis**: tidak ada `src/mirror/` = produksi.
+- Isi `system.db` dibuat oleh `scripts/lib/rootfs-image.ts` — implementasi yang
+  **sama** dengan install mode development (sidecar `.js`, mode/SetUID, `/etc`
+  penting, fstab & crontab bersih), jadi kedua mode menghasilkan image identik.
+- Ditulis ke file sementara lalu di-rename: build yang gagal tidak meninggalkan DB
+  setengah jadi. `system.db` dicatat di `.twrapper-state.json`; setelah distro
+  di-install (DB berubah), build ulang **ditolak** supaya image yang sudah dipakai
+  tidak tertimpa.
+- Pindah mode dev ↔ produksi cukup build ulang dengan/ tanpa `--no-mirror`:
+  `src/mirror/` atau `system.db` yang tidak diproduksi lagi dibersihkan.
 
 Contoh keluaran:
 
@@ -230,9 +254,12 @@ distro/imut/
     ├── main.ts
     ├── userland/             # WorkerEntry.js, VfsModuleResolver.js
     ├── common/, vfs/         # engine
-    └── mirror/
+    └── mirror/               # HANYA mode development
         ├── bin/ sbin/ etc/ ...
         └── var/lib/tpkg/repo/ # paket repositoryPackages (staged)
+
+# --no-mirror: tanpa src/mirror/, rootfs ada di
+distro/imut/system.db         # BKFS siap boot (root terkunci sampai tsix:install)
 ```
 
 ---

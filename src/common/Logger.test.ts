@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { Logger, LogLevel } from "./Logger";
+import { Logger, LogLevel, isLogFileDisabled } from "./Logger";
 
 describe("Logger (D5)", () => {
     beforeEach(() => {
@@ -62,5 +62,15 @@ describe("Logger (D5)", () => {
         for (let i = 0; i < 1000; i++) logger.debug("perf test " + i);
         const elapsed = Date.now() - start;
         expect(elapsed).toBeLessThan(500); // 1000 OFF-level calls under 500ms
+    });
+});
+
+describe("Logger — file log bisa dimatikan (image produksi)", () => {
+    it("isLogFileDisabled: none / off / kosong = mati; path biasa = hidup", () => {
+        expect(isLogFileDisabled("none")).toBe(true);
+        expect(isLogFileDisabled(" OFF ")).toBe(true);
+        expect(isLogFileDisabled("")).toBe(true);
+        expect(isLogFileDisabled(undefined)).toBe(true);
+        expect(isLogFileDisabled("jsix.log")).toBe(false);
     });
 });
