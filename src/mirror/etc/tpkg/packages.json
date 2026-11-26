@@ -149,6 +149,11 @@
                     "hostDst": "src/common/Config.ts"
                 },
                 {
+                    "src": "/lib/common/ExecMode.ts",
+                    "dst": "/lib/common/ExecMode.ts",
+                    "hostDst": "src/common/ExecMode.ts"
+                },
+                {
                     "src": "/lib/common/GUITypes.ts",
                     "dst": "/lib/common/GUITypes.ts",
                     "hostDst": "src/common/GUITypes.ts"
@@ -841,6 +846,10 @@
                 {
                     "src": "/lib/TpkgProtocol.ts",
                     "dst": "/lib/TpkgProtocol.ts"
+                },
+                {
+                    "src": "/lib/common/ExecMode.ts",
+                    "dst": "/lib/common/ExecMode.ts"
                 }
             ],
             "onAfterDownload": "/sbin/transpile.ts"
@@ -2437,6 +2446,10 @@
                 {
                     "src": "/etc/asteracea/menu/hello-world.menu",
                     "dst": "/etc/asteracea/menu/hello-world.menu"
+                },
+                {
+                    "src": "/opt/test/hello-pkg.ts",
+                    "dst": "/opt/test/hello-pkg.ts"
                 }
             ],
             "onAfterDownload": "/sbin/transpile.ts"

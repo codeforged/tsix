@@ -36,6 +36,13 @@ const HOSTSRC_MOUNT = "/hostsrc";
 /** Staging VFS untuk file host (ramfs /tmp). */
 const HOST_STAGE = "/tmp/tpkg-stage";
 
+/**
+ * File yang SENGAJA dimiliki base-system DAN paket `tpkg` (updater slim):
+ * `tpkg install tpkg` harus cukup untuk memperbarui klien beserta pustaka yang
+ * dipakainya. `tpkg remove` membiarkan file yang masih dimiliki paket lain.
+ */
+const TPKG_SHARED_PATHS = ["/sbin/tpkg.ts", "/sbin/transpile.ts", "/lib/TpkgProtocol.ts", "/lib/common/ExecMode.ts"];
+
 interface Item {
     src?: string;
     dst: string;
@@ -189,7 +196,9 @@ function reconcilePackages(manifest: any): void {
     const tpkgPkg = manifest.packages.find((pkg: any) => pkg.name === "tpkg");
     if (tpkgPkg) {
         tpkgPkg.onAfterDownload = "/sbin/transpile.ts";
-        for (const sharedPath of ["/sbin/tpkg.ts", "/sbin/transpile.ts"]) {
+        // TpkgProtocol + ExecMode ikut: tpkg/transpile baru memakai fungsi baru di
+        // keduanya, jadi klien dengan base-system lama tidak boleh tertinggal.
+        for (const sharedPath of TPKG_SHARED_PATHS) {
             if (!(tpkgPkg.items as Item[]).some((item) => item.dst === sharedPath)) {
                 (tpkgPkg.items as Item[]).push({ src: sharedPath, dst: sharedPath });
             }
@@ -310,7 +319,7 @@ function reconcilePackages(manifest: any): void {
     // Irisan yang DISENGAJA: paket `tpkg` (updater slim di repo) boleh memuat ulang
     // file klien yang juga ada di base-system, supaya `tpkg install tpkg` cukup
     // memperbarui klien tanpa perlu base-system/reboot penuh.
-    const allowedOverlap = new Map<string, Set<string>>([["tpkg", new Set(["/sbin/tpkg.ts", "/sbin/transpile.ts"])]]);
+    const allowedOverlap = new Map<string, Set<string>>([["tpkg", new Set(TPKG_SHARED_PATHS)]]);
     for (const pkg of manifest.packages) {
         const unique: Item[] = [];
         for (const item of pkg.items as Item[]) {

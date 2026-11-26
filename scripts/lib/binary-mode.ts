@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import { BKFS } from "../../src/vfs/BKFS";
-import { TPKG_EXEC_DIRS, execModeForPath, isSetuidPath } from "../../src/mirror/lib/TpkgProtocol";
+// Dari src/common (BUKAN src/mirror): distro mode produksi tidak punya src/mirror.
+import { EXEC_DIRS as TPKG_EXEC_DIRS, execModeForPath, isSetuidPath } from "../../src/common/ExecMode";
 
 /**
  * BINARY MODE — aturan bit eksekusi berkas executable TSIX (FHS).
@@ -26,9 +27,9 @@ import { TPKG_EXEC_DIRS, execModeForPath, isSetuidPath } from "../../src/mirror/
  *   - `/sbin`   → 0o744 (root-only)
  *   - sisanya   → 0o755
  *
- * SUMBER TUNGGAL: aturannya hidup di `src/mirror/lib/TpkgProtocol.ts`
+ * SUMBER TUNGGAL: aturannya hidup di `src/common/ExecMode.ts`
  * (`execModeForPath`), yang juga dipakai `tpkg`, `transpile`, dan `apply-update`
- * di dalam TSIX. File ini hanya membungkusnya untuk alat host.
+ * di dalam TSIX (lewat `/lib/common`). File ini hanya membungkusnya untuk alat host.
  */
 
 /**

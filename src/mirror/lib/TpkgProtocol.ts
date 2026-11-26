@@ -33,57 +33,21 @@ export const TPKG_DEFAULT_PORT = 80;
  */
 export const TPKG_DEFAULT_MAX_BUNDLE = 4 * 1024 * 1024;
 
-/** Mode untuk file yang ditandai executable bila `permissions` tidak diisi. */
-export const TPKG_EXEC_MODE = 0o755;
-
-/**
- * Mode untuk binary di `/sbin` — root-only, sama dengan `scripts/vfs-bootstrap.ts`.
- * `/sbin` bukan untuk user biasa, jadi tidak 0o755 seperti `/bin`.
+/*
+ * Aturan mode eksekusi (direktori exec, /sbin 0744, SetUID) — SUMBER TUNGGAL di
+ * `src/common/ExecMode.ts` (VFS: `/lib/common/ExecMode`), dipakai juga oleh
+ * `transpile`, `apply-update`, dan alat host (`scripts/lib/binary-mode.ts`).
+ * Diekspor ulang di sini dengan nama lama supaya pemakai TPKG tidak berubah.
  */
-export const TPKG_SBIN_MODE = 0o744;
-
-/**
- * Mode SetUID untuk binary yang harus membaca `/etc/shadow` (0640 root).
- * Sama dengan aturan `isSetuidBinary()` di `scripts/vfs-bootstrap.ts` agar mode
- * hasil `tpkg` identik dengan hasil bootstrap (kalau beda, `sudo`/`passwd`
- * mendadak tidak bisa baca shadow setelah update).
- */
-export const TPKG_SETUID_MODE = 0o4755;
-
-/**
- * Direktori executable (FHS). SUMBER TUNGGAL aturan mode eksekusi: dipakai
- * `tpkg` (`resolveMode`), `transpile`, `apply-update`, dan — di sisi host —
- * `scripts/lib/binary-mode.ts` (bootstrap/install/sync/pull/rootfs-chmod).
- *
- * Dulu daftar ini disalin di empat tempat dengan aturan yang sedikit berbeda
- * (mis. `transpile` mencocokkan direktori persis sehingga `/opt/<pkg>/x.js`
- * jatuh ke 0644). Sekarang semuanya memanggil `execModeForPath()`.
- */
-export const TPKG_EXEC_DIRS = ["/bin", "/sbin", "/usr/bin", "/usr/local/bin", "/opt"];
-
-/** Binary istimewa SetUID (login/passwd/sudo — butuh akses /etc/shadow). */
-export function isSetuidPath(path: string): boolean {
-    return /\/bin\/(login|passwd|sudo)\.(ts|js)$/.test(String(path ?? ""));
-}
-
-/**
- * execModeForPath(): Mode standar sebuah path executable, atau `null` kalau
- * path itu tidak berada di direktori executable.
- *
- *   - SetUID (`/bin/login|passwd|sudo`) → 0o4755
- *   - di bawah `/sbin/`                 → 0o744 (root-only)
- *   - di bawah direktori exec lain      → 0o755 (termasuk `/opt/<pkg>/…`)
- *
- * Tidak memfilter ekstensi — pemanggil yang memutuskan (lihat `resolveMode`).
- */
-export function execModeForPath(path: string): number | null {
-    const p = String(path ?? "");
-    if (isSetuidPath(p)) return TPKG_SETUID_MODE;
-    if (TPKG_EXEC_DIRS.some((d) => p.startsWith(d + "/"))) {
-        return p.startsWith("/sbin/") ? TPKG_SBIN_MODE : TPKG_EXEC_MODE;
-    }
-    return null;
-}
+import {
+    EXEC_DIRS as TPKG_EXEC_DIRS,
+    EXEC_MODE as TPKG_EXEC_MODE,
+    SBIN_MODE as TPKG_SBIN_MODE,
+    SETUID_MODE as TPKG_SETUID_MODE,
+    execModeForPath,
+    isSetuidPath,
+} from "@common/ExecMode";
+export { TPKG_EXEC_DIRS, TPKG_EXEC_MODE, TPKG_SBIN_MODE, TPKG_SETUID_MODE, execModeForPath, isSetuidPath };
 
 /** Satu item (file) di dalam paket — bagian dari `packages.json`. */
 export interface TpkgItem {
