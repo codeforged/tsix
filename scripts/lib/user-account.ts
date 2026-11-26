@@ -1,12 +1,40 @@
 import * as bcrypt from "bcryptjs";
 import { BKFS } from "../../src/vfs/BKFS";
 
+/** GID grup `sudo` — sama dengan seed `/etc/group` (`scripts/lib/fresh-accounts.ts`). */
+const SUDO_GID = 27;
+
+/**
+ * addToGroup(): jadikan `username` anggota `groupName` di /etc/group.
+ * Baris grup dibuat (dengan `gid`) kalau belum ada; idempoten.
+ *
+ * `/bin/sudo` mengizinkan anggota grup `sudo` (atau `root`) — lihat
+ * `src/mirror/bin/sudo.ts` — jadi keanggotaan di sini = "sudoers".
+ */
+export function addToGroup(bkfs: BKFS, groupName: string, gid: number, username: string): void {
+  const groupPath = "/etc/group";
+  const lines = (bkfs.read(groupPath) || "").split("\n").filter((l) => l.trim().length > 0);
+  const idx = lines.findIndex((l) => l.split(":")[0] === groupName);
+  if (idx < 0) {
+    lines.push(`${groupName}:x:${gid}:${username}`);
+  } else {
+    const parts = lines[idx].split(":");
+    while (parts.length < 4) parts.push("");
+    const members = parts[3] ? parts[3].split(",").map((m) => m.trim()).filter(Boolean) : [];
+    if (members.includes(username)) return;
+    parts[3] = [...members, username].join(",");
+    lines[idx] = parts.join(":");
+  }
+  bkfs.touch(groupPath, lines.join("\n") + "\n", 0, 0, 0o644);
+}
+
 /**
  * BUAT AKUN USER BARU + HOME DIRECTORY (ala installer Ubuntu).
  *
  * Menulis entri ke /etc/passwd, /etc/shadow (hash bcrypt), menambahkan user
- * ke grup 'users' (gid 100), lalu membuat /home/<username> (0700, milik user).
- * Konsisten dengan /bin/useradd.ts di dalam sistem.
+ * ke grup 'users' (gid 100) DAN grup 'sudo' (gid 27 — user installer adalah
+ * admin node, seperti user pertama di installer Ubuntu), lalu membuat
+ * /home/<username> (0700, milik user).
  *
  * Root TIDAK dibuat di sini — akun root sudah otomatis dari src/mirror.
  * Dipakai oleh scripts/install.ts (fresh install) agar bisa diuji terpisah.
@@ -17,7 +45,6 @@ export function createUserAccount(
   password: string,
 ): void {
   const passwdPath = "/etc/passwd";
-  const groupPath = "/etc/group";
   const shadowPath = "/etc/shadow";
   const gid = 100; // grup 'users'
   const home = `/home/${username}`;
@@ -28,7 +55,10 @@ export function createUserAccount(
   const passwd = bkfs.read(passwdPath) || "";
   const pLines = passwd.split("\n").filter((l) => l.trim().length > 0);
   if (pLines.some((l) => l.split(":")[0] === username)) {
-    console.warn(`[INSTALL] User '${username}' sudah ada — dilewati.`);
+    // Akun sudah ada (mis. install diulang) — tidak dibuat ulang, tapi tetap
+    // dipastikan sudoer: user yang diisi di installer adalah admin node.
+    addToGroup(bkfs, "sudo", SUDO_GID, username);
+    console.warn(`[INSTALL] User '${username}' already exists — skipped (ensured 'sudo' group membership).`);
     return;
   }
   let maxUid = 0;
@@ -47,19 +77,10 @@ export function createUserAccount(
   const shadowLine = `${username}:${hash}:${days}:0:99999:7:::`;
   bkfs.touch(shadowPath, shadow.trim() + "\n" + shadowLine + "\n", 0, 0, 0o640);
 
-  // 3. /etc/group — tambahkan sebagai member grup 'users'
-  const group = bkfs.read(groupPath) || "";
-  const gLines = group.split("\n").filter((l) => l.trim().length > 0);
-  const gIdx = gLines.findIndex((l) => l.split(":")[0] === "users");
-  if (gIdx >= 0) {
-    const parts = gLines[gIdx].split(":");
-    const members = parts[3] ? parts[3].split(",").filter(Boolean) : [];
-    if (!members.includes(username)) {
-      parts[3] = [...members, username].join(",");
-      gLines[gIdx] = parts.join(":");
-      bkfs.touch(groupPath, gLines.join("\n") + "\n", 0, 0, 0o644);
-    }
-  }
+  // 3. /etc/group — member grup 'users' + 'sudo' (lihat addToGroup)
+  addToGroup(bkfs, "users", gid, username);
+  addToGroup(bkfs, "sudo", SUDO_GID, username);
+  console.log(`[INSTALL] User '${username}' added to the 'sudo' group (sudoers).`);
 
   // 4. Home directory — milik user (uid/gid), privat 0700
   if (!bkfs.exists(home)) {
