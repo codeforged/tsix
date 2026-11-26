@@ -9,7 +9,7 @@
 
 **TSIX** is an **operating system simulator** built entirely in TypeScript on top of Node.js/V8 — complete with a custom kernel, syscall dispatcher, logical Unix-style permission layer (UID/GID, rwx), POSIX-like filesystem, signal handling, and device abstraction (HAL). It is **not a VM that emulates a CPU**; it simulates OS concepts — tasks/processes, permissions, filesystems, signals — directly within the Node.js runtime as an educational and experimental project, and follows **Unix fidelity** as its design north star (see [Philosophy](#philosophy)).
 
-Its flagship use case is a complete **IoT stack** — the MQTNL protocol (MQTT-based), OTA firmware updates, real-time dashboards, and encrypted remote terminal access — all reachable with nothing more than an internet connection and a free MQTT broker. No VPS, no static public IP, no paid cloud service required.
+Its flagship use case is a complete **IoT stack** — **Lantana** (the default IoT stack), the MQTNL protocol (MQTT-based), OTA firmware updates, real-time dashboards, and encrypted remote terminal access — all reachable with nothing more than an internet connection and a free MQTT broker. No VPS, no static public IP, no paid cloud service required.
 
 **Where IoT fits (and where it doesn't):** the IoT stack is **not** part of the kernel. TSIX's core — kernel, VFS, drivers (rings 1–2) — is generic within the simulator's ecosystem: it has no idea what MQTT, OTA, or ESP32 are. The IoT stack is simply **one application running on top of the platform**, exactly like the window manager, the file browser, or the shell. That separation *is* the design's strength: one neutral, Unix-faithful core powers any generic simulated task — be it IoT, a desktop environment, or a command line.
 
@@ -167,6 +167,36 @@ tssh <hostname> -c "cat /etc/hostname"   # run a one-off remote command
 > **Why this matters:** you can administer a TSIX node — or an ESP32 IoT device
 > behind NAT — from anywhere, using only a free public MQTT broker. No VPS to
 > rent, no firewall hole to open.
+
+### IoT Stack — Lantana (default)
+
+**Lantana** is TSIX's default IoT stack, built on MQTNL. ESP32/ESP8266 devices
+connect through the MQTT broker; the Lantana daemon authenticates them, checks
+permissions, validates every reading, and distributes the data to consumers and
+dashboards. Like everything above the kernel, it is a regular userland package
+(`sudo tpkg install lantana`), and it is preinstalled in **TSIX IoT Edition**.
+
+```text
+ESP32 / ESP8266 (tsixlib) ──MQTNL (RSA/PSK + ChaCha20-Poly1305)──▶ MQTT broker ──▶ Lantana daemon
+        auth → permission policy → scheme validation → DeviceBank / DataBank → Distributor
+                                                              ├─▶ lantana-dashboard (GUI)
+                                                              ├─▶ lantana-file-logger
+                                                              ├─▶ lantana-db-injector (SQL)
+                                                              └─▶ lantana-dashboard-server (portable dashboards)
+```
+
+| Feature                       | Detail                                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Identity model**            | `accountId` + `deviceId` + `schemeId`; MQTNL `address:port` is only a routing endpoint, never an identity                      |
+| **Secure device handshake**   | ESP32: pinned server fingerprint + RSA-OAEP; ESP8266: PSK with mutual HMAC proofs + HKDF. Then ChaCha20-Poly1305, **no plaintext fallback**; the AccessKey is never sent or logged |
+| **Permission policy**         | Explicit `inject` / `query` / `command` rights per account (no implicit inheritance); consumers must register with an account  |
+| **Scheme validation**         | Every reading is checked against its scheme (type, unit, range) before it is stored or distributed                              |
+| **DeviceBank**                | Latest state per device, heartbeat / online status, and the return endpoint for commands (e.g. relays)                         |
+| **DataBank & consumers**      | Bounded, idempotent sink queue; ready-made consumers for a GUI dashboard, file logging, and SQL injection (`sensor_readings`)   |
+| **Portable dashboards**       | Opened with a 6-digit PIN (only its hash is stored), PSK handshake, many devices per dashboard, many clients at once, switch cards for relay commands, rate-limited login |
+| **Administration**            | `lantana-ctl` CLI (accounts, devices, schemes, keys, dashboards) and a Control Panel GUI on Asteracea                           |
+| **Firmware**                  | `tsixlib` for ESP32 / ESP8266 (PlatformIO envs `lantana-esp32`, `lantana-esp8266`); handshake mode chosen per board            |
+| **Load testing**              | `lantana-stress` sets up, runs, reports on, and cleans up virtual devices (e.g. 1,000 devices in 10 groups)                    |
 
 ### GUI (Emerald + DOME)
 
@@ -441,11 +471,11 @@ tsix/
 
 | Area              | Capability                                                         |
 | :---------------- | :----------------------------------------------------------------- |
-| **IoT Gateway**   | MQTNL protocol, OTA updates, ESP32 integration, Serial devices     |
+| **IoT Gateway**   | Lantana IoT stack (ESP32/ESP8266), MQTNL protocol, OTA updates, Serial devices |
 | **Cloud Desktop** | DOME display server, Asteracea WM, PixelTerm, File Cruiser         |
 | **Edge Platform** | TPKG package manager, crond scheduler, process isolation           |
 | **Secure Tunnel** | TSSH (remote terminal), SCP (file transfer) with E2E encryption |
-| **Dashboard**     | IoT dashboard with real-time charts via DOME                       |
+| **Dashboard**     | Lantana dashboards (incl. PIN-protected portable dashboards) with real-time charts via DOME |
 | **Sandbox**       | Isolated script execution in Worker Threads                        |
 
 ---
