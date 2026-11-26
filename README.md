@@ -177,6 +177,25 @@ tssh <hostname> -c "cat /etc/hostname"   # run a one-off remote command
 | **Modal Dialogs**   | alert(), confirm(), question() — built-in                                |
 | **Window Manager**  | Asteracea WM with taskbar, Z-index, focus management                     |
 
+### Package Manager (TPKG)
+
+`tpkg` (client) installs packages served by `tpkgd` (repository daemon) over MQTNL.
+
+| Feature               | Detail                                                                                              |
+| --------------------- | --------------------------------------------------------------------------------------------------- |
+| **Verified bundles**  | RSA handshake + encrypted session, trust-on-first-use repo fingerprint, signed digest, SHA-256 per file |
+| **Dependencies**      | `depends` with install / ignore / abort prompt; `tpkg list --installed`, `tpkg upgrade`             |
+| **Prebuilt `.js`**    | Bundles are compiled to `.js` by default; `tpkg install <pkg> --source` gets the TypeScript sources |
+| **Safe by default**   | Post-install scripts and host-FS writes require confirmation; `/etc` config files are never overwritten (new version saved as `.tpkg-new`) |
+| **Clean removal**     | `tpkg remove` deletes build artifacts too, keeps files shared with other packages                   |
+| **Repository checks** | `tpkgd --check` validates sources, bundle sizes, dependencies and scripts before publishing         |
+
+```bash
+sudo tpkg update && tpkg list
+sudo tpkg install retroterm      # dependencies are offered automatically
+tpkg -v                          # client version, installed base, image variant
+```
+
 ### Security
 
 - **Process Isolation** — Each application runs in a separate Worker Thread
@@ -209,18 +228,19 @@ npm run install
 The installer will ask you for:
 
 - Hostname (interface addresses are derived from it: `<hostname>`, `<hostname>_2`)
-- Default login user
+- A regular user account and its password (optional) — it is added to the `sudo` group
 - MQTT broker address
 - Default MQTT port
 - Kernel verbose mode (y/n)
-- New database path
-- (Optional) root password
+- New database filename (development mode only — see below)
+- Root password (required when the image ships with a locked root account)
 
 > [!NOTE] **Default credentials**
 >
-> - **User:** `root` — **Password:** `root` (default; bcrypt hash bundled in `src/mirror/etc/shadow`).
-> - Change the password by answering the **root-password prompt** during `npm run install`, or run `passwd` inside TSIX.
-> - This is a **documented development default**, not a secret. For production or public exposure, always set your own password (don't use the default).
+> - **Repository checkout:** `root` / `root` (bcrypt hash bundled in `src/mirror/etc/shadow`).
+> - **Distro images** (`npm run distro:twrapper`) do **not** ship `/etc/shadow`: root stays locked until you set a password during `npm run tsix:install`.
+> - Change the password by answering the **root-password prompt** during the install, or run `passwd` inside TSIX.
+> - `root` / `root` is a **documented development default**, not a secret. For production or public exposure, always set your own password.
 
 After installation, `src/sysconfig.conf` points to the new database and the system is ready to boot:
 
@@ -236,6 +256,44 @@ npm run install -- --path data/tsix.db       # install to a specific database fi
 npm run install -- --path data/tsix.db --force   # overwrite an existing db (auto-backup)
 npm run install -- --defaults                # non-interactive, use all defaults
 npm run install -- --no-config               # skip writing src/sysconfig.conf
+```
+
+### Development vs Production Mode
+
+The installer detects the mode automatically:
+
+| Mode            | Detected when             | What the installer does                                                                 |
+| --------------- | ------------------------- | --------------------------------------------------------------------------------------- |
+| **Development** | `src/mirror/` exists      | Creates a new database from `src/mirror` + `src/common` (asks for the database filename) |
+| **Production**  | `src/mirror/` is absent   | Uses the prebuilt `system.db` as-is; only configures the node (hostname, users, root)    |
+
+In production all reads and writes of the root filesystem go to the VFS (`system.db`); there is no `src/mirror/` on the host.
+
+### Building a Distro
+
+Distro images are assembled from TPKG packages with **Twrapper** (recipes in `scripts/twrapper/*.json`, output in `distro/<id>/`):
+
+```bash
+npm run distro:twrapper -- --check              # show the plan, write nothing
+npm run distro:twrapper                         # development image (src/mirror/ + install-time database)
+npm run distro:twrapper -- --no-mirror          # production image (prebuilt system.db)
+npm run distro:twrapper -- --recipe scripts/twrapper/iot-edition.json
+```
+
+A **production image** (`--no-mirror`) is meant for end users:
+
+- the root filesystem is written straight into `distro/<id>/system.db` — no `src/mirror/`;
+- programs are shipped as compiled `.js` only, without TypeScript sources or sourcemaps (`/lib` keeps its `.ts`, which the kernel compiles at boot) — the Imut image shrinks from ~4 MB to ~1 MB;
+- `/etc/tsix-release` (`VARIANT=production`) marks the image, so `tpkg` keeps updates in the VFS;
+- the host log file (`jsix.log`) is disabled (`logFile = none`).
+
+Then, on the target machine:
+
+```bash
+cd distro/imut
+npm install
+npm run tsix:install
+./bootstrap.sh      # or bootstrap.bat on Windows
 ```
 
 ### Safe Mode
@@ -255,6 +313,7 @@ the problem.
 ```bash
 npm run vfs:bootstrap        # bulk-sync src/mirror into the configured database
 npm run bkfs:create          # create an empty database (path from sysconfig)
+npm run tpkg:manifest        # regenerate the TPKG catalog (base-system from the source tree)
 node scripts/clean_bloat.js  # truncate syslog + vacuum the database
 ```
 
@@ -363,15 +422,18 @@ tsix/
 
 > Note: TSIX is an educational/experimental project. "Working" only means the component passes its test suite and boots in the reference environment — it is **not** production-ready. APIs and behavior may change without notice.
 
-| Component                                                | Status      | Tests       |
-| -------------------------------------------------------- | ----------- | ----------- |
-| Kernel (syscalls, scheduler, perms, mount, devices, TTY) | Working     | 354/359     |
-| VFS (BKFS, HostVFS)                                      | Working     | 150/150     |
-| Common Utilities & Protocols (MQTNL)                     | Working     | 140/143     |
-| GUI library (Emerald)                                    | Working     | 1/1         |
-| **TOTAL**                                                | **Working** | **645/653** |
+| Component                                                | Status      | Tests         |
+| -------------------------------------------------------- | ----------- | ------------- |
+| Kernel (syscalls, scheduler, perms, mount, devices, TTY) | Working     | 585/585       |
+| VFS (BKFS, HostVFS, RamFS)                               | Working     | 202/202       |
+| Common utilities & protocols (MQTNL, security, config)   | Working     | 259/259       |
+| Userland loader (WorkerEntry, module resolver)           | Working     | 11/11         |
+| Libraries (Emerald, Pistachio, DOME, Lantana, …)         | Working     | 1271/1271     |
+| System tools (tpkg / tpkgd) & other userland             | Working     | 60/60         |
+| Build & install scripts                                  | Working     | 16/16         |
+| **TOTAL** (112 test files)                               | **Working** | **2404/2404** |
 
-> [!NOTE] **7 test failures are pre-existing / environment-related** — 5 in `Syscalls` (e.g. `SCREEN_INFO` requires device setup), 2 in `Logger` (timestamp format). Two test files (`SecurityAgent`, `F1-UtilityScripts`) fail to load. Not related to feature changes.
+> [!NOTE] Run the suite with `npm test`. One test is intentionally skipped.
 
 ---
 
