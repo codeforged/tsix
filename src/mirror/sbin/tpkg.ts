@@ -1303,7 +1303,7 @@ export class Main {
             // --- sisi VFS ---
             try {
                 if (entry.existed && entry.backup) {
-                    const content = await this.lib.fs.readFile(`${dir}/${entry.backup}`);
+                    const content = await this.readMaybe(`${dir}/${entry.backup}`);
                     if (content === null || content === undefined) continue;
                     await this.lib.fs.writeFile(entry.path, content);
                     restored++;
@@ -1340,7 +1340,7 @@ export class Main {
     }
 
     private async loadBackupIndex(pkgName: string, stamp: string): Promise<BackupIndex | null> {
-        const content = await this.lib.fs.readFile(`${this.backupDir}/${pkgName}/${stamp}/index.json`);
+        const content = await this.readMaybe(`${this.backupDir}/${pkgName}/${stamp}/index.json`);
         if (!content) return null;
         try {
             return JSON.parse(content) as BackupIndex;
@@ -1648,7 +1648,7 @@ export class Main {
     }
 
     private async loadInstalledManifest(pkgName: string): Promise<InstalledManifest | null> {
-        const content = await this.lib.fs.readFile(this.installedManifestPath(pkgName));
+        const content = await this.readMaybe(this.installedManifestPath(pkgName));
         if (!content) return null;
         try {
             return JSON.parse(content) as InstalledManifest;
@@ -1814,7 +1814,7 @@ export class Main {
             }
 
             if (this.isConfigPath(f.path) && !removeAll) {
-                const current = await this.lib.fs.readFile(f.path);
+                const current = await this.readMaybe(f.path);
                 const modified =
                     current !== null && current !== undefined && f.sha256 !== "" && sha256Hex(current) !== f.sha256;
                 const tag = modified ? "\x1b[1;33m(modified)\x1b[0m" : "\x1b[2m(unchanged)\x1b[0m";
@@ -1913,6 +1913,23 @@ export class Main {
         const dir = this.statusFile.substring(0, this.statusFile.lastIndexOf("/"));
         if (dir) await this.mkdirRecursive(dir);
         await this.lib.fs.writeFile(this.statusFile, JSON.stringify(status, null, 2));
+    }
+
+    /**
+     * readMaybe(): baca file, `null` kalau tidak ada.
+     *
+     * `fs.readFile` di VFS asli MELEMPAR `File not found` untuk file yang tidak
+     * ada (bukan return null). Memanggilnya langsung untuk file yang mungkin belum
+     * ada — mis. manifest paket yang belum pernah dipasang — membuat tpkg crash.
+     */
+    private async readMaybe(path: string): Promise<string | null> {
+        try {
+            if (!(await this.exists(path))) return null;
+            const content = await this.lib.fs.readFile(path);
+            return content === undefined ? null : content;
+        } catch (e) {
+            return null;
+        }
     }
 
     private async exists(path: string): Promise<boolean> {

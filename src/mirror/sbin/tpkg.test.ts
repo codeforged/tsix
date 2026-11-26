@@ -155,7 +155,13 @@ class World {
                 },
             },
             fs: {
-                readFile: async (path: string) => (fs.files.has(path) ? fs.files.get(path)! : null),
+                // Sama seperti VFS asli: file yang tidak ada MELEMPAR, bukan null.
+                // (Dulu tiruan ini return null, sehingga crash nyata
+                // `File not found: /var/lib/tpkg/installed/<pkg>.json` lolos dari test.)
+                readFile: async (path: string) => {
+                    if (!fs.files.has(path)) throw new Error(`File not found: ${path}`);
+                    return fs.files.get(path)!;
+                },
                 writeFile: async (path: string, content: string) => {
                     fs.files.set(path, content);
                     return true;

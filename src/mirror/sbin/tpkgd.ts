@@ -562,7 +562,10 @@ export class Main {
             try {
                 content = await this.lib.fs.readFile(item.src);
             } catch (error) {
-                if (!item.src.startsWith("/hostsrc/")) throw error;
+                // VFS asli melempar `File not found` untuk file yang tidak ada →
+                // biarkan `content` null supaya pesannya "source file not found: …"
+                // (sama seperti saat readFile mengembalikan null).
+                content = null;
             }
 
             if ((content === null || content === undefined) && item.src.startsWith("/hostsrc/")) {
