@@ -12,22 +12,37 @@ export default class Login {
     failDelayMs = 2000;
     /** Password root bawaan checkout repo (`src/mirror/etc/shadow`), diketahui publik. */
     static readonly DEFAULT_ROOT_PASSWORD = "root";
+    /** Jendela waktu batas percobaan gagal mode `--verify` (per pemanggil). */
+    static readonly VERIFY_WINDOW_MS = 60_000;
+    /** Catatan percobaan gagal mode `--verify`: `{ "<ruid>": [timestamp, ...] }`, milik root. */
+    static readonly VERIFY_STATE = "/var/run/login-verify.json";
 
-    async execute(lib: UserLib, args: string[]) {
-        // --- MODE VERIFY-ONLY (dipakai GUI login: Asteracea & Krisan) ---
-        // Setelah WM login sekali sebagai user non-root, WM kehilangan hak baca
-        // /etc/shadow (0640 root). Karena /bin/login.js SetUID root, verifikasi
-        // password lewat sini — selalu bisa baca shadow walau dipanggil WM non-root.
-        // Penggunaan: login.js --verify <username> <password> <resultFile>
-        //   Result ditulis ke <resultFile>: "OK" / "FAIL:<pesan>".
-        //   (Kanal file dipilih karena exit code anak tidak andal — WorkerEntry
-        //   selalu menuntaskan dengan exit(0).)
-        if (args && args[0] === "--verify") {
-            const vUser = (args[1] || "").trim();
-            const vPass = args[2] || "";
-            const vOut = args[3] || "/tmp/verify-result.txt";
-            let ok = false;
-            let errMsg = "";
+    /**
+     * verifyOnly(): mode `--verify`. Periksa password sebagai root (perlu baca
+     * /etc/shadow), lalu turun ke identitas pemanggil sebelum menulis hasil.
+     */
+    private async verifyOnly(lib: UserLib, vUser: string, vPass: string, vOut: string): Promise<void> {
+        const me = await lib.shell.whoami();
+        const caller = typeof me?.ruid === "number" ? me.ruid : me?.uid;
+
+        // --- Batas percobaan per pemanggil (state milik root) ---
+        const now = Date.now();
+        let state: Record<string, number[]> = {};
+        try {
+            state = JSON.parse((await lib.fs.readFile(Login.VERIFY_STATE)) || "{}") || {};
+        } catch (_) {
+            state = {};
+        }
+        const key = String(caller);
+        const recent = (Array.isArray(state[key]) ? state[key] : []).filter(
+            (t) => typeof t === "number" && now - t < Login.VERIFY_WINDOW_MS,
+        );
+
+        let ok = false;
+        let errMsg = "";
+        if (recent.length >= Login.MAX_ATTEMPTS) {
+            errMsg = "too many failed attempts, try again later";
+        } else {
             try {
                 const vShadow = (await lib.fs.readFile("/etc/shadow")) || "";
                 const vLines = vShadow.split("\n").map(l => l.trim()).filter(l => l.length > 0);
@@ -42,11 +57,59 @@ export default class Login {
             } catch (e: any) {
                 errMsg = e.message || "verify error";
             }
+            if (!ok) recent.push(now);
+            state[key] = ok ? [] : recent;
             try {
-                await lib.fs.writeFile(vOut, ok ? "OK" : "FAIL:" + errMsg);
+                await lib.fs.writeFile(Login.VERIFY_STATE, JSON.stringify(state));
             } catch (_) {
-                /* tulis gagal — WM akan lihat file tidak ada → gagal login */
+                /* gagal mencatat → tetap lanjut; jeda di bawah tetap memperlambat */
             }
+            if (!ok && this.failDelayMs > 0) await new Promise(r => setTimeout(r, this.failDelayMs));
+        }
+
+        // --- Turun ke identitas pemanggil sebelum menulis hasil ---
+        if (caller !== 0) {
+            const passwd = (await lib.fs.readFile("/etc/passwd")) || "";
+            const entry = passwd
+                .split("\n")
+                .map(l => l.trim().split(":"))
+                .find(p => p.length > 3 && parseInt(p[2]) === caller);
+            if (!entry) return; // pemanggil tidak dikenal → jangan tulis apa pun
+            const gid = parseInt(entry[3]);
+            try {
+                await lib.shell.setgroups([gid]);
+                await lib.shell.setgid(gid);
+                await lib.shell.setuid(caller);
+            } catch (_) {
+                return; // gagal turun → jangan menulis sebagai root
+            }
+        }
+        try {
+            await lib.fs.writeFile(vOut, ok ? "OK" : "FAIL:" + errMsg);
+        } catch (_) {
+            /* tulis gagal — WM akan lihat file tidak ada → gagal login */
+        }
+    }
+
+    async execute(lib: UserLib, args: string[]) {
+        // --- MODE VERIFY-ONLY (dipakai GUI login: Asteracea & Krisan) ---
+        // Setelah WM login sekali sebagai user non-root, WM kehilangan hak baca
+        // /etc/shadow (0640 root). Karena /bin/login.js SetUID root, verifikasi
+        // password lewat sini — selalu bisa baca shadow walau dipanggil WM non-root.
+        // Penggunaan: login.js --verify <username> <password> <resultFile>
+        //   Result ditulis ke <resultFile>: "OK" / "FAIL:<pesan>".
+        //   (Kanal file dipilih karena exit code anak tidak andal — WorkerEntry
+        //   selalu menuntaskan dengan exit(0).)
+        //
+        // Keamanan (SEC-24):
+        //   - Hasil ditulis SETELAH login turun ke identitas pemanggil (ruid),
+        //     jadi pemanggil hanya bisa menulis ke file yang memang boleh ia
+        //     tulis. Dulu ditulis sebagai root → path apa pun (mis. /etc/shadow)
+        //     bisa ditimpa oleh user mana pun.
+        //   - Percobaan gagal dibatasi per pemanggil (MAX_ATTEMPTS per
+        //     VERIFY_WINDOW_MS), dicatat di file milik root.
+        if (args && args[0] === "--verify") {
+            await this.verifyOnly(lib, (args[1] || "").trim(), args[2] || "", args[3] || "/tmp/verify-result.txt");
             return; // selesai — biar WorkerEntry yang menuntaskan proses
         }
 
