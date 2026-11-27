@@ -143,3 +143,55 @@ describe("SimpleMQTNLDriver — protocol per-port & registry peer (N7)", () => {
     expect((drv as any).portProtocols.has(6123)).toBe(false);
   });
 });
+
+/**
+ * SEC-23 — payload Buffer di jalur JSON pada port yang punya session key.
+ *
+ * Objek sudah di-stringify sebelum sampai ke tahap enkripsi, tapi Buffer
+ * dulu keluar sebagai `JSON.stringify(buffer)` TANPA enkripsi.
+ */
+describe("SimpleMQTNLDriver — Buffer di port terenkripsi (SEC-23)", () => {
+  async function sendAndSniff(opts: { key: boolean; payload: any }) {
+    const drv = new SimpleMQTNLDriver("smqtnl0", "mqtt://dummy", "__sec23");
+    if (opts.key) drv.ioctl(0x1001, { port: 5001, sessionKey: KEY_HEX });
+    const published: Buffer[] = [];
+    (drv as any).client = {
+      connected: true,
+      publish: (_t: string, m: any, _o?: any, cb?: any) => {
+        published.push(Buffer.from(m));
+        if (typeof _o === "function") _o();
+        else if (typeof cb === "function") cb();
+      },
+    };
+    const tx: any[] = [];
+    drv.onSniff((s: any) => {
+      if (s.dir === "TX") tx.push(s);
+    });
+    try {
+      await drv.send("__sec23_peer", 9000, opts.payload, PacketFlags.FLAG_DATA, 5001);
+    } catch (_) {
+      /* tanpa broker sungguhan publish boleh gagal; sniff TX sudah terjadi */
+    }
+    expect(published.length).toBeGreaterThan(0); // benar-benar keluar ke broker
+    return { raw: tx.map((s) => String(s.raw)).join(""), wire: Buffer.concat(published).toString("latin1") };
+  }
+
+  it("Buffer + session key → yang keluar terenkripsi (bukan JSON plaintext)", async () => {
+    const { raw, wire } = await sendAndSniff({ key: true, payload: Buffer.from("rahasia-buffer") });
+    expect(raw).not.toContain('"type":"Buffer"');
+    expect(wire).not.toContain('"type":"Buffer"');
+    expect(wire).not.toContain("104,97,104,97"); // bukan daftar byte plaintext
+    expect(raw.length).toBeGreaterThan(0);
+  });
+
+  it("string + session key → tetap terenkripsi (perilaku lama)", async () => {
+    const { wire } = await sendAndSniff({ key: true, payload: "rahasia-string" });
+    expect(wire).not.toContain("rahasia");
+  });
+
+  it("Buffer tanpa session key → tetap JSON seperti dulu (tidak ada perubahan wire)", async () => {
+    const buf = Buffer.from("halo");
+    const { raw } = await sendAndSniff({ key: false, payload: buf });
+    expect(raw).toBe(JSON.stringify(buf));
+  });
+});

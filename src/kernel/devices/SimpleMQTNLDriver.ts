@@ -664,10 +664,12 @@ export class SimpleMQTNLDriver implements IDevice {
       const enc = portSec.securePacketOutRaw?.(payload) ?? payload;
       securedPayload = Buffer.isBuffer(enc) ? enc : payload;
     } else {
-      securedPayload =
-        typeof payload === "string"
-          ? portSec.securePacketOut(payload)
-          : JSON.stringify(payload);
+      // Serialisasi DULU, baru enkripsi. Dulu Buffer di jalur ini keluar
+      // sebagai JSON.stringify(buffer) tanpa enkripsi walaupun port punya
+      // session key (SEC-23). Tanpa session key securePacketOut() hanya
+      // meneruskan teksnya, jadi wire tetap sama seperti sebelumnya.
+      const text = typeof payload === "string" ? payload : JSON.stringify(payload);
+      securedPayload = portSec.securePacketOut(text);
     }
 
     // [SNIFFER] TX — `data` = payload SEBELUM enkripsi (plaintext), `raw` = yang
