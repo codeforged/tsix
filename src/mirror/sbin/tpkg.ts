@@ -201,6 +201,8 @@ export class Main {
     private cacheDir: string = "/var/cache/tpkg";
     private repoCache: string = "/var/cache/tpkg/repo.json";
     private trustedRepos: string = "/etc/tpkg/trusted_repos";
+    /** Kunci penandatangan yang dipercaya untuk SEMUA host (kunci resmi ikut image; SEC-17). */
+    private trustedKeys: string = "/etc/tpkg/trusted_keys";
     private configFile: string = "/etc/tpkg/config.json";
     private statusFile: string = "/var/lib/tpkg/status.json";
     private backupDir: string = "/var/lib/tpkg/backup";
@@ -275,7 +277,9 @@ export class Main {
         // ditolak di depan dengan pesan jelas.
         const who = await this.lib.shell.whoami();
         const rootRequired = ["install", "upgrade", "remove", "update", "download"];
-        if (rootRequired.includes(cmd) && who.uid !== 0) {
+        // `tpkg key add/remove` mengubah daftar kunci yang dipercaya → root.
+        const keyWrite = cmd === "key" && args[1] !== "list";
+        if ((rootRequired.includes(cmd) || keyWrite) && who.uid !== 0) {
             await this.lib.std.print(
                 `❌ Error: 'tpkg ${cmd}' requires root privileges (modifies the system & may write to the host FS). Use sudo.\n`,
             );
@@ -307,6 +311,9 @@ export class Main {
                 break;
             case "verify":
                 await this.doVerify(opts.names[0], opts);
+                break;
+            case "key":
+                await this.doKey(args.slice(1));
                 break;
             case "metrics":
                 await this.showMetrics();
@@ -354,6 +361,7 @@ export class Main {
         await p("  tpkg remove <pkg...>                - Uninstall (asks before removing config files)\n");
         await p("  tpkg download <pkg> [--from <host>] - Fetch & verify without installing\n");
         await p("  tpkg verify <pkg> [--from <host>]   - Verify signature of a package\n");
+        await p("  tpkg key list|add <fp> [label]|remove <fp> - Trusted package signing keys\n");
         await p("  tpkg metrics                        - Show statistics\n");
         await p("  tpkg -v, --version                  - Show the tpkg version\n");
         await p("  tpkg --set-repo <host[:port]>       - Set default repository\n");
@@ -2257,6 +2265,11 @@ export class Main {
      * ke host, jadi tidak bisa dipakai memutuskan kepercayaan.
      */
     private async checkTrusted(host: string, publicKeyPem: string): Promise<"trusted" | "mismatch" | "unknown"> {
+        // SEC-17 / K-13: kunci penandatangan resmi (ikut image) atau yang ditambah
+        // operator lewat `tpkg key add` dipercaya untuk host mana pun.
+        for (const fp of await this.readTrustedKeys()) {
+            if (SecurityAgent.verifyPinnedKey(publicKeyPem, fp)) return "trusted";
+        }
         if (!(await this.exists(this.trustedRepos))) return "unknown";
         const list = (await this.lib.fs.readFile(this.trustedRepos)) || "";
         let seen = false;
@@ -2267,6 +2280,50 @@ export class Main {
             if (SecurityAgent.verifyPinnedKey(publicKeyPem, fp)) return "trusted";
         }
         return seen ? "mismatch" : "unknown";
+    }
+
+    /** Fingerprint di `/etc/tpkg/trusted_keys` (per baris: `<sha256-hex-64> [label]`, `#` = komentar). */
+    private async readTrustedKeys(): Promise<string[]> {
+        if (!(await this.exists(this.trustedKeys))) return [];
+        const text = (await this.lib.fs.readFile(this.trustedKeys)) || "";
+        return text
+            .split("\n")
+            .map((l) => l.trim())
+            .filter((l) => l && !l.startsWith("#"))
+            .map((l) => l.split(/\s+/)[0].toLowerCase())
+            .filter((fp) => /^[0-9a-f]{64}$/.test(fp));
+    }
+
+    /** `tpkg key list | add <fp> [label] | remove <fp>` — kelola kunci penandatangan tepercaya. */
+    private async doKey(argv: string[]) {
+        const [action, fpArg, ...labelParts] = argv;
+        const p = (s: string) => this.lib.std.print(s);
+        if (action === "list" || !action) {
+            const text = (await this.exists(this.trustedKeys)) ? (await this.lib.fs.readFile(this.trustedKeys)) || "" : "";
+            const lines = text.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+            if (lines.length === 0) await p(`(no keys in ${this.trustedKeys})\n`);
+            for (const l of lines) await p(`${l}\n`);
+            return;
+        }
+        const fp = String(fpArg ?? "").toLowerCase();
+        if (!/^[0-9a-f]{64}$/.test(fp)) {
+            await p("❌ Fingerprint must be the SHA-256 of the signing key: 64 hex characters.\n");
+            return;
+        }
+        let text = (await this.exists(this.trustedKeys)) ? (await this.lib.fs.readFile(this.trustedKeys)) || "" : "";
+        const others = text.split("\n").filter((l) => l.trim() && l.trim().split(/\s+/)[0].toLowerCase() !== fp);
+        if (action === "add") {
+            const label = labelParts.join(" ").replace(/[\r\n]/g, " ").trim();
+            text = [...others, label ? `${fp} ${label}` : fp].join("\n") + "\n";
+            await this.lib.fs.writeFile(this.trustedKeys, text);
+            await this.lib.fs.chmod(this.trustedKeys, 0o644);
+            await p(`✅ Trusted signing key added: ${fp}\n`);
+        } else if (action === "remove") {
+            await this.lib.fs.writeFile(this.trustedKeys, others.length ? others.join("\n") + "\n" : "");
+            await p(`✅ Removed: ${fp}\n`);
+        } else {
+            await p("Usage: tpkg key list | add <sha256-fingerprint> [label] | remove <sha256-fingerprint>\n");
+        }
     }
 
     private async addTrusted(host: string, fp: string) {

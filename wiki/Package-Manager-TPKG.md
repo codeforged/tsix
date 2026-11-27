@@ -100,8 +100,12 @@ Itu bukan sekadar sopan santun: paket **base-system** menulis ke HOST FS
 non-root. Jadi tanpa root, paket itu pasti gagal separuh jalan — lebih baik ditolak
 di depan dengan pesan jelas.
 
-`tpkgd` juga wajib root: ia memakai kunci identitas privat `/etc/keys/rsa` dan
-menyajikan file sistem (termasuk kernel) ke node lain.
+`tpkgd` juga wajib root: ia memakai kunci penandatangan paket
+`/etc/tpkg/signing/id_rsa` (dibuat otomatis, direktori 0700, private 0600) dan
+menyajikan file sistem (termasuk kernel) ke node lain. Kunci ini **terpisah** dari
+host key `/etc/keys/rsa` milik tsshd/scpd. Fingerprint SHA-256-nya dicatat di log
+saat `tpkgd` start; bagikan fingerprint itu ke klien supaya bisa ditambahkan dengan
+`tpkg key add` tanpa TOFU.
 
 ```bash
 # Set repository sekali, lalu perintah lain tidak perlu --from lagi
@@ -167,8 +171,13 @@ Empat lapis pengamanan sebelum satu byte pun ditulis:
    sah. Field `fingerprint` kiriman server tidak menentukan kepercayaan.
    Baris format lama (fingerprint pendek tanpa host) diabaikan, jadi repo yang
    dulu sudah dipercaya akan ditanyakan sekali lagi.
-3. **Signature paket** — server menandatangani digest bundle (`path+size+sha256`,
-   bukan konten penuh) dengan kunci identitas sistem `/etc/keys/rsa`.
+   Kunci di `/etc/tpkg/trusted_keys` (per baris `<sha256-hex-64> [label]`) dipercaya
+   untuk **host mana pun** tanpa prompt: tempat kunci resmi yang ikut image rilis
+   dan kunci repo yang diverifikasi operator. Kelola dengan
+   `tpkg key list | add <fp> [label] | remove <fp>` (add/remove wajib root).
+3. **Signature paket** — server menandatangani digest bundle (nama, versi, skrip
+   post-install, mode file, `path+size+sha256`; bukan konten penuh) dengan kunci
+   penandatangan paket `/etc/tpkg/signing/id_rsa`, bukan host key.
 4. **Integritas per file** — ukuran dan SHA-256 tiap file diperiksa **sebelum**
    file itu ditulis. Hash dihitung atas byte latin1 (1 char = 1 byte), sama persis
    dengan yang ditulis ke VFS — bukan utf8.
@@ -424,7 +433,7 @@ Data milik node tidak boleh disebar ke node lain:
 | Tidak dikirim                                  | Alasan                                                                     |
 | ---------------------------------------------- | -------------------------------------------------------------------------- |
 | `/etc/passwd`, `/etc/shadow`, `/etc/group`     | Akun server akan menggantikan akun node tujuan                             |
-| `/etc/tpkg/trusted_repos`, `/etc/tpkg/keys/**` | Kepercayaan (TOFU) & kunci per node                                        |
+| `/etc/tpkg/trusted_repos`, `/etc/tpkg/trusted_keys`, `/etc/tpkg/signing/**` | Kepercayaan (TOFU per host / kunci global) & kunci penandatangan repo |
 | `/etc/fstab.conf`, `/etc/crontab`              | Mount & jadwal tugas per node                                              |
 | `/etc/<app>/*.json` (lantana, telechat, dst.)  | Pengaturan operator; engine update tidak boleh mengembalikannya ke default |
 

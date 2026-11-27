@@ -1489,7 +1489,7 @@ describe("SEC-05 pinning kunci repository", { timeout: 30_000 }, () => {
 
     const update = () =>
         new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["update", "server"]);
-    const serverPub = () => world.fs(world.serverNode).files.get("/etc/keys/rsa/id_rsa.pub")!;
+    const serverPub = () => world.fs(world.serverNode).files.get("/etc/tpkg/signing/id_rsa.pub")!;
     const clientFile = (p: string) => world.fs(world.clientNode).files.get(p);
 
     it("repo palsu + fingerprint repo asli → ditolak tanpa prompt, katalog tidak diperbarui", async () => {
@@ -1556,6 +1556,108 @@ describe("SEC-05 pinning kunci repository", { timeout: 30_000 }, () => {
 
         expect(out(world)).toContain("Successfully updated");
         expect(world.answers).toEqual(["n"]);
+    });
+});
+
+/**
+ * SEC-17 — kunci penandatangan paket terpisah dari host key (K-13).
+ *
+ * tpkgd menandatangani dengan `/etc/tpkg/signing/id_rsa`, bukan host key
+ * `/etc/keys/rsa` milik tsshd/scpd. Kunci resmi bisa dipercaya global lewat
+ * `/etc/tpkg/trusted_keys` (ikut image rilis), tanpa TOFU per host.
+ */
+describe("SEC-17 kunci penandatangan terpisah", { timeout: 30_000 }, () => {
+    let world: World;
+    let daemonRun: Promise<void> | null = null;
+    const update = () => new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["update", "server"]);
+    const serverFs = () => world.fs(world.serverNode);
+
+    beforeEach(() => {
+        world = new World();
+    });
+
+    afterEach(async () => {
+        if (daemonRun) await stopDaemon(world, daemonRun);
+        daemonRun = null;
+    });
+
+    async function boot() {
+        setupServer(world);
+        daemonRun = (await startDaemon(world)).running;
+    }
+
+    it("tpkgd membuat & memakai kunci penandatangan sendiri, bukan host key", async () => {
+        const host = SecurityAgent.generateKeyPair();
+        serverFs().files.set("/etc/keys/rsa/id_rsa", host.privateKey);
+        serverFs().files.set("/etc/keys/rsa/id_rsa.pub", host.publicKey);
+        await boot();
+        world.answers = ["y"];
+
+        await update();
+
+        const signingPub = serverFs().files.get("/etc/tpkg/signing/id_rsa.pub")!;
+        expect(signingPub).toBeTruthy();
+        expect(signingPub).not.toBe(host.publicKey);
+        expect(serverFs().modes.get("/etc/tpkg/signing/id_rsa")).toBe(0o600);
+        expect(serverFs().modes.get("/etc/tpkg/signing")).toBe(0o700);
+        expect(out(world)).toContain("Successfully updated");
+        // Yang di-pin klien adalah kunci penandatangan.
+        expect(world.fs(world.clientNode).files.get("/etc/tpkg/trusted_repos")).toContain(
+            SecurityAgent.publicKeyFingerprint(signingPub),
+        );
+    });
+
+    it("klien yang mem-pin kunci penandatangan menolak repo yang menandatangani dengan host key", async () => {
+        const signing = SecurityAgent.generateKeyPair();
+        const host = SecurityAgent.generateKeyPair();
+        // Klien hanya percaya kunci penandatangan resmi.
+        world.fs(world.clientNode).files.set(
+            "/etc/tpkg/trusted_repos",
+            `server ${SecurityAgent.publicKeyFingerprint(signing.publicKey)}\n`,
+        );
+        // Server (keliru / dibobol) menandatangani dengan host key.
+        serverFs().files.set("/etc/tpkg/signing/id_rsa", host.privateKey);
+        serverFs().files.set("/etc/tpkg/signing/id_rsa.pub", host.publicKey);
+        await boot();
+        world.answers = ["y"];
+
+        await update();
+
+        expect(out(world)).not.toContain("Successfully updated");
+        expect(out(world)).toMatch(/CHANGED/);
+    });
+
+    it("kunci di /etc/tpkg/trusted_keys dipercaya untuk host mana pun tanpa prompt", async () => {
+        const signing = SecurityAgent.generateKeyPair();
+        serverFs().files.set("/etc/tpkg/signing/id_rsa", signing.privateKey);
+        serverFs().files.set("/etc/tpkg/signing/id_rsa.pub", signing.publicKey);
+        world.fs(world.clientNode).files.set(
+            "/etc/tpkg/trusted_keys",
+            `# official TSIX package key\n${SecurityAgent.publicKeyFingerprint(signing.publicKey)} tsix-official\n`,
+        );
+        await boot();
+        world.answers = ["n"]; // kalau sampai ditanya, menolak
+
+        await update();
+
+        expect(out(world)).toContain("Successfully updated");
+        expect(world.answers).toEqual(["n"]);
+        expect(world.fs(world.clientNode).files.get("/etc/tpkg/trusted_repos")).toBeUndefined();
+    });
+
+    it("`tpkg key add/list` mengelola trusted_keys; fingerprint tidak valid ditolak", async () => {
+        const fp = "ab".repeat(32);
+        const run = (args: string[]) => new TpkgClient().execute(world.makeLib(world.clientNode) as any, args);
+
+        await run(["key", "add", fp, "my-repo"]);
+        expect(world.fs(world.clientNode).files.get("/etc/tpkg/trusted_keys")).toContain(`${fp} my-repo`);
+
+        await run(["key", "add", "deadbeef"]);
+        expect(out(world)).toMatch(/64 hex/);
+
+        world.prints.length = 0;
+        await run(["key", "list"]);
+        expect(out(world)).toContain(fp);
     });
 });
 

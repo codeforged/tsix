@@ -25,8 +25,9 @@ import { utf8ToVfsBytes, vfsBytesToUtf8 } from "@common/VfsText";
  * Melayani repository paket (`/etc/tpkg/packages.json`) ke klien `tpkg`:
  * handshake RSA → session key ChaCha20 → LIST / INFO / GET_BUNDLE.
  *
- * Wajib root: memakai kunci identitas privat `/etc/keys/rsa` dan menyajikan isi
- * sistem (termasuk file kernel untuk paket "engine update").
+ * Wajib root: memakai kunci penandatangan paket `/etc/tpkg/signing/id_rsa`
+ * (terpisah dari host key `/etc/keys/rsa`, SEC-17) dan menyajikan isi sistem
+ * (termasuk file kernel untuk paket "engine update").
  *
  * Perbaikan dari versi lama:
  *   - `--port` / `--repo` / `--max-bundle` bisa diatur (dulu port 80 di-hardcode);
@@ -42,7 +43,13 @@ export class Main {
     private lib!: UserLib;
     private port: number = TPKG_DEFAULT_PORT;
     private repoPath: string = "/etc/tpkg/packages.json";
-    private keysPath: string = "/etc/keys/rsa";
+    /**
+     * Kunci PENANDATANGAN paket (SEC-17, K-13): terpisah dari host key
+     * `/etc/keys/rsa` milik tsshd/scpd. Kunci server di tpkgd tidak dipakai untuk
+     * enkripsi transport (session key dienkripsi dengan kunci sementara klien),
+     * hanya untuk menandatangani katalog/info/bundle. Direktori 0700, private 0600.
+     */
+    private keysPath: string = "/etc/tpkg/signing";
     private maxBundle: number = TPKG_DEFAULT_MAX_BUNDLE;
     private sessionTtlMs: number = 10 * 60 * 1000;
     private rateLimitPerMin: number = 120;
@@ -64,14 +71,14 @@ export class Main {
 
         // GERBANG ROOT.
         //
-        // tpkgd memakai kunci identitas privat (`/etc/keys/rsa`) dan menyajikan isi
+        // tpkgd memakai kunci penandatangan privat (`/etc/tpkg/signing`) dan menyajikan isi
         // sistem — termasuk file kernel untuk paket "engine update". Membiarkannya
         // jalan sebagai user biasa berarti file sistem bisa dibaca dan
         // didistribusikan tanpa kontrol root. Sama seperti tsshd/netfsd.
         const who = await this.lib.shell.whoami();
         if (who.uid !== 0) {
             await this.lib.std.print(
-                "❌ Error: tpkgd requires root privileges (reads /etc/keys/rsa & serves system files). Use sudo.\n",
+                "❌ Error: tpkgd requires root privileges (uses /etc/tpkg/signing & serves system files). Use sudo.\n",
             );
             return;
         }
@@ -189,20 +196,22 @@ export class Main {
         await this.lib.std.print(`  --max-bundle <byte> Max bundle size (default: ${TPKG_DEFAULT_MAX_BUNDLE})\n`);
         await this.lib.std.print("  --check             Validate the manifest (files, sizes, dependencies) and exit\n");
         await this.lib.std.print("  --help              Show this help\n");
-        await this.lib.std.print("\n⚠️  tpkgd must be run as root (sudo) — it uses /etc/keys/rsa\n");
-        await this.lib.std.print("    and serves system files, including the kernel.\n");
+        await this.lib.std.print("\n⚠️  tpkgd must be run as root (sudo) — it uses the package signing key\n");
+        await this.lib.std.print("    /etc/tpkg/signing/id_rsa and serves system files, including the kernel.\n");
     }
 
     private async ensureKeys() {
+        if (!(await this.exists("/etc/tpkg"))) await this.lib.fs.mkdir("/etc/tpkg");
         if (!(await this.exists(this.keysPath))) {
             await this.lib.fs.mkdir(this.keysPath);
         }
+        await this.lib.fs.chmod(this.keysPath, 0o700);
 
         const privPath = `${this.keysPath}/id_rsa`;
         const pubPath = `${this.keysPath}/id_rsa.pub`;
 
         if (!(await this.exists(privPath))) {
-            await this.lib.std.print("Generating system RSA keys (id_rsa)...");
+            await this.lib.std.print("Generating package signing key (/etc/tpkg/signing/id_rsa)...");
             const pair = SecurityAgent.generateKeyPair();
             await this.lib.fs.writeFile(privPath, pair.privateKey);
             await this.lib.fs.writeFile(pubPath, pair.publicKey);
@@ -213,6 +222,12 @@ export class Main {
             this.privateKey = (await this.lib.fs.readFile(privPath)) || "";
             this.publicKey = (await this.lib.fs.readFile(pubPath)) || "";
         }
+        await this.lib.fs.chmod(privPath, 0o600);
+        await this.lib.fs.chmod(pubPath, 0o644);
+        await this.lib.std.log(
+            `Package signing key SHA-256: ${SecurityAgent.publicKeyFingerprint(this.publicKey)}`,
+            "tpkgd",
+        );
     }
 
     private async handleHandshake(fd: number, packet: any, text: string) {
