@@ -152,10 +152,21 @@ export class SimpleMQTNLDriver implements IDevice {
     try {
       this.client = mqtt.connect(this.brokerUrl);
 
+      // Subscribe SEMPIT: hanya topik alamat sendiri + broadcast (SEC-21a),
+      // sama seperti firmware tsixlib. Dulu `${prefix}#` → setiap node
+      // menerima salinan semua paket semua node di broker.
+      // Catatan: ini mengurangi paparan & beban, BUKAN kontrol keamanan
+      // (siapa pun tetap bisa subscribe `#` dengan klien MQTT biasa).
       this.client.on("connect", () => {
+        if (/[+#/]/.test(this.localAddress)) {
+          this.logger.error(
+            `Interface address '${this.localAddress}' contains an MQTT topic character (+ # /); packets for it cannot be received.`,
+          );
+        }
         for (const proto of this.protocols) {
           const prefix = proto.getTopicPrefix();
-          this.client?.subscribe(`${prefix}#`);
+          this.client?.subscribe(`${prefix}${this.localAddress}`);
+          this.client?.subscribe(`${prefix}*`);
         }
       });
 
