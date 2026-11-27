@@ -207,3 +207,29 @@ handshake = false
         expect(config.network.tunnels![0].handshake).toBe(false);
     });
 });
+
+describe("SysConfigIni — kredensial broker di [iface.*] (SEC-21b)", () => {
+    const CREDS = BASE.replace(
+        "defaultPort = 1883\n",
+        "defaultPort = 1883\nusername = kebun\npassword = s3cr3t\ncaFile = /etc/ssl/broker-ca.pem\n",
+    );
+
+    it("username/password/caFile terbaca tanpa warning", () => {
+        const { config, warnings } = parseSysConfigIni(CREDS);
+        expect(warnings).toEqual([]);
+        const iface = config.network.interfaces[0];
+        expect(iface.username).toBe("kebun");
+        expect(iface.password).toBe("s3cr3t");
+        expect(iface.caFile).toBe("/etc/ssl/broker-ca.pem");
+    });
+
+    it("format ulang menulis kembali kredensial & tetap bisa dibaca", () => {
+        const again = parseSysConfigIni(formatSysConfigIni(parseSysConfigIni(CREDS).config)).config;
+        expect(again.network.interfaces[0].password).toBe("s3cr3t");
+    });
+
+    it("konfigurasi tanpa kredensial tidak mendapat key baru saat diformat ulang", () => {
+        const text = formatSysConfigIni(parseSysConfigIni(BASE).config);
+        expect(text).not.toMatch(/^username|^password|^caFile/m);
+    });
+});

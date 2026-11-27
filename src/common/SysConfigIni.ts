@@ -95,6 +95,11 @@ const IFACE_SCHEMA: Record<string, Kind> = {
     broker: "string",
     address: "string",
     defaultPort: "number",
+    // Kredensial broker (opsional, SEC-21b). File yang memuat `password`
+    // sebaiknya mode 0600 (installer mengaturnya).
+    username: "string",
+    password: "string",
+    caFile: "string",
 };
 
 /**
@@ -339,7 +344,7 @@ export function parseSysConfigIni(content: string): SysConfigParseResult {
                 warn(`interface '${devName}' is listed but [${IFACE_PREFIX}${devName}] is missing → skipped`);
                 continue;
             }
-            const iface = {
+            const iface: SysConfig["network"]["interfaces"][number] = {
                 deviceName: devName,
                 broker: "",
                 address: "",
@@ -355,6 +360,9 @@ export function parseSysConfigIni(content: string): SysConfigParseResult {
                 if (value === undefined) continue;
                 if (key === "defaultPort") iface.defaultPort = Number(value);
                 else if (key === "address") iface.address = String(value);
+                else if (key === "username") iface.username = String(value);
+                else if (key === "password") iface.password = String(value);
+                else if (key === "caFile") iface.caFile = String(value);
                 else iface.broker = String(value);
             }
             interfaces.push(iface);
@@ -576,11 +584,16 @@ export function formatSysConfigIni(cfg: SysConfig, header?: string): string {
     ]);
 
     for (const iface of cfg.network.interfaces) {
-        pushSection(out, `${IFACE_PREFIX}${iface.deviceName}`, [
+        const rows: Array<[string, string | number | boolean | undefined]> = [
             ["broker", iface.broker],
             ["address", iface.address],
             ["defaultPort", iface.defaultPort],
-        ]);
+        ];
+        // Kredensial hanya ditulis kalau di-set (konfigurasi lama tidak berubah bentuk).
+        if (iface.username) rows.push(["username", iface.username]);
+        if (iface.password) rows.push(["password", iface.password]);
+        if (iface.caFile) rows.push(["caFile", iface.caFile]);
+        pushSection(out, `${IFACE_PREFIX}${iface.deviceName}`, rows);
     }
 
     // Section tunnel hanya ditulis kalau dipakai — konfigurasi lama tidak

@@ -10,6 +10,15 @@ import { MQTNLProtocolJSON } from "../../common/protocols/MQTNLProtocolJSON";
 import { MQTNLProtocolBinary } from "../../common/protocols/MQTNLProtocolBinary";
 import { MQTNLProtocolBinfeo } from "../../common/protocols/MQTNLProtocolBinfeo";
 import * as mqtt from "mqtt";
+import * as nodeFs from "fs";
+
+/** Kredensial broker untuk satu interface (SEC-21b). */
+export interface BrokerAuthOptions {
+  username?: string;
+  password?: string;
+  /** Path HOST ke sertifikat CA (PEM). */
+  caFile?: string;
+}
 
 /**
  * SIMPLE MQTNL DRIVER (/dev/smqtnl0)
@@ -68,6 +77,8 @@ export class SimpleMQTNLDriver implements IDevice {
 
   // Instance config
   private brokerUrl: string;
+  /** Kredensial broker opsional (sysconfig `[iface.*] username/password/caFile`). */
+  private brokerAuth: BrokerAuthOptions;
   protected localAddress: string;
 
   // Stats
@@ -97,9 +108,24 @@ export class SimpleMQTNLDriver implements IDevice {
   // TX = payload SEBELUM dienkripsi, RX = payload SETELAH dekripsi (plaintext terbaca)
   private sniffers: Array<(sniff: any) => void> = [];
 
-  constructor(deviceName: string, brokerUrl: string, localAddress: string) {
+  /**
+   * redactBrokerUrl(): URL broker untuk log/tampilan, tanpa `user:pass@`.
+   * URL bisa memuat kredensial; log boot dan `getStats()` (dibaca userland,
+   * mis. ifconfig) tidak boleh membocorkannya (SEC-21b).
+   */
+  public static redactBrokerUrl(url: string): string {
+    return String(url || "").replace(/^([a-z][a-z0-9+.-]*:\/\/)[^@/]*@/i, "$1***@");
+  }
+
+  constructor(
+    deviceName: string,
+    brokerUrl: string,
+    localAddress: string,
+    brokerAuth: BrokerAuthOptions = {},
+  ) {
     this.name = deviceName;
     this.brokerUrl = brokerUrl;
+    this.brokerAuth = brokerAuth;
     this.localAddress = localAddress;
 
     // Daftarkan instance untuk lookup loopback
@@ -146,11 +172,19 @@ export class SimpleMQTNLDriver implements IDevice {
    */
   public init(ctx: KContext): void {
     ctx.syslog(
-      `Enabling interface '${this.name}' on ${this.localAddress} via broker: ${this.brokerUrl}`,
+      `Enabling interface '${this.name}' on ${this.localAddress} via broker: ${SimpleMQTNLDriver.redactBrokerUrl(this.brokerUrl)}` +
+        (this.brokerAuth.username ? ` (user '${this.brokerAuth.username}')` : ""),
     );
 
     try {
-      this.client = mqtt.connect(this.brokerUrl);
+      const connectOpts: mqtt.IClientOptions = {};
+      if (this.brokerAuth.username) connectOpts.username = this.brokerAuth.username;
+      if (this.brokerAuth.password) connectOpts.password = this.brokerAuth.password;
+      if (this.brokerAuth.caFile) {
+        // Path HOST (bukan VFS): sertifikat CA untuk broker TLS ber-CA sendiri.
+        connectOpts.ca = nodeFs.readFileSync(this.brokerAuth.caFile);
+      }
+      this.client = mqtt.connect(this.brokerUrl, connectOpts);
 
       // Subscribe SEMPIT: hanya topik alamat sendiri + broadcast (SEC-21a),
       // sama seperti firmware tsixlib. Dulu `${prefix}#` → setiap node
@@ -789,7 +823,7 @@ export class SimpleMQTNLDriver implements IDevice {
     return {
       deviceName: this.name,
       address: this.localAddress,
-      broker: this.brokerUrl,
+      broker: SimpleMQTNLDriver.redactBrokerUrl(this.brokerUrl),
       params: {
         connected: this.client?.connected || false,
         rxBytes: this.rxBytes,

@@ -72,6 +72,11 @@ export interface SysConfig {
             deviceName: string;
             address: string;
             defaultPort: number;
+            /** Kredensial broker (opsional). Untuk TLS pakai skema `mqtts://` / `wss://`. */
+            username?: string;
+            password?: string;
+            /** Path HOST ke sertifikat CA broker (PEM), untuk broker TLS ber-CA sendiri. */
+            caFile?: string;
         }[];
         defaultDevice: string;
         /**

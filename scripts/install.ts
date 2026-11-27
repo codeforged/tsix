@@ -3,6 +3,7 @@ import { createUserAccount } from "./lib/user-account";
 import { ensureFreshAccountFiles } from "./lib/fresh-accounts";
 import { isRootLocked, populateRootfs } from "./lib/rootfs-image";
 import { hasDefaultRootPassword, rootPasswordProblem } from "./lib/default-credentials";
+import { hostnameProblem, suggestHostname } from "./lib/hostname";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline/promises";
@@ -169,6 +170,15 @@ function saveConfig(cfg: SysConfig): void {
     "Aturan nilai: \"teks\" = string, a, b = array, true/false = boolean, 0o755 = oktal.\n" +
     "Pemilih backend root: kernel.rootType = bkfs | host (lihat wiki/Virtual-File-System.md).";
   fs.writeFileSync(CONFIG_PATH, formatSysConfigIni(cfg, header), "utf8");
+  // Password broker tersimpan di file ini → hanya pemilik yang boleh membaca
+  // (SEC-21b). Di Windows chmod tidak berpengaruh; tetap dicoba.
+  if (cfg.network.interfaces.some((i) => i.password)) {
+    try {
+      fs.chmodSync(CONFIG_PATH, 0o600);
+    } catch (_) {
+      /* abaikan: FS host tidak mendukung mode Unix */
+    }
+  }
   console.log(`[INSTALL] Konfigurasi ditulis ke: ${CONFIG_PATH}`);
 }
 
@@ -344,11 +354,20 @@ async function main() {
     if (opts.interactive) {
       console.log("\n== TSIX Fresh Install — Konfigurasi ==");
 
-      cfg.shell.defaultHostname = await prompt(
-        rl,
-        "Hostname",
-        cfg.shell.defaultHostname,
-      );
+      // Hostname = alamat MQTNL. Nama umum (`tsix`, dst.) mudah bentrok di
+      // broker bersama → ditolak, dengan saran nama acak (SEC-21b).
+      while (true) {
+        const current = cfg.shell.defaultHostname;
+        const suggestion = hostnameProblem(current) ? suggestHostname() : current;
+        const answer = (await prompt(rl, "Hostname (unique on your MQTT broker)", suggestion)).trim();
+        const problem = hostnameProblem(answer);
+        if (problem) {
+          console.log(`[INSTALL] ${problem}`);
+          continue;
+        }
+        cfg.shell.defaultHostname = answer;
+        break;
+      }
 
       // Akun user biasa (root sudah pasti dibuat otomatis dari image).
       // Alur ala installer Ubuntu: username → password → konfirmasi password.
@@ -382,6 +401,26 @@ async function main() {
       );
       if (broker) {
         cfg.network.interfaces.forEach((i) => (i.broker = broker));
+      }
+
+      // Kredensial broker (opsional, SEC-21b).
+      console.log(
+        "[INSTALL] A public broker without a login is a shared, untrusted network: anyone can read and send packets.",
+      );
+      const brokerUser = (
+        await prompt(rl, "Broker username (empty = none)", cfg.network.interfaces[0]?.username || "")
+      ).trim();
+      if (brokerUser) {
+        const brokerPass = await promptPassword(rl, `Broker password for '${brokerUser}'`);
+        cfg.network.interfaces.forEach((i) => {
+          i.username = brokerUser;
+          i.password = brokerPass || undefined;
+        });
+      } else {
+        cfg.network.interfaces.forEach((i) => {
+          delete i.username;
+          delete i.password;
+        });
       }
       if (broker.includes("localhost") || broker.includes("127.0.0.1")) {
         console.log("[INSTALL] Note: this requires a local MQTT broker (e.g. Mosquitto) to be running.");
@@ -451,7 +490,15 @@ async function main() {
     // Address interface otomatis mengikuti hostname (di semua mode):
     //   interface[0] = <hostname>, interface[1..n] = <hostname>_2, _3, ...
     // Terlalu teknis untuk ditanyakan ke user — cukup derive dari hostname.
-    const host = cfg.shell.defaultHostname || "tsix";
+    // Mode non-interaktif: jangan pakai nama umum yang mudah bentrok (SEC-21b).
+    if (hostnameProblem(cfg.shell.defaultHostname)) {
+      const generated = suggestHostname();
+      console.log(
+        `[INSTALL] Hostname '${cfg.shell.defaultHostname}' is not unique enough for a shared broker → using '${generated}'.`,
+      );
+      cfg.shell.defaultHostname = generated;
+    }
+    const host = cfg.shell.defaultHostname;
     cfg.network.interfaces.forEach((iface, i) => {
       iface.address = i === 0 ? host : `${host}_${i + 1}`;
     });

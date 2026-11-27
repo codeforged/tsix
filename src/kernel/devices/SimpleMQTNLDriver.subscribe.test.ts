@@ -13,7 +13,7 @@ const subscribed: string[] = [];
 const handlers: Record<string, (...a: any[]) => void> = {};
 
 vi.mock("mqtt", () => ({
-    connect: () => ({
+    connect: vi.fn(() => ({
         connected: true,
         on: (ev: string, cb: (...a: any[]) => void) => {
             handlers[ev] = cb;
@@ -22,7 +22,7 @@ vi.mock("mqtt", () => ({
             subscribed.push(t);
         },
         publish: () => undefined,
-    }),
+    })),
 }));
 
 import { SimpleMQTNLDriver } from "./SimpleMQTNLDriver";
@@ -39,5 +39,25 @@ describe("SimpleMQTNLDriver — subscribe sempit (SEC-21a)", () => {
             expect(subscribed).toContain(`${prefix}kebun`);
             expect(subscribed).toContain(`${prefix}*`);
         }
+    });
+});
+
+describe("SimpleMQTNLDriver — kredensial broker (SEC-21b)", () => {
+    it("username/password diteruskan ke mqtt.connect, dan tidak muncul di log", async () => {
+        const mqtt: any = await import("mqtt");
+        const spy = mqtt.connect;
+        const logs: string[] = [];
+        const drv = new SimpleMQTNLDriver("smqtnl0", "mqtts://u1:urlpass@broker.example:8883", "kebun", {
+            username: "kebun",
+            password: "s3cr3t",
+        });
+        drv.init({ syslog: (m: string) => logs.push(m) } as any);
+
+        const opts = spy.mock.calls.at(-1)?.[1] as any;
+        expect(opts?.username).toBe("kebun");
+        expect(opts?.password).toBe("s3cr3t");
+        expect(logs.join("\n")).not.toContain("s3cr3t");
+        expect(logs.join("\n")).not.toContain("urlpass");
+        expect(logs.join("\n")).toContain("broker.example");
     });
 });

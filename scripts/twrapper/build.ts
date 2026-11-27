@@ -61,6 +61,7 @@ const INSTALLER_FILES = [
     "scripts/lib/default-credentials.ts",
     "scripts/lib/fresh-accounts.ts",
     "scripts/lib/fresh-fstab.ts",
+    "scripts/lib/hostname.ts",
     "scripts/lib/rootfs-image.ts",
     "scripts/lib/text-file.ts",
     "scripts/lib/user-account.ts",

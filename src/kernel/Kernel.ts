@@ -232,7 +232,11 @@ export class Kernel {
         // Initialize Network Interfaces
         if (cfg.network.interfaces) {
             cfg.network.interfaces.forEach((iface) => {
-                this.devices[iface.deviceName] = new SimpleMQTNLDriver(iface.deviceName, iface.broker, iface.address);
+                this.devices[iface.deviceName] = new SimpleMQTNLDriver(iface.deviceName, iface.broker, iface.address, {
+                    username: iface.username,
+                    password: iface.password,
+                    caFile: iface.caFile,
+                });
             });
         }
 
