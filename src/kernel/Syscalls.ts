@@ -166,6 +166,30 @@ export class SyscallDispatcher {
     }
 
     /**
+     * canDelete(): boleh menghapus (UNLINK/RMDIR) `node` di `absolutePath`? (SEC-31)
+     *
+     *   - root, atau pemilik node itu → boleh (pemilik selalu bisa menghapus
+     *     miliknya; perilaku lama dipertahankan);
+     *   - selain itu (semantik Unix): wajib izin tulis di direktori induk, dan bila
+     *     induknya sticky (0o1000, mis. /tmp 1777) hanya pemilik induk yang boleh.
+     *
+     * Dulu izin dicek pada node target: file 0666 bisa dihapus siapa saja walau
+     * direktorinya tidak bisa ditulis, dan sticky bit tidak berarti apa-apa.
+     */
+    private async canDelete(pcb: any, absolutePath: string, node: any): Promise<boolean> {
+        if (this.isRoot(pcb)) return true;
+        if (node && node.uid === pcb.uid) return true;
+
+        const parentPath = absolutePath.substring(0, absolutePath.lastIndexOf("/")) || "/";
+        const { vfs: parentVfs, relativePath: parentRel } = this.mountManager.resolve(parentPath);
+        const parent = await parentVfs.stat(parentRel);
+        if (!parent) return false;
+        if (!this.satpam.check(pcb, parent, Permission.WRITE)) return false;
+        const sticky = (Number(parent.mode) & 0o1000) !== 0;
+        return !sticky || parent.uid === pcb.uid;
+    }
+
+    /**
      * forwardDbRequest(): Kirim request DB ke service daemon (transport alternatif).
      * Daftarkan requestId → pending, kirim event "db_request", tunggu DB_SERVICE_REPLY.
      */
@@ -730,7 +754,7 @@ export class SyscallDispatcher {
                 const { vfs, relativePath } = this.mountManager.resolve(absolutePath);
                 const node = await vfs.stat(relativePath);
                 if (!node) throw new Error("File not found");
-                if (!this.satpam.check(pcb, node, Permission.WRITE)) throw new Error("Permission Denied");
+                if (!(await this.canDelete(pcb, absolutePath, node))) throw new Error("Permission Denied");
                 return await vfs.unlink(relativePath);
             }
 
@@ -739,7 +763,7 @@ export class SyscallDispatcher {
                 const { vfs, relativePath } = this.mountManager.resolve(absolutePath);
                 const node = await vfs.stat(relativePath);
                 if (!node || node.type !== "DIRECTORY") throw new Error("Not a directory");
-                if (!this.satpam.check(pcb, node, Permission.WRITE)) throw new Error("Permission Denied");
+                if (!(await this.canDelete(pcb, absolutePath, node))) throw new Error("Permission Denied");
                 return await vfs.rmdir(relativePath);
             }
 

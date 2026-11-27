@@ -620,6 +620,50 @@ describe("SyscallDispatcher (A1)", () => {
                 "Permission Denied",
             );
         });
+
+        // SEC-31: hapus file/direktori milik orang lain mengikuti aturan direktori
+        // induk (Unix), termasuk sticky bit. Pemilik selalu boleh menghapus miliknya.
+        describe("SEC-31 izin hapus dari direktori induk + sticky", () => {
+            const user = (uid: number) => createTestProcess({ uid, gid: uid, owner: `u${uid}`, groups: [uid] });
+
+            it("file 0666 milik orang lain di direktori yang tidak bisa ditulis → ditolak", async () => {
+                vfs.mkdir("/locked", 0, 0, 0o755);
+                vfs.touch("/locked/open.txt", "x", 0, 0, 0o666);
+                await expect(dispatcher.dispatch(user(1000).pid, SyscallCode.UNLINK, "/locked/open.txt")).rejects.toThrow(
+                    "Permission Denied",
+                );
+                expect(vfs.exists("/locked/open.txt")).toBe(true);
+            });
+
+            it("direktori sticky (1777): file 0666 milik user lain tidak bisa dihapus", async () => {
+                vfs.mkdir("/shared", 0, 0, 0o1777);
+                vfs.touch("/shared/b.txt", "x", 1001, 1001, 0o666);
+                await expect(dispatcher.dispatch(user(1000).pid, SyscallCode.UNLINK, "/shared/b.txt")).rejects.toThrow(
+                    "Permission Denied",
+                );
+                expect(vfs.exists("/shared/b.txt")).toBe(true);
+            });
+
+            it("direktori sticky: pemilik file tetap bisa menghapus miliknya", async () => {
+                vfs.mkdir("/shared", 0, 0, 0o1777);
+                vfs.touch("/shared/mine.txt", "x", 1000, 1000, 0o444);
+                expect(await dispatcher.dispatch(user(1000).pid, SyscallCode.UNLINK, "/shared/mine.txt")).toBe(true);
+            });
+
+            it("direktori tanpa sticky yang bisa ditulis: file milik orang lain boleh dihapus (Unix)", async () => {
+                vfs.mkdir("/team", 1000, 1000, 0o777);
+                vfs.touch("/team/other.txt", "x", 1001, 1001, 0o600);
+                expect(await dispatcher.dispatch(user(1000).pid, SyscallCode.UNLINK, "/team/other.txt")).toBe(true);
+            });
+
+            it("RMDIR: direktori milik user lain di direktori sticky ditolak", async () => {
+                vfs.mkdir("/shared", 0, 0, 0o1777);
+                vfs.mkdir("/shared/stage", 1001, 1001, 0o777);
+                await expect(dispatcher.dispatch(user(1000).pid, SyscallCode.RMDIR, "/shared/stage")).rejects.toThrow(
+                    "Permission Denied",
+                );
+            });
+        });
     });
 
     // ============================================================
