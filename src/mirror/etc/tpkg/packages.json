@@ -385,177 +385,177 @@
                 },
                 {
                     "src": "/hostsrc/kernel/devices/aux-devices/HttpServerDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/HttpServerDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/aux-devices/HttpServerDevice.ts",
                     "hostDst": "src/kernel/devices/aux-devices/HttpServerDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/aux-devices/MCP23017Device.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/MCP23017Device.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/aux-devices/MCP23017Device.ts",
                     "hostDst": "src/kernel/devices/aux-devices/MCP23017Device.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/aux-devices/MySQLDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/MySQLDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/aux-devices/MySQLDevice.ts",
                     "hostDst": "src/kernel/devices/aux-devices/MySQLDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/aux-devices/RandomDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/RandomDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/aux-devices/RandomDevice.ts",
                     "hostDst": "src/kernel/devices/aux-devices/RandomDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/aux-devices/WebSocketDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/WebSocketDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/aux-devices/WebSocketDevice.ts",
                     "hostDst": "src/kernel/devices/aux-devices/WebSocketDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/FileSystemDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/FileSystemDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/FileSystemDevice.ts",
                     "hostDst": "src/kernel/devices/FileSystemDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/IDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/IDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/IDevice.ts",
                     "hostDst": "src/kernel/devices/IDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/KeyboardDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/KeyboardDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/KeyboardDevice.ts",
                     "hostDst": "src/kernel/devices/KeyboardDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/NullDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/NullDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/NullDevice.ts",
                     "hostDst": "src/kernel/devices/NullDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/PipeDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/PipeDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/PipeDevice.ts",
                     "hostDst": "src/kernel/devices/PipeDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/PTYDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/PTYDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/PTYDevice.ts",
                     "hostDst": "src/kernel/devices/PTYDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/PTYSlaveDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/PTYSlaveDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/PTYSlaveDevice.ts",
                     "hostDst": "src/kernel/devices/PTYSlaveDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/ScreenDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/ScreenDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/ScreenDevice.ts",
                     "hostDst": "src/kernel/devices/ScreenDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/SerialDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/SerialDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/SerialDevice.ts",
                     "hostDst": "src/kernel/devices/SerialDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/SerialDeviceManager.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/SerialDeviceManager.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/SerialDeviceManager.ts",
                     "hostDst": "src/kernel/devices/SerialDeviceManager.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/SimpleMQTNLDriver.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/SimpleMQTNLDriver.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/SimpleMQTNLDriver.ts",
                     "hostDst": "src/kernel/devices/SimpleMQTNLDriver.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/SimpleMQTNLDriverTunnel.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/SimpleMQTNLDriverTunnel.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/SimpleMQTNLDriverTunnel.ts",
                     "hostDst": "src/kernel/devices/SimpleMQTNLDriverTunnel.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/SocketDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/SocketDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/SocketDevice.ts",
                     "hostDst": "src/kernel/devices/SocketDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/TTYDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/TTYDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/TTYDevice.ts",
                     "hostDst": "src/kernel/devices/TTYDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/ExecutableRegistry.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/ExecutableRegistry.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/ExecutableRegistry.ts",
                     "hostDst": "src/kernel/ExecutableRegistry.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/FstabParser.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/FstabParser.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/FstabParser.ts",
                     "hostDst": "src/kernel/FstabParser.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/GUIRegistry.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/GUIRegistry.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/GUIRegistry.ts",
                     "hostDst": "src/kernel/GUIRegistry.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/Kernel.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/Kernel.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/Kernel.ts",
                     "hostDst": "src/kernel/Kernel.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/MountManager.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/MountManager.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/MountManager.ts",
                     "hostDst": "src/kernel/MountManager.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/netfs/MQTNLNetFSChannel.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/netfs/MQTNLNetFSChannel.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/netfs/MQTNLNetFSChannel.ts",
                     "hostDst": "src/kernel/netfs/MQTNLNetFSChannel.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/PermissionManager.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/PermissionManager.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/PermissionManager.ts",
                     "hostDst": "src/kernel/PermissionManager.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/PortManager.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/PortManager.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/PortManager.ts",
                     "hostDst": "src/kernel/PortManager.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/PTYManager.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/PTYManager.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/PTYManager.ts",
                     "hostDst": "src/kernel/PTYManager.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/RootFilesystem.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/RootFilesystem.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/RootFilesystem.ts",
                     "hostDst": "src/kernel/RootFilesystem.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/Scheduler.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/Scheduler.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/Scheduler.ts",
                     "hostDst": "src/kernel/Scheduler.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/Syscalls.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/Syscalls.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/Syscalls.ts",
                     "hostDst": "src/kernel/Syscalls.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/tty/TTY.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/tty/TTY.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/tty/TTY.ts",
                     "hostDst": "src/kernel/tty/TTY.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/tty/TTYManager.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/tty/TTYManager.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/tty/TTYManager.ts",
                     "hostDst": "src/kernel/tty/TTYManager.ts"
                 },
                 {
                     "src": "/hostsrc/userland/VfsModuleResolver.ts",
-                    "dst": "/tmp/tpkg-stage/userland/VfsModuleResolver.ts",
+                    "dst": "/var/lib/tpkg/stage/userland/VfsModuleResolver.ts",
                     "hostDst": "src/userland/VfsModuleResolver.ts"
                 },
                 {
                     "src": "/hostsrc/userland/WorkerEntry.ts",
-                    "dst": "/tmp/tpkg-stage/userland/WorkerEntry.ts",
+                    "dst": "/var/lib/tpkg/stage/userland/WorkerEntry.ts",
                     "hostDst": "src/userland/WorkerEntry.ts"
                 },
                 {
@@ -863,32 +863,32 @@
             "items": [
                 {
                     "src": "/hostsrc/kernel/devices/aux-devices/ILI9341Device.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/ILI9341Device.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/aux-devices/ILI9341Device.ts",
                     "hostDst": "src/kernel/devices/aux-devices/ILI9341Device.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/aux-devices/LM6029Device.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/LM6029Device.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/aux-devices/LM6029Device.ts",
                     "hostDst": "src/kernel/devices/aux-devices/LM6029Device.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/aux-devices/PLCDDevice.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/PLCDDevice.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/aux-devices/PLCDDevice.ts",
                     "hostDst": "src/kernel/devices/aux-devices/PLCDDevice.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/aux-devices/lcdFontClassic.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/lcdFontClassic.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/aux-devices/lcdFontClassic.ts",
                     "hostDst": "src/kernel/devices/aux-devices/lcdFontClassic.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/aux-devices/lcdFonts.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/lcdFonts.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/aux-devices/lcdFonts.ts",
                     "hostDst": "src/kernel/devices/aux-devices/lcdFonts.ts"
                 },
                 {
                     "src": "/hostsrc/kernel/devices/aux-devices/plcdFont5x7.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/plcdFont5x7.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/aux-devices/plcdFont5x7.ts",
                     "hostDst": "src/kernel/devices/aux-devices/plcdFont5x7.ts"
                 }
             ],
@@ -903,7 +903,7 @@
             "items": [
                 {
                     "src": "/hostsrc/kernel/devices/aux-devices/joystick.ts",
-                    "dst": "/tmp/tpkg-stage/kernel/devices/aux-devices/joystick.ts",
+                    "dst": "/var/lib/tpkg/stage/kernel/devices/aux-devices/joystick.ts",
                     "hostDst": "src/kernel/devices/aux-devices/joystick.ts"
                 }
             ],

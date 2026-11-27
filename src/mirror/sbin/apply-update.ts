@@ -31,11 +31,19 @@ import { execModeForPath } from "@tsix/TpkgProtocol";
 const VFS_SIDECAR_DIRS = ["/bin", "/sbin", "/usr/bin"];
 
 /** File host yang dimuat langsung oleh Node (bukan lewat worker) → butuh sidecar juga. */
+/**
+ * Staging tpkg untuk file host (`HOST_STAGE_DIR` di `tpkg.ts`): milik root, 0700.
+ * Sengaja ditulis literal, bukan di-import: modul di `/lib` di-cache kernel saat
+ * boot, sedangkan `tpkg.ts` bukan modul `/lib`. Dulu `/tmp/tpkg-stage`; `/tmp`
+ * bisa ditulis user mana pun, padahal isinya dijalankan Node di host (SEC-28).
+ */
+const HOST_STAGE_DIR = "/var/lib/tpkg/stage";
+
 const HOST_SIDECAR_SOURCES: Array<{ ts: string; hostDst: string }> = [
-    { ts: "/tmp/tpkg-stage/userland/WorkerEntry.ts", hostDst: "src/userland/WorkerEntry.js" },
+    { ts: `${HOST_STAGE_DIR}/userland/WorkerEntry.ts`, hostDst: "src/userland/WorkerEntry.js" },
     // WorkerEntry.js me-require('./VfsModuleResolver') — kalau salah satu tidak
     // dibangun ulang, bootloader & resolusi import relatif jadi tidak sinkron.
-    { ts: "/tmp/tpkg-stage/userland/VfsModuleResolver.ts", hostDst: "src/userland/VfsModuleResolver.js" },
+    { ts: `${HOST_STAGE_DIR}/userland/VfsModuleResolver.ts`, hostDst: "src/userland/VfsModuleResolver.js" },
 ];
 
 /**
@@ -124,8 +132,11 @@ export const main = Program(async () => {
             // syncToHost membaca isi dari VFS → tulis dulu ke staging, baru salin keluar.
             // Direktori staging WAJIB dibuat dulu: writeFile ke folder yang tidak ada
             // gagal diam-diam (return false) dan syncToHost lalu melapor "not found".
-            const stageDir = "/tmp/tpkg-host-sidecar";
+            const stageDir = `${HOST_STAGE_DIR}/host-sidecar`;
+            await fs.mkdir(HOST_STAGE_DIR).catch(() => false);
+            await fs.chmod(HOST_STAGE_DIR, 0o700);
             await fs.mkdir(stageDir);
+            await fs.chmod(stageDir, 0o700);
             const stage = `${stageDir}/${baseName.replace(/\.ts$/, ".js")}`;
             const wrote = await fs.writeFile(stage, utf8ToVfsBytes(out.code));
             if (!wrote) throw new Error(`failed to write staging file ${stage}`);

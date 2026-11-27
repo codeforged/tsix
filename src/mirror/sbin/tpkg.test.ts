@@ -4,7 +4,7 @@ import { createRequire } from "module";
 // Di VFS, program memuat esbuild host lewat `global.require` (disediakan
 // WorkerEntry). tpkgd memakainya untuk meng-compile bundle binary.
 (globalThis as any).require ??= createRequire(import.meta.url);
-import { Main as TpkgClient } from "./tpkg";
+import { Main as TpkgClient, HOST_STAGE_DIR } from "./tpkg";
 import { Main as TpkgDaemon } from "./tpkgd";
 import { execModeForPath, parseDependency, planInstall, type TpkgPackage } from "@tsix/TpkgProtocol";
 import { SecurityAgent } from "@common/SecurityAgent";
@@ -591,6 +591,51 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         expect(backups).toHaveLength(1);
     });
 
+    // SEC-28: staging file host tidak boleh di /tmp (1777, bisa ditulis user mana pun).
+    it("P2.12b staging file host dipindah dari /tmp ke direktori khusus root", async () => {
+        setupServer(world, {
+            name: "engine",
+            version: "9.9.9",
+            onAfterDownload: undefined,
+            items: [
+                {
+                    src: "/tmp/tpkg-stage/kernel/Kernel.ts",
+                    dst: "/tmp/tpkg-stage/kernel/Kernel.ts",
+                    hostDst: "src/kernel/Kernel.ts",
+                },
+            ],
+        });
+        world.fs(world.serverNode).files.set("/tmp/tpkg-stage/kernel/Kernel.ts", "// kernel v3");
+        world.hostFiles.set("src/kernel/Kernel.ts", "// kernel LAMA");
+
+        await boot();
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["install", "engine", "--from", "server"]);
+
+        const fs = world.fs(world.clientNode);
+        expect(world.hostFiles.get("src/kernel/Kernel.ts")).toBe("// kernel v3");
+        expect(fs.files.has("/tmp/tpkg-stage/kernel/Kernel.ts")).toBe(false);
+        expect(fs.files.get(`${HOST_STAGE_DIR}/kernel/Kernel.ts`)).toBe("// kernel v3");
+        expect(fs.modes.get(HOST_STAGE_DIR)).toBe(0o700);
+    });
+
+    it("P2.12c file host dengan path VFS lain di /tmp ditolak", async () => {
+        setupServer(world, {
+            name: "engine",
+            version: "9.9.9",
+            onAfterDownload: undefined,
+            items: [{ src: "/tmp/other/K.ts", dst: "/tmp/other/K.ts", hostDst: "src/kernel/Kernel.ts" }],
+        });
+        world.fs(world.serverNode).files.set("/tmp/other/K.ts", "// kernel v3");
+        world.hostFiles.set("src/kernel/Kernel.ts", "// kernel LAMA");
+
+        await boot();
+        await new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["install", "engine", "--from", "server"]);
+
+        expect(world.hostFiles.get("src/kernel/Kernel.ts")).toBe("// kernel LAMA");
+        expect(world.hostSyncs.filter((s) => s.op === "to")).toHaveLength(0);
+        expect(out(world)).toMatch(/world-writable/);
+    });
+
     it("tpkgd preserves UTF-8 host package bytes without a /hostsrc VFS mount", async () => {
         setupServer(world, {
             name: "base-system",
@@ -618,7 +663,7 @@ describe("TPKG end-to-end (P2)", { timeout: 30_000 }, () => {
         ]);
 
         expect(out(world)).toContain("Installation successful");
-        const clientBytes = world.fs(world.clientNode).files.get("/tmp/tpkg-stage/kernel/Kernel.ts");
+        const clientBytes = world.fs(world.clientNode).files.get(`${HOST_STAGE_DIR}/kernel/Kernel.ts`);
         expect(Buffer.from(clientBytes!, "latin1")).toEqual(hostBytes);
         expect(Buffer.from(clientBytes!, "latin1").toString("utf8")).toBe(hostText);
         expect(world.hostFiles.get("src/kernel/Kernel.ts")).toBe(hostVfsBytes);

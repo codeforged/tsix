@@ -22,7 +22,7 @@ import * as path from "path";
  * File-file host-only:
  *      File-file ini HANYA ada di host (tidak pernah masuk VFS), jadi:
  *      src = /hostsrc/<rel>   (mount read-only dari fstab: hostPath "src")
- *      dst = /tmp/tpkg-stage/<rel>  (staging; SYNC_TO_HOST membaca isi dari VFS)
+ *      dst = /var/lib/tpkg/stage/<rel>  (staging; SYNC_TO_HOST membaca isi dari VFS)
  *      hostDst = <rel>        (tujuan sebenarnya, relatif root proyek)
  */
 
@@ -33,8 +33,8 @@ const MANIFEST = path.join(MIRROR, "etc/tpkg/packages.json");
 const BASE_PKG = "base-system";
 /** Mount host read-only di node (lihat src/mirror/etc/fstab.conf). */
 const HOSTSRC_MOUNT = "/hostsrc";
-/** Staging VFS untuk file host (ramfs /tmp). */
-const HOST_STAGE = "/tmp/tpkg-stage";
+/** Staging VFS untuk file host: milik root 0700 (`HOST_STAGE_DIR` di tpkg.ts; bukan /tmp, SEC-28). */
+const HOST_STAGE = "/var/lib/tpkg/stage";
 
 /**
  * File yang SENGAJA dimiliki base-system DAN paket `tpkg` (updater slim):

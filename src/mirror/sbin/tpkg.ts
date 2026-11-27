@@ -125,6 +125,49 @@ const CONFIG_EXTENSIONS = [
 ];
 
 /**
+ * Staging VFS untuk file host (ber-`hostDst`). `SYNC_TO_HOST` membaca isi dari
+ * VFS, jadi file kernel harus mendarat di suatu path VFS dulu. Direktori ini
+ * milik root dengan mode 0700: di antara `writeFile` dan `syncToHost` (dan
+ * sampai `apply-update` membacanya) tidak ada user lain yang boleh bisa
+ * mengganti isinya, karena isinya akan dijalankan Node di host (SEC-28).
+ */
+export const HOST_STAGE_DIR = "/var/lib/tpkg/stage";
+/** Lokasi staging lama di manifest paket; dipetakan ke `HOST_STAGE_DIR`. */
+const LEGACY_HOST_STAGE_DIR = "/tmp/tpkg-stage";
+
+/**
+ * stageHostFiles(): pindahkan staging file host keluar dari `/tmp`.
+ *
+ * `/tmp` bermode 1777 dan kernel belum menegakkan sticky bit, jadi user mana pun
+ * bisa membuat/mengganti file di sana. Path lama `/tmp/tpkg-stage/...` dipetakan
+ * ke `HOST_STAGE_DIR`; file host lain yang path VFS-nya di `/tmp` ditolak.
+ * Mengembalikan `{ error }` berisi alasan jika ada yang ditolak.
+ */
+export function stageHostFiles<T extends { path: string; hostDst?: string }>(
+    files: T[],
+): { files: T[] } | { error: string } {
+    const out: T[] = [];
+    for (const f of files) {
+        if (!f.hostDst) {
+            out.push(f);
+            continue;
+        }
+        let path = f.path;
+        if (path === LEGACY_HOST_STAGE_DIR || path.startsWith(`${LEGACY_HOST_STAGE_DIR}/`)) {
+            path = HOST_STAGE_DIR + path.slice(LEGACY_HOST_STAGE_DIR.length);
+        }
+        if (path.split("/").includes("..")) {
+            return { error: `host file ${f.hostDst} has an invalid VFS path: ${f.path}` };
+        }
+        if (path === "/tmp" || path.startsWith("/tmp/")) {
+            return { error: `host file ${f.hostDst} would be staged in world-writable /tmp (${f.path})` };
+        }
+        out.push(path === f.path ? f : { ...f, path });
+    }
+    return { files: out };
+}
+
+/**
  * TPKG — TSIX Package Manager (klien)
  *
  * Ambil paket dari repository MQTNL (`tpkgd`) lalu pasang ke VFS dengan
@@ -163,12 +206,6 @@ export class Main {
     private backupDir: string = "/var/lib/tpkg/backup";
     /** Manifest file yang ditulis tiap paket — dasar `tpkg remove`. */
     private installedDir: string = "/var/lib/tpkg/installed";
-    /**
-     * Staging VFS untuk file host. `SYNC_TO_HOST` membaca isi dari VFS, jadi
-     * file kernel harus mendarat di suatu path VFS dulu — pakai /tmp (ramfs)
-     * supaya tidak meninggalkan jejak di root filesystem.
-     */
-    private hostStageDir: string = "/tmp/tpkg-stage";
     /**
      * Backup hanya dipakai untuk memulihkan instalasi yang gagal ditulis (dan
      * sebagai daftar file cadangan `remove` untuk paket lama) — cukup satu.
@@ -1008,7 +1045,23 @@ export class Main {
         localStatus: Record<string, string>,
         opts: CliOptions,
     ): Promise<boolean> {
+        // SEC-28: staging file host hanya di direktori milik root (bukan /tmp).
+        const staged = stageHostFiles(files);
+        if ("error" in staged) {
+            await this.lib.std.print(`❌ Refusing package: ${staged.error}\n`);
+            this.metrics.failed++;
+            return false;
+        }
+        files = staged.files;
         const hostFiles = files.filter((f) => !!f.hostDst);
+        if (hostFiles.some((f) => f.path.startsWith(`${HOST_STAGE_DIR}/`))) {
+            await this.mkdirRecursive(HOST_STAGE_DIR);
+            if (!(await this.lib.fs.chmod(HOST_STAGE_DIR, 0o700))) {
+                await this.lib.std.print(`❌ Cannot secure staging directory ${HOST_STAGE_DIR}\n`);
+                this.metrics.failed++;
+                return false;
+            }
+        }
 
         // Paket yang menyentuh HOST FS sangat berbahaya (bisa mengganti kernel),
         // jadi minta konfirmasi eksplisit walau sudah root. Default = TIDAK.
