@@ -27,9 +27,16 @@ export const SBIN_MODE = 0o744;
 /** Mode SetUID untuk binary yang harus membaca `/etc/shadow` (0640 root). */
 export const SETUID_MODE = 0o4755;
 
-/** Binary istimewa SetUID (login/passwd/sudo — butuh akses /etc/shadow). */
+/**
+ * Binary istimewa SetUID:
+ *   - login/passwd/sudo: butuh akses /etc/shadow;
+ *   - `/opt/lantana/lantana-ctl`: file state Lantana 0600 root, dipanggil Control
+ *     Panel tanpa sudo; program sendiri yang membatasi ke root / grup
+ *     `lantana-admin` (K-10).
+ */
 export function isSetuidPath(path: string): boolean {
-    return /\/bin\/(login|passwd|sudo)\.(ts|js)$/.test(String(path ?? ""));
+    const p = String(path ?? "");
+    return /\/bin\/(login|passwd|sudo)\.(ts|js)$/.test(p) || /^\/opt\/lantana\/lantana-ctl\.(ts|js)$/.test(p);
 }
 
 /**

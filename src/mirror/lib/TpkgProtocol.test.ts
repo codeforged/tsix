@@ -8,6 +8,7 @@ import {
     bundleDigest,
     bundleMeta,
     compareVersions,
+    execModeForPath,
     formatBytes,
     isSafeHostDst,
     parseHostPort,
@@ -142,6 +143,12 @@ describe("TpkgProtocol — util (P1)", () => {
         // SetUID wajib untuk login/passwd/sudo (baca /etc/shadow), dan menang atas
         // `isExecutable` — kalau tidak, sudo mendadak tidak bisa baca shadow.
         expect(resolveMode(file("/bin/sudo.ts", "x", { isExecutable: true }))).toBe(TPKG_SETUID_MODE);
+        // K-10: lantana-ctl SetUID (file state Lantana 0600 root; dipanggil Control Panel
+        // tanpa sudo, cek grup lantana-admin di dalam program).
+        expect(execModeForPath("/opt/lantana/lantana-ctl.js")).toBe(TPKG_SETUID_MODE);
+        expect(execModeForPath("/opt/lantana/lantana-ctl.ts")).toBe(TPKG_SETUID_MODE);
+        expect(execModeForPath("/opt/lantana/lantana.js")).toBe(0o755);
+        expect(execModeForPath("/opt/other/lantana-ctl.js")).toBe(0o755);
         // File DATA di dalam direktori eksekusi tidak ikut jadi executable
         // (bootstrap lama men-chmod 0o755 semua isi /opt — kunci rahasia pun).
         expect(resolveMode(file("/opt/esp-ota/activation-keys.txt", "x"))).toBeUndefined();

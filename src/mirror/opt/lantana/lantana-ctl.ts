@@ -29,7 +29,8 @@
  * (c) 2026 TSIX Project — Lantana
  */
 
-import { Program, std, shell } from "@tsix/Application";
+import { Program, std, shell, fs } from "@tsix/Application";
+import { LANTANA_ADMIN_GROUP, isLantanaAdmin } from "@tsix/lantana/lantana-admin";
 import { loadState, saveState } from "@tsix/lantana/lantana-store";
 import { loadOrCreateServerKey } from "@tsix/lantana/lantana-keys";
 import {
@@ -67,6 +68,10 @@ export const main = Program(async (args: string[]) => {
     }
 
     try {
+        // K-10: lantana-ctl SetUID root (file state 0600 root). Yang boleh memakainya
+        // hanya pemanggil asli (ruid) root atau anggota grup lantana-admin.
+        await requireLantanaAdmin();
+
         const state = await loadState();
 
         switch (`${scope} ${action}`) {
@@ -498,6 +503,24 @@ export const main = Program(async (args: string[]) => {
         }
     }
 });
+
+async function requireLantanaAdmin(): Promise<void> {
+    const me: any = await shell.whoami();
+    const caller = typeof me?.ruid === "number" ? me.ruid : me?.uid;
+    if (caller === 0) return;
+    const read = async (p: string) => {
+        try {
+            return (await fs.readFile(p)) || "";
+        } catch {
+            return "";
+        }
+    };
+    if (!isLantanaAdmin(caller, await read("/etc/passwd"), await read("/etc/group"))) {
+        throw new Error(
+            `akses ditolak: hanya root atau anggota grup ${LANTANA_ADMIN_GROUP} yang boleh mengelola Lantana`,
+        );
+    }
+}
 
 async function commit(state: Awaited<ReturnType<typeof loadState>>): Promise<void> {
     await saveState(state);
