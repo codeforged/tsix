@@ -42,5 +42,7 @@ export interface WorkerInitData {
     appContent?: string;
     env?: Record<string, string>;
     vfsCache?: Record<string, string>;
+    /** Modul host Node yang boleh dimuat (SEC-12); kosong = sandbox penuh. */
+    hostModules?: string[];
 }
 

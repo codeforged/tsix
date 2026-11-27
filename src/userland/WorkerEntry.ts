@@ -299,25 +299,18 @@ function trySendErrorToParent(message: string) {
 // --- BASIC SANDBOXING (Educational Level) ---
 // Kita "sembunyikan" beberapa API Node.js yang berbahaya agar user-land
 // dipaksa menggunakan Syscall lewat UserLib.
-const restrictHostAPI = (appName: string) => {
+const restrictHostAPI = (_appName: string, hostModules: string[] = []) => {
     const forbidden = (msg: string = "Security Violation: Direct Host API access is forbidden in TSIX Sandbox.") => {
         throw new Error(msg);
     };
 
-    const isPrivileged =
-        appName.toLowerCase().includes("server") ||
-        appName.toLowerCase().includes("daemon") ||
-        appName.toLowerCase().includes("dome") ||
-        appName.toLowerCase().includes("tbuild") ||
-        appName.toLowerCase().includes("vfs") ||
-        appName.toLowerCase().includes("mysqld") ||
-        // `apply-update` (hook pasca-instal base-system) harus transpile TS→JS
-        // via esbuild untuk membangun ulang sidecar `.js`. Sama seperti `tbuild`,
-        // ia butuh host module sehingga wajib privileged.
-        appName.toLowerCase().includes("apply-update") ||
-        // `transpile` (hook pasca-instal paket biasa) juga transpile TS→JS.
-        appName.toLowerCase().includes("transpile");
-    const allowedModules = ["path", "fs", "url", "esbuild", "crypto", "os", "bcryptjs", "mysql2", "mysql2/promise"];
+    // SEC-12: dulu privileged ditentukan dari SUBSTRING NAMA aplikasi ("server",
+    // "daemon", "vfs", ...), jadi `myserver.js` buatan siapa pun ikut dapat `fs`
+    // host. Sekarang kernel yang memutuskan saat EXEC (path tepercaya + file milik
+    // root, `src/common/TrustedPrograms.ts`) dan mengirim daftar modulnya lewat
+    // workerData. Program hanya boleh memuat modul yang ada di daftar itu.
+    const allowedModules = Array.isArray(hostModules) ? hostModules.filter((m) => typeof m === "string") : [];
+    const isPrivileged = allowedModules.length > 0;
 
     const privilegedRequire = (mod: string) => {
         // Framework aliases are ALWAYS allowed, even in sandbox
@@ -615,7 +608,7 @@ async function main() {
     }
 
     // 3. AKTIFKAN SANDBOX (Kunci pintu sebelum aplikasi berjalan)
-    restrictHostAPI(appName);
+    restrictHostAPI(appName, data.hostModules);
 
     try {
         const app = new AppClass();

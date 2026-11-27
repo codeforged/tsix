@@ -60,6 +60,8 @@ export interface PCB {
  * SPAWN OPTIONS
  */
 export interface SpawnOptions {
+    /** Modul host Node yang boleh dimuat di sandbox (SEC-12; diisi kernel saat EXEC). */
+    hostModules?: string[];
     appName?: string;
     appPath?: string;
     stackBkfsPath?: string;
@@ -361,6 +363,7 @@ export class Scheduler {
             appPath: options.appPath,
             stackBkfsPath: options.stackBkfsPath,
             appContent: options.appContent,
+            hostModules: Array.isArray(options.hostModules) ? [...options.hostModules] : [],
             env: pcb.env,
             // LAZY: vfsCache disajikan lewat getter, BUKAN field biasa.
             // Structured clone memanggil getter PERSIS SEKALI saat serialize

@@ -1193,6 +1193,23 @@ describe("SyscallDispatcher (A1)", () => {
             spawnSpy.mockRestore();
         });
 
+        // SEC-12: modul host ditentukan kernel dari path + pemilik file, bukan nama.
+        it("A1.114e EXEC – hostModules hanya untuk program tepercaya milik root", async () => {
+            vfs.mkdir("/sbin", 0, 0, 0o755);
+            vfs.mkdir("/home/alice", 1000, 1000, 0o755);
+            vfs.touch("/sbin/transpile.js", "// stub", 0, 0, 0o744);
+            vfs.touch("/home/alice/transpile-daemon-server.js", "// stub", 1000, 1000, 0o755);
+
+            const spawnSpy = vi.spyOn(scheduler, "createProcess");
+            const pcb = createTestProcess();
+            await dispatcher.dispatch(pcb.pid, SyscallCode.EXEC, { path: "/sbin/transpile.js", args: [] });
+            expect(spawnSpy.mock.calls.at(-1)![1]?.hostModules).toEqual(["esbuild"]);
+
+            await dispatcher.dispatch(pcb.pid, SyscallCode.EXEC, { path: "/home/alice/transpile-daemon-server.js", args: [] });
+            expect(spawnSpy.mock.calls.at(-1)![1]?.hostModules).toEqual([]);
+            spawnSpy.mockRestore();
+        });
+
         it("A1.114c EXEC – argumen diteruskan ke skrip", async () => {
             vfs.mkdir("/bin", 0, 0, 493);
             vfs.mkdir("/etc", 0, 0, 493);

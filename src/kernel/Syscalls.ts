@@ -2,6 +2,7 @@ import { Logger, LogLevel } from "../common/Logger";
 import { BKFS } from "../vfs/BKFS";
 import { IVFS } from "../vfs/IVFS";
 import { vfsBytesToUtf8 } from "../common/VfsText";
+import { trustedHostModules } from "../common/TrustedPrograms";
 import { Scheduler } from "./Scheduler";
 import { IDevice } from "./devices/IDevice";
 import { FileSystemDevice } from "./devices/FileSystemDevice";
@@ -1217,6 +1218,9 @@ export class SyscallDispatcher {
                     gid: targetGid,
                     ruid: pcb.ruid, // Preserve Real UID
                     owner: targetOwner,
+                    // SEC-12: modul host yang boleh dimuat — dari path + pemilik file
+                    // yang benar-benar dieksekusi (setelah shebang), bukan dari nama.
+                    hostModules: trustedHostModules(absoluteExecPath, node),
                     groups: [...pcb.groups], // Inherit supplementary groups
                     // Proses di PTY memakai ttyId negatif (-(ptyId+1)) supaya tidak bentrok
                     // dengan konsol virtual (tty1..N). Routing interrupt via ttyId ini.
