@@ -782,10 +782,6 @@
                     "dst": "/usr/bin/ping_net.ts"
                 },
                 {
-                    "src": "/sbin/iot-listener.ts",
-                    "dst": "/sbin/iot-listener.ts"
-                },
-                {
                     "src": "/bin/netfs.ts",
                     "dst": "/bin/netfs.ts"
                 },
@@ -1670,10 +1666,6 @@
                 {
                     "src": "/usr/bin/ota-gen-ak.ts",
                     "dst": "/usr/bin/ota-gen-ak.ts"
-                },
-                {
-                    "src": "/usr/bin/esp-send.ts",
-                    "dst": "/usr/bin/esp-send.ts"
                 }
             ],
             "onAfterDownload": "/sbin/transpile.js"

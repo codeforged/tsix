@@ -1,5 +1,6 @@
 import { Program, std } from "@tsix/Application";
 import { AesGcmAgent } from "@common/AesGcmAgent";
+import { SecurityAgent } from "@common/SecurityAgent";
 
 /**
  * AESGCM CRYPTO — contoh enkripsi/dekripsi AES-256-GCM STANDALONE.
@@ -29,11 +30,11 @@ const red = "\x1b[91m";
 const dim = "\x1b[2m";
 const reset = "\x1b[0m";
 
-// Key 32 byte (64 hex) — bisa lewat string hex ATAU Buffer.
-const KEY_HEX =
-  "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619";
-
 export const main = Program(async () => {
+  // Key 32 byte (64 hex) — bisa lewat string hex ATAU Buffer. Dibuat acak tiap
+  // kali jalan: kunci yang ditulis di kode repo publik bukan rahasia (SEC-32).
+  const KEY_HEX = SecurityAgent.generateSessionKey().toString("hex");
+
   await std.println(`${cyan}=== AES-256-GCM Crypto (standalone) ===${reset}`);
 
   const alice = new AesGcmAgent();

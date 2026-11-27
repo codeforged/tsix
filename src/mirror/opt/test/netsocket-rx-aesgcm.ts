@@ -1,4 +1,14 @@
 import { Program, std, NetSocket } from "@tsix/Application";
+import { SecurityAgent } from "@common/SecurityAgent";
+
+/** `--key <64 hex>` dari argumen; sisanya dikembalikan apa adanya. */
+function takeKeyArg(argv: string[]): { key: string | null; rest: string[] } {
+  const i = argv.indexOf("--key");
+  if (i < 0) return { key: null, rest: argv };
+  const key = argv[i + 1];
+  if (!key || !/^[0-9a-fA-F]{64}$/.test(key)) throw new Error("--key must be 64 hex characters (32 bytes)");
+  return { key: key.toLowerCase(), rest: argv.filter((_, j) => j !== i && j !== i + 1) };
+}
 
 /**
  * NETSOCKET RX AESGCM — Example receiver using a custom encryption agent (Path A).
@@ -17,12 +27,12 @@ import { Program, std, NetSocket } from "@tsix/Application";
  *
  * Auto-cleanup default: Ctrl+C → close() (release port + normalize agent).
  *
- * Run:  netsocket-rx-aesgcm [port]
+ * Run:  netsocket-rx-aesgcm [port] [--key <64 hex>]
  * (default port 2600 — pair with `netsocket-tx-aesgcm`)
+ * Without `--key` a random key is generated and printed; pass the same key to
+ * `netsocket-tx-aesgcm --key ...`. Keys are never hard-coded: a key written in
+ * a public repository is not a secret (SEC-32).
  */
-
-const KEY_HEX =
-  "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619";
 
 const green = "\x1b[92m";
 const yellow = "\x1b[93m";
@@ -31,7 +41,10 @@ const red = "\x1b[91m";
 const dim = "\x1b[2m";
 const reset = "\x1b[0m";
 
-export const main = Program(async (args: string[]) => {
+export const main = Program(async (argv: string[]) => {
+  const { key, rest: args } = takeKeyArg(argv);
+  const KEY_HEX = key ?? SecurityAgent.generateSessionKey().toString("hex");
+  if (!key) await std.println(`${cyan}[RX-aesgcm] Generated key (pass to TX with --key): ${KEY_HEX}${reset}`);
   const port = parseInt(args[0] || "2600", 10);
 
   const sock = new NetSocket({ port, key: KEY_HEX });

@@ -95,7 +95,7 @@ Ring 1 — Kernel Core
 
 Ring 4 — Userland (/bin)
 ├── tsh.ts                — Bourne-style shell
-├── iot-listener.js        — IoT gateway (UDP → IPC)
+├── lantana.js             — IoT stack (MQTNL → consumer IPC)
 ├── dome.js                — DOME Engine (WebSocket → Browser)
 ├── asteracea.js           — Window Manager
 ├── file-cruiser.js        — File Manager GUI

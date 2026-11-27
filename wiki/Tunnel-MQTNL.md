@@ -194,8 +194,10 @@ pakai PSK yang sama di dua sisi:
 
 ```ini
 [tunnel.smqtnltun0]
-psk = 81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619
+psk = <64 karakter hex acak, unik per tunnel>
 ```
+
+> Jangan menyalin kunci dari dokumentasi atau contoh: kunci yang tertulis di repo publik bukan rahasia. Buat kunci sendiri, mis. di host: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 
 ```bash
 vpns --listen 9360 --psk 81ff71ed...d67619

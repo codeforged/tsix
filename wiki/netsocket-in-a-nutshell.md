@@ -175,7 +175,9 @@ while (sock.isOpen) {
 Kedua sisi harus pakai **key yang sama** dan sama-sama `upgradeSecurity()`:
 
 ```ts
-const KEY_HEX = "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619";
+// Kunci 32 byte (64 hex), sama di kedua sisi. Jangan pernah menulis kunci asli di
+// kode/repo; baca dari argumen atau file 0600.
+const KEY_HEX = args[0]; // mis. hasil SecurityAgent.generateSessionKey().toString("hex")
 
 const sock = new NetSocket({ port: 2500, key: KEY_HEX });
 sock.onData = (pkt) => { ... };
@@ -290,8 +292,7 @@ receiver (byte ≥ 0x80 tidak rusak), dan RX menerimanya sebagai `Buffer`.
 Pilih lewat opsi `protocol` di `NetSocket` (mengalahkan `binary: true`):
 
 ```ts
-const KEY_HEX =
-  "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619";
+const KEY_HEX = args[0]; // 64 hex, dari argumen/file — jangan di-hardcode
 
 // RX — bind port tetap, terima Buffer hasil dekripsi
 const rx = new NetSocket({ port: 2700, key: KEY_HEX, protocol: "Binfeo" });

@@ -20,12 +20,11 @@ import { Program, std, NetSocket } from "@tsix/Application";
  * `sock.port` berisi port ASLI hasil pilihan kernel, dan `upgradeSecurity()`
  * menempelkan session key ke port asli itu (MQTNL encrypts per-srcPort).
  *
- * Run:  netsocket-tx-aesgcm [address] [port] [count]
- * (default address "mactsix", port 2600, 3 messages — pair with `netsocket-rx-aesgcm`)
+ * Run:  netsocket-tx-aesgcm --key <64 hex> [address] [port] [count]
+ * (default address "mactsix", port 2600, 3 messages — pair with `netsocket-rx-aesgcm`,
+ * which prints the key to use). Keys are never hard-coded: a key written in a
+ * public repository is not a secret (SEC-32).
  */
-
-const KEY_HEX =
-  "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619";
 
 const green = "\x1b[92m";
 const yellow = "\x1b[93m";
@@ -33,7 +32,15 @@ const cyan = "\x1b[96m";
 const red = "\x1b[91m";
 const reset = "\x1b[0m";
 
-export const main = Program(async (args: string[]) => {
+export const main = Program(async (argv: string[]) => {
+  const i = argv.indexOf("--key");
+  const KEY_HEX = i >= 0 ? argv[i + 1] : undefined;
+  if (!KEY_HEX || !/^[0-9a-fA-F]{64}$/.test(KEY_HEX)) {
+    await std.println(`${red}Usage: netsocket-tx-aesgcm --key <64 hex> [address] [port] [count]${reset}`);
+    await std.println("Run netsocket-rx-aesgcm first; it prints the key to use.");
+    return;
+  }
+  const args = argv.filter((_, j) => j !== i && j !== i + 1);
   const targetAddr = args[0] || "mactsix";
   const targetPort = parseInt(args[1] || "2600", 10);
   const count = parseInt(args[2] || "3", 10);

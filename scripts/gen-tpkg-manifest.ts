@@ -243,7 +243,7 @@ function reconcilePackages(manifest: any): void {
         manifest,
         "esp-ota",
         "ESP OTA tools and firmware repository.",
-        vfs(["usr/bin/esp-send.ts", "sbin/otad.ts", "usr/bin/ota-gen-ak.ts"]),
+        vfs(["sbin/otad.ts", "usr/bin/ota-gen-ak.ts"]),
     );
     ensurePackage(
         manifest,
