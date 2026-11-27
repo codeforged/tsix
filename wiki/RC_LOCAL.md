@@ -137,7 +137,7 @@ import { UserLib } from "../lib/UserLib";
 export default class RcLocal {
     async execute(lib: UserLib, args: string[]) {
         // Start daemons here
-        await lib.shell.exec("/bin/airtermd.js", [], undefined, undefined, undefined);
+        await lib.shell.exec("/sbin/crond.js", [], undefined, undefined, undefined);
 
         // Exit with success
         await lib.shell.exit(0);
@@ -167,7 +167,7 @@ export default class RcLocal {
 
 ## Common Use Cases
 
-- Start network daemons (`airtermd`, `tsshd`, `netfsd`)
+- Start network daemons (`tsshd`, `netfsd`). Daemon remote mati secara default; nyalakan hanya yang dipakai.
 - Initialize background services
 - Mount additional filesystems
 - Set system-wide configurations

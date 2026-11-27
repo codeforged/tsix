@@ -1,5 +1,7 @@
 # Airterm Protocol Specification
 
+> **Obsolete.** `airterm` dan `airtermd` sudah dihapus dari TSIX; penggantinya adalah TSSH (`tssh` / `tsshd`). Dokumen ini disimpan hanya sebagai arsip.
+
 This document describes the Airterm protocol, used for secure remote terminal access over the MQTNL (Message Queue Transport Network Layer) protocol in the TSIX/NOS ecosystem.
 
 ---

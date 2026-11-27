@@ -766,14 +766,6 @@
                     "dst": "/usr/bin/portfwd.ts"
                 },
                 {
-                    "src": "/usr/bin/airterm.ts",
-                    "dst": "/usr/bin/airterm.ts"
-                },
-                {
-                    "src": "/sbin/airtermd.ts",
-                    "dst": "/sbin/airtermd.ts"
-                },
-                {
                     "src": "/bin/scp.ts",
                     "dst": "/bin/scp.ts"
                 },

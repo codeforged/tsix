@@ -37,7 +37,7 @@ MQTNL **bukan** MQTT biasa — ia adalah lapisan enriched yang menambahkan:
 └──────┬───────┘     Broker        └──────┬───────┘
        │         (test.mosquitto.org)      │
        │                                   │
-  airterm ◄──── encrypted tunnel ────► airtermd
+     tssh ◄──── encrypted tunnel ────► tsshd
 ```
 
 Cukup arahkan ke MQTT broker (bahkan yang gratis), dan node-node TSIX langsung membentuk **global mesh network**.
@@ -168,7 +168,7 @@ defaultPort = 1883
 | `ping <node>`            | Cek konektivitas ke node lain                                                                   |
 | `scanif`                 | Broadcast ping (default, cari interface online) & scan port terbuka (`-p <ports> <node>`)       |
 | `nettop`                 | Monitor traffic real-time (like `htop` for network)                                             |
-| `airterm <node>`         | Remote terminal ke node lain (SSH-like via MQTNL)                                               |
+| `tssh <node>`            | Remote terminal ke node lain (SSH-like via MQTNL)                                               |
 | `scp <src> <node>:<dst>` | Secure file copy antar-node                                                                     |
 | `listen_net`             | Listen incoming packets di port tertentu                                                        |
 | `forward`                | Port forwarding antar-interface                                                                 |
@@ -183,7 +183,7 @@ defaultPort = 1883
 ping tsix-node-2
 
 # Remote terminal ke node lain
-airterm tsix-node-2
+tssh tsix-node-2
 
 # Copy file ke node remote
 scp /root/data.txt tsix-node-2:/tmp/

@@ -307,7 +307,7 @@ tsix/
 | [DEVELOPER_GUIDE_DEVICES.md](DEVELOPER_GUIDE_DEVICES.md)             | Panduan membuat device driver                               |
 | [DEVELOPER_GUIDE_SCRIPTING-V2.md](DEVELOPER_GUIDE_SCRIPTING-V2.md)   | Scripting guide v2                                          |
 | [RC_LOCAL.md](RC_LOCAL.md)                                           | rc.local boot script spec                                   |
-| [SPEC_AIRTERM_V2.md](SPEC_AIRTERM_V2.md)                             | AirTerm specification                                       |
+| [SPEC_AIRTERM_V2.md](SPEC_AIRTERM_V2.md)                             | AirTerm specification (obsolete: airterm/airtermd dihapus, gunakan TSSH) |
 | [mqtnl-ota.md](mqtnl-ota.md)                                         | OTA update protocol                                         |
 | [mqtnl_binary_ota.md](mqtnl_binary_ota.md)                           | Binary OTA format                                           |
 | [mcp23017-registration.md](mcp23017-registration.md)                 | MCP23017 GPIO extender                                      |
