@@ -191,23 +191,6 @@ export class SimpleMQTNLDriver implements IDevice {
 
       packet = proto.unpack(message);
 
-      // [MULTI-PROTO] Catat protocol pengirim — TAPI JANGAN untuk paket yang
-      // datang dari alamat kita SENDIRI.
-      //
-      // Semua node subscribe `mqtnl@1.x/#`, jadi setiap paket yang KITA publish
-      // dipantulkan balik oleh broker (gema) — dan loopback antar-socket lokal
-      // juga lewat sini. Keduanya ber-srcAddress = alamat lokal. Kalau gema itu
-      // ikut dicatat, "protocol kita sendiri" menular ke semua port lain yang
-      // belum di-pin protocol-nya (mis. port channel NetFS kernel): begitu ada
-      // trafik tsshd/tssh (Binfeo) keluar, jalur NetFS yang seharusnya JSON ikut
-      // di-frame Binfeo → payload sampai di daemon sebagai Buffer → request
-      // dibuang diam-diam (mount hang sampai timeout).
-      //
-      // Registry ini untuk mempelajari protocol PEER, bukan diri sendiri.
-      if (packet.header.srcAddress !== this.localAddress) {
-        this.protocolRegistry.set(packet.header.srcAddress, proto);
-      }
-
       // --- PACKET FILTERING ---
       const localAddr = this.localAddress;
 
@@ -226,6 +209,22 @@ export class SimpleMQTNLDriver implements IDevice {
           `[FILTER DROP] Packet for ${packet.header.dstAddress} dropped (Local: ${localAddr})`,
         );
         return;
+      }
+
+      // [MULTI-PROTO] Catat protocol pengirim — SETELAH filter alamat, dan
+      // hanya dari paket unicast yang memang ditujukan ke kita (SEC-22).
+      //   - Dulu dicatat sebelum filter: paket untuk node lain (atau broadcast)
+      //     dengan srcAddress palsu bisa mengubah protocol kiriman kita ke
+      //     alamat itu.
+      //   - Bukan dari alamat kita SENDIRI: gema broker / loopback lokal akan
+      //     menularkan "protocol kita sendiri" ke port lain yang belum di-pin
+      //     (kasus N7: tssh Binfeo merusak framing channel NetFS JSON).
+      // Registry ini untuk mempelajari protocol PEER, bukan diri sendiri.
+      if (
+        packet.header.srcAddress !== localAddr &&
+        packet.header.dstAddress === localAddr
+      ) {
+        this.protocolRegistry.set(packet.header.srcAddress, proto);
       }
 
       // Stats
@@ -640,9 +639,17 @@ export class SimpleMQTNLDriver implements IDevice {
     const explicitProto = perPortName
       ? this.protocols.find((p) => p.getName() === perPortName)
       : undefined;
+    // `Binary` (OTA) melewati enkripsi driver. Protocol yang dipelajari dari
+    // jaringan (registry) tidak boleh menurunkan port yang punya session key
+    // ke Binary (SEC-22). Port tanpa session key (mis. otad, yang membalas ESP
+    // lewat mqtnl@1.1 tanpa pin) tetap boleh mengikuti peer seperti dulu.
+    const learned = this.protocolRegistry.get(address);
+    const srcPortSecured = (this.portSecurity.get(srcPort) || this.security).hasSessionKey();
+    const learnedSafe =
+      learned && !(learned.getName() === "Binary" && srcPortSecured) ? learned : undefined;
     const protocol =
       explicitProto ??
-      this.protocolRegistry.get(address) ??
+      learnedSafe ??
       this.activeProtocol;
     const protocolName = protocol.getName();
     const useRaw = protocolName === "Binary"; // OTA: bypass enkripsi

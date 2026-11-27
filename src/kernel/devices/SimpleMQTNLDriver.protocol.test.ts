@@ -195,3 +195,76 @@ describe("SimpleMQTNLDriver — Buffer di port terenkripsi (SEC-23)", () => {
     expect(raw).toBe(JSON.stringify(buf));
   });
 });
+
+/**
+ * SEC-22 — protocolRegistry tidak boleh diracun paket palsu.
+ *
+ * Registry ("protocol terakhir dipakai peer") dulu diisi dari paket APA PUN
+ * yang terdengar, termasuk yang ditujukan ke node lain, berdasarkan
+ * srcAddress yang bisa dipalsukan. Selain itu `Binary` (jalur OTA yang
+ * melewati enkripsi driver) tidak boleh pernah dipilih lewat registry.
+ */
+import { MQTNLProtocolBinary } from "../../common/protocols/MQTNLProtocolBinary";
+
+function binaryPacket(src: string, dst: string, dstPort: number): Buffer {
+  return new MQTNLProtocolBinary().pack({
+    header: {
+      srcAddress: src,
+      srcPort: 4000,
+      dstAddress: dst,
+      dstPort,
+      packetCount: 1,
+      packetIndex: 0,
+      dataSize: 4,
+      packetHeaderFlag: PacketFlags.FLAG_DATA,
+      forwarded: 0,
+    },
+    payload: "halo",
+  });
+}
+
+describe("SimpleMQTNLDriver — protocolRegistry (SEC-22)", () => {
+  it("paket untuk node LAIN tidak mengubah registry", () => {
+    const drv = new SimpleMQTNLDriver("smqtnl0", "mqtt://dummy", "__s22_me");
+    (drv as any).handleIncomingMessage("mqtnl@1.1/__s22_other", binaryPacket("__s22_victim", "__s22_other", 24));
+    expect((drv as any).protocolRegistry.has("__s22_victim")).toBe(false);
+  });
+
+  it("broadcast dengan src palsu tidak mengubah registry", () => {
+    const drv = new SimpleMQTNLDriver("smqtnl0", "mqtt://dummy", "__s22_me2");
+    (drv as any).handleIncomingMessage("mqtnl@1.1/*", binaryPacket("__s22_victim", "*", 24));
+    expect((drv as any).protocolRegistry.has("__s22_victim")).toBe(false);
+  });
+
+  async function sendAfterPoison(opts: { secured: boolean }) {
+    const me = opts.secured ? "__s22_me3" : "__s22_me4";
+    const drv = new SimpleMQTNLDriver("smqtnl0", "mqtt://dummy", me);
+    drv.registerHandler(24, () => {});
+    if (opts.secured) drv.ioctl(0x1001, { port: 5100, sessionKey: KEY_HEX });
+    // Paket Binary yang (seolah) ditujukan ke kita dari "korban".
+    (drv as any).handleIncomingMessage("mqtnl@1.1/" + me, binaryPacket("__s22_victim", me, 24));
+
+    const topics: string[] = [];
+    (drv as any).client = {
+      connected: true,
+      publish: (t: string, _m: any, o?: any, cb?: any) => {
+        topics.push(t);
+        if (typeof o === "function") o();
+        else if (typeof cb === "function") cb();
+      },
+    };
+    await drv.send("__s22_victim", 9000, "data", PacketFlags.FLAG_DATA, 5100);
+    expect(topics.length).toBeGreaterThan(0);
+    return topics;
+  }
+
+  it("port dengan session key tidak pernah diturunkan ke Binary oleh registry", async () => {
+    const topics = await sendAfterPoison({ secured: true });
+    expect(topics.every((t) => !t.startsWith("mqtnl@1.1/"))).toBe(true);
+  });
+
+  it("port tanpa session key tetap mengikuti peer Binary (kompatibilitas OTA otad ↔ ESP)", async () => {
+    const topics = await sendAfterPoison({ secured: false });
+    expect(topics.every((t) => t.startsWith("mqtnl@1.1/"))).toBe(true);
+  });
+});
