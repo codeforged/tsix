@@ -936,3 +936,77 @@ describe("listener + seq", () => {
         expect(ctx.dataBank.pending).toBe(2);
     });
 });
+
+/**
+ * SEC-06 — HELLO/KEYSET tidak boleh "mewarisi" status authenticated.
+ *
+ * src:port bisa dipalsukan. Dulu penyerang cukup mengirim HELLO + KEYSET
+ * (dengan kunci miliknya) dari src:port device korban: sesi tetap
+ * authenticated, dan frame data terenkripsi kunci penyerang diterima.
+ */
+describe("pembajakan sesi lewat HELLO/KEYSET (SEC-06)", () => {
+    let ctx: ReturnType<typeof setup>;
+
+    beforeEach(() => {
+        ctx = setup();
+    });
+
+    async function authenticate(): Promise<SecurityAgent> {
+        await ctx.send(JSON.stringify({ type: "LANTANA_HELLO" }));
+        const challenge = JSON.parse(lastSent());
+        const client = new SecurityAgent();
+        const sessionKey = SecurityAgent.generateSessionKey();
+        await ctx.send(JSON.stringify({
+            type: "LANTANA_KEYSET",
+            encryptedKey: SecurityAgent.encryptWithPublicKey(challenge.publicKey, sessionKey),
+        }));
+        client.setSessionKey(sessionKey);
+        await ctx.send(JSON.stringify({
+            type: "LANTANA_AUTH",
+            payload: client.securePacketOut(JSON.stringify({
+                accountId: "juragan",
+                deviceId: ctx.device.deviceId,
+                accessKey: ctx.accessKey,
+                nonce: challenge.nonce,
+            })),
+        }));
+        expect(JSON.parse(client.securePacketIn(lastSent())).type).toBe("LANTANA_AUTH_OK");
+        sent.length = 0;
+        return client;
+    }
+
+    async function attackerRekey(): Promise<SecurityAgent> {
+        await ctx.send(JSON.stringify({ type: "LANTANA_HELLO", mode: "rsa" }));
+        const challenge = JSON.parse(lastSent());
+        const attacker = new SecurityAgent();
+        const key = SecurityAgent.generateSessionKey();
+        await ctx.send(JSON.stringify({
+            type: "LANTANA_KEYSET",
+            encryptedKey: SecurityAgent.encryptWithPublicKey(challenge.publicKey, key),
+        }));
+        attacker.setSessionKey(key);
+        sent.length = 0;
+        return attacker;
+    }
+
+    it("HELLO + KEYSET tanpa AUTH → data berikutnya ditolak dan tidak masuk DataBank", async () => {
+        await authenticate();
+        const attacker = await attackerRekey();
+
+        await ctx.send(attacker.securePacketOut(
+            encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 99 }]),
+        ));
+
+        expect(ctx.dataBank.pending).toBe(0);
+        expect(ctx.sessions.isAuthenticated(`${DEVICE_ADDR}:${DEVICE_PORT}`)).toBe(false);
+    });
+
+    it("alur normal HELLO → KEYSET → AUTH → data tetap diterima setelah re-handshake", async () => {
+        await authenticate();
+        const client = await authenticate(); // device sah reconnect
+        await ctx.send(client.securePacketOut(
+            encodePlainPayload(ctx.device.deviceId, [{ schemeId: 101, value: 25 }]),
+        ));
+        expect(ctx.dataBank.pending).toBe(1);
+    });
+});

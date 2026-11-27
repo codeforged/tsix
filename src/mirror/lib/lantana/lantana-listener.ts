@@ -258,6 +258,9 @@ export class LantanaListener {
                 // dibuang agar key sebelumnya tidak bisa dipakai ulang.
                 this.agents.delete(sessionId);
                 this.pskState.delete(sessionId);
+                // Status authenticated menempel pada kunci lama: cabut, supaya
+                // HELLO dari src:port palsu tidak mewarisi sesi korban (SEC-06).
+                this.deps.sessions.deauthenticate(sessionId);
                 // Key sesi baru → ciphertext lama tidak bisa didekripsi lagi,
                 // jadi riwayat IV sesi sebelumnya tidak diperlukan.
                 this.replay.delete(sessionId);
@@ -347,6 +350,8 @@ export class LantanaListener {
 
                 const newAgent = new SecurityAgent();
                 newAgent.setSessionKey(sessionKey);
+                // Kunci baru → wajib AUTH ulang sebelum data diterima (SEC-06).
+                this.deps.sessions.deauthenticate(sessionId);
                 this.agents.set(sessionId, newAgent);
                 await this.sendPlain(fd, port, endpoint, { type: MSG_KEYSET_OK });
                 return;

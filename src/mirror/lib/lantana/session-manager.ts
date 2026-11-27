@@ -55,6 +55,20 @@ export class SessionManager {
         return !!s && s.authenticated && s.accountId !== null && s.deviceId !== null;
     }
 
+    /**
+     * deauthenticate(): cabut status autentikasi sesi (akun, device, flag).
+     * Dipanggil setiap kali kunci sesi diganti (HELLO/KEYSET): status
+     * authenticated milik KUNCI lama, bukan milik alamat src:port yang bisa
+     * dipalsukan (SEC-06).
+     */
+    deauthenticate(id: string): void {
+        const s = this.sessions.get(id);
+        if (!s) return;
+        s.authenticated = false;
+        s.accountId = null;
+        s.deviceId = null;
+    }
+
     setNonce(id: string, nonce: string): void {
         const s = this.sessions.get(id);
         if (s) s.nonce = nonce;
