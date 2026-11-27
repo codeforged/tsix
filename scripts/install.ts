@@ -2,6 +2,7 @@ import { BKFS } from "../src/vfs/BKFS";
 import { createUserAccount } from "./lib/user-account";
 import { ensureFreshAccountFiles } from "./lib/fresh-accounts";
 import { isRootLocked, populateRootfs } from "./lib/rootfs-image";
+import { hasDefaultRootPassword, rootPasswordProblem } from "./lib/default-credentials";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline/promises";
@@ -30,7 +31,7 @@ import { createDefaultSysConfig, formatSysConfigIni, parseSysConfigIni } from ".
  *     - konfigurasi node, akun user, dan password root tetap ditanyakan.
  *
  * Cara pakai (dari root project):
- *   npm run install                     -> interaktif dari checkout repo
+ *   npm run tsix:install                     -> interaktif dari checkout repo
  *   npm run tsix:install                -> interaktif dari paket distro
  *   npm run tsix:install -- --defaults  -> non-interaktif (root tetap terkunci jika baru)
  *   npm run tsix:install -- --no-config -> lewati penulisan src/sysconfig.conf
@@ -71,7 +72,7 @@ function parseArgs(argv: string[]): InstallOptions {
     else if (a === "--defaults") opts.interactive = false;
     else if (a === "--no-config") opts.writeConfig = false;
     else if (a === "--help" || a === "-h") {
-      console.log(`Usage: npm run install -- [options]
+      console.log(`Usage: npm run tsix:install -- [options]
 
   --path <db>    Database path (default: from sysconfig.conf)
   --force        Overwrite an existing database (backed up automatically; development mode only)
@@ -318,6 +319,15 @@ async function main() {
   const rootPasswordRequired = PRODUCTION_MODE
     ? isRootLocked(prebuilt!)
     : !fs.existsSync(path.join(MIRROR_ROOT, "etc", "shadow"));
+  // Root masih memakai password bawaan publik (`root`, checkout repo) → wajib
+  // diganti di installer interaktif (SEC-20).
+  const sourceShadow = PRODUCTION_MODE
+    ? prebuilt!.read("/etc/shadow") || ""
+    : fs.existsSync(path.join(MIRROR_ROOT, "etc", "shadow"))
+      ? fs.readFileSync(path.join(MIRROR_ROOT, "etc", "shadow"), "utf8")
+      : "";
+  const rootIsDefault = hasDefaultRootPassword(sourceShadow);
+  const mustSetRoot = rootPasswordRequired || rootIsDefault;
 
   let dbRel = defaultDbRel;
   let rootPassword = "";
@@ -408,14 +418,25 @@ async function main() {
           rl,
           rootPasswordRequired
             ? "Root password (required for a fresh distro image)"
-            : "Root password (empty to keep the current one)",
+            : rootIsDefault
+              ? "Root password (required: the bundled default 'root' must be changed)"
+              : "Root password (empty to keep the current one)",
         );
         if (!rootPassword) {
-          if (rootPasswordRequired) {
-            console.log("[INSTALL] Password root wajib diatur untuk akun awal yang terkunci.");
+          if (mustSetRoot) {
+            console.log(
+              rootPasswordRequired
+                ? "[INSTALL] Password root wajib diatur untuk akun awal yang terkunci."
+                : "[INSTALL] Password root bawaan ('root') diketahui publik dan wajib diganti.",
+            );
             continue;
           }
           break;
+        }
+        const problem = rootPasswordProblem(rootPassword);
+        if (problem) {
+          console.log(`[INSTALL] ${problem}`);
+          continue;
         }
 
         const confirmRoot = await promptPassword(rl, "Confirm root password");
@@ -480,6 +501,12 @@ async function main() {
     if (rootPasswordRequired && !opts.interactive) {
       console.warn(
         "[INSTALL] Akun root awal tetap terkunci; jalankan installer interaktif untuk menetapkan password.",
+      );
+    }
+    if (rootIsDefault && !rootPassword) {
+      console.warn(
+        "[INSTALL] ⚠️  root masih memakai password bawaan 'root' (diketahui publik).\n" +
+        "          Login root dari jarak jauh (tssh) DITOLAK sampai password diganti dengan `passwd` di konsol.",
       );
     }
 

@@ -252,13 +252,13 @@ tpkg -v                          # client version, installed base, image variant
 
 ### Fresh Install
 
-A fresh TSIX image is built with the `install` script. It creates a brand new database (`.db`) from the bundled root filesystem (`src/mirror` + `src/common`), asks for a few configuration values interactively, and writes them into `src/sysconfig.conf` (key-value, gaya `/etc/fstab.conf`).
+A fresh TSIX image is built with the `tsix:install` script (deliberately not named `install`, which npm would run automatically on every `npm install`). It creates a brand new database (`.db`) from the bundled root filesystem (`src/mirror` + `src/common`), asks for a few configuration values interactively, and writes them into `src/sysconfig.conf` (key-value, gaya `/etc/fstab.conf`).
 
 ```bash
 git clone https://github.com/yourusername/tsix.git
 cd tsix
 npm install
-npm run install
+npm run tsix:install
 ```
 
 The installer will ask you for:
@@ -275,8 +275,8 @@ The installer will ask you for:
 >
 > - **Repository checkout:** `root` / `root` (bcrypt hash bundled in `src/mirror/etc/shadow`).
 > - **Distro images** (`npm run distro:twrapper`) do **not** ship `/etc/shadow`: root stays locked until you set a password during `npm run tsix:install`.
-> - Change the password by answering the **root-password prompt** during the install, or run `passwd` inside TSIX.
-> - `root` / `root` is a **documented development default**, not a secret. For production or public exposure, always set your own password.
+> - The interactive installer **requires** a new root password while the bundled `root` / `root` is still in place, and refuses `root` as the new password. Later, change it with `passwd` inside TSIX.
+> - `root` / `root` is a **documented development default**, not a secret. While root still uses it (e.g. after `--defaults`), remote root login over `tssh` is refused; console login works but warns you to run `passwd`.
 
 After installation, `src/sysconfig.conf` points to the new database and the system is ready to boot:
 
@@ -287,11 +287,11 @@ npm start
 ### Install Options
 
 ```bash
-npm run install                              # interactive, db path from sysconfig
-npm run install -- --path data/tsix.db       # install to a specific database file
-npm run install -- --path data/tsix.db --force   # overwrite an existing db (auto-backup)
-npm run install -- --defaults                # non-interactive, use all defaults
-npm run install -- --no-config               # skip writing src/sysconfig.conf
+npm run tsix:install                              # interactive, db path from sysconfig
+npm run tsix:install -- --path data/tsix.db       # install to a specific database file
+npm run tsix:install -- --path data/tsix.db --force   # overwrite an existing db (auto-backup)
+npm run tsix:install -- --defaults                # non-interactive, use all defaults
+npm run tsix:install -- --no-config               # skip writing src/sysconfig.conf
 ```
 
 ### Development vs Production Mode

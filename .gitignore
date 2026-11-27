@@ -14,7 +14,7 @@ systembak.db
 *.bak-*
 
 # --- Konfigurasi lokal / hasil install (machine-specific) ---
-# dibuat oleh `npm run install` (path DB, email creator, dll)
+# dibuat oleh `npm run tsix:install` (path DB, email creator, dll)
 # `.conf` = format key-value (aktif); `.json` = format lama, hanya dibaca untuk
 # migrasi sekali-jalan (lihat src/common/Config.ts).
 src/sysconfig.conf

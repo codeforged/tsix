@@ -157,7 +157,7 @@ export class Config {
 
         throw new Error(
             `Config file not found: ${confPath}\n` +
-                `  • buat image baru dengan \`npm run install\` (menulis ${this.FILE}), atau\n` +
+                `  • buat image baru dengan \`npm run tsix:install\` (menulis ${this.FILE}), atau\n` +
                 `  • salin berkas dari node lain — formatnya key-value, lihat src/common/SysConfigIni.ts.`,
         );
     }

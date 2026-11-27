@@ -58,6 +58,7 @@ const INSTALLER_FILES = [
     "tsconfig.json",
     "scripts/install.ts",
     "scripts/lib/binary-mode.ts",
+    "scripts/lib/default-credentials.ts",
     "scripts/lib/fresh-accounts.ts",
     "scripts/lib/fresh-fstab.ts",
     "scripts/lib/rootfs-image.ts",
@@ -279,14 +280,14 @@ function walkFiles(directory: string, base: string = ""): string[] {
 
 function transformPackageJson(bytes: Buffer): Buffer {
     const pkg = JSON.parse(bytes.toString("utf8"));
-    if (!pkg.scripts || typeof pkg.scripts.install !== "string") {
-        throw new Error("Root package.json must define scripts.install for distro bootstrap.");
+    // Installer bernama `tsix:install`, bukan `install`: npm menjalankan script
+    // bernama `install` otomatis setelah `npm install` (lifecycle hook).
+    if (!pkg.scripts || typeof pkg.scripts["tsix:install"] !== "string") {
+        throw new Error("Root package.json must define scripts.tsix:install for distro bootstrap.");
     }
-    if (pkg.scripts["tsix:install"] !== undefined) {
-        throw new Error("Root package.json already defines scripts.tsix:install.");
+    if (pkg.scripts.install !== undefined) {
+        throw new Error("Root package.json must not define scripts.install (npm runs it on `npm install`).");
     }
-    pkg.scripts["tsix:install"] = pkg.scripts.install;
-    delete pkg.scripts.install;
     return Buffer.from(`${JSON.stringify(pkg, null, 2)}\n`, "utf8");
 }
 

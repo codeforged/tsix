@@ -11,13 +11,14 @@ import Login from "./login";
  */
 
 const HASH = bcrypt.hashSync("rahasia", 4);
+const ROOT_DEFAULT = bcrypt.hashSync("root", 4);
 
 function makeLib(answers: { user: string; pass: string }[]) {
     const users = [...answers];
     let current: { user: string; pass: string } | undefined;
     const files: Record<string, string> = {
-        "/etc/passwd": "alice:x:1000:1000:Alice:/home/alice:/bin/tsh\n",
-        "/etc/shadow": `alice:${HASH}\n`,
+        "/etc/passwd": "root:x:0:0:root:/root:/bin/tsh\nalice:x:1000:1000:Alice:/home/alice:/bin/tsh\n",
+        "/etc/shadow": `root:${ROOT_DEFAULT}\nalice:${HASH}\n`,
         "/etc/group": "",
     };
     return {
@@ -80,5 +81,39 @@ describe("login: batas percobaan", () => {
 
         expect(lib.shell.setuid).toHaveBeenCalledWith(1000);
         expect(lib.shell.exec).toHaveBeenCalledWith("/bin/tsh");
+    });
+});
+
+describe("login: password bawaan root/root (SEC-20)", () => {
+    const out = (lib: any) => lib.std.print.mock.calls.map((c: any[]) => c[0]).join("");
+
+    it("sesi remote (--remote): root/root ditolak dan dihitung gagal", async () => {
+        const tries = Array.from({ length: 10 }, () => ({ user: "root", pass: "root" }));
+        const lib = makeLib(tries);
+        await makeLogin().execute(lib, ["--remote"]);
+
+        expect(lib.shell.setuid).not.toHaveBeenCalled();
+        expect(lib.shell.exec).not.toHaveBeenCalled();
+        expect(lib.std.readPassword).toHaveBeenCalledTimes(Login.MAX_ATTEMPTS);
+        expect(out(lib)).toMatch(/default password/i);
+    });
+
+    it("sesi remote: user biasa tetap bisa login", async () => {
+        const lib = makeLib([{ user: "alice", pass: "rahasia" }]);
+        await makeLogin().execute(lib, ["--remote"]);
+        expect(lib.shell.setuid).toHaveBeenCalledWith(1000);
+    });
+
+    it("`--remote` tidak dianggap sebagai username", async () => {
+        const lib = makeLib([{ user: "alice", pass: "rahasia" }]);
+        await makeLogin().execute(lib, ["--remote"]);
+        expect(lib.std.readLine).toHaveBeenCalled(); // username tetap ditanyakan
+    });
+
+    it("konsol: root/root diizinkan tapi diberi peringatan untuk mengganti password", async () => {
+        const lib = makeLib([{ user: "root", pass: "root" }]);
+        await makeLogin().execute(lib, []);
+        expect(lib.shell.setuid).toHaveBeenCalledWith(0);
+        expect(out(lib)).toMatch(/passwd/);
     });
 });

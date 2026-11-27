@@ -10,6 +10,8 @@ export default class Login {
     static readonly MAX_ATTEMPTS = 5;
     /** Jeda setelah percobaan gagal (ms), memperlambat tebakan beruntun. */
     failDelayMs = 2000;
+    /** Password root bawaan checkout repo (`src/mirror/etc/shadow`), diketahui publik. */
+    static readonly DEFAULT_ROOT_PASSWORD = "root";
 
     async execute(lib: UserLib, args: string[]) {
         // --- MODE VERIFY-ONLY (dipakai GUI login: Asteracea & Krisan) ---
@@ -54,6 +56,11 @@ export default class Login {
         });
 
         if (shuttingDown) return;
+
+        // `--remote`: login di-spawn daemon jarak jauh (tsshd). Flag ini dibuang
+        // dari args supaya tidak dianggap username.
+        const remote = !!args && args[0] === "--remote";
+        if (remote) args = args.slice(1);
 
         let failures = 0;
         const failed = async (msg: string): Promise<boolean> => {
@@ -125,8 +132,24 @@ export default class Login {
                     continue;
                 }
 
+                // Password bawaan root (`root`) diketahui publik. Dari jarak jauh
+                // ditolak; di konsol boleh, tapi diingatkan untuk diganti.
+                const defaultRoot = uid === 0 && password === Login.DEFAULT_ROOT_PASSWORD;
+                if (defaultRoot && remote) {
+                    if (await failed(
+                        "Login: Remote root login with the default password is disabled.\n" +
+                        "       Change it first with `passwd` on the node's console.\n",
+                    )) return;
+                    continue;
+                }
+
                 // 3. SUCCESS! Setup session
                 await lib.std.print(`\nWelcome to TSIX, ${username}!\n`);
+                if (defaultRoot) {
+                    await lib.std.print(
+                        "\x1b[1;33m⚠️  root is still using the default password. Change it now with `passwd`.\x1b[0m\n",
+                    );
+                }
 
                 // 3.1 Display MOTD (ASCII Banner & Random Phrase)
                 try {

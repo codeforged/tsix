@@ -8956,7 +8956,7 @@ Since <code>install.ts</code> exists, a fresh install <strong>does not need</str
 </tr>
 </thead>
 <tbody><tr>
-<td><code>npm run install</code></td>
+<td><code>npm run tsix:install</code></td>
 <td><code>scripts/install.ts</code></td>
 <td>host → DB</td>
 <td>Interactive fresh install: create new DB + write <code>sysconfig.conf</code> + full rootfs sync</td>
@@ -9043,7 +9043,7 @@ scripts/lib/db-path.ts
         ├── vfs-pull.ts       (pull DB → src/root)
         └── create-bkfs.ts    (buat DB kosong)
 </code></pre>
-<h3>1. Fresh install (<code>npm run install</code>)</h3>
+<h3>1. Fresh install (<code>npm run tsix:install</code>)</h3>
 <ol>
 <li>Ask interactive configuration: hostname, user account (optional: username, password, confirm), MQTT broker, per-interface address, default MQTT port, kernel verbose, new DB path, (optional) root password.</li>
 <li>Write the result to <code>src/sysconfig.conf</code> (stores the new <code>kernel.database</code>).</li>
@@ -9056,11 +9056,11 @@ scripts/lib/db-path.ts
 <li>If a root password is provided → it is bcrypt-hashed and written to <code>/etc/shadow</code>.</li>
 <li>Verify: total nodes, number of <code>passwd</code> accounts, group list, <code>shadow</code> entries.</li>
 </ol>
-<pre><code class="language-bash">npm run install                              # interaktif, path dari sysconfig
-npm run install -- --path data/tsix.db       # path database tertentu
-npm run install -- --path data/tsix.db --force   # timpa (auto-backup)
-npm run install -- --defaults                # non-interaktif, semua default
-npm run install -- --no-config               # skip tulis sysconfig.conf
+<pre><code class="language-bash">npm run tsix:install                              # interaktif, path dari sysconfig
+npm run tsix:install -- --path data/tsix.db       # path database tertentu
+npm run tsix:install -- --path data/tsix.db --force   # timpa (auto-backup)
+npm run tsix:install -- --defaults                # non-interaktif, semua default
+npm run tsix:install -- --no-config               # skip tulis sysconfig.conf
 </code></pre>
 <h3>2. Bulk sync (<code>npm run vfs:bootstrap</code>)</h3>
 <p>Mass sync of <code>src/mirror</code> → <code>/</code> and <code>src/common</code> → <code>/lib/common</code>. Useful for the initial device installation or after many edits at once.</p>
@@ -9228,8 +9228,8 @@ function applyBinaryMode(bkfs: BKFS, vfsPath: string, label = &quot;INSTALL&quot
 <hr>
 <h2>Exercises / Practice</h2>
 <ol>
-<li>Run <code>npm run install -- --defaults</code> — check <code>src/sysconfig.conf</code> is written and a new DB is created, then <code>npm start</code>.</li>
-<li>Run <code>npm run install</code> (interactive) — fill in hostname &amp; user login, set the root password, observe the per-file sync.</li>
+<li>Run <code>npm run tsix:install -- --defaults</code> — check <code>src/sysconfig.conf</code> is written and a new DB is created, then <code>npm start</code>.</li>
+<li>Run <code>npm run tsix:install</code> (interactive) — fill in hostname &amp; user login, set the root password, observe the per-file sync.</li>
 <li>Write a new app in <code>src/mirror/bin/</code>, then <code>npm run vfs:bootstrap</code> — run the app in the TSIX shell.</li>
 <li>Change one file then <code>npx ts-node scripts/sync-vfs.ts src/mirror/bin/&lt;file&gt;.ts</code> — compare its speed vs the full bootstrap.</li>
 <li>Change a file in the VFS (from the TSIX shell), then <code>npm run vfs:pull</code> — check the change appears in <code>src/root</code>.</li>

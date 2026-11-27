@@ -76,6 +76,11 @@ export const main = Program(async (args) => {
                             const p = line.split(":");
                             if (p[0] === msg.username && bcrypt.compareSync(msg.password, p[1])) { ok = true; break; }
                         }
+                        // Password bawaan root ('root') diketahui publik: tolak dari jarak jauh (SEC-20).
+                        if (ok && msg.username === "root" && msg.password === "root") {
+                            ok = false;
+                            await std.log(`[${id}] Auth refused: root with the default password`, "scpd");
+                        }
                     }
                 } catch (e) { }
                 if (ok) {

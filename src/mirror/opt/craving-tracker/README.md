@@ -28,14 +28,14 @@ Ekstensi yang dikenali: `.jpg` `.jpeg` `.png` `.webp` `.gif`, atau sidecar base6
 ### Cara menaruh foto (penting: binary-safe!)
 
 1. Taruh foto di host: `src/mirror/opt/craving-tracker/level0.jpg` … `level3.jpg`
-2. Jalankan `npm run install` (di root repo tsix) — skrip ini membaca `.jpg`
+2. Jalankan `npm run tsix:install` (di root repo tsix) — skrip ini membaca `.jpg`
    sebagai **latin1 (1 byte = 1 char)**, persis yang dibaca `TImage`
    (`Buffer.from(raw, "latin1")`).
 
 > ⚠️ **Jangan** pakai `scripts/sync-vfs.ts` untuk gambar raster — skrip itu
 > membaca utf8 sehingga byte JPEG rusak. App akan mendeteksi ini (magic-byte
 > check) dan menampilkan pesan "Gambar rusak (byte korup) → kirim ulang via
-> `npm run install`".
+> `npm run tsix:install`".
 
 Alternatif tanpa jalur host: konversi ke base64 di dalam TSIX lalu salin —
 

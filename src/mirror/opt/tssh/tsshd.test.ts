@@ -68,6 +68,7 @@ describe("tsshd CONNECT_REQ", () => {
         expect(lib.shell.exec).toHaveBeenCalledTimes(1);
         const call = lib.shell.exec.mock.calls[0];
         expect(call[0]).toBe("/bin/login.js");
+        expect(call[1]).toEqual(["--remote"]); // login tahu sesinya remote (SEC-20)
         expect(call[5]).toBe(7);
         expect(d.sessions.get(sid).active).toBe(true);
     });
@@ -77,7 +78,7 @@ describe("tsshd CONNECT_REQ", () => {
         expect(lib.shell.exec).toHaveBeenCalledTimes(1);
         const [path, args] = lib.shell.exec.mock.calls[0];
         expect(path).toBe("/bin/login.js");
-        expect(args).toEqual([]);
+        expect(args).toEqual(["--remote"]);
         for (const c of lib.shell.exec.mock.calls) {
             expect(c[0]).not.toBe("cat");
         }

@@ -209,7 +209,7 @@ sequenceDiagram
 git clone https://github.com/codeforged/tsix.git
 cd tsix
 npm install
-npm run install    # interaktif: buat image baru (.db + src/sysconfig.conf)
+npm run tsix:install    # interaktif: buat image baru (.db + src/sysconfig.conf)
 npm start          # boot TSIX shell — langsung dari src/main.ts (TypeScript)
 ```
 

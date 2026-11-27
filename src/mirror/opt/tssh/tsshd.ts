@@ -238,7 +238,8 @@ export default class TSSHDaemon {
         const procInfo = await lib.shell.exec(
           // login.js adalah sidecar — menghindari preload transpiler di worker.
           "/bin/login.js",
-          [],
+          // `--remote`: login menolak root dengan password bawaan (SEC-20).
+          ["--remote"],
           undefined,
           undefined,
           undefined,

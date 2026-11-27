@@ -177,7 +177,7 @@ function fmtDateLong(d: Date): string {
 // Boleh berupa gambar raster mentah (jpg/jpeg/png/webp/gif) ATAU sidecar
 // base64 (`level0.b64` / `level0.jpg.b64`) — pola yang sama dengan
 // wallpaper Asteracea. Gambar raster dibaca sebagai latin1 (1 byte = 1 char),
-// jadi HARUS masuk VFS lewat jalur binary-safe (`npm run install`,
+// jadi HARUS masuk VFS lewat jalur binary-safe (`npm run tsix:install`,
 // `scripts/vfs-bootstrap.ts`) — `scripts/sync-vfs.ts` membaca utf8 dan
 // merusak byte JPEG (kasus ini dideteksi & dilaporkan di UI).
 
@@ -235,7 +235,7 @@ function brokenB64(file: string): string {
         '<text x="240" y="146" fill="#a06a6a" font-family="Consolas, monospace" font-size="13" text-anchor="middle">' +
         file +
         "</text>" +
-        '<text x="240" y="176" fill="#7a5a5a" font-family="Consolas, monospace" font-size="11" text-anchor="middle">kirim ulang via: npm run install</text>' +
+        '<text x="240" y="176" fill="#7a5a5a" font-family="Consolas, monospace" font-size="11" text-anchor="middle">kirim ulang via: npm run tsix:install</text>' +
         "</svg>";
     return Buffer.from(svg, "utf8").toString("base64");
 }
@@ -1655,7 +1655,7 @@ export const main = Program(async (_args: string[]) => {
         }
         if (res.corrupt) {
             imgChild.setBase64(brokenB64(res.corrupt), "image/svg+xml");
-            lblImgInfo.caption = "⚠️ " + res.corrupt + " rusak (byte korup) — kirim ulang via `npm run install`";
+            lblImgInfo.caption = "⚠️ " + res.corrupt + " rusak (byte korup) — kirim ulang via `npm run tsix:install`";
             return;
         }
         imgChild.setBase64(placeholderB64(lv), "image/svg+xml");
