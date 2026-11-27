@@ -355,7 +355,6 @@ Skrip asli di repo yang bisa dijadikan acuan:
 | Berkas | Isi |
 | --- | --- |
 | `scripts/test/fixtures/sample-script.sh` | Semua fitur utama: argumen, if/elif, for, while, case, read, pipe, redirection, wildcard |
-| `src/mirror/var/tsd/packages/checker.sh` | Contoh paling sederhana (shebang `#!/usr/bin/env sh`) |
 | `/etc/rc.local` | Skrip boot (`#!/bin/tsh`) — dijalankan `init` setiap boot |
 
 Pola yang sering dipakai:

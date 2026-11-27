@@ -425,7 +425,6 @@ Data milik node tidak boleh disebar ke node lain:
 | ---------------------------------------------- | -------------------------------------------------------------------------- |
 | `/etc/passwd`, `/etc/shadow`, `/etc/group`     | Akun server akan menggantikan akun node tujuan                             |
 | `/etc/tpkg/trusted_repos`, `/etc/tpkg/keys/**` | Kepercayaan (TOFU) & kunci per node                                        |
-| `/etc/tsd/**`                                  | Trust + manifest tsd (legacy, per node)                                    |
 | `/etc/fstab.conf`, `/etc/crontab`              | Mount & jadwal tugas per node                                              |
 | `/etc/<app>/*.json` (lantana, telechat, dst.)  | Pengaturan operator; engine update tidak boleh mengembalikannya ke default |
 
