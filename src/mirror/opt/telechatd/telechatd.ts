@@ -169,7 +169,7 @@ export const main = Program(async (args: string[]) => {
 
   if (!pubKey || !privateKey) {
     await std.print(
-      `❌ Identitas RSA tidak ditemukan di ${RSA_DIR}. Jalankan 'init' dulu.\n`,
+      `❌ Identitas RSA tidak bisa dibaca di ${RSA_DIR}. Jalankan telechatd sebagai root (sudo); private key node hanya untuk root.\n`,
     );
     return;
   }

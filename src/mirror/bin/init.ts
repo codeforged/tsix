@@ -119,7 +119,16 @@ export default class Init {
                 }
             } else {
                 await lib.std.print(`${ok} [INIT] System Identity verified.\n`);
+            }
 
+            // SEC-17 poin 3: private host key hanya untuk root (dulu mode default
+            // VFS 0644 → user lokal mana pun bisa menyamar sebagai node ini ke
+            // tssh/scp). Ditegakkan setiap boot supaya instalasi lama ikut terkunci.
+            // Public key tetap 0644 (dibaca untuk fingerprint/identitas visual).
+            await lib.fs.chmod(`${keyDir}/id_rsa`, 0o600).catch(() => false);
+            await lib.fs.chmod(`${keyDir}/id_rsa.pub`, 0o644).catch(() => false);
+
+            if (keyExists) {
                 // Display fingerprint for existing keys
                 const fingerprint = await lib.shell.getFingerprint();
                 if (fingerprint) {
