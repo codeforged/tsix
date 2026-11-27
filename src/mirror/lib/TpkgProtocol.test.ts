@@ -153,3 +153,50 @@ describe("TpkgProtocol — util (P1)", () => {
         expect(formatBytes(3 * 1024 * 1024)).toBe("3.0 MB");
     });
 });
+
+describe("TpkgProtocol — cakupan tanda tangan bundle (SEC-16)", () => {
+    const base = () => ({
+        name: "hello",
+        version: "1.0.0",
+        variant: "ts",
+        onAfter: "/opt/hello/setup.js",
+        undoScript: "/opt/hello/undo.js",
+        needReboot: false,
+        files: [file("/opt/hello/a.ts", "aaa", { isExecutable: true }), file("/etc/hello.conf", "x=1")],
+    });
+
+    it("deterministik dan tidak memuat konten file", async () => {
+        const { bundleSignatureDigest } = await import("./TpkgProtocol");
+        expect(bundleSignatureDigest(base())).toBe(bundleSignatureDigest(base()));
+        expect(bundleSignatureDigest(base())).not.toContain("aaa");
+    });
+
+    it("mengubah onAfter / undoScript / version / name / needReboot mengubah digest", async () => {
+        const { bundleSignatureDigest } = await import("./TpkgProtocol");
+        const ref = bundleSignatureDigest(base());
+        const variants: Array<(r: any) => void> = [
+            (r) => (r.onAfter = "/tmp/evil-transpile.js"),
+            (r) => (r.undoScript = "/tmp/evil.js"),
+            (r) => (r.version = "9.9.9"),
+            (r) => (r.name = "other"),
+            (r) => (r.needReboot = true),
+            (r) => (r.variant = "js"),
+        ];
+        for (const mutate of variants) {
+            const r = base();
+            mutate(r);
+            expect(bundleSignatureDigest(r)).not.toBe(ref);
+        }
+    });
+
+    it("mengubah mode file (permissions / isExecutable) mengubah digest", async () => {
+        const { bundleSignatureDigest } = await import("./TpkgProtocol");
+        const ref = bundleSignatureDigest(base());
+        const a = base();
+        a.files[1] = { ...a.files[1], permissions: 0o4755 };
+        const b = base();
+        b.files[0] = { ...b.files[0], isExecutable: false };
+        expect(bundleSignatureDigest(a)).not.toBe(ref);
+        expect(bundleSignatureDigest(b)).not.toBe(ref);
+    });
+});

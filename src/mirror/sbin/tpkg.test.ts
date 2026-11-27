@@ -1513,3 +1513,37 @@ describe("SEC-05 pinning kunci repository", { timeout: 30_000 }, () => {
         expect(world.answers).toEqual(["n"]);
     });
 });
+
+/**
+ * SEC-16 — metadata yang memengaruhi eksekusi ikut ditandatangani.
+ * Dulu signature hanya menutup path/hostDst/size/sha256, jadi `onAfter`
+ * (dijalankan sebagai root) bisa diganti tanpa merusak signature.
+ */
+describe("SEC-16 cakupan tanda tangan bundle", { timeout: 30_000 }, () => {
+    it("bundle sah lolos; onAfter / undoScript / permissions yang diubah ditolak", async () => {
+        const { bundleSignatureDigest, sha256Hex } = await import("@tsix/TpkgProtocol");
+        const repo = SecurityAgent.generateKeyPair();
+        const content = "#!/bin/tsh\nprint ok\n";
+        const reply: any = {
+            type: "BUNDLE_REPLY",
+            name: "hello",
+            version: "1.0.0",
+            variant: "ts",
+            files: [{ path: "/opt/hello/a.ts", size: content.length, sha256: sha256Hex(content), content }],
+            onAfter: "/opt/hello/a.ts",
+            undoScript: undefined,
+            needReboot: false,
+        };
+        reply.signature = SecurityAgent.sign(repo.privateKey, bundleSignatureDigest(reply));
+
+        const world = new World();
+        const client = new TpkgClient() as any;
+        client.lib = world.makeLib(world.clientNode);
+        const verify = (data: any) => client.verifyBundle(repo.publicKey, data);
+
+        expect(await verify(reply)).not.toBeNull();
+        expect(await verify({ ...reply, onAfter: "/tmp/evil-transpile.js" })).toBeNull();
+        expect(await verify({ ...reply, undoScript: "/tmp/evil.js" })).toBeNull();
+        expect(await verify({ ...reply, files: [{ ...reply.files[0], permissions: 0o4755 }] })).toBeNull();
+    });
+});

@@ -7,6 +7,7 @@ import {
     TPKG_PROTOCOL_VERSION,
     binaryPath,
     bundleDigest,
+    bundleSignatureDigest,
     compareVersions,
     formatBytes,
     isBinaryCandidate,
@@ -965,7 +966,8 @@ export class Main {
     private async verifyBundle(repoPubKey: string, data: any): Promise<TpkgBundleFile[] | null> {
         const files: TpkgBundleFile[] = Array.isArray(data?.files) ? data.files : [];
 
-        if (!SecurityAgent.verify(repoPubKey, bundleDigest(files), data?.signature)) {
+        // Signature menutup metadata file + onAfter/undoScript/versi/mode (SEC-16).
+        if (!SecurityAgent.verify(repoPubKey, bundleSignatureDigest({ ...data, files }), data?.signature)) {
             await this.lib.std.print("❌ ERROR: Bundle signature verification failed! Package may be tampered.\n");
             return null;
         }

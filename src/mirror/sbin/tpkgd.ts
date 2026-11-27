@@ -6,7 +6,7 @@ import {
     TPKG_DEFAULT_PORT,
     TPKG_PROTOCOL_VERSION,
     binaryPath,
-    bundleDigest,
+    bundleSignatureDigest,
     formatBytes,
     isBinaryCandidate,
     isSafeHostDst,
@@ -409,11 +409,11 @@ export class Main {
                 onAfter: script(pkg.onAfterDownload),
                 undoScript: script(pkg.undoScript),
                 needReboot: pkg.needReboot === true,
-                // Yang ditandatangani = METADATA bundle (path/size/sha256), bukan
-                // seluruh konten: payload tanda tangan kecil, integritas konten
-                // tetap terjaga karena sha256 tiap file ada di dalamnya.
-                signature: SecurityAgent.sign(this.privateKey, bundleDigest(files)),
             };
+            // Yang ditandatangani = METADATA bundle (path/size/sha256 + mode tiap
+            // file) PLUS semua field yang memengaruhi eksekusi (nama, versi,
+            // onAfter, undoScript, needReboot), bukan seluruh konten (SEC-16).
+            reply.signature = SecurityAgent.sign(this.privateKey, bundleSignatureDigest(reply));
 
             await this.lib.net.sendto(fd, src, srcPort, session.agent.securePacketOut(JSON.stringify(reply)));
             await this.lib.std.log(

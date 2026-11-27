@@ -336,6 +336,48 @@ export function bundleDigest(files: TpkgBundleFile[]): string {
     return JSON.stringify(bundleMeta(files));
 }
 
+/** Field BUNDLE_REPLY yang ikut ditandatangani (selain daftar file). */
+export interface TpkgBundleSigned {
+    name?: string;
+    version?: string;
+    variant?: string;
+    onAfter?: string;
+    undoScript?: string;
+    needReboot?: boolean;
+    files: TpkgBundleFile[];
+}
+
+/**
+ * bundleSignatureDigest(): bentuk kanonik yang DITANDATANGANI tpkgd untuk
+ * BUNDLE_REPLY dan diverifikasi tpkg (SEC-16).
+ *
+ * Selain metadata file (path/hostDst/size/sha256) juga mencakup semua yang
+ * memengaruhi eksekusi: nama, versi, varian, skrip post-install (`onAfter`,
+ * dijalankan sebagai root), `undoScript`, `needReboot`, dan mode tiap file
+ * (`permissions` / `isExecutable`). Dulu `bundleDigest(files)` saja, sehingga
+ * `onAfter` bisa diganti tanpa merusak signature.
+ *
+ * Field kosong dinormalkan ("" / false / null) supaya kedua sisi stabil.
+ * Tidak ada fallback ke format lama: klien baru menolak tanda tangan lama.
+ */
+export function bundleSignatureDigest(reply: TpkgBundleSigned): string {
+    const files = Array.isArray(reply?.files) ? reply.files : [];
+    return JSON.stringify({
+        format: "tpkg-bundle-v2",
+        name: String(reply?.name ?? ""),
+        version: String(reply?.version ?? ""),
+        variant: String(reply?.variant ?? ""),
+        onAfter: String(reply?.onAfter ?? ""),
+        undoScript: String(reply?.undoScript ?? ""),
+        needReboot: reply?.needReboot === true,
+        files: bundleMeta(files).map((m, i) => ({
+            ...m,
+            permissions: typeof files[i]?.permissions === "number" ? files[i].permissions : null,
+            isExecutable: files[i]?.isExecutable === true,
+        })),
+    });
+}
+
 /**
  * verifyBundleFiles(): Periksa tiap file bundle sebelum ditulis ke VFS.
  *
