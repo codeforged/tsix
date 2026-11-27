@@ -14,23 +14,24 @@
 //      → Update.write → offset += len → repeat until complete
 //   4. Update.end(true) → onComplete → reboot
 //
-// Trigger: automated autoStartDelay after boot, or type "ota" in serial.
+// Trigger: type "ota" in serial (default). Set OTA_DELAY_MS > 0 to
+// auto-start N ms after boot.
 // Build: -DAPP_VARIANT_OTA (env ota-esp32 / ota-esp8266)
 // ─────────────────────────────────────────────────────────────
 #include <Arduino.h>
 #include <tsixlib.h>
-#include "secrets.h"   // WiFi/MQTT/API key — in include/secrets.h (NOT committed)
+#include "secrets.h" // WiFi/MQTT/API key — in include/secrets.h (NOT committed)
 
 // ── Configuration (network in secrets.h) ──
-#define NODE_ID       "ota-device-01"
-#define NODE_PORT     100
-#define OTA_HOST      "tsix"          // TSIX node running ota-server/otad
-#define OTA_PORT      4000            // OTA port on that node
+#define NODE_ID "ota-device-01"
+#define NODE_PORT 100
+#define OTA_HOST "wintsix" // TSIX node running ota-server/otad
+#define OTA_PORT 4000      // OTA port on that node
 // #define OTA_PATH      "/test/firmwareESP32C3.bin"  // firmware path in VFS
-#define OTA_PATH      "/test/firmwareESP32.bin"  // firmware path in VFS
-#define OTA_AK        "123456"        // activation key (from portal)
-#define OTA_CHUNK     2048*2            // chunk size (1280-2048 is safe for ESP8266)
-#define OTA_DELAY_MS  5000            // auto-trigger after boot
+#define OTA_PATH "/test/firmware.bin" // firmware path in VFS
+#define OTA_AK "123456"               // activation key (from portal)
+#define OTA_CHUNK 2048 * 2            // chunk size (1280-2048 is safe for ESP8266)
+#define OTA_DELAY_MS 0                // 0 = manual (type "ota" in serial); >0 = auto-trigger N ms after boot
 
 const char apiKey[] = TSIX_API_KEY;
 
@@ -61,18 +62,16 @@ void setup()
   cfg.autoStartDelay = OTA_DELAY_MS;
   ota.begin(cfg);
 
-  ota.onProgress([](uint32_t done, uint32_t total) {
-    Serial.printf("[OTA] %lu/%lu (%d%%)\n", (unsigned long)done, (unsigned long)total,
-                  (int)((done * 100) / total));
-  });
-  ota.onComplete([]() {
+  ota.onProgress([](uint32_t done, uint32_t total)
+                 { Serial.printf("[OTA] %lu/%lu (%d%%)\n", (unsigned long)done, (unsigned long)total,
+                                 (int)((done * 100) / total)); });
+  ota.onComplete([]()
+                 {
     Serial.println("[OTA] SUCCESS — rebooting...");
     delay(1000);
-    ESP.restart();
-  });
-  ota.onError([](const char *msg) {
-    Serial.printf("[OTA] ERROR: %s\n", msg);
-  });
+    ESP.restart(); });
+  ota.onError([](const char *msg)
+              { Serial.printf("[OTA] ERROR: %s\n", msg); });
 
   Serial.println("[setup] OTA device ready");
   Serial.println("      type 'ota' in serial for manual update.");
@@ -81,7 +80,7 @@ void setup()
 void loop()
 {
   tsix.loop();
-  ota.loop(); // auto-start setelah OTA_DELAY_MS
+  ota.loop(); // auto-start hanya jika OTA_DELAY_MS > 0
 
   if (Serial.available())
   {
