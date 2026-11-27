@@ -1,4 +1,5 @@
 import { Program, std, fs, net, shell } from "@tsix/Application";
+import { AK_LENGTH, AkLimiter, FIRMWARE_DIR, OtaSessions, resolveFirmwarePath } from "@tsix/ota-access";
 
 // MQTNL OTA Server Daemon for ESP8266/ESP32
 export default Program(async (args) => {
@@ -8,7 +9,7 @@ export default Program(async (args) => {
     }
 
     const otaPort = 4000;
-    const firmwareDir = "/opt/esp-ota/firmwares";
+    const firmwareDir = FIRMWARE_DIR;
     const AK_FILE = "/opt/esp-ota/activation-keys.txt";
     const LOG_FILE = "/opt/esp-ota/service.log";
     const DEFAULT_CHUNK_SIZE = 2048;
@@ -35,7 +36,7 @@ export default Program(async (args) => {
     }
 
     async function validateAK(ak: string): Promise<boolean> {
-        if (!ak || ak.length !== 6) return false;
+        if (typeof ak !== "string" || ak.length !== AK_LENGTH) return false;
         await ensureAKCache();
         if (akCache.includes(ak)) return true;
 
@@ -80,12 +81,7 @@ export default Program(async (args) => {
     const firmwareCache = new Map<string, { buffer: Buffer, size: number, mtime: number }>();
 
     async function loadFirmware(targetPath: string) {
-        // Basic Security: Prevent directory traversal
-        if (targetPath.includes('..')) {
-            await std.log(`⚠️ Security Warning: Blocked traversal attempt for ${targetPath}`, "otad");
-            return null;
-        }
-
+        // Path sudah divalidasi resolveFirmwarePath() (di dalam firmwareDir, tanpa "..").
         try {
             const stats = await fs.stat(targetPath);
             if (!stats) return null;
@@ -114,7 +110,9 @@ export default Program(async (args) => {
 
     async function logEvent(mac: string, dc: string, ak: string, path: string, status: string, msg: string = "") {
         const timestamp = new Date().toISOString();
-        const entry = `${timestamp},${mac || "unknown"},${dc || "unknown"},${ak || "none"},${path},${status},"${msg.replace(/"/g, '""')}"\n`;
+        // Field dari device: buang pemisah CSV/baris supaya log tidak bisa disisipi baris palsu.
+        const clean = (v: string) => String(v).replace(/[\r\n,"]/g, "_");
+        const entry = `${timestamp},${clean(mac || "unknown")},${clean(dc || "unknown")},${clean(ak || "none")},${clean(path)},${status},"${msg.replace(/[\r\n]/g, " ").replace(/"/g, '""')}"\n`;
         try {
             let content = "";
             try {
@@ -127,8 +125,28 @@ export default Program(async (args) => {
         }
     }
 
-    // Track progress per device
-    const activeDevices = new Map<string, { offset: number, lastSeen: number, path: string, ak?: string, mac?: string, dc?: string, virtualBuffer?: Buffer, virtualSize?: number }>();
+    // Sesi OTA per device. Hanya dibuka oleh ota.info dengan AK valid; ota.read dan
+    // "R <offset> <len>" tanpa sesi ditolak (SEC-27). Tebakan AK dibatasi global (SEC-29).
+    const sessions = new OtaSessions();
+    const akLimiter = new AkLimiter();
+
+    async function finishTransfer(src: string, s: { ak: string; mac: string; dc: string; path: string }) {
+        if (s.path.endsWith(".json")) {
+            await logEvent(s.mac || "unknown", s.dc || "general", s.ak || "none", s.path, "INFO", "Metadata fetched");
+            return;
+        }
+        sessions.end(src);
+        if (await consumeAK(s.ak)) {
+            await logEvent(s.mac || "unknown", s.dc || "general", s.ak, s.path, "SUCCESS");
+            await std.log(`[OTA] AK ${s.ak} consumed for ${src}`, "otad");
+        } else {
+            await logEvent(s.mac || "unknown", s.dc || "general", s.ak, s.path, "WARNING", "AK not found during consumption");
+        }
+    }
+
+    async function sendError(src: string, port: number, msg: string) {
+        await net.sendto(serverFd, src, port, JSON.stringify({ cmd: "ota.error", msg }));
+    }
 
     function compareVersions(v1: string, v2: string) {
         const a = v1.split('.').map(n => parseInt(n) || 0);
@@ -171,9 +189,9 @@ export default Program(async (args) => {
                 if (parts.length >= 3) {
                     const offset = parseInt(parts[1], 10);
                     const len = parseInt(parts[2], 10);
-                    const deviceData = activeDevices.get(srcAddress);
+                    const deviceData = sessions.get(srcAddress);
 
-                    if (deviceData) {
+                    if (deviceData && Number.isInteger(offset) && Number.isInteger(len) && offset >= 0 && len > 0) {
                         const fw = await loadFirmware(deviceData.path);
                         if (fw) {
                             const chunk = (deviceData.virtualBuffer || fw.buffer).slice(offset, offset + len);
@@ -186,22 +204,8 @@ export default Program(async (args) => {
 
                             const isEof = (offset + chunk.length) >= (deviceData.virtualSize || fw.size);
                             deviceData.offset = offset + chunk.length;
-                            deviceData.lastSeen = Date.now();
-                            activeDevices.set(srcAddress, deviceData);
 
-                            if (isEof) {
-                                if (deviceData.ak && !deviceData.path.endsWith(".json")) {
-                                    const akConsumed = await consumeAK(deviceData.ak);
-                                    if (akConsumed) {
-                                        await logEvent(deviceData.mac || "unknown", deviceData.dc || "general", deviceData.ak, deviceData.path, "SUCCESS");
-                                        await std.log(`[OTA] AK ${deviceData.ak} consumed for ${srcAddress} (High-Speed)`, "otad");
-                                    } else {
-                                        await logEvent(deviceData.mac || "unknown", deviceData.dc || "general", deviceData.ak, deviceData.path, "WARNING", "AK not found during consumption");
-                                    }
-                                } else if (deviceData.path.endsWith(".json")) {
-                                    await logEvent(deviceData.mac || "unknown", deviceData.dc || "general", deviceData.ak || "none", deviceData.path, "INFO", "Metadata fetched");
-                                }
-                            }
+                            if (isEof) await finishTransfer(srcAddress, deviceData);
 
                             continue; // Fast-path: Success, move to next packet
                         }
@@ -217,24 +221,31 @@ export default Program(async (args) => {
                 try {
                     const cleanPayload = payloadStr.replace(/[\x00-\x1F\x7F]/g, '').trim();
                     const req = JSON.parse(cleanPayload);
-                    let requestedPath = req.path || "/firmware.bin";
-                    const mac = req.mac || "";
-                    const dc = req.dc || "general";
-
-                    // Prepend base directory if it's not already absolute (relative to firmwareDir)
-                    if (!requestedPath.startsWith(firmwareDir)) {
-                        requestedPath = `${firmwareDir}${requestedPath.startsWith('/') ? '' : '/'}${requestedPath}`;
+                    // Path selalu di dalam firmwareDir (relatif → diberi prefix).
+                    const requestedPath = resolveFirmwarePath(req.path, firmwareDir);
+                    const mac = typeof req.mac === "string" ? req.mac.slice(0, 32) : "";
+                    const dc = typeof req.dc === "string" && req.dc ? req.dc.slice(0, 64) : "general";
+                    if (!requestedPath) {
+                        await std.log(`⚠️ Blocked invalid firmware path from ${srcAddress}`, "otad");
+                        await sendError(srcAddress, srcPort, "Invalid firmware path");
+                        continue;
                     }
 
                     if (req.cmd === "ota.info") {
                         await std.log(`[OTA] Request from ${srcAddress} (${mac}) [${dc}] for ${requestedPath}`, "otad");
 
+                        if (akLimiter.blocked()) {
+                            await std.log(`❌ REJECTED: too many invalid AKs, OTA paused briefly (${srcAddress})`, "otad");
+                            await sendError(srcAddress, srcPort, "Too many attempts, try again later");
+                            continue;
+                        }
+
                         // Step 1: Just validate AK (don't consume yet)
                         if (!await validateAK(req.ak)) {
-                            await std.log(`❌ REJECTED: Invalid or expired AK '${req.ak}' from ${srcAddress}`, "otad");
-                            await logEvent(mac, dc, req.ak, requestedPath, "FAILED", "Invalid or expired AK");
-                            const res = { cmd: "ota.error", msg: "Invalid or expired activation key" };
-                            await net.sendto(serverFd, srcAddress, srcPort, JSON.stringify(res));
+                            akLimiter.fail();
+                            await std.log(`❌ REJECTED: Invalid or expired AK from ${srcAddress}`, "otad");
+                            await logEvent(mac, dc, "invalid", requestedPath, "FAILED", "Invalid or expired AK");
+                            await sendError(srcAddress, srcPort, "Invalid or expired activation key");
                             continue;
                         }
 
@@ -292,10 +303,8 @@ export default Program(async (args) => {
                                 }
                             }
 
-                            // Link initial session state
-                            activeDevices.set(srcAddress, {
-                                offset: 0,
-                                lastSeen: Date.now(),
+                            // Sesi dibuka HANYA di sini (AK valid, path tervalidasi).
+                            sessions.begin(srcAddress, {
                                 path: requestedPath,
                                 ak: req.ak,
                                 mac: mac,
@@ -318,15 +327,20 @@ export default Program(async (args) => {
                         }
                     }
                     else if (req.cmd === "ota.read") {
-                        const offset = req.offset || 0;
-                        const len = req.len || DEFAULT_CHUNK_SIZE;
+                        const offset = Number.isInteger(req.offset) && req.offset >= 0 ? req.offset : 0;
+                        const len = Number.isInteger(req.len) && req.len > 0 ? req.len : DEFAULT_CHUNK_SIZE;
 
-                        const deviceData = activeDevices.get(srcAddress);
-                        const activeData = deviceData || { offset: 0, lastSeen: Date.now(), path: requestedPath, mac: mac, dc: dc, ak: "" };
+                        // SEC-27: tanpa sesi dari ota.info (AK valid) untuk path ini → tolak.
+                        const deviceData = sessions.get(srcAddress, requestedPath);
+                        if (!deviceData) {
+                            await std.log(`❌ REJECTED: ota.read without an OTA session from ${srcAddress}`, "otad");
+                            await sendError(srcAddress, srcPort, "No active OTA session (send ota.info first)");
+                            continue;
+                        }
                         let buffer: any = null;
                         let size = 0;
 
-                        if (deviceData && deviceData.virtualBuffer) {
+                        if (deviceData.virtualBuffer) {
                             buffer = deviceData.virtualBuffer;
                             size = deviceData.virtualSize || 0;
                         } else {
@@ -362,26 +376,8 @@ export default Program(async (args) => {
                                 await net.sendto(serverFd, srcAddress, srcPort, JSON.stringify(res));
                             }
 
-                            // Update device tracking
-                            activeDevices.set(srcAddress, {
-                                ...activeData,
-                                offset: offset + chunk.length,
-                                lastSeen: Date.now()
-                            });
-
-                            if (isEof) {
-                                if (activeData.ak && !requestedPath.endsWith(".json")) {
-                                    const akConsumed = await consumeAK(activeData.ak);
-                                    if (akConsumed) {
-                                        await logEvent(activeData.mac || mac, activeData.dc || dc, activeData.ak, requestedPath, "SUCCESS");
-                                        await std.log(`[OTA] AK ${activeData.ak} consumed for ${srcAddress}`, "otad");
-                                    } else {
-                                        await logEvent(activeData.mac || mac, activeData.dc || dc, activeData.ak, requestedPath, "WARNING", "AK not found during consumption");
-                                    }
-                                } else if (requestedPath.endsWith(".json")) {
-                                    await logEvent(activeData.mac || mac, activeData.dc || dc, activeData.ak || "none", requestedPath, "INFO", "Metadata fetched");
-                                }
-                            }
+                            deviceData.offset = offset + chunk.length;
+                            if (isEof) await finishTransfer(srcAddress, deviceData);
                         }
                     }
                 } catch (e: any) {
