@@ -84,3 +84,69 @@ describe("tsshd CONNECT_REQ", () => {
         }
     });
 });
+
+/** SEC-14 — siklus hidup & kuota sesi tsshd. */
+describe("tsshd sesi (SEC-14)", () => {
+    function rig() {
+        const lib = makeLib();
+        const d = makeDaemon();
+        const agents = new Map<string, SecurityAgent>();
+        const send = async (src: string, port: number, opcode: TSSHOpcode, payload?: any) => {
+            const raw = { src, port, localPort: 24 };
+            const pkt = TSSHProtocol.unpack(TSSHProtocol.pack(opcode, TSSHChannel.CONTROL, payload));
+            await d.handlePacket(lib, 3, `${src}:${port}`, raw, pkt);
+        };
+        const connect = async (src: string, port: number) => {
+            await send(src, port, TSSHOpcode.HANDSHAKE_REQ);
+            const key = SecurityAgent.generateSessionKey();
+            await send(src, port, TSSHOpcode.KEY_EXCHANGE, SecurityAgent.encryptWithPublicKey(keys.publicKey, key));
+            const a = new SecurityAgent();
+            a.setSessionKey(key);
+            agents.set(`${src}:${port}`, a);
+            await send(src, port, TSSHOpcode.CONNECT_REQ, a.securePacketOut(""));
+        };
+        return { lib, d, send, connect };
+    }
+
+    it("HANDSHAKE_REQ ke sid yang sesinya aktif → sesi lama tetap (tidak digusur)", async () => {
+        const { d, send, connect } = rig();
+        await connect("admin", 4500);
+        const before = d.sessions.get("admin:4500");
+        expect(before.active).toBe(true);
+
+        await send("admin", 4500, TSSHOpcode.HANDSHAKE_REQ); // paket palsu dengan src:port korban
+
+        const after = d.sessions.get("admin:4500");
+        expect(after).toBe(before);
+        expect(after.active).toBe(true);
+    });
+
+    it("melebihi batas sesi global → handshake baru diabaikan, tidak ada spawn tambahan", async () => {
+        const { lib, d, connect } = rig();
+        const max = (d.constructor as any).MAX_SESSIONS as number;
+        expect(typeof max).toBe("number");
+        for (let i = 0; i < max + 3; i++) await connect(`n${i}`, 5000 + i);
+
+        expect(d.sessions.size).toBe(max);
+        expect(lib.shell.exec).toHaveBeenCalledTimes(max);
+    });
+
+    it("melebihi batas per alamat sumber → sesi berikutnya dari alamat itu ditolak", async () => {
+        const { d, connect } = rig();
+        const perSrc = (d.constructor as any).MAX_SESSIONS_PER_SOURCE as number;
+        for (let i = 0; i < perSrc + 2; i++) await connect("banjir", 6000 + i);
+        await connect("lain", 7000);
+
+        const fromBanjir = [...d.sessions.values()].filter((s: any) => s.src === "banjir").length;
+        expect(fromBanjir).toBe(perSrc);
+        expect(d.sessions.has("lain:7000")).toBe(true);
+    });
+
+    it("handshake ulang pada sesi PENDING membebaskan PTY yang sempat dialokasikan", async () => {
+        const { lib, d, send } = rig();
+        await send("x", 4600, TSSHOpcode.HANDSHAKE_REQ);
+        d.sessions.get("x:4600").ptyId = 9; // simulasi PTY yatim pada sesi pending
+        await send("x", 4600, TSSHOpcode.HANDSHAKE_REQ);
+        expect(lib.pty.free).toHaveBeenCalledWith(9);
+    });
+});

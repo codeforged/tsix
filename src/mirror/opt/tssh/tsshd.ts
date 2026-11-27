@@ -22,7 +22,24 @@ interface Session {
 }
 
 export default class TSSHDaemon {
+  /** Batas sesi (pending + aktif) di seluruh daemon. Tiap sesi aktif = login + PTY (~10–25 MB). */
+  static readonly MAX_SESSIONS = 32;
+  /** Batas sesi per alamat sumber. Alamat bisa dipalsukan, jadi MAX_SESSIONS tetap batas utama. */
+  static readonly MAX_SESSIONS_PER_SOURCE = 4;
+  /** Sesi yang belum selesai handshake dibuang setelah ini (ms). */
+  static readonly PENDING_TIMEOUT_MS = 15_000;
+
   private sessions: Map<string, Session> = new Map();
+
+  /** releasePty(): bebaskan PTY sesi (kalau ada), aman dipanggil berulang. */
+  private async releasePty(lib: UserLib, sess: Session) {
+    if (sess.ptyId !== undefined && sess.ptyId >= 0) {
+      try {
+        await lib.pty.free(sess.ptyId);
+      } catch (_) { }
+      sess.ptyId = -1;
+    }
+  }
   private publicKey!: string;
   private privateKey!: string;
   private fingerprint!: string;
@@ -108,8 +125,9 @@ export default class TSSHDaemon {
       // Cleanup sessions
       const now = Date.now();
       for (const [sid, sess] of this.sessions.entries()) {
-        if (now - sess.lastSeen > 60000 && !sess.active) {
+        if (now - sess.lastSeen > TSSHDaemon.PENDING_TIMEOUT_MS && !sess.active) {
           // Session belum aktif (handshake belum selesai) → buang
+          await this.releasePty(lib, sess);
           this.sessions.delete(sid);
         } else if (now - sess.lastSeen > 90000 && sess.active) {
           // Client mati / tidak respons (keep-alive PING berhenti) → putus
@@ -151,6 +169,20 @@ export default class TSSHDaemon {
     let sess = this.sessions.get(sid);
 
     if (pkt.opcode === TSSHOpcode.HANDSHAKE_REQ) {
+      // SEC-14: src:port bisa dipalsukan, jadi HANDSHAKE_REQ tidak boleh
+      // menggusur sesi yang sudah aktif (dulu: sesi admin putus + shell & PTY
+      // lama yatim). Sesi PENDING boleh diganti, setelah PTY-nya dibebaskan.
+      if (sess) {
+        if (sess.active) return;
+        await this.releasePty(lib, sess);
+        this.sessions.delete(sid);
+      } else {
+        // Kuota: global (batas sebenarnya) dan per alamat sumber.
+        if (this.sessions.size >= TSSHDaemon.MAX_SESSIONS) return;
+        let fromSrc = 0;
+        for (const s of this.sessions.values()) if (s.src === raw.src) fromSrc++;
+        if (fromSrc >= TSSHDaemon.MAX_SESSIONS_PER_SOURCE) return;
+      }
       const newSess: Session = {
         id: sid,
         fd,
