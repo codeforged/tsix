@@ -15,6 +15,9 @@ Its flagship use case is a complete **IoT stack** — the MQTNL protocol (MQTT-b
 
 TSIX keeps evolving, so expect rough edges and breaking changes between versions.
 
+> [!WARNING]
+> **Experimental — not for production.** See [Security status](#security-status-experimental) before connecting TSIX or your devices to a public MQTT broker.
+
 <p align="center">
   <img src="./wiki/diagram/complete-diagram-ring1.png" alt="Ring 1 — Kernel Core" width="640">
   <br>
@@ -240,6 +243,25 @@ tpkg -v                          # client version, installed base, image variant
 - **Root Privileges** — UID 0 bypasses all checks
 - **Saved UID** — the login manager (WM) can re-elevate to root to switch users (restore `setuid(0)` via `pcb.suid`)
 - **PID 1 Protection** — init cannot be killed directly
+
+### Security status (experimental)
+
+TSIX is under active security hardening and is **not yet safe for production** or for anything where a breach would cause harm (door locks, safety equipment, private data). Known limitations of the current version:
+
+- **Shared brokers are untrusted.** Anyone on the same MQTT broker can see MQTNL traffic and send packets with a forged source address. Traffic that applications do not encrypt themselves (ping, plain JSON messages, OTA firmware transfers) is readable and can be tampered with. A network-layer encryption and authentication revision (`mqtnl2`) is planned.
+- **Dashboard PINs** should not be treated as strong protection against someone who can observe broker traffic. A stronger pairing handshake is planned.
+- **OTA firmware is not signed yet.** Only run OTA updates on a broker and network you control.
+- **NetFS** without `--key` has no authentication; always start `netfsd` with a key.
+- **The application sandbox is not a hard boundary** between local users of the same node yet. Only give TSIX accounts to people you trust.
+
+Recommended setup until these are resolved:
+
+- Use your own MQTT broker with a username/password (and TLS where possible): set `username`, `password`, and `caFile` in the `[iface.*]` section of `sysconfig.conf`.
+- Give every node a unique hostname (the installer refuses common names such as `tsix`).
+- Remote daemons (`tsshd`, `scpd`) are disabled by default; enable only what you use.
+- Change the default `root` password (the installer requires it).
+
+Found a vulnerability? Please report it privately — see [SECURITY.md](SECURITY.md).
 
 ---
 
