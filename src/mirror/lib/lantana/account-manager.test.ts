@@ -158,6 +158,42 @@ describe("serialisasi", () => {
         expect(restored.verifyAccessKey("anak", key)).toBe(true);
         expect(restored.get("root")!.permissions.allowedInjectSchemes).toEqual([{ from: 1, to: 5 }]);
     });
+
+    // SEC-15: PSK langsung bisa dipakai login sebagai device akun → tidak boleh
+    // ikut accounts.json; disimpan di tabel terpisah (file 0600).
+    it("toJSON tidak memuat PSK; pskTable() memuatnya; round-trip lewat keduanya", () => {
+        const mgr = new AccountManager();
+        mgr.createRoot("root");
+        mgr.createRoot("tanpa-key");
+        const key = mgr.issueAccessKey("root");
+        const psk = derivePsk(key).toString("hex");
+
+        const records = JSON.parse(JSON.stringify(mgr.toJSON()));
+        expect(JSON.stringify(records)).not.toContain(psk);
+        expect(records[0].credential.psk).toBeUndefined();
+        expect(mgr.pskTable()).toEqual({ root: psk });
+
+        const restored = AccountManager.fromJSON(records, mgr.pskTable());
+        expect(restored.getPsk("root")!.toString("hex")).toBe(psk);
+        expect(restored.getPsk("tanpa-key")).toBeNull();
+        expect(AccountManager.fromJSON(records).getPsk("root")).toBeNull();
+    });
+
+    it("PSK lama di accounts.json dibaca (migrasi) bila tabel tidak punya", () => {
+        const legacy = [
+            {
+                accountId: "root",
+                parentId: null,
+                permissions: {},
+                credential: { salt: "00", hash: "11", psk: "ab".repeat(32), issuedAt: 1 },
+                createdAt: 1,
+            },
+        ];
+        const mgr = AccountManager.fromJSON(legacy as any, {});
+        expect(mgr.getPsk("root")!.toString("hex")).toBe("ab".repeat(32));
+        expect(mgr.hasLegacyPsk).toBe(true);
+        expect(JSON.stringify(mgr.toJSON())).not.toContain("ab".repeat(32));
+    });
 });
 
 describe("batas panjang accountId", () => {

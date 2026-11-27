@@ -16,6 +16,9 @@ export const LANTANA_ACCOUNTS_PATH = "/etc/lantana/accounts.json";
 export const LANTANA_DASHBOARDS_PATH = "/etc/lantana/dashboard.json";
 export const LANTANA_DEVICES_PATH = "/etc/lantana/devices.json";
 export const LANTANA_SCHEMES_PATH = "/etc/lantana/schemes.json";
+/** PSK per akun (SEC-15): dipisah dari accounts.json, 0600 root. */
+export const LANTANA_KEYS_DIR = "/etc/lantana/keys";
+export const LANTANA_PSK_PATH = "/etc/lantana/keys/psk.json";
 export const LANTANA_LOG_DIR = "/var/log/lantana";
 export const LANTANA_UUID = "5f4e2a91-4b0f-4c9a-b1c3-0a1b2c3d4e5f";
 

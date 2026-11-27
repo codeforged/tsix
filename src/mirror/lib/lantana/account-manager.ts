@@ -217,14 +217,50 @@ export class AccountManager {
         return Buffer.from(pskHex, "hex");
     }
 
+    /**
+     * Isi accounts.json: TANPA PSK. PSK = rahasia yang langsung bisa dipakai
+     * handshake sebagai device akun itu, jadi disimpan terpisah lewat
+     * `pskTable()` (file 0600 milik root, SEC-15).
+     */
     toJSON(): AccountRecord[] {
-        return this.list();
+        return this.list().map((acc) => {
+            if (!acc.credential) return acc;
+            const { psk: _psk, ...credential } = acc.credential;
+            return { ...acc, credential };
+        });
     }
 
-    static fromJSON(records: AccountRecord[] | undefined | null): AccountManager {
+    /** Tabel PSK per akun (hex), hanya untuk akun yang punya kredensial. */
+    pskTable(): Record<string, string> {
+        const out: Record<string, string> = {};
+        for (const acc of this.accounts.values()) {
+            if (acc.credential?.psk) out[acc.accountId] = acc.credential.psk;
+        }
+        return out;
+    }
+
+    /** true bila ada PSK yang dibaca dari accounts.json format lama (perlu ditulis ulang). */
+    hasLegacyPsk = false;
+
+    static fromJSON(
+        records: AccountRecord[] | undefined | null,
+        pskTable?: Record<string, string> | null,
+    ): AccountManager {
         const mgr = new AccountManager();
+        const table = pskTable && typeof pskTable === "object" ? pskTable : {};
         for (const rec of records || []) {
             if (!rec || typeof rec.accountId !== "string") continue;
+            let psk: string | undefined;
+            if (rec.credential) {
+                const fromTable = table[rec.accountId];
+                if (typeof fromTable === "string") {
+                    psk = fromTable;
+                } else if (typeof rec.credential.psk === "string") {
+                    // Format lama: PSK masih di accounts.json.
+                    psk = rec.credential.psk;
+                    mgr.hasLegacyPsk = true;
+                }
+            }
             mgr.accounts.set(rec.accountId, {
                 accountId: rec.accountId,
                 parentId: rec.parentId ?? null,
@@ -233,7 +269,7 @@ export class AccountManager {
                     ? {
                           salt: rec.credential.salt,
                           hash: rec.credential.hash,
-                          psk: rec.credential.psk,
+                          psk,
                           issuedAt: rec.credential.issuedAt,
                       }
                     : null,

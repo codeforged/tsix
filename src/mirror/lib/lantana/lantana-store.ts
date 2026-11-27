@@ -20,6 +20,8 @@ import {
     LANTANA_ACCOUNTS_PATH,
     LANTANA_DASHBOARDS_PATH,
     LANTANA_DEVICES_PATH,
+    LANTANA_KEYS_DIR,
+    LANTANA_PSK_PATH,
     LANTANA_SCHEMES_PATH,
     SchemeDef,
 } from "@tsix/lantana/lantana-core";
@@ -38,11 +40,37 @@ export class LantanaStoreError extends Error {}
 
 const STATE_DIR = "/etc/lantana";
 
-async function ensureDir(): Promise<void> {
+/**
+ * Semua file state 0600 root (SEC-15): berisi verifier key, PSK device, dan
+ * data client. Yang membacanya (daemon `lantana`, `lantana-dashboard-server`,
+ * `lantana-ctl` SetUID) berjalan sebagai root; Control Panel lewat `lantana-ctl`.
+ */
+const STATE_FILE_MODE = 0o600;
+const KEYS_DIR_MODE = 0o700;
+
+async function ensureDir(dir: string = STATE_DIR): Promise<void> {
     try {
         await fs.mkdir(STATE_DIR);
     } catch {
         /* sudah ada */
+    }
+    if (dir !== STATE_DIR) {
+        try {
+            await fs.mkdir(dir);
+        } catch {
+            /* sudah ada */
+        }
+        await fs.chmod(dir, KEYS_DIR_MODE);
+    }
+}
+
+function dirOf(path: string): string {
+    return path.substring(0, path.lastIndexOf("/")) || "/";
+}
+
+async function restrict(path: string): Promise<void> {
+    if (!(await fs.chmod(path, STATE_FILE_MODE))) {
+        throw new LantanaStoreError(`gagal mengamankan ${path} (chmod 0600)`);
     }
 }
 
@@ -56,19 +84,24 @@ async function readRaw(path: string): Promise<string | null> {
 }
 
 /** Buat file state kosong bila belum ada; kembalikan isinya. */
-async function ensureFile(path: string): Promise<string> {
+async function ensureFile(path: string, empty: string = "[]\n"): Promise<string> {
     const existing = await readRaw(path);
-    if (existing !== null) return existing;
+    if (existing !== null) {
+        // File dari instalasi lama bisa bermode default; kunci setiap kali dibaca.
+        await restrict(path);
+        return existing;
+    }
 
-    await ensureDir();
-    if (!(await fs.writeFile(path, "[]\n"))) {
+    await ensureDir(dirOf(path));
+    if (!(await fs.writeFile(path, empty))) {
         throw new LantanaStoreError(`tidak bisa membuat ${path}`);
     }
-    return "[]\n";
+    await restrict(path);
+    return empty;
 }
 
-async function readJson<T>(path: string, kind: string): Promise<T> {
-    const raw = await ensureFile(path);
+async function readJson<T>(path: string, kind: string, empty?: string): Promise<T> {
+    const raw = await ensureFile(path, empty);
     try {
         return JSON.parse(raw) as T;
     } catch {
@@ -77,10 +110,17 @@ async function readJson<T>(path: string, kind: string): Promise<T> {
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {
-    await ensureDir();
+    await ensureDir(dirOf(path));
     if (!(await fs.writeFile(path, JSON.stringify(value, null, 2) + "\n"))) {
         throw new LantanaStoreError(`gagal menulis ${path}`);
     }
+    await restrict(path);
+}
+
+/** Tulis akun: accounts.json (tanpa PSK) + keys/psk.json. PSK ditulis dulu. */
+async function saveAccounts(accounts: AccountManager): Promise<void> {
+    await writeJson(LANTANA_PSK_PATH, accounts.pskTable());
+    await writeJson(LANTANA_ACCOUNTS_PATH, accounts.toJSON());
 }
 
 /**
@@ -103,13 +143,17 @@ function migrateLegacyDashboards(
 
 export async function loadState(): Promise<LantanaState> {
     const accountRecords = await readJson<LegacyAccountRecord[]>(LANTANA_ACCOUNTS_PATH, "akun");
-    const accounts = AccountManager.fromJSON(accountRecords);
+    const pskTable = await readJson<Record<string, string>>(LANTANA_PSK_PATH, "PSK (psk.json)", "{}\n");
+    const accounts = AccountManager.fromJSON(accountRecords, pskTable);
     const dashboards = DashboardRegistry.fromJSON(
         await readJson<DashboardRecord[]>(LANTANA_DASHBOARDS_PATH, "dashboard"),
     );
     if (migrateLegacyDashboards(accountRecords, dashboards)) {
-        await writeJson(LANTANA_ACCOUNTS_PATH, accounts.toJSON());
+        await saveAccounts(accounts);
         await writeJson(LANTANA_DASHBOARDS_PATH, dashboards.toJSON());
+    } else if (accounts.hasLegacyPsk) {
+        // Format lama: PSK masih di accounts.json → pindahkan (SEC-15).
+        await saveAccounts(accounts);
     }
     const devices = DeviceRegistry.fromJSON(
         await readJson<DeviceRecord[]>(LANTANA_DEVICES_PATH, "device"),
@@ -121,7 +165,7 @@ export async function loadState(): Promise<LantanaState> {
 }
 
 export async function saveState(state: LantanaState): Promise<void> {
-    await writeJson(LANTANA_ACCOUNTS_PATH, state.accounts.toJSON());
+    await saveAccounts(state.accounts);
     await writeJson(LANTANA_DASHBOARDS_PATH, state.dashboards.toJSON());
     await saveDevices(state.devices);
     await saveSchemes(state.schemes);
