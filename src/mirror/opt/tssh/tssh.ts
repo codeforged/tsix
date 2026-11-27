@@ -38,15 +38,8 @@ export default class TSSHClient {
                 return;
             }
 
-            const [serverPubKey, serverFingerprint] = resp.payload.toString("utf8").split("::");
-            if (!serverFingerprint) {
-                lib.std.print(`[tssh] Security Error: Missing server fingerprint.\n`);
-                return;
-            }
-
-            // Verify Known Hosts
-            const verified = await this.verifyHost(lib, remoteAddr, serverFingerprint);
-            if (!verified) return;
+            const serverPubKey = await this.acceptServerKey(lib, remoteAddr, resp.payload.toString("utf8"));
+            if (!serverPubKey) return;
 
             // --- PHASE 2: KEY EXCHANGE ---
             const sessionKey = SecurityAgent.generateSessionKey();
@@ -195,7 +188,33 @@ export default class TSSHClient {
         return null;
     }
 
-    private async verifyHost(lib: UserLib, host: string, fingerprint: string): Promise<boolean> {
+    /**
+     * acceptServerKey(): ambil public key dari HANDSHAKE_RESP (`<pubKey>::<fp>`)
+     * dan periksa terhadap known_hosts. Mengembalikan public key yang boleh
+     * dipakai untuk key exchange, atau null jika koneksi harus dibatalkan.
+     *
+     * Fingerprint SELALU dihitung client dari public key itu sendiri. Field
+     * `<fp>` kiriman server hanya pemeriksaan konsistensi: kalau tidak cocok
+     * dengan hasil hitung, respons ditolak.
+     */
+    private async acceptServerKey(lib: UserLib, host: string, payload: string): Promise<string | null> {
+        const sep = payload.indexOf("::");
+        const serverPubKey = sep === -1 ? payload : payload.substring(0, sep);
+        const claimedFp = sep === -1 ? "" : payload.substring(sep + 2).trim();
+        if (!serverPubKey.includes("PUBLIC KEY")) {
+            lib.std.print(`[tssh] Security Error: Invalid server public key.\n`);
+            return null;
+        }
+        if (claimedFp && !SecurityAgent.verifyPinnedKey(serverPubKey, claimedFp)) {
+            lib.std.print(`[tssh] Security Error: Server fingerprint mismatch (public key does not match). Aborting.\n`);
+            return null;
+        }
+        const verified = await this.verifyHost(lib, host, serverPubKey);
+        return verified ? serverPubKey : null;
+    }
+
+    private async verifyHost(lib: UserLib, host: string, serverPubKey: string): Promise<boolean> {
+        const fingerprint = SecurityAgent.publicKeyFingerprint(serverPubKey);
         const home = (await lib.shell.getenv("HOME")) || "/root";
         const knownHostsPath = `${home}/.ssh/known_hosts`;
         let content = "";
@@ -208,7 +227,7 @@ export default class TSSHClient {
 
         if (entry) {
             const knownFp = entry.split(" ")[1];
-            if (knownFp !== fingerprint) {
+            if (!SecurityAgent.verifyPinnedKey(serverPubKey, knownFp)) {
                 lib.std.print("\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
                 lib.std.print("@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!   @\n");
                 lib.std.print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");

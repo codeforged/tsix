@@ -256,6 +256,33 @@ export class SecurityAgent implements ISecurityAgent {
       .toUpperCase();
   }
 
+  /**
+   * publicKeyFingerprint(): fingerprint PENUH untuk pinning host key
+   * (SHA-256 dari string PEM, hex huruf kecil, 64 karakter). Sama persis
+   * dengan yang dihitung tsshd dan disimpan di ~/.ssh/known_hosts.
+   *
+   * Beda dengan getFingerprint() yang dipotong 16 karakter (untuk tampilan /
+   * identitas visual). Untuk keputusan keamanan pakai yang penuh ini.
+   */
+  public static publicKeyFingerprint(publicKeyPem: string): string {
+    return crypto.createHash("sha256").update(publicKeyPem).digest("hex");
+  }
+
+  /**
+   * verifyPinnedKey(): apakah public key yang AKAN DIPAKAI cocok dengan
+   * fingerprint tepercaya (known_hosts, trusted_repos, dsb.)?
+   *
+   * Fingerprint dihitung sendiri dari `publicKeyPem`. Jangan pernah memakai
+   * fingerprint kiriman pihak yang sedang diverifikasi: ia bisa mengirim
+   * fingerprint host asli bersama public key miliknya sendiri.
+   */
+  public static verifyPinnedKey(publicKeyPem: string, expectedFp: string): boolean {
+    const expected = (expectedFp || "").trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(expected)) return false;
+    const actual = Buffer.from(SecurityAgent.publicKeyFingerprint(publicKeyPem), "hex");
+    return crypto.timingSafeEqual(actual, Buffer.from(expected, "hex"));
+  }
+
   public static hash(data: string): string {
     return crypto.createHash("sha256").update(data, "utf8").digest("hex");
   }
