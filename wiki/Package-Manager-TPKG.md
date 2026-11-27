@@ -158,8 +158,15 @@ sequenceDiagram
 Empat lapis pengamanan sebelum satu byte pun ditulis:
 
 1. **Session terenkripsi** — handshake RSA + session key ChaCha20.
-2. **Trust on first use (TOFU)** — fingerprint server baru harus disetujui operator;
-   fingerprint yang berubah → peringatan (indikasi MITM/server diganti).
+2. **Trust on first use (TOFU)** — klien menghitung sendiri SHA-256 dari public key
+   repo yang dikirim server (kunci yang nanti memverifikasi signature), lalu
+   mencocokkannya dengan `/etc/tpkg/trusted_repos` per host (format `<host> <fp>`,
+   seperti `known_hosts`). Host baru → harus disetujui operator. Kunci untuk host
+   yang sudah dikenal berubah → koneksi **ditolak** tanpa prompt (indikasi
+   MITM/server diganti); hapus baris host itu secara manual jika perubahan memang
+   sah. Field `fingerprint` kiriman server tidak menentukan kepercayaan.
+   Baris format lama (fingerprint pendek tanpa host) diabaikan, jadi repo yang
+   dulu sudah dipercaya akan ditanyakan sekali lagi.
 3. **Signature paket** — server menandatangani digest bundle (`path+size+sha256`,
    bukan konten penuh) dengan kunci identitas sistem `/etc/keys/rsa`.
 4. **Integritas per file** — ukuran dan SHA-256 tiap file diperiksa **sebelum**

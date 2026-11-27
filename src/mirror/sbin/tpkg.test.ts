@@ -7,6 +7,7 @@ import { createRequire } from "module";
 import { Main as TpkgClient } from "./tpkg";
 import { Main as TpkgDaemon } from "./tpkgd";
 import { execModeForPath, parseDependency, planInstall, type TpkgPackage } from "@tsix/TpkgProtocol";
+import { SecurityAgent } from "@common/SecurityAgent";
 
 /**
  * TPKG end-to-end (P2) — klien `tpkg` ↔ daemon `tpkgd` lewat MQTNL TIRUAN.
@@ -1394,5 +1395,121 @@ describe("TpkgProtocol — mode & dependensi (murni)", () => {
         expect(planInstall(["needsNew"], catalog, none).problems[0]).toMatch(/requires base>=2\.0/);
         expect(planInstall(["x"], catalog, none).problems[0]).toMatch(/dependency cycle/);
         expect(planInstall(["ghost"], catalog, none).problems[0]).toMatch(/not in the catalog/);
+    });
+});
+
+/**
+ * SEC-05 — pinning kunci repository.
+ *
+ * Kunci yang dipakai memverifikasi signature katalog/bundle adalah public key
+ * dari handshake_ack. Kunci itu hanya boleh dipakai jika fingerprint-nya
+ * (DIHITUNG klien) tercatat untuk host tersebut di /etc/tpkg/trusted_repos.
+ * Field `fingerprint` kiriman server tidak boleh menentukan kepercayaan.
+ *
+ * Di dunia tiruan ini daemon di node "server" berperan sebagai repo PALSU:
+ * kuncinya sendiri, bukan kunci repo asli yang sudah dipercaya klien.
+ */
+describe("SEC-05 pinning kunci repository", { timeout: 30_000 }, () => {
+    let world: World;
+    let daemonRun: Promise<void> | null = null;
+    let realRepo: { publicKey: string; privateKey: string };
+    const TRUST = "/etc/tpkg/trusted_repos";
+
+    beforeEach(() => {
+        world = new World();
+        realRepo = SecurityAgent.generateKeyPair();
+    });
+
+    afterEach(async () => {
+        world.onDeliver = null;
+        if (daemonRun) await stopDaemon(world, daemonRun);
+        daemonRun = null;
+    });
+
+    async function boot() {
+        setupServer(world);
+        daemonRun = (await startDaemon(world)).running;
+    }
+
+    /** Ubah handshake_ack yang sampai ke klien (meniru penyerang di broker). */
+    function tamperAck(mutate: (ack: any) => void) {
+        world.onDeliver = (to, _port, pkt) => {
+            if (to !== world.clientNode || typeof pkt.data !== "string") return;
+            if (!pkt.data.includes('"handshake_ack"')) return;
+            const ack = JSON.parse(pkt.data);
+            mutate(ack);
+            pkt.data = JSON.stringify(ack);
+        };
+    }
+
+    const update = () =>
+        new TpkgClient().execute(world.makeLib(world.clientNode) as any, ["update", "server"]);
+    const serverPub = () => world.fs(world.serverNode).files.get("/etc/keys/rsa/id_rsa.pub")!;
+    const clientFile = (p: string) => world.fs(world.clientNode).files.get(p);
+
+    it("repo palsu + fingerprint repo asli → ditolak tanpa prompt, katalog tidak diperbarui", async () => {
+        // Instalasi lama: trusted_repos berisi fingerprint pendek repo asli.
+        world.fs(world.clientNode).files.set(
+            TRUST,
+            `server ${SecurityAgent.publicKeyFingerprint(realRepo.publicKey)}\n${SecurityAgent.getFingerprint(realRepo.publicKey)}\n`,
+        );
+        await boot();
+        tamperAck((ack) => {
+            ack.fingerprint = SecurityAgent.getFingerprint(realRepo.publicKey);
+        });
+        world.answers = ["n"];
+
+        await update();
+
+        const text = out(world);
+        expect(text).not.toContain("Successfully updated");
+        expect(text).toMatch(/does not match|CHANGED/i);
+        expect(world.answers).toEqual(["n"]); // tidak ada prompt yang dijawab
+    });
+
+    it("fingerprint kosong dari server tidak otomatis dipercaya", async () => {
+        world.fs(world.clientNode).files.set(TRUST, "lain " + "a".repeat(64) + "\n");
+        await boot();
+        tamperAck((ack) => {
+            ack.fingerprint = "";
+        });
+        world.answers = ["n"]; // operator menolak kunci baru
+
+        await update();
+
+        expect(out(world)).not.toContain("Successfully updated");
+        expect(out(world)).toMatch(/Unknown Repository/);
+    });
+
+    it("TOFU menyimpan `<host> <fingerprint hasil hitung klien>`", async () => {
+        await boot();
+        world.answers = ["y"];
+
+        await update();
+
+        expect(out(world)).toContain("Successfully updated");
+        expect(clientFile(TRUST)).toContain(`server ${SecurityAgent.publicKeyFingerprint(serverPub())}`);
+    });
+
+    it("kunci yang dipercaya untuk host lain tidak berlaku untuk host ini", async () => {
+        await boot();
+        world.fs(world.clientNode).files.set(TRUST, `lain ${SecurityAgent.publicKeyFingerprint(serverPub())}\n`);
+        world.answers = ["n"];
+
+        await update();
+
+        expect(out(world)).not.toContain("Successfully updated");
+        expect(out(world)).toMatch(/Unknown Repository/);
+    });
+
+    it("host yang sudah dipercaya dengan kunci yang sama → lolos tanpa prompt", async () => {
+        await boot();
+        world.fs(world.clientNode).files.set(TRUST, `server ${SecurityAgent.publicKeyFingerprint(serverPub())}\n`);
+        world.answers = ["n"]; // kalau sampai ditanya, jawabannya menolak
+
+        await update();
+
+        expect(out(world)).toContain("Successfully updated");
+        expect(world.answers).toEqual(["n"]);
     });
 });

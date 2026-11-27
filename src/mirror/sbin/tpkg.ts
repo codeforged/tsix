@@ -131,7 +131,8 @@ const CONFIG_EXTENSIONS = [
  *
  * Ikhtisar pengamanan berlapis:
  *   1. handshake RSA → session key ChaCha20 (transport terenkripsi);
- *   2. fingerprint repo disimpan di `/etc/tpkg/trusted_repos` (TOFU);
+ *   2. fingerprint kunci repo (dihitung klien, SHA-256) disimpan per host di
+ *      `/etc/tpkg/trusted_repos` (TOFU, format `<host> <fp>`); kunci berubah → tolak;
  *   3. signature server atas **metadata** bundle (path/hostDst/size/sha256);
  *   4. SHA-256 tiap file diperiksa SEBELUM ditulis (tamper/korupsi ketahuan);
  *   5. backup ke disk sebelum menimpa, restore otomatis kalau penulisan gagal;
@@ -1737,17 +1738,38 @@ export class Main {
             return null;
         }
 
+        // ack.publicKey adalah kunci yang nanti memverifikasi signature katalog
+        // & bundle. Kepercayaan diputuskan dari fingerprint yang DIHITUNG di
+        // sini dari kunci itu, terikat ke host. `ack.fingerprint` kiriman server
+        // hanya dicek konsistensinya: siapa pun bisa mengirim fingerprint repo
+        // asli bersama kunci miliknya sendiri.
+        const repoKey: string = ack.publicKey;
+        if (ack.fingerprint && String(ack.fingerprint).toUpperCase() !== SecurityAgent.getFingerprint(repoKey)) {
+            await this.lib.std.print("❌ Repository fingerprint does not match its public key. Aborting.\n");
+            await this.lib.net.close(fd).catch(() => { });
+            return null;
+        }
+        const fp = SecurityAgent.publicKeyFingerprint(repoKey);
+        const trust = await this.checkTrusted(target.address, repoKey);
+        if (trust === "mismatch") {
+            await this.lib.std.print(
+                `\x1b[1;31m⚠️  WARNING: REPOSITORY KEY FOR '${target.address}' HAS CHANGED!\x1b[0m\n` +
+                `   New fingerprint: ${fp}\n` +
+                `   Aborting. If the repository really changed its key, remove its line from ${this.trustedRepos}.\n`,
+            );
+            await this.lib.net.close(fd).catch(() => { });
+            return null;
+        }
         // Fingerprint repo baru SENGAJA tidak ikut `--yes`: menerima kunci repo
         // tanpa melihatnya membuka jalan bagi repo palsu.
-        const fp = ack.fingerprint;
-        if (!(await this.isTrusted(fp))) {
-            await this.lib.std.print(`\x1b[1;33m⚠️  WARNING: Unknown Repository Fingerprint: ${fp}\x1b[0m\n`);
+        if (trust === "unknown") {
+            await this.lib.std.print(`\x1b[1;33m⚠️  WARNING: Unknown Repository '${target.address}', SHA-256 fingerprint: ${fp}\x1b[0m\n`);
             const confirm = await this.lib.std.read("Accept and proceed? [y/N]: ");
             if (confirm.toLowerCase().trim() !== "y") {
                 await this.lib.net.close(fd).catch(() => { });
                 return null;
             }
-            await this.addTrusted(fp);
+            await this.addTrusted(target.address, fp);
         }
 
         const sessionKey = SecurityAgent.decryptWithPrivateKey(pair.privateKey, ack.sessionKey);
@@ -2169,18 +2191,36 @@ export class Main {
         }
     }
 
-    private async isTrusted(fp: string): Promise<boolean> {
-        if (!(await this.exists(this.trustedRepos))) return false;
-        const list = await this.lib.fs.readFile(this.trustedRepos);
-        return (list || "").includes(fp);
+    /**
+     * checkTrusted(): status kunci repo untuk host ini menurut
+     * `/etc/tpkg/trusted_repos` (format per baris: `<host> <sha256-hex-64>`,
+     * seperti known_hosts).
+     *   - "trusted":  ada entri untuk host ini dan cocok dengan kuncinya;
+     *   - "mismatch": ada entri untuk host ini tapi tidak ada yang cocok;
+     *   - "unknown":  belum ada entri untuk host ini (TOFU).
+     * Baris format lama (fingerprint saja, tanpa host) diabaikan: tidak terikat
+     * ke host, jadi tidak bisa dipakai memutuskan kepercayaan.
+     */
+    private async checkTrusted(host: string, publicKeyPem: string): Promise<"trusted" | "mismatch" | "unknown"> {
+        if (!(await this.exists(this.trustedRepos))) return "unknown";
+        const list = (await this.lib.fs.readFile(this.trustedRepos)) || "";
+        let seen = false;
+        for (const line of list.split("\n")) {
+            const [h, fp, extra] = line.trim().split(/\s+/);
+            if (!h || !fp || extra !== undefined || h !== host) continue;
+            seen = true;
+            if (SecurityAgent.verifyPinnedKey(publicKeyPem, fp)) return "trusted";
+        }
+        return seen ? "mismatch" : "unknown";
     }
 
-    private async addTrusted(fp: string) {
+    private async addTrusted(host: string, fp: string) {
         let list = "";
         if (await this.exists(this.trustedRepos)) {
             list = (await this.lib.fs.readFile(this.trustedRepos)) || "";
         }
-        await this.lib.fs.writeFile(this.trustedRepos, list + fp + "\n");
+        if (list && !list.endsWith("\n")) list += "\n";
+        await this.lib.fs.writeFile(this.trustedRepos, list + `${host} ${fp}\n`);
     }
 
     private async loadConfig(): Promise<any> {
