@@ -3,6 +3,7 @@ import { PacketFlags } from "@common/PacketFlags";
 import { SecurityAgent } from "@common/SecurityAgent";
 import * as bcrypt from "bcryptjs";
 import * as crypto from "crypto";
+import { AuthLimiter, EXEC, READ, WRITE, allowed, lookupUser, normalizeScpPath, parentDir } from "@tsix/scp-access";
 
 /**
  * SCPD Utility
@@ -35,6 +36,8 @@ export const main = Program(async (args) => {
     if (!args.includes("--debug")) await shell.daemonize("SCP Server");
 
     const sessions = new Map();
+    // Batas percobaan login: per sesi + global (SEC-03).
+    const limiter = new AuthLimiter();
 
     while (true) {
         const pkt = await net.recv(socket);
@@ -56,6 +59,11 @@ export const main = Program(async (args) => {
             try {
                 const key = SecurityAgent.decryptWithPrivateKey(priv, pkt.data.split("::")[1]);
                 sess.agent.setSessionKey(key);
+                // Kunci baru → login ulang. Dulu status authed tetap menempel,
+                // jadi src:port palsu bisa memasang kuncinya sendiri dan
+                // mewarisi sesi yang sudah login (pola SEC-06).
+                sess.authed = false;
+                sess.user = null;
                 await net.sendto(socket, pkt.src, pkt.port, "__status::done", PacketFlags.FLAG_DATA, port);
             } catch (e) { sessions.delete(id); }
             continue;
@@ -69,12 +77,19 @@ export const main = Program(async (args) => {
             msg = JSON.parse(dec);
             if (!sess.authed && msg.type === "auth") {
                 let ok = false;
+                if (limiter.blocked(id)) {
+                    // Terlalu banyak gagal: tolak tanpa menjalankan bcrypt.
+                    await net.sendto(socket, pkt.src, pkt.port, sess.agent.securePacketOut(JSON.stringify({ type: "auth_fail", message: "Too many failed attempts" })), PacketFlags.FLAG_DATA, port);
+                    await std.log(`[${id}] Auth rate-limited`, "scpd");
+                    sessions.delete(id);
+                    continue;
+                }
                 try {
                     const shadow = await fs.readFile("/etc/shadow");
                     if (shadow) {
                         for (const line of shadow.split("\n")) {
                             const p = line.split(":");
-                            if (p[0] === msg.username && bcrypt.compareSync(msg.password, p[1])) { ok = true; break; }
+                            if (p[0] === msg.username && p[1] && await bcrypt.compare(String(msg.password ?? ""), p[1])) { ok = true; break; }
                         }
                         // Password bawaan root ('root') diketahui publik: tolak dari jarak jauh (SEC-20).
                         if (ok && msg.username === "root" && msg.password === "root") {
@@ -83,11 +98,21 @@ export const main = Program(async (args) => {
                         }
                     }
                 } catch (e) { }
+                // Identitas user untuk keputusan izin file (SEC-03).
                 if (ok) {
+                    const passwd = (await fs.readFile("/etc/passwd")) || "";
+                    const group = (await fs.readFile("/etc/group")) || "";
+                    sess.user = lookupUser(passwd, group, String(msg.username));
+                    if (!sess.user) ok = false;
+                }
+                if (ok) {
+                    limiter.forget(id);
                     sess.authed = true;
                     await net.sendto(socket, pkt.src, pkt.port, sess.agent.securePacketOut(JSON.stringify({ type: "auth_ok" })), PacketFlags.FLAG_DATA, port);
                     await std.log(`[${id}] Auth OK: ${msg.username}`, "scpd");
                 } else {
+                    limiter.fail(id);
+                    await new Promise(r => setTimeout(r, 1000)); // perlambat tebakan beruntun
                     await net.sendto(socket, pkt.src, pkt.port, sess.agent.securePacketOut(JSON.stringify({ type: "auth_fail", message: "Invalid credentials" })), PacketFlags.FLAG_DATA, port);
                     await std.log(`[${id}] Auth Failed: ${msg.username}`, "scpd");
                 }
@@ -96,12 +121,39 @@ export const main = Program(async (args) => {
 
             if (!sess.authed) continue;
 
+            const deny = async (message: string) => {
+                await net.sendto(socket, pkt.src, pkt.port, sess.agent.securePacketOut(JSON.stringify({ type: "error", message })), PacketFlags.FLAG_DATA, port);
+                await std.log(`[${id}] Denied for ${sess.user?.name}: ${message}`, "scpd");
+            };
+            const statOrNull = async (p: string) => {
+                try { return await fs.stat(p); } catch (_) { return null; }
+            };
+
             if (msg.type === "file") {
-                await fs.writeFile(msg.filename, Buffer.from(msg.data, 'base64').toString('binary'));
+                // scpd berjalan sebagai root: izin diputuskan atas nama user
+                // yang login, dengan semantik Unix (SEC-03).
+                const target = normalizeScpPath(msg.filename, sess.user.home);
+                if (!target) { await deny("EINVAL: invalid path"); continue; }
+                const node: any = await statOrNull(target);
+                if (node) {
+                    if (node.type === "DIRECTORY" || !allowed(sess.user, node, WRITE)) { await deny(`EACCES: ${target}`); continue; }
+                } else {
+                    const parent: any = await statOrNull(parentDir(target));
+                    if (!parent || !allowed(sess.user, parent, WRITE | EXEC)) { await deny(`EACCES: ${target}`); continue; }
+                }
+                await fs.writeFile(target, Buffer.from(msg.data, 'base64').toString('binary'));
+                // File baru milik user yang login, bukan milik root.
+                if (!node && sess.user.uid !== 0) {
+                    try { await fs.chown(target, sess.user.uid, sess.user.gid); } catch (_) { }
+                }
                 await net.sendto(socket, pkt.src, pkt.port, sess.agent.securePacketOut(JSON.stringify({ type: "ok" })), PacketFlags.FLAG_DATA, port);
             } else if (msg.type === "getfile") {
+                const target = normalizeScpPath(msg.filename, sess.user.home);
+                if (!target) { await deny("EINVAL: invalid path"); continue; }
+                const node: any = await statOrNull(target);
+                if (!node || node.type === "DIRECTORY" || !allowed(sess.user, node, READ)) { await deny(`EACCES: ${target}`); continue; }
                 try {
-                    const c = await fs.readFile(msg.filename);
+                    const c = await fs.readFile(target);
                     if (c !== null) {
                         await net.sendto(socket, pkt.src, pkt.port, sess.agent.securePacketOut(JSON.stringify({ type: "file", data: Buffer.from(c, 'binary').toString('base64') })), PacketFlags.FLAG_DATA, port);
                     } else {
