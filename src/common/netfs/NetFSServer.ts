@@ -195,10 +195,13 @@ export class NetFSServer {
         const op = req.op;
 
         // --- Filter client (kalau daftar allow diisi) ---
-        if (this.allow.length > 0 && ctx.src && !this.allow.includes(ctx.src)) {
+        // Pengirim tanpa alamat (src kosong/tidak ada) juga ditolak: dulu lolos
+        // karena guard `ctx.src &&` (SEC-19). Catatan: alamat MQTNL bisa
+        // dipalsukan, jadi `allow` bukan autentikasi (lihat SEC-10).
+        if (this.allow.length > 0 && (!ctx.src || !this.allow.includes(ctx.src))) {
             this.failed++;
-            this.logger?.warn?.(`[netfs] tolak ${op} dari ${ctx.src}: tidak ada di daftar allow`);
-            return this.err(id, "EACCES", `client ${ctx.src} tidak diizinkan`);
+            this.logger?.warn?.(`[netfs] tolak ${op} dari ${ctx.src || "(tanpa alamat)"}: tidak ada di daftar allow`);
+            return this.err(id, "EACCES", `client ${ctx.src || "(tanpa alamat)"} tidak diizinkan`);
         }
 
         // --- Pagar read-only (dipaksa di SH, bukan percaya klien) ---

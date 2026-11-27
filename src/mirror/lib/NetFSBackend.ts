@@ -16,8 +16,11 @@ import { NetFSError } from "../../common/netfs/NetFSProtocol";
  *
  * Catatan semantik (disengaja, bukan bug):
  *   - `uid`/`gid` pada mkdir/touch/chown DIABAIKAN. Hak akses remote = hak
- *     identitas proses `netfsd` di node SH — efek "root squash" ala NFS.
- *     Jadi SATPAM tetap penentu akhir, dan klien tidak bisa memalsukan uid.
+ *     identitas proses `netfsd` di node SH, jadi klien tidak bisa memalsukan
+ *     uid. PERHATIAN: ini BUKAN "root squash". netfsd biasanya dijalankan
+ *     sebagai root (rc.local), sehingga setiap klien justru mendapat hak root
+ *     atas seluruh export. Root squash sungguhan butuh netfsd menurunkan
+ *     identitasnya ke user khusus sebelum melayani (SEC-10).
  *   - `append()` butuh 2 syscall (read lalu write) karena `lib.fs` tidak punya
  *     append native. Untuk file besar, klien sebaiknya pakai `writeChunk`.
  *   - `root` HANYA dipakai `getUsage()` (perintah `df`) supaya angka yang

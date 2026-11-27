@@ -159,6 +159,16 @@ describe("NetFSServer — SL core (N1)", () => {
         expect(allowed.ok).toBe(true);
     });
 
+    it("N1.10b daftar allow diisi + src kosong/tidak ada → ditolak (SEC-19)", async () => {
+        const limited = new NetFSServer(backend, { prefix: PREFIX, allow: ["tsix_2"] });
+
+        for (const ctx of [{ src: "" }, {}, { src: undefined }] as any[]) {
+            const res = await limited.handle(req(12, "ls", "/docs"), ctx);
+            expect(res.ok).toBe(false);
+            expect(res.code).toBe("EACCES");
+        }
+    });
+
     it("N1.11 error backend diterjemahkan jadi kode, bukan melempar ke transport", async () => {
         const throwing = {
             ls: () => {
