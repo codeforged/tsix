@@ -25,7 +25,7 @@ vi.mock("@tsix/Application", () => {
 
 import * as app from "@tsix/Application";
 import { DeviceBank } from "./lantana-device-bank";
-import { LantanaDistributor } from "./lantana-distributor";
+import { LantanaDistributor, kernelSender, lantanaAdminAuthorizer } from "./lantana-distributor";
 import { AccountManager } from "./account-manager";
 import { SchemeRegistry } from "./scheme-registry";
 import { PermissionPolicy } from "./permission-policy";
@@ -273,9 +273,10 @@ describe("identitas pengirim IPC (SEC-13)", () => {
         outbox.length = 0;
     });
 
-    // Amplop kernel SEND_MSG: { fromPid, fromUser, data }. Hanya fromPid amplop
-    // yang bisa dipercaya; `data` diisi bebas oleh pengirim.
-    const envelope = (fromPid: number, data: any) => ({ fromPid, fromUser: "alice", data });
+    // Amplop kernel SEND_MSG: { fromPid, fromUser, fromUid, fromGid, fromGroups, data }.
+    // Hanya field amplop yang bisa dipercaya; `data` diisi bebas oleh pengirim.
+    // (Pengirim root, supaya lolos otorisasi SEC-08.)
+    const envelope = (fromPid: number, data: any) => ({ fromPid, fromUser: "root", fromUid: 0, fromGid: 0, fromGroups: [], data });
 
     it("payload.fromPid diabaikan: balasan snapshot dikirim ke PID amplop kernel", async () => {
         const { distributor } = setup();
@@ -304,5 +305,71 @@ describe("identitas pengirim IPC (SEC-13)", () => {
         await distributor.onIpcMessage({ type: "LANTANA_SNAPSHOT", accountId: "acc", fromPid: 999 });
 
         expect(outbox).toEqual([]);
+    });
+});
+
+describe("otorisasi pengirim IPC (SEC-08)", () => {
+    const ADMIN_GID = 990;
+    const env = (fromPid: number, who: { uid: number; gid?: number; groups?: number[] }, data: any) => ({
+        fromPid,
+        fromUser: "x",
+        fromUid: who.uid,
+        fromGid: who.gid ?? 100,
+        fromGroups: who.groups ?? [],
+        data,
+    });
+    const withAdmin = () => {
+        const { distributor } = setup();
+        distributor.setAuthorizer(lantanaAdminAuthorizer(ADMIN_GID));
+        distributor.setCommandSender(async () => true);
+        return distributor;
+    };
+    const cmd = { type: "LANTANA_COMMAND", accountId: "acc", deviceId: "dev-1", command: "RELAY_1:ON" };
+
+    beforeEach(() => {
+        outbox.length = 0;
+    });
+
+    it("user biasa (uid 1000, bukan lantana-admin): REGISTER/SNAPSHOT ditolak, COMMAND forbidden", async () => {
+        const d = withAdmin();
+        await d.onIpcMessage(env(42, { uid: 1000 }, { type: "LANTANA_REGISTER", name: "x", accountId: "acc" }));
+        await d.onIpcMessage(env(42, { uid: 1000 }, { type: "LANTANA_SUBSCRIBE", name: "x", accountId: "acc" }));
+        expect(d.consumerCount).toBe(0);
+
+        await d.onIpcMessage(env(42, { uid: 1000 }, { type: "LANTANA_SNAPSHOT", accountId: "acc" }));
+        await d.onIpcMessage(env(42, { uid: 1000 }, cmd));
+        expect(outbox).toHaveLength(1);
+        expect(outbox[0].payload.type).toBe("LANTANA_COMMAND_RESULT");
+        expect(outbox[0].payload.data).toMatchObject({ ok: false, error: "forbidden" });
+    });
+
+    it("anggota lantana-admin (grup tambahan atau utama) dan root diterima", async () => {
+        const d = withAdmin();
+        await d.onIpcMessage(env(41, { uid: 1000, groups: [ADMIN_GID] }, { type: "LANTANA_REGISTER", name: "a", accountId: "acc" }));
+        await d.onIpcMessage(env(42, { uid: 1001, gid: ADMIN_GID }, { type: "LANTANA_REGISTER", name: "b", accountId: "acc" }));
+        await d.onIpcMessage(env(43, { uid: 0, gid: 0 }, { type: "LANTANA_REGISTER", name: "c", accountId: "acc" }));
+        expect(d.getConsumerPids().sort()).toEqual([41, 42, 43]);
+
+        await d.onIpcMessage(env(41, { uid: 1000, groups: [ADMIN_GID] }, cmd));
+        expect(outbox.at(-1)!.payload.data.ok).toBe(true);
+    });
+
+    it("default tanpa authorizer: hanya root; amplop tanpa uid ditolak", async () => {
+        const { distributor } = setup();
+        await distributor.onIpcMessage(env(42, { uid: 1000, groups: [ADMIN_GID] }, { type: "LANTANA_REGISTER", name: "x", accountId: "acc" }));
+        await distributor.onIpcMessage({ fromPid: 44, fromUser: "root", data: { type: "LANTANA_REGISTER", name: "y", accountId: "acc" } });
+        expect(distributor.consumerCount).toBe(0);
+        await distributor.onIpcMessage(env(43, { uid: 0 }, { type: "LANTANA_REGISTER", name: "z", accountId: "acc" }));
+        expect(distributor.getConsumerPids()).toEqual([43]);
+    });
+
+    it("kernelSender membaca identitas dari amplop saja", () => {
+        expect(kernelSender(env(5, { uid: 1000, gid: 100, groups: [990] }, { fromUid: 0 }))).toEqual({
+            pid: 5,
+            uid: 1000,
+            gid: 100,
+            groups: [990],
+        });
+        expect(kernelSender({ fromPid: 5, data: {} })).toEqual({ pid: 5, uid: null, gid: null, groups: [] });
     });
 });

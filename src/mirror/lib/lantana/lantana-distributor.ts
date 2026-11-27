@@ -52,9 +52,53 @@ export function kernelSenderPid(msg: any): number | null {
     return typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : null;
 }
 
+/** Identitas pengirim IPC menurut amplop kernel (uid efektif, gid, grup tambahan). */
+export interface IpcSender {
+    pid: number;
+    uid: number | null;
+    gid: number | null;
+    groups: number[];
+}
+
+const intOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null);
+
+/**
+ * kernelSender(): seperti `kernelSenderPid`, plus uid/gid/grup dari amplop
+ * (`fromUid`, `fromGid`, `fromGroups`, diisi kernel saat SEND_MSG). Field di
+ * dalam `data` tidak pernah dipakai. Amplop tanpa uid → uid null (ditolak).
+ */
+export function kernelSender(msg: any): IpcSender | null {
+    const pid = kernelSenderPid(msg);
+    if (pid === null) return null;
+    const groups = Array.isArray(msg.fromGroups)
+        ? msg.fromGroups.filter((g: unknown) => intOrNull(g) !== null)
+        : [];
+    return { pid, uid: intOrNull(msg.fromUid), gid: intOrNull(msg.fromGid), groups };
+}
+
+export type IpcAuthorizer = (sender: IpcSender) => boolean;
+
+/** Default: hanya root. */
+export const rootOnlyAuthorizer: IpcAuthorizer = (s) => s.uid === 0;
+
+/**
+ * lantanaAdminAuthorizer(): root, atau anggota grup lantana-admin (grup utama
+ * atau tambahan). Model K-11: client admin tidak punya user TSIX, jadi IPC
+ * Lantana hanya untuk admin. `adminGid` null (grup belum dibuat) → root saja.
+ */
+export function lantanaAdminAuthorizer(adminGid: number | null): IpcAuthorizer {
+    return (s) => s.uid === 0 || (adminGid !== null && s.uid !== null && (s.gid === adminGid || s.groups.includes(adminGid)));
+}
+
 export class LantanaDistributor {
     private consumers: Map<number, ConsumerInfo> = new Map();
     private commandSender: CommandSender | null = null;
+    private authorize: IpcAuthorizer = rootOnlyAuthorizer;
+
+    /** Ganti aturan siapa yang boleh memakai IPC Lantana (SEC-08). */
+    setAuthorizer(fn: IpcAuthorizer): void {
+        this.authorize = fn;
+    }
 
     constructor(
         private bank: DeviceBank,
@@ -189,10 +233,25 @@ export class LantanaDistributor {
     }
 
     async onIpcMessage(msg: any): Promise<void> {
-        const fromPid = kernelSenderPid(msg);
-        if (fromPid === null) return;
+        const sender = kernelSender(msg);
+        if (sender === null) return;
+        const fromPid = sender.pid;
         const payload = msg.data;
         if (!payload || typeof payload !== "object") return;
+
+        // SEC-08: hanya admin Lantana (root / grup lantana-admin).
+        if (!this.authorize(sender)) {
+            if (payload.type === EVT_COMMAND) {
+                await this.deliver(fromPid, {
+                    type: EVT_COMMAND_RESULT,
+                    data: { ...payload, ok: false, error: "forbidden" },
+                });
+            }
+            if (typeof payload.type === "string" && payload.type.startsWith("LANTANA_")) {
+                std.log(`[${TAG}] IPC ${payload.type} dari PID ${fromPid} (uid ${sender.uid}) ditolak: bukan admin Lantana`, TAG);
+            }
+            return;
+        }
 
         switch (payload.type) {
             case "LANTANA_REGISTER":

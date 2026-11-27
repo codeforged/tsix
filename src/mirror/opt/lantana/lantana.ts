@@ -17,7 +17,8 @@ import { PermissionPolicy } from "@tsix/lantana/permission-policy";
 import { SessionManager } from "@tsix/lantana/session-manager";
 import { IngestPipeline } from "@tsix/lantana/lantana-ingest";
 import { DeviceBank } from "@tsix/lantana/lantana-device-bank";
-import { LantanaDistributor, kernelSenderPid } from "@tsix/lantana/lantana-distributor";
+import { LantanaDistributor, kernelSender, lantanaAdminAuthorizer } from "@tsix/lantana/lantana-distributor";
+import { lantanaAdminGid } from "@tsix/lantana/lantana-admin";
 import { LantanaListener } from "@tsix/lantana/lantana-listener";
 import { MemoryDataBank, DataBankQueue, DrainReporter } from "@tsix/lantana/lantana-databank";
 import { loadState } from "@tsix/lantana/lantana-store";
@@ -51,6 +52,21 @@ export const main = Program(async (args: string[]) => {
     let policy = new PermissionPolicy(state.accounts, state.schemes);
     const bank = new DeviceBank();
     const distributor = new LantanaDistributor(bank, policy);
+
+    // SEC-08: IPC Lantana hanya untuk root / grup lantana-admin. GID dibaca ulang
+    // setiap RELOAD (admin baru ditambahkan ke grup tanpa restart daemon).
+    let authorize = lantanaAdminAuthorizer(null);
+    const refreshAuthorizer = async () => {
+        let groupText = "";
+        try {
+            groupText = (await fs.readFile("/etc/group")) || "";
+        } catch {
+            /* tanpa /etc/group → root saja */
+        }
+        authorize = lantanaAdminAuthorizer(lantanaAdminGid(groupText));
+        distributor.setAuthorizer(authorize);
+    };
+    await refreshAuthorizer();
 
     // Sink pengembangan; DataBank produksi cukup mengimplementasikan DataBankSink.
     const dataBank = new DataBankQueue(new MemoryDataBank(), { capacity: 4096 });
@@ -95,11 +111,17 @@ export const main = Program(async (args: string[]) => {
         if (!payload || typeof payload !== "object") return;
 
         if (payload.type === "LANTANA_RELOAD") {
-            // PID dari amplop kernel, bukan dari payload (SEC-13).
-            const fromPid = kernelSenderPid(msg);
+            // Identitas dari amplop kernel, bukan dari payload (SEC-13, SEC-08).
+            const sender = kernelSender(msg);
+            if (!sender || !authorize(sender)) {
+                await std.log(`LANTANA_RELOAD dari PID ${sender?.pid ?? "?"} ditolak: bukan admin Lantana.`, TAG);
+                return;
+            }
+            const fromPid = sender.pid;
             const requestId = payload.requestId;
             let reloadError: string | undefined;
             try {
+                await refreshAuthorizer();
                 state = await loadState();
                 policy = new PermissionPolicy(state.accounts, state.schemes);
 

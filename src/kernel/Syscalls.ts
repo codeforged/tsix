@@ -1356,9 +1356,15 @@ export class SyscallDispatcher {
                     actualPid = targetPid;
                 }
 
+                // Amplop diisi kernel (tidak bisa dipalsukan pengirim). Identitas
+                // numerik (uid efektif, gid, grup tambahan) dipakai penerima untuk
+                // otorisasi; `fromUser` hanya nama tampilan (SEC-08).
                 return this.scheduler.sendEvent(actualPid, "ipc_message", {
                     fromPid: pid,
                     fromUser: pcb.owner,
+                    fromUid: pcb.uid,
+                    fromGid: pcb.gid,
+                    fromGroups: Array.isArray(pcb.groups) ? [...pcb.groups] : [],
                     data,
                 });
             }
