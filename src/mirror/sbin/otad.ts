@@ -68,15 +68,6 @@ export default Program(async (args) => {
     await std.log(`OTA Server listening on MQTNL Port ${otaPort}`, "otad");
     await std.log(`Firmware directory: ${firmwareDir}`, "otad");
 
-    // Upgrade MQTNL security to handle device encryption automatically
-    // const KEY_HEX = "81ff71ed574e54597690ae7b04e4ef5fc87497fe10b6b037cb031af7c7d67619";
-    // const secureOk = await net.ioctl(serverFd, 0x1001, { port: otaPort, sessionKey: KEY_HEX });
-    // if (secureOk) {
-    //     await std.log("🔐 MQTNL Session Key Applied successfully.", "otad");
-    // } else {
-    //     await std.log("⚠️ Warning: Failed to apply MQTNL Session Key.", "otad");
-    // }
-
     // Firmware Cache (Map by path)
     const firmwareCache = new Map<string, { buffer: Buffer, size: number, mtime: number }>();
 

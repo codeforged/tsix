@@ -1,0 +1,15 @@
+title = "TSIX gitleaks config"
+
+# Pakai seluruh aturan bawaan gitleaks.
+[extend]
+useDefault = true
+
+# Fixture test memakai kunci/PSK contoh yang memang bukan rahasia.
+# Kode produksi TIDAK di-allowlist: kunci di luar test tetap ditolak.
+[allowlist]
+description = "test fixtures and the public package-signing key"
+paths = [
+  '''(^|/)[^/]+\.test\.ts$''',
+  '''^src/mirror/etc/tpkg/keys/public\.pem$''',
+  '''^platformio/TSIX-All-in-One/include/secrets\.sample\.h$''',
+]
