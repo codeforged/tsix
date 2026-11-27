@@ -17,7 +17,7 @@ import { PermissionPolicy } from "@tsix/lantana/permission-policy";
 import { SessionManager } from "@tsix/lantana/session-manager";
 import { IngestPipeline } from "@tsix/lantana/lantana-ingest";
 import { DeviceBank } from "@tsix/lantana/lantana-device-bank";
-import { LantanaDistributor } from "@tsix/lantana/lantana-distributor";
+import { LantanaDistributor, kernelSenderPid } from "@tsix/lantana/lantana-distributor";
 import { LantanaListener } from "@tsix/lantana/lantana-listener";
 import { MemoryDataBank, DataBankQueue, DrainReporter } from "@tsix/lantana/lantana-databank";
 import { loadState } from "@tsix/lantana/lantana-store";
@@ -95,7 +95,8 @@ export const main = Program(async (args: string[]) => {
         if (!payload || typeof payload !== "object") return;
 
         if (payload.type === "LANTANA_RELOAD") {
-            const fromPid = payload.fromPid || msg?.fromPid;
+            // PID dari amplop kernel, bukan dari payload (SEC-13).
+            const fromPid = kernelSenderPid(msg);
             const requestId = payload.requestId;
             let reloadError: string | undefined;
             try {

@@ -38,6 +38,20 @@ interface ConsumerInfo {
     accountIds: Set<string>;
 }
 
+/**
+ * kernelSenderPid(): PID pengirim pesan IPC menurut AMPLOP kernel.
+ *
+ * SEND_MSG membungkus pesan menjadi `{ fromPid, fromUser, data }`; `fromPid`
+ * di sana diisi kernel dan tidak bisa dipalsukan. Field `fromPid` di dalam
+ * `data` diisi bebas oleh pengirim, jadi tidak pernah dipakai. Pesan tanpa
+ * amplop kernel → null (abaikan).
+ */
+export function kernelSenderPid(msg: any): number | null {
+    if (!msg || typeof msg !== "object" || !("data" in msg)) return null;
+    const pid = msg.fromPid;
+    return typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
 export class LantanaDistributor {
     private consumers: Map<number, ConsumerInfo> = new Map();
     private commandSender: CommandSender | null = null;
@@ -175,11 +189,10 @@ export class LantanaDistributor {
     }
 
     async onIpcMessage(msg: any): Promise<void> {
-        const payload = msg?.data || msg;
+        const fromPid = kernelSenderPid(msg);
+        if (fromPid === null) return;
+        const payload = msg.data;
         if (!payload || typeof payload !== "object") return;
-
-        const fromPid = payload.fromPid || msg?.fromPid;
-        if (!fromPid) return;
 
         switch (payload.type) {
             case "LANTANA_REGISTER":

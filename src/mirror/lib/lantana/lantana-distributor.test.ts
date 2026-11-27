@@ -267,3 +267,42 @@ describe("snapshot", () => {
         expect(outbox.at(-1)!.payload.data.devices).toEqual([]);
     });
 });
+
+describe("identitas pengirim IPC (SEC-13)", () => {
+    beforeEach(() => {
+        outbox.length = 0;
+    });
+
+    // Amplop kernel SEND_MSG: { fromPid, fromUser, data }. Hanya fromPid amplop
+    // yang bisa dipercaya; `data` diisi bebas oleh pengirim.
+    const envelope = (fromPid: number, data: any) => ({ fromPid, fromUser: "alice", data });
+
+    it("payload.fromPid diabaikan: balasan snapshot dikirim ke PID amplop kernel", async () => {
+        const { distributor } = setup();
+        await distributor.onIpcMessage(envelope(42, { type: "LANTANA_SNAPSHOT", accountId: "acc", fromPid: 999 }));
+
+        expect(outbox.map((o) => o.pid)).toEqual([42]);
+    });
+
+    it("REGISTER dengan payload.fromPid palsu → consumer terdaftar sebagai PID amplop", async () => {
+        const { distributor } = setup();
+        await distributor.onIpcMessage(envelope(42, { type: "LANTANA_REGISTER", name: "x", accountId: "acc", fromPid: 999 }));
+
+        expect(distributor.getConsumerPids()).toEqual([42]);
+    });
+
+    it("UNREGISTER dengan payload.fromPid milik orang lain tidak menghapus consumer itu", async () => {
+        const { distributor } = setup();
+        await distributor.onIpcMessage(envelope(42, { type: "LANTANA_REGISTER", name: "korban", accountId: "acc" }));
+        await distributor.onIpcMessage(envelope(66, { type: "LANTANA_UNREGISTER", fromPid: 42 }));
+
+        expect(distributor.getConsumerPids()).toEqual([42]);
+    });
+
+    it("pesan tanpa amplop kernel diabaikan", async () => {
+        const { distributor } = setup();
+        await distributor.onIpcMessage({ type: "LANTANA_SNAPSHOT", accountId: "acc", fromPid: 999 });
+
+        expect(outbox).toEqual([]);
+    });
+});
