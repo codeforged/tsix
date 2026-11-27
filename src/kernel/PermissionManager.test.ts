@@ -302,4 +302,33 @@ describe("PermissionManager", () => {
         const node = { name: "shared", uid: 999, gid: 1002, mode: 32 };
         expect(pm.check(groupPCB, node, Permission.READ)).toBe(true);
     });
+
+    // ============================================================
+    // SEC-18: semantik Unix — kelas pertama yang cocok yang menentukan
+    // (owner → group → others), tidak "jatuh" ke kelas berikutnya.
+    // ============================================================
+    it("SEC-18.01 owner dengan mode 0o077 → READ ditolak (bit owner = 0)", () => {
+        const node = { name: "f", uid: 1000, gid: 1000, mode: 0o077 };
+        expect(pm.check(userPCB, node, Permission.READ)).toBe(false);
+    });
+
+    it("SEC-18.02 anggota grup dengan mode 0o604 → READ ditolak (bit group = 0)", () => {
+        const node = { name: "f", uid: 999, gid: 1000, mode: 0o604 };
+        expect(pm.check(groupPCB, node, Permission.READ)).toBe(false);
+    });
+
+    it("SEC-18.03 bukan owner & bukan grup dengan mode 0o604 → READ diizinkan (bit others)", () => {
+        const node = { name: "f", uid: 999, gid: 4242, mode: 0o604 };
+        expect(pm.check(groupPCB, node, Permission.READ)).toBe(true);
+    });
+
+    it("SEC-18.04 grup tambahan (supplementary) juga memakai bit group saja", () => {
+        const node = { name: "f", uid: 999, gid: 1002, mode: 0o604 };
+        expect(pm.check(groupPCB, node, Permission.READ)).toBe(false);
+    });
+
+    it("SEC-18.05 root tetap boleh", () => {
+        const node = { name: "f", uid: 1000, gid: 1000, mode: 0o000 };
+        expect(pm.check(rootPCB, node, Permission.READ)).toBe(true);
+    });
 });

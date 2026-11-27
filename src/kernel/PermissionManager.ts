@@ -35,21 +35,23 @@ export class PermissionManager {
 
         const mode = node.mode; // Mode disimpan sebagai decimal di SQLite
 
-        // 2. Cek sebagai OWNER
+        // Semantik Unix: kelas PERTAMA yang cocok yang menentukan, tidak
+        // "jatuh" ke kelas berikutnya (SEC-18). Owner hanya memakai bit owner;
+        // anggota grup hanya bit group; sisanya bit others. Dulu owner/grup
+        // yang ditolak bit-nya tetap lolos lewat bit others (mis. 0o604
+        // seharusnya menolak anggota grup).
+        let bits: number;
         if (pcb.uid === node.uid) {
-            const userMode = (mode >> 6) & 0x7;
-            if ((userMode & requested) === requested) return true;
+            // 2. OWNER
+            bits = (mode >> 6) & 0x7;
+        } else if (pcb.gid === node.gid || (pcb.groups && pcb.groups.includes(node.gid))) {
+            // 3. GROUP
+            bits = (mode >> 3) & 0x7;
+        } else {
+            // 4. OTHERS
+            bits = mode & 0x7;
         }
-
-        // 3. Cek sebagai GROUP
-        if (pcb.gid === node.gid || (pcb.groups && pcb.groups.includes(node.gid))) {
-            const groupMode = (mode >> 3) & 0x7;
-            if ((groupMode & requested) === requested) return true;
-        }
-
-        // 4. Cek sebagai OTHERS
-        const otherMode = mode & 0x7;
-        if ((otherMode & requested) === requested) return true;
+        if ((bits & requested) === requested) return true;
 
         this.logger.warn(`Permission Denied: PID [${pcb.pid}] User [${pcb.uid}] requested ${Permission[requested]} on ${node.name}`);
         return false;
