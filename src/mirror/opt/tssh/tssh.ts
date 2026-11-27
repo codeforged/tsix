@@ -9,7 +9,7 @@ export default class TSSHClient {
         const defaultInterface = netstat.defaultDevice;
 
         if (args.includes("--help") || args.includes("-h") || args.length < 1) {
-            await lib.std.print("Usage: tssh <remote_address> [port] [-c command]\nTSIX Secure Shell Client.\n");
+            await lib.std.print("Usage: tssh <remote_address> [port] [interface]\nTSIX Secure Shell Client.\n");
             return;
         }
 
@@ -70,11 +70,9 @@ export default class TSSHClient {
             agent.setSessionKey(sessionKey);
 
             // --- PHASE 3: SESSION CONNECT ---
-            const cmdIdx = args.indexOf("-c");
-            const remoteCommand = cmdIdx !== -1 && cmdIdx + 1 < args.length ? args[cmdIdx + 1] : "";
-
-            const encryptedCmd = agent.securePacketOut(remoteCommand);
-            const connReq = TSSHProtocol.pack(TSSHOpcode.CONNECT_REQ, TSSHChannel.CONTROL, encryptedCmd);
+            // Payload kosong: server selalu menjalankan /bin/login.js (mode
+            // perintah langsung `-c` sudah dihapus).
+            const connReq = TSSHProtocol.pack(TSSHOpcode.CONNECT_REQ, TSSHChannel.CONTROL, agent.securePacketOut(""));
             await lib.net.sendto(fd, remoteAddr, remotePort, connReq, PacketFlags.FLAG_DATA, localPort);
 
             lib.std.print(`[tssh] Session encrypted. Requesting TTY...\n`);

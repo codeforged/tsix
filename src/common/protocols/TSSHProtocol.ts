@@ -2,7 +2,7 @@ export enum TSSHOpcode {
     HANDSHAKE_REQ  = 0x01, // Client hello
     HANDSHAKE_RESP = 0x02, // Server PubKey & Fingerprint
     KEY_EXCHANGE    = 0x03, // Client Encrypted SessionKey
-    CONNECT_REQ    = 0x04, // Request TTY / Exec Command
+    CONNECT_REQ    = 0x04, // Request TTY (server selalu menjalankan /bin/login.js; payload diabaikan)
     CONNECT_ACK    = 0x05, // Connection Accepted
     DATA           = 0x06, // Terminal I/O Stream
     RESIZE         = 0x07, // Window Resize (SIGWINCH)

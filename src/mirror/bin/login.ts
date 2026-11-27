@@ -2,6 +2,15 @@ import { UserLib } from "../lib/UserLib";
 import * as bcrypt from "bcryptjs";
 
 export default class Login {
+    /**
+     * Batas percobaan login per proses. Setelah itu login keluar: di konsol
+     * init men-spawn ulang (seperti getty di Unix), di sesi tssh koneksi putus.
+     * Tanpa batas ini password bisa ditebak tanpa henti lewat tssh.
+     */
+    static readonly MAX_ATTEMPTS = 5;
+    /** Jeda setelah percobaan gagal (ms), memperlambat tebakan beruntun. */
+    failDelayMs = 2000;
+
     async execute(lib: UserLib, args: string[]) {
         // --- MODE VERIFY-ONLY (dipakai GUI login: Asteracea & Krisan) ---
         // Setelah WM login sekali sebagai user non-root, WM kehilangan hak baca
@@ -46,6 +55,18 @@ export default class Login {
 
         if (shuttingDown) return;
 
+        let failures = 0;
+        const failed = async (msg: string): Promise<boolean> => {
+            await lib.std.print(msg);
+            failures++;
+            if (this.failDelayMs > 0) await new Promise(r => setTimeout(r, this.failDelayMs));
+            if (failures >= Login.MAX_ATTEMPTS) {
+                await lib.std.print("Login: Too many failed attempts\n");
+                return true; // berhenti
+            }
+            return false;
+        };
+
         try {
             while (true) {
                 // Accept username from args or prompt
@@ -70,7 +91,7 @@ export default class Login {
                 const lines = passwdContent.split("\n").map(l => l.trim()).filter(l => l.length > 0);
                 const userEntry = lines.find(l => l.split(":")[0] === username.trim());
                 if (!userEntry) {
-                    await lib.std.print("Login: Invalid username or password\n");
+                    if (await failed("Login: Invalid username or password\n")) return;
                     continue;
                 }
 
@@ -92,7 +113,7 @@ export default class Login {
                 const shadowLines = shadowContent.split("\n").map(l => l.trim()).filter(l => l.length > 0);
                 const shadowEntry = shadowLines.find(l => l.split(":")[0] === username.trim());
                 if (!shadowEntry) {
-                    await lib.std.print("Login: Account disabled or no password set\n");
+                    if (await failed("Login: Account disabled or no password set\n")) return;
                     continue;
                 }
 
@@ -100,7 +121,7 @@ export default class Login {
 
                 const match = bcrypt.compareSync(password, hash);
                 if (!match) {
-                    await lib.std.print("Login: Invalid username or password\n");
+                    if (await failed("Login: Invalid username or password\n")) return;
                     continue;
                 }
 

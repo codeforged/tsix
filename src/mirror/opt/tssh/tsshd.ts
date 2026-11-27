@@ -225,35 +225,25 @@ export default class TSSHDaemon {
 
     if (pkt.opcode === TSSHOpcode.CONNECT_REQ && !sess.active) {
       try {
-        const encryptedCmd = pkt.payload.toString("utf8").trim();
-        const customCmd = sess.agent.securePacketIn(encryptedCmd);
+        // Payload CONNECT_REQ sengaja DIABAIKAN. Dulu payload non-kosong
+        // dijalankan langsung sebagai perintah (`tssh -c`), tapi tsshd berjalan
+        // sebagai root, jadi perintah itu ikut root tanpa pernah login.
+        // Sekarang setiap sesi selalu lewat /bin/login.js, yang mengautentikasi
+        // dan menurunkan privilege ke user yang login.
 
         // Alokasi PTY on-demand (bukan slot TTY konsol yang terbatas)
         const pty = await lib.pty.alloc(24, 80);
         sess.ptyId = pty.id;
 
-        let procInfo;
-        if (customCmd) {
-          const parts = customCmd.split(" ");
-          procInfo = await lib.shell.exec(
-            parts[0],
-            parts.slice(1),
-            undefined,
-            undefined,
-            undefined,
-            pty.id,
-          );
-        } else {
-          procInfo = await lib.shell.exec(
-            // login.js adalah sidecar — menghindari preload transpiler di worker.
-            "/bin/login.js",
-            [],
-            undefined,
-            undefined,
-            undefined,
-            pty.id,
-          );
-        }
+        const procInfo = await lib.shell.exec(
+          // login.js adalah sidecar — menghindari preload transpiler di worker.
+          "/bin/login.js",
+          [],
+          undefined,
+          undefined,
+          undefined,
+          pty.id,
+        );
 
         if (!procInfo) throw new Error("Spawn Failed");
 

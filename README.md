@@ -144,7 +144,7 @@ sequenceDiagram
 
     Note over C,S: Session now ChaCha20-Poly1305 encrypted
 
-    C->>B: CONNECT_REQ (encrypted: TTY / -c command)
+    C->>B: CONNECT_REQ (encrypted: request TTY → /bin/login)
     B->>S: CONNECT_REQ
     S-->>B: DATA / RESIZE / PING / EXIT (encrypted)
     B-->>C: DATA / RESIZE / PING / EXIT (encrypted)
@@ -160,9 +160,7 @@ sequenceDiagram
 tsshd                # default: listens on MQTNL port 24
 
 # from any other node (or the same one, via localhost)
-tssh <hostname>      # e.g. tssh wintsix
-
-tssh <hostname> -c "cat /etc/hostname"   # run a one-off remote command
+tssh <hostname>      # e.g. tssh wintsix — you log in with a user account on the target
 ```
 
 > **Why this matters:** you can administer a TSIX node — or an ESP32 IoT device
