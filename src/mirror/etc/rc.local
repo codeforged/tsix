@@ -12,9 +12,11 @@
 #   - Node-spesifik boleh ditambahkan di akhir file, mis.:
 #       netfsd --export /mnt/sbak/ --label databank --port 7777 --key <64hex>
 
-# --- Secure Shell & file transfer ---
-/opt/tssh/tsshd.js
-/sbin/scpd.js
+# --- Secure Shell & file transfer (opt-in) ---
+# Layanan remote TIDAK dijalankan otomatis secara default: node bisa terhubung
+# ke broker MQTT publik. Aktifkan hanya jika dibutuhkan, dengan menghapus '#':
+#/opt/tssh/tsshd.js
+#/sbin/scpd.js
 
 # --- Scheduled tasks ---
 /sbin/crond.js

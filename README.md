@@ -155,7 +155,8 @@ sequenceDiagram
 **Try it** (two TSIX nodes on the same broker):
 
 ```bash
-# on the target node
+# on the target node (not started at boot by default — to enable it,
+# uncomment /opt/tssh/tsshd.js in /etc/rc.local)
 tsshd                # default: listens on MQTNL port 24
 
 # from any other node (or the same one, via localhost)
