@@ -241,7 +241,7 @@ ping  tsix-node-y
 scanif                     # discovery menembus mesh broker B
 scanif -p 22,24 tsix-node-y
 
-netfsd --client --to tsix-node-y:7777   # mount NetFS lewat tunnel
+netfsd --client --to tsix-node-y:7777 --key <64-hex>   # mount NetFS lewat tunnel
 
 # kembali ke jalur langsung
 ifconfig smqtnl0

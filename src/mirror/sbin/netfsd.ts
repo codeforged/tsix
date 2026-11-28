@@ -1,6 +1,7 @@
 import { Program, std, fs, shell, NetSocket } from "@tsix/Application";
 import { NetFSServer } from "@common/netfs/NetFSServer";
 import { NetFSBackend } from "@tsix/NetFSBackend";
+import { exportSecurity, serveIdentity } from "@tsix/netfsd-policy";
 import {
     NETFS_DEFAULT_CLIENT_PORT,
     NETFS_DEFAULT_PORT,
@@ -119,7 +120,8 @@ Usage:
 Opsi umum:
   --port <n>        Port MQTNL lokal (export: ${NETFS_DEFAULT_PORT}, client: ${NETFS_DEFAULT_CLIENT_PORT})
   --iface <nama>    Interface MQTNL lokal (default: interface default kernel)
-  --key <64 hex>    Aktifkan enkripsi (ChaCha20-Poly1305) — WAJIB sama di kedua sisi
+  --key <64 hex>    WAJIB: kunci enkripsi + autentikasi (ChaCha20-Poly1305), sama di kedua sisi
+  --insecure        Izinkan jalan tanpa --key (uji di jaringan tertutup saja; export dipaksa read-only)
   --agent <nama>    Jenis agent enkripsi (default: chacha20; alternatif: aes-gcm)
   --debug, -d       Jalan di foreground (jangan daemonize)
 
@@ -127,6 +129,7 @@ Khusus --export:
   --label <nama>    Nama export yang muncul di 'netfs info' (default: path)
   --ro              Paksa read-only (dipaksa di SH, bukan percaya klien)
   --allow <a,b>     Batasi klien berdasarkan alamat MQTNL (mis. --allow tsix,tsix_2)
+  --as <user>       Layani request sebagai user ini (default: pemilik direktori export)
 `;
 
 export const main = Program(async (args) => {
@@ -174,7 +177,27 @@ async function runExport(args: string[]): Promise<string | void> {
     }
 
     const label = valueOf(args, "--label") ?? attach;
-    const readOnly = hasFlag(args, "--ro");
+
+    // SEC-10 poin 1: tanpa --key = tanpa autentikasi → tolak, kecuali --insecure (ro).
+    const sec = exportSecurity({ hasKey: !!opts.key, insecure: hasFlag(args, "--insecure"), readOnly: hasFlag(args, "--ro") });
+    if (!sec.ok) {
+        await std.print(`${sec.error}\n`);
+        return;
+    }
+    for (const w of sec.warnings) {
+        await std.print(`⚠️  netfsd: ${w}\n`);
+        await std.log(`warn: ${w}`, "netfsd");
+    }
+    const readOnly = sec.readOnly;
+
+    // SEC-10 poin 2: identitas yang melayani request (root squash sungguhan).
+    let passwd = "";
+    try { passwd = (await fs.readFile("/etc/passwd")) || ""; } catch (_) { /* kosong */ }
+    const ident = serveIdentity(valueOf(args, "--as"), { uid: Number(node.uid ?? 0), gid: Number(node.gid ?? 0) }, passwd);
+    if ("error" in ident) {
+        await std.print(`netfsd: --as: ${ident.error}\n`);
+        return;
+    }
     const allow = (valueOf(args, "--allow") ?? "")
         .split(",")
         .map((s) => s.trim())
@@ -209,7 +232,10 @@ async function runExport(args: string[]): Promise<string | void> {
     sock.onError = (err) => void std.log(`error: ${err.message}`, "netfsd");
 
     // SL: tiap paket = satu request; balasan = satu frame biner (reply ke pengirim).
+    // Request baru dilayani SETELAH hak diturunkan (lihat `ready` di bawah).
+    let ready = false;
     sock.onData = (pkt: any) => {
+        if (!ready) return;
         void (async () => {
             try {
                 const res = await server.handle(pkt.data, { src: pkt.src });
@@ -223,9 +249,30 @@ async function runExport(args: string[]): Promise<string | void> {
     await sock.open();
     if (opts.key) await sock.upgradeSecurity(opts.key, { agent: opts.agent });
 
+    // Turunkan hak SEBELUM melayani: izin file kini dicek atas nama user ini oleh
+    // kernel, bukan dilewati karena root. GID dulu, baru UID.
+    const me: any = await shell.whoami();
+    if (me?.uid === 0 && ident.uid !== 0) {
+        try {
+            await shell.setgroups([ident.gid]);
+            await shell.setgid(ident.gid);
+            await shell.setuid(ident.uid);
+        } catch (e: any) {
+            await std.print(`netfsd: gagal turun ke user ${ident.name}: ${e.message}\n`);
+            await sock.close().catch(() => {});
+            return;
+        }
+    } else if (ident.uid === 0) {
+        const w = `export dilayani sebagai ROOT (pemilik '${attach}' = root). Pertimbangkan --as <user>.`;
+        await std.print(`⚠️  netfsd: ${w}\n`);
+        await std.log(`warn: ${w}`, "netfsd");
+    }
+    ready = true;
+
     await std.print(
         `netfsd: export '${attach}' siap${readOnly ? " (read-only)" : ""} di port ${sock.port}` +
-            `${opts.key ? " [terenkripsi]" : " [plain]"}${allow.length ? ` — allow: ${allow.join(",")}` : ""}\n`,
+            `${opts.key ? " [terenkripsi]" : " [plain]"}${allow.length ? ` — allow: ${allow.join(",")}` : ""}` +
+            ` — sebagai ${ident.name}\n`,
     );
     await std.log(`SL aktif: ${attach} → port ${opts.port} (label=${label}${readOnly ? ", ro" : ""})`, "netfsd");
 
@@ -249,6 +296,12 @@ async function runClient(args: string[]): Promise<string | void> {
 
     const opts = parseCommon(args, NETFS_DEFAULT_CLIENT_PORT);
     const target = parseNetFSSpec(to);
+
+    // SEC-10: jembatan klien tanpa key = meneruskan isi file plaintext lewat broker.
+    if (!opts.key && !hasFlag(args, "--insecure")) {
+        await std.print("netfsd --client: --key wajib (sama dengan --key di export). --insecure hanya untuk uji.\n");
+        return;
+    }
 
     // Socket A: menghadap kernel (mount lokal). Port tetap supaya mount tahu ke mana.
     const local = new NetSocket({

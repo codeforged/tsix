@@ -232,7 +232,14 @@ function reconcilePackages(manifest: any): void {
         "Networking utilities and daemons for TSIX.",
         // scp/scpd memakai lib/scp-access + lib/known-hosts: modul /lib yang dipakai
         // program sebuah paket wajib ikut paket itu (dijaga packages-manifest.test.ts).
-        vfs(["bin/netfs.ts", "sbin/netfsd.ts", "sbin/vpns.ts", "lib/scp-access.ts", "lib/known-hosts.ts"]),
+        vfs([
+            "bin/netfs.ts",
+            "sbin/netfsd.ts",
+            "sbin/vpns.ts",
+            "lib/scp-access.ts",
+            "lib/known-hosts.ts",
+            "lib/netfsd-policy.ts",
+        ]),
     );
     ensurePackage(manifest, "filesystem-tools", "BKFS inspection and management utilities.", vfs(["usr/bin/bkfs.ts"]));
     ensurePackage(

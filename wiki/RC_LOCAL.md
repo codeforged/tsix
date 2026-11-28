@@ -43,7 +43,7 @@ memberi pesan yang jelas alih-alih gagal senyap):
 
 # Tulis panjang boleh disambung dengan \
 netfsd --export /mnt/sbak/ --label databank --port 7777 \
-  --key c50f67b70e2f0dcf5246ccde04cb1297742ea20a51355eb61807137e003b5c65
+  --key <64-hex-acak-milik-anda>   # jangan salin kunci dari dokumentasi
 
 # Argumen & variabel juga bisa: $0, $1..$9, $@, $#
 ```

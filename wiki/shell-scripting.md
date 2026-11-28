@@ -56,7 +56,8 @@ echo "Halo dari TSIX"
 ```sh
 netfsd --export /mnt/sbak/ \
        --label databank \
-       --port 7777
+       --port 7777 \
+       --key "$NETFS_KEY"
 ```
 
 `\` di akhir baris membuang backslash **dan** newline, sehingga potongan-potongan itu

@@ -93,6 +93,20 @@ sequenceDiagram
 ```bash
 # /mnt/shared = export read-only, terenkripsi
 netfsd --export /mnt/shared --label shared --port 7777 --ro --key <64-hex>
+```
+
+Aturan keamanan (SEC-10):
+
+- `--key` **wajib**. Tanpa key, siapa pun di broker bisa membaca/menulis export,
+  jadi netfsd menolak start. `--insecure` hanya untuk uji di jaringan tertutup;
+  export lalu dipaksa read-only.
+- netfsd **turun hak** sebelum melayani request: ke `--as <user>`, atau ke pemilik
+  direktori export bila `--as` tidak diberikan. Izin file dicek kernel atas nama user
+  itu (root squash sungguhan). Export milik root tanpa `--as` tetap dilayani sebagai
+  root, dengan peringatan.
+- Bit SetUID file NetFS diabaikan di node klien (mount `nosuid` default, SEC-11).
+
+```bash
 
 # sudut pandang kernel SH
 root@tsix_2# lsblk
@@ -172,7 +186,7 @@ Perintah `netfsd` yang panjang cukup ditulis sekali di file skrip:
 # /mnt/sbak/start-netfs.sh
 #!/bin/tsh
 netfsd --export /mnt/sbak/ --label databank --port 7777 \
-  --key c50f67b70e2f0dcf5246ccde04cb1297742ea20a51355eb61807137e003b5c65
+  --key <64-hex-acak-milik-anda>   # jangan salin kunci dari dokumentasi
 ```
 
 ```bash

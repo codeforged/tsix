@@ -736,7 +736,7 @@
         },
         {
             "name": "nettools",
-            "version": "1.0.7",
+            "version": "1.0.8",
             "description": "Networking utilities and daemons for TSIX",
             "author": "Antigravity",
             "needReboot": false,
@@ -800,6 +800,10 @@
                 {
                     "src": "/lib/known-hosts.ts",
                     "dst": "/lib/known-hosts.ts"
+                },
+                {
+                    "src": "/lib/netfsd-policy.ts",
+                    "dst": "/lib/netfsd-policy.ts"
                 }
             ],
             "onAfterDownload": "/sbin/transpile.js"
