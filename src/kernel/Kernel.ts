@@ -668,7 +668,9 @@ export class Kernel {
         const root = createRootFilesystem(cfg);
         this.rootFs = root.driver;
         this.bootLogStart(`VFS: Mounting root filesystem (${root.label})`);
-        this.mountManager.mount("/", root.driver, root.type, root.source, false);
+        // Root selalu boleh SetUID (login/passwd/sudo/lantana-ctl), walau tipenya
+        // "host" — default nosuid untuk host/netfs hanya untuk mount tambahan (SEC-11).
+        this.mountManager.mount("/", root.driver, root.type, root.source, false, undefined, undefined, true);
         this.bootLogEnd(true);
 
         // Mode host = mode EKSPERIMEN, dan itu ditulis di boot log secara sengaja.
@@ -1199,6 +1201,7 @@ export class Kernel {
                                 readOnly || false,
                                 uid,
                                 gid,
+                                typeof (entry as any).suid === "boolean" ? (entry as any).suid : undefined,
                             );
                             this.bootLogEnd(true);
                         } catch (e: any) {
@@ -1213,7 +1216,16 @@ export class Kernel {
                     }
 
                     this.bootLogStart(`FSTAB: Mounting ${vfsPath} (${type})`);
-                    this.mountManager.mount(vfsPath, driver, type, hostSpec, readOnly || false, uid, gid);
+                    this.mountManager.mount(
+                        vfsPath,
+                        driver,
+                        type,
+                        hostSpec,
+                        readOnly || false,
+                        uid,
+                        gid,
+                        typeof (entry as any).suid === "boolean" ? (entry as any).suid : undefined,
+                    );
                     this.bootLogEnd(true);
                 } catch (e: any) {
                     this.bootLog(`FSTAB: ${String(entry?.vfsPath ?? "?")} failed: ${e.message}`, false);

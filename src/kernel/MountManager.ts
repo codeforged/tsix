@@ -10,7 +10,16 @@ export interface MountPoint {
   readOnly: boolean;
   uid?: number;
   gid?: number;
+  /** Bit SetUID file di mount ini diabaikan saat EXEC (SEC-11). */
+  nosuid: boolean;
 }
+
+/**
+ * Tipe mount yang default-nya `nosuid` (SEC-11): isinya dikendalikan pihak lain
+ * (node NetFS lain, atau host) sehingga bit SetUID-nya tidak boleh menaikkan hak
+ * di node ini. Opsi `suid` eksplisit mengembalikan perilaku lama.
+ */
+const NOSUID_BY_DEFAULT = new Set(["netfs", "host"]);
 
 /**
  * MOUNT MANAGER
@@ -37,9 +46,12 @@ export class MountManager {
     readOnly: boolean = false,
     uid?: number,
     gid?: number,
+    /** true = izinkan SetUID; false = nosuid; undefined = default per tipe. */
+    suid?: boolean,
   ) {
     // Normalisasi path menggunakan PathResolver agar konsisten
     const cleanPath = PathResolver.resolve("/", vfsPath);
+    const nosuid = suid === undefined ? NOSUID_BY_DEFAULT.has(type) : !suid;
 
     // Cek apakah sudah ada
     const existing = this.mounts.find((m) => m.vfsPath === cleanPath);
@@ -51,6 +63,7 @@ export class MountManager {
       existing.readOnly = readOnly;
       existing.uid = uid;
       existing.gid = gid;
+      existing.nosuid = nosuid;
     } else {
       this.mounts.push({
         vfsPath: cleanPath,
@@ -60,14 +73,25 @@ export class MountManager {
         readOnly,
         uid,
         gid,
+        nosuid,
       });
       // Sort by path length descending so longest match wins
       this.mounts.sort((a, b) => b.vfsPath.length - a.vfsPath.length);
     }
 
     this.logger.info(
-      `Mounted ${type} filesystem at ${cleanPath} from ${source} (${readOnly ? "ro" : "rw"})`,
+      `Mounted ${type} filesystem at ${cleanPath} from ${source} (${readOnly ? "ro" : "rw"}${nosuid ? ",nosuid" : ""})`,
     );
+  }
+
+  /** isNosuid(): apakah path berada di mount nosuid (bit SetUID diabaikan). */
+  public isNosuid(path: string): boolean {
+    const normalized = PathResolver.resolve("/", path);
+    for (const m of this.mounts) {
+      const prefix = m.vfsPath === "/" ? "/" : m.vfsPath + "/";
+      if (normalized === m.vfsPath || normalized.startsWith(prefix)) return m.nosuid;
+    }
+    return true; // tidak di mount mana pun → jangan pernah naikkan hak
   }
 
   public unmount(vfsPath: string): boolean {
@@ -174,6 +198,7 @@ export class MountManager {
       readOnly: m.readOnly,
       uid: m.uid,
       gid: m.gid,
+      nosuid: m.nosuid,
       // Driver jaringan (NetFS) melaporkan kondisinya; driver lokal undefined.
       stale:
         typeof (m.vfs as any).isStale === "boolean"

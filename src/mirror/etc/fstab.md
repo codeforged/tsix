@@ -109,6 +109,7 @@ berarti 0o1777):
 - `hostPath`: The path on the host machine (relative to the TSIX project root or absolute).
 - `type`: `"host"` (host directory), `"bkfs"` (SQLite database), `"ramfs"` (RAM only), or `"netfs"` (another TSIX node over MQTNL). Any other value is reported on boot and the entry is skipped — it is never silently treated as `"host"`.
 - `readOnly`: Boolean (`true` or `false`) to enforce read-only protection.
+- `suid`: Boolean. Whether the SetUID bit of files on this mount is honoured when they are executed. Default: `false` (nosuid) for `netfs` and `host` mounts, whose files are controlled by another node or the host; `true` for `bkfs` and `ramfs`. Only set `suid = true` for a mount you fully trust.
 - `uid` (optional): Numeric UID to set as owner of the mount point (default: `0` = root).
 - `gid` (optional): Numeric GID to set as group owner of the mount point (default: `0` = root).
 - `mode` (optional): Permission mode — octal (`0o755`, `0775`) or decimal

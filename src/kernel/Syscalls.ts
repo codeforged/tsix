@@ -1196,7 +1196,8 @@ export class SyscallDispatcher {
                 let targetOwner = pcb.owner;
 
                 // --- SETUID BIT SUPPORT (0o4000 = 2048) ---
-                if (node && node.mode & 2048) {
+                // SEC-11: diabaikan untuk file dari mount nosuid (default netfs/host).
+                if (node && node.mode & 2048 && !this.mountManager.isNosuid(absoluteExecPath)) {
                     targetUid = node.uid;
                     targetGid = node.gid;
                     // For now, if UID is 0, we treat it as root.
@@ -1875,7 +1876,7 @@ export class SyscallDispatcher {
 
             case SyscallCode.MOUNT: {
                 if (!this.isRoot(pcb)) throw new Error("Permission Denied: Only root or root group members can mount.");
-                const { vfsPath, hostPath, readOnly, type, uid, gid, mode } = args as {
+                const { vfsPath, hostPath, readOnly, type, uid, gid, mode, suid } = args as {
                     vfsPath: string;
                     hostPath: string;
                     readOnly?: boolean;
@@ -1884,7 +1885,10 @@ export class SyscallDispatcher {
                     gid?: number;
                     /** Mode titik mount (`mount --mode 0o775`), setara `mode` di fstab. */
                     mode?: number;
+                    /** true = izinkan SetUID (default: tidak untuk netfs/host, SEC-11). */
+                    suid?: boolean;
                 };
+                const suidOpt = typeof suid === "boolean" ? suid : undefined;
 
                 const fullVfsPath = PathResolver.resolve(pcb.cwd, vfsPath);
 
@@ -1979,6 +1983,7 @@ export class SyscallDispatcher {
                         readOnly || false,
                         uid,
                         gid,
+                        suidOpt,
                     );
                     return true;
                 } else {
@@ -1986,7 +1991,7 @@ export class SyscallDispatcher {
                     driver = new HostVFS(hostPath, readOnly || false, uid, gid, mode);
                 }
 
-                this.mountManager.mount(fullVfsPath, driver, fsType, hostPath, readOnly || false, uid, gid);
+                this.mountManager.mount(fullVfsPath, driver, fsType, hostPath, readOnly || false, uid, gid, suidOpt);
                 return true;
             }
 

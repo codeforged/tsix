@@ -1193,6 +1193,35 @@ describe("SyscallDispatcher (A1)", () => {
             spawnSpy.mockRestore();
         });
 
+        // SEC-11: bit SetUID diabaikan untuk file dari mount nosuid (default netfs/host).
+        it("A1.114f EXEC – SetUID di mount netfs (nosuid default) tidak menaikkan hak", async () => {
+            const remote = new VirtualFileSystem();
+            remote.mkdir("/bin", 0, 0, 0o755);
+            remote.touch("/bin/evil.js", "// stub", 0, 0, 0o4755);
+            vfs.mkdir("/mnt", 0, 0, 0o755);
+            vfs.mkdir("/mnt/net", 0, 0, 0o755);
+            mountManager.mount("/mnt/net", remote as any, "netfs", "peer:7777");
+
+            vfs.mkdir("/bin", 0, 0, 0o755);
+            vfs.touch("/bin/local-suid.js", "// stub", 0, 0, 0o4755);
+
+            const spawnSpy = vi.spyOn(scheduler, "createProcess");
+            const pcb = createTestProcess({ uid: 1000, gid: 1000, ruid: 1000, owner: "user", groups: [1000] });
+
+            await dispatcher.dispatch(pcb.pid, SyscallCode.EXEC, { path: "/mnt/net/bin/evil.js", args: [] });
+            expect(spawnSpy.mock.calls.at(-1)![1]?.uid).toBe(1000);
+
+            // Kontrol: SetUID lokal (BKFS/root fs) tetap berlaku.
+            await dispatcher.dispatch(pcb.pid, SyscallCode.EXEC, { path: "/bin/local-suid.js", args: [] });
+            expect(spawnSpy.mock.calls.at(-1)![1]?.uid).toBe(0);
+
+            // Opsi `suid` eksplisit → perilaku lama.
+            mountManager.mount("/mnt/net", remote as any, "netfs", "peer:7777", false, undefined, undefined, true);
+            await dispatcher.dispatch(pcb.pid, SyscallCode.EXEC, { path: "/mnt/net/bin/evil.js", args: [] });
+            expect(spawnSpy.mock.calls.at(-1)![1]?.uid).toBe(0);
+            spawnSpy.mockRestore();
+        });
+
         // SEC-12: modul host ditentukan kernel dari path + pemilik file, bukan nama.
         it("A1.114e EXEC – hostModules hanya untuk program tepercaya milik root", async () => {
             vfs.mkdir("/sbin", 0, 0, 0o755);

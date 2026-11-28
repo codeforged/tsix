@@ -333,3 +333,30 @@ describe("MountManager.childMounts — titik mount anak langsung (untuk ls)", ()
         expect(mm.childMounts("/mnt/shared").size).toBe(0);
     });
 });
+
+describe("SEC-11 nosuid per mount", () => {
+    it("default: netfs & host nosuid; bkfs/ramfs boleh SetUID; opsi suid eksplisit menang", () => {
+        const mm = new MountManager();
+        const v = new VirtualFileSystem() as any;
+        mm.mount("/", v, "bkfs", "system.db");
+        mm.mount("/mnt/net", v, "netfs", "peer:7777");
+        mm.mount("/mnt/shared", v, "host", "shared");
+        mm.mount("/tmp", v, "ramfs", "RAM");
+        mm.mount("/mnt/trusted", v, "netfs", "peer:7777", false, undefined, undefined, true);
+        mm.mount("/srv", v, "bkfs", "x.db", false, undefined, undefined, false);
+
+        expect(mm.isNosuid("/bin/sudo.js")).toBe(false);
+        expect(mm.isNosuid("/mnt/net/bin/x.js")).toBe(true);
+        expect(mm.isNosuid("/mnt/shared/x.js")).toBe(true);
+        expect(mm.isNosuid("/tmp/x.js")).toBe(false);
+        expect(mm.isNosuid("/mnt/trusted/x.js")).toBe(false);
+        expect(mm.isNosuid("/srv/x.js")).toBe(true);
+        expect(mm.listMounts().find((m) => m.vfsPath === "/mnt/net")?.nosuid).toBe(true);
+    });
+
+    it("root bertipe host tetap boleh SetUID bila di-mount dengan suid=true (seperti Kernel)", () => {
+        const mm = new MountManager();
+        mm.mount("/", new VirtualFileSystem() as any, "host", "../rootfs", false, undefined, undefined, true);
+        expect(mm.isNosuid("/bin/login.js")).toBe(false);
+    });
+});

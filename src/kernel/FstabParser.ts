@@ -65,7 +65,8 @@ export const FSTAB_MOUNT_TYPES = ["bkfs", "host", "ramfs", "netfs"] as const;
 const NUMBER_KEYS = new Set(["uid", "gid", "mode", "via", "timeoutMs", "cacheTtlMs"]);
 
 /** Key boolean (menerima true/false, yes/no, on/off, 1/0). */
-const BOOL_KEYS = new Set(["readOnly", "active"]);
+/** `suid`: izinkan bit SetUID di mount ini (default: tidak untuk netfs/host, SEC-11). */
+const BOOL_KEYS = new Set(["readOnly", "active", "suid"]);
 
 const TRUE_WORDS = new Set(["true", "yes", "on", "1"]);
 const FALSE_WORDS = new Set(["false", "no", "off", "0"]);
