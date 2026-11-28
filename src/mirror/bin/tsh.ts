@@ -54,6 +54,14 @@ export class main implements IProgram {
     private user: string = "root";
     private hostname: string = "dinawari";
     private isRunning: boolean = true;
+    /**
+     * `exit` dipanggil di dalam skrip: hentikan skrip TERDALAM saja, bukan shell
+     * yang menjalankannya. Dulu `exit` di `./skrip.sh` mematikan shell login
+     * (init lalu me-respawn TTY → kembali ke prompt Username).
+     */
+    private scriptExitRequested: boolean = false;
+    /** Kode `exit N` terakhir dari skrip (untuk mode non-interaktif `tsh skrip.sh`). */
+    private scriptExitCode: number | null = null;
     private history: string[] = [];
 
     // Argumen skrip: [$0=path, $1, $2, ...] — kosong saat mode interaktif.
@@ -126,6 +134,11 @@ export class main implements IProgram {
                 });
                 if (typeof output === "string" && output) {
                     await lib.std.print(output + "\n");
+                }
+                // `exit N` di skrip → exit code proses `tsh skrip.sh`.
+                if (this.scriptExitCode !== null && this.scriptExitCode !== 0) {
+                    await this.shell.exit(this.scriptExitCode);
+                    return;
                 }
                 // Tidak mengembalikan "Script ... finished." — WorkerEntry mencetak
                 // nilai balik execute(), dan baris itu hanya derau saat init
@@ -708,11 +721,16 @@ export class main implements IProgram {
                 if (/^-(gt|lt|ge|le|eq|ne)$/.test(op)) return false;
             }
 
-            if (values.length === 2 && (op === "-z" || op === "-n")) {
-                return op === "-z" ? values[1] === "" : values[1] !== "";
+            // Operator SATU operand: `[ -z "$X" ]`, `[ -d /path ]`. Operatornya di
+            // posisi pertama (values[0]); dulu dibaca dari values[1] sehingga
+            // `[ -z "" ]` selalu salah dan uji berkas jatuh ke handleCommand().
+            const unary = values.length === 2 ? values[0] : "";
+            if (unary === "-z" || unary === "-n") {
+                return unary === "-z" ? values[1] === "" : values[1] !== "";
             }
 
-            if (values.length === 2 && ["-e", "-f", "-d", "-r", "-w", "-x"].includes(op)) {
+            if (["-e", "-f", "-d", "-r", "-w", "-x"].includes(unary)) {
+                const op = unary;
                 const info = await this.fs.stat(values[1]).catch(() => null);
                 if (!info) return false;
                 if (op === "-e") return true;
@@ -734,7 +752,7 @@ export class main implements IProgram {
         const executeBlock = async (cmds: string[]): Promise<void> => {
             let i = 0;
             while (i < cmds.length) {
-                if (!this.isRunning) break;
+                if (!this.isRunning || this.scriptExitRequested) break;
                 const cmdStr = cmds[i].trim();
 
                 if (cmdStr === "then" || cmdStr === "do") {
@@ -837,7 +855,7 @@ export class main implements IProgram {
                             .replace(/\s+do$/, "")
                             .trim();
 
-                        while (this.isRunning) {
+                        while (this.isRunning && !this.scriptExitRequested) {
                             const isTrue = await evaluateCondition(conditionCmd);
                             if (!isTrue) break;
                             await executeBlock(loopBody);
@@ -857,7 +875,7 @@ export class main implements IProgram {
                             const items = await this.expandForItems(forWords.slice(3));
 
                             for (const item of items) {
-                                if (!this.isRunning) break;
+                                if (!this.isRunning || this.scriptExitRequested) break;
 
                                 // Pastikan environment tereset untuk variabel loop
                                 await this.setEnv(varName, item);
@@ -1003,6 +1021,8 @@ export class main implements IProgram {
             await executeBlock(commands.map((c) => c.text));
         } finally {
             this.scriptDepth--;
+            // `exit` hanya mengakhiri skrip terdalam; skrip pemanggil lanjut.
+            this.scriptExitRequested = false;
         }
 
         return outputs.join("\n");
@@ -1762,10 +1782,18 @@ export class main implements IProgram {
             result = await this.handleBuiltinHistory(args);
             exitCode = 0;
         } else if (cmd === "exit") {
-            result = "Goodbye!";
-            this.isRunning = false;
-            await this.shell.exit();
-            exitCode = 0;
+            const parsed = parseInt(args[0] ?? "", 10);
+            exitCode = Number.isFinite(parsed) ? parsed : 0;
+            if (this.scriptDepth > 0) {
+                // Di dalam skrip: hanya hentikan sisa skrip, set $? = N.
+                this.scriptExitRequested = true;
+                this.scriptExitCode = exitCode;
+                result = "";
+            } else {
+                result = "Goodbye!";
+                this.isRunning = false;
+                await this.shell.exit(exitCode);
+            }
         } else {
             commandFound = false;
         }
