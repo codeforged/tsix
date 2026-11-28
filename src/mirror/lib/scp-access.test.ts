@@ -1,5 +1,44 @@
 import { describe, it, expect } from "vitest";
-import { AuthLimiter, READ, WRITE, EXEC, allowed, lookupUser, normalizeScpPath, parentDir } from "./scp-access";
+import {
+    AuthLimiter,
+    READ,
+    WRITE,
+    EXEC,
+    allowed,
+    lookupUser,
+    normalizeScpPath,
+    parentDir,
+    scpBasename,
+    scpDestination,
+} from "./scp-access";
+
+describe("scp: tujuan berupa direktori memakai nama file sumber", () => {
+    it("scpBasename: segmen terakhir; kosong/direktori → null", () => {
+        expect(scpBasename("/root/start-netfsd-client.sh")).toBe("start-netfsd-client.sh");
+        expect(scpBasename("data.txt")).toBe("data.txt");
+        expect(scpBasename("/root/")).toBeNull();
+        expect(scpBasename("..")).toBeNull();
+        expect(scpBasename("")).toBeNull();
+    });
+
+    it("tujuan `./`, `.`, `..`, `dir/`, atau kosong → ditambah nama sumber", () => {
+        const src = "/root/start-netfsd-client.sh";
+        expect(scpDestination("./", src)).toBe("./start-netfsd-client.sh");
+        expect(scpDestination(".", src)).toBe("./start-netfsd-client.sh");
+        expect(scpDestination("..", src)).toBe("../start-netfsd-client.sh");
+        expect(scpDestination("/tmp/", src)).toBe("/tmp/start-netfsd-client.sh");
+        expect(scpDestination("", "a.txt")).toBe("a.txt");
+    });
+
+    it("tujuan direktori yang sudah ada (diketahui pemanggil) → ditambah nama sumber", () => {
+        expect(scpDestination("/root", "/x/a.txt", true)).toBe("/root/a.txt");
+    });
+
+    it("tujuan berupa nama file dibiarkan; sumber tanpa nama → null", () => {
+        expect(scpDestination("./copy.sh", "/root/a.sh")).toBe("./copy.sh");
+        expect(scpDestination("./", "/root/")).toBeNull();
+    });
+});
 
 const PASSWD = "root:x:0:0:root:/root:/bin/tsh\nalice:x:1000:1000:Alice:/home/alice:/bin/tsh\n";
 const GROUP = "root:x:0:\nsudo:x:27:bob\nstaff:x:50:alice\n";

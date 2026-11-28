@@ -73,6 +73,29 @@ export function normalizeScpPath(input: unknown, base?: string): string | null {
     return "/" + parts.join("/");
 }
 
+/** Nama file (segmen terakhir) dari sebuah path; null bila path berupa direktori/kosong. */
+export function scpBasename(p: unknown): string | null {
+    if (typeof p !== "string" || !p || p.endsWith("/")) return null;
+    const name = p.split("/").pop() || "";
+    if (!name || name === "." || name === ".." || name.includes("\0")) return null;
+    return name;
+}
+
+/**
+ * scpDestination(): path tujuan akhir, seperti `cp`/`scp` Unix. Bila tujuan
+ * berupa direktori (berakhiran `/`, `.`, `..`, kosong = home, atau `isDir`
+ * dari stat pemanggil), nama file sumber ditambahkan. Null bila sumber tidak
+ * punya nama file.
+ */
+export function scpDestination(dest: string, src: string, isDir: boolean = false): string | null {
+    const looksDir = dest === "" || dest === "." || dest === ".." || dest.endsWith("/") || isDir;
+    if (!looksDir) return dest;
+    const name = scpBasename(src);
+    if (!name) return null;
+    if (dest === "") return name;
+    return dest.endsWith("/") ? `${dest}${name}` : `${dest}/${name}`;
+}
+
 export function parentDir(p: string): string {
     const i = p.lastIndexOf("/");
     return i <= 0 ? "/" : p.substring(0, i);

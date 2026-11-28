@@ -3,7 +3,7 @@ import { PacketFlags } from "@common/PacketFlags";
 import { SecurityAgent } from "@common/SecurityAgent";
 import * as bcrypt from "bcryptjs";
 import * as crypto from "crypto";
-import { AuthLimiter, EXEC, READ, WRITE, allowed, lookupUser, normalizeScpPath, parentDir } from "@tsix/scp-access";
+import { AuthLimiter, EXEC, READ, WRITE, allowed, lookupUser, normalizeScpPath, parentDir, scpBasename } from "@tsix/scp-access";
 
 /**
  * SCPD Utility
@@ -132,9 +132,17 @@ export const main = Program(async (args) => {
             if (msg.type === "file") {
                 // scpd berjalan sebagai root: izin diputuskan atas nama user
                 // yang login, dengan semantik Unix (SEC-03).
-                const target = normalizeScpPath(msg.filename, sess.user.home);
+                let target = normalizeScpPath(msg.filename, sess.user.home);
                 if (!target) { await deny("EINVAL: invalid path"); continue; }
-                const node: any = await statOrNull(target);
+                let node: any = await statOrNull(target);
+                // Tujuan direktori (mis. `host:/root`) → simpan dengan nama file sumber.
+                if (node?.type === "DIRECTORY") {
+                    const name = scpBasename(msg.name);
+                    const joined = name ? normalizeScpPath(`${target}/${name}`) : null;
+                    if (!joined || parentDir(joined) !== target) { await deny(`EISDIR: ${target}`); continue; }
+                    target = joined;
+                    node = await statOrNull(target);
+                }
                 if (node) {
                     if (node.type === "DIRECTORY" || !allowed(sess.user, node, WRITE)) { await deny(`EACCES: ${target}`); continue; }
                 } else {

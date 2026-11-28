@@ -1,6 +1,7 @@
 import { Program, std, fs, shell, net } from "@tsix/Application";
 import { PacketFlags } from "@common/PacketFlags";
 import { SecurityAgent } from "@common/SecurityAgent";
+import { scpBasename, scpDestination } from "@tsix/scp-access";
 
 /**
  * SCP Utility
@@ -33,6 +34,22 @@ export const main = Program(async (args) => {
     if (r2) { isUpload = true; localPath = arg1; remoteUser = r2.user; remoteNode = r2.host; remotePath = r2.path; }
     else if (r1) { isUpload = false; remoteUser = r1.user; remoteNode = r1.host; remotePath = r1.path; localPath = arg2; }
     else return "Err: Invalid spec";
+
+    // Tujuan berupa direktori (`./`, `.`, `dir/`, `host:`, atau direktori lokal
+    // yang sudah ada) → pakai nama file sumber, seperti scp/cp Unix.
+    if (isUpload) {
+        const dest = scpDestination(remotePath, localPath);
+        if (dest === null) return "Err: source has no file name";
+        remotePath = dest;
+    } else {
+        let isDir = false;
+        try {
+            isDir = (await fs.stat(localPath))?.type === "DIRECTORY";
+        } catch (_) { /* belum ada → nama file */ }
+        const dest = scpDestination(localPath, remotePath, isDir);
+        if (dest === null) return "Err: source has no file name";
+        localPath = dest;
+    }
 
     const remotePort = 2222, localPort = 5000 + Math.floor(Math.random() * 1000);
 
@@ -67,7 +84,7 @@ export const main = Program(async (args) => {
             await std.println(`[scp] Uploading ${localPath} to ${remotePath}...`);
             const content = await fs.readFile(localPath);
             if (content === null) throw new Error("Read fail");
-            await net.sendto(fd, remoteNode, remotePort, agent.securePacketOut(JSON.stringify({ type: "file", filename: remotePath, data: Buffer.from(content, 'binary').toString('base64') })), PacketFlags.FLAG_DATA, localPort);
+            await net.sendto(fd, remoteNode, remotePort, agent.securePacketOut(JSON.stringify({ type: "file", filename: remotePath, name: scpBasename(localPath), data: Buffer.from(content, 'binary').toString('base64') })), PacketFlags.FLAG_DATA, localPort);
             if (!await waitForJSON(agent, fd, "ok", 15000)) throw new Error("Upload acknowledgement failed");
         } else {
             await std.println(`[scp] Downloading ${remotePath} to ${localPath}...`);
