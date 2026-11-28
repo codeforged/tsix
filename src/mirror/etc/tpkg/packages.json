@@ -736,7 +736,7 @@
         },
         {
             "name": "nettools",
-            "version": "1.0.6",
+            "version": "1.0.7",
             "description": "Networking utilities and daemons for TSIX",
             "author": "Antigravity",
             "needReboot": false,
@@ -792,6 +792,14 @@
                 {
                     "src": "/sbin/vpns.ts",
                     "dst": "/sbin/vpns.ts"
+                },
+                {
+                    "src": "/lib/scp-access.ts",
+                    "dst": "/lib/scp-access.ts"
+                },
+                {
+                    "src": "/lib/known-hosts.ts",
+                    "dst": "/lib/known-hosts.ts"
                 }
             ],
             "onAfterDownload": "/sbin/transpile.js"
@@ -1163,7 +1171,7 @@
         },
         {
             "name": "lantana",
-            "version": "1.0.2",
+            "version": "1.0.3",
             "description": "Lantana IoT stack: core, device bank, ingest, dashboard server, control panel dan konfigurasi /etc/lantana.",
             "author": "TSIX",
             "needReboot": false,
@@ -1323,6 +1331,14 @@
                 {
                     "src": "/etc/asteracea/menu/lantana-control-panel.menu",
                     "dst": "/etc/asteracea/menu/lantana-control-panel.menu"
+                },
+                {
+                    "src": "/lib/lantana/lantana-admin.ts",
+                    "dst": "/lib/lantana/lantana-admin.ts"
+                },
+                {
+                    "src": "/lib/lantana/db-injector-rows.ts",
+                    "dst": "/lib/lantana/db-injector-rows.ts"
                 }
             ],
             "onAfterDownload": "/sbin/transpile.js"
@@ -1642,7 +1658,7 @@
         },
         {
             "name": "esp-ota",
-            "version": "1.0.0",
+            "version": "1.0.1",
             "description": "Repositori firmware OTA ESP8266/ESP32: katalog firmware dan berkas biner uji.",
             "author": "TSIX",
             "needReboot": false,
@@ -1666,6 +1682,10 @@
                 {
                     "src": "/usr/bin/ota-gen-ak.ts",
                     "dst": "/usr/bin/ota-gen-ak.ts"
+                },
+                {
+                    "src": "/lib/ota-access.ts",
+                    "dst": "/lib/ota-access.ts"
                 }
             ],
             "onAfterDownload": "/sbin/transpile.js"

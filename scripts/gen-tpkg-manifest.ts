@@ -230,7 +230,9 @@ function reconcilePackages(manifest: any): void {
         manifest,
         "nettools",
         "Networking utilities and daemons for TSIX.",
-        vfs(["bin/netfs.ts", "sbin/netfsd.ts", "sbin/vpns.ts"]),
+        // scp/scpd memakai lib/scp-access + lib/known-hosts: modul /lib yang dipakai
+        // program sebuah paket wajib ikut paket itu (dijaga packages-manifest.test.ts).
+        vfs(["bin/netfs.ts", "sbin/netfsd.ts", "sbin/vpns.ts", "lib/scp-access.ts", "lib/known-hosts.ts"]),
     );
     ensurePackage(manifest, "filesystem-tools", "BKFS inspection and management utilities.", vfs(["usr/bin/bkfs.ts"]));
     ensurePackage(
@@ -243,7 +245,7 @@ function reconcilePackages(manifest: any): void {
         manifest,
         "esp-ota",
         "ESP OTA tools and firmware repository.",
-        vfs(["sbin/otad.ts", "usr/bin/ota-gen-ak.ts"]),
+        vfs(["sbin/otad.ts", "usr/bin/ota-gen-ak.ts", "lib/ota-access.ts"]),
     );
     ensurePackage(
         manifest,
